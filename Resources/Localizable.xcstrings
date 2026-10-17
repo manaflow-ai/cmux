@@ -658259,7 +658259,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crea máquinas Cloud y muestra sus escritorios para el uso del ordenador."
+            "value": "Crea máquinas Cloud y muestra sus escritorios para el uso de la computadora."
           }
         },
         "zh-Hant": {
@@ -658271,7 +658271,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "创建 Cloud 机器并显示其桌面以操作电脑。"
+            "value": "创建 Cloud 机器并显示其桌面，供 Computer Use 使用。"
           }
         },
         "ko": {
@@ -658283,7 +658283,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンを作成し、コンピューター操作のためにデスクトップを表示します。"
+            "value": "Cloud マシンを作成し、コンピュータ操作のためにデスクトップを表示します。"
           }
         }
       }

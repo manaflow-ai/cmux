@@ -107,6 +107,7 @@ import Testing
 
     @Test func theFirstRunPanelSaysWhatChiefDoes() {
         let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 720))
+        panel.needsLayout = true
         panel.layoutSubtreeIfNeeded()
         #expect(panel.introTitle.stringValue == ChiefStrings.firstRunIntroTitle)
         #expect(panel.introLines.map(\.stringValue) == [ChiefStrings.firstRunIntroAgents,
@@ -123,6 +124,7 @@ import Testing
     @Test func aShortPanelDropsTheIntroBeforeTheActions() {
         let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 150))
         panel.setShowsActions(true)
+        panel.needsLayout = true
         panel.layoutSubtreeIfNeeded()
         #expect(panel.introTitle.isHidden)
         #expect(panel.actionRows.contains { !$0.isHidden })

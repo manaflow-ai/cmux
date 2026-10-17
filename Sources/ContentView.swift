@@ -2648,7 +2648,6 @@ struct ContentView: View {
 
         view = AnyView(view.onAppear {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
-            ChiefHomeNavigation.openOnTerminal(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()

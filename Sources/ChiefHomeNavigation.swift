@@ -135,13 +135,15 @@ struct ChiefHomeNavigation {
     }
 
     /// Moves a window that shows Home onto a terminal, creating a terminal
-    /// workspace when Home is the only one. Runs once as the window appears.
+    /// workspace when Home is the only one. Runs right after a window's
+    /// session restore, never later: a `cmux chief open` sent at launch
+    /// selects Home on purpose and must not be undone.
     static func openOnTerminal(in manager: TabManager) {
         guard manager.selectedWorkspace?.isChiefHome == true else { return }
         if let other = openingWorkspace(manager.selectedWorkspace, in: manager.tabs), !other.isChiefHome {
             manager.selectWorkspace(other)
         } else {
-            _ = manager.addWorkspaceIfActive(select: true)
+            _ = manager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false)
         }
     }
 

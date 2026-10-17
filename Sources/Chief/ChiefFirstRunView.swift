@@ -36,8 +36,8 @@ import QuartzCore
 /// (``ChipLines``), never cut.
 ///
 /// Nothing runs under the compose field: chips that do not fit are dropped
-/// from the end, then agent rows (least urgent first) with their heading,
-/// then the intro, then the hint, then the action rows.
+/// from the end, then the intro, then agent rows (least urgent first) with
+/// their heading, then the hint, then the action rows.
 final class ChiefFirstRunView: NSView {
     /// The column's widest; the three chips (about 600 pt) wrap 2 + 1 inside it.
     static let maxWidth: CGFloat = 560
@@ -466,8 +466,9 @@ final class ChiefFirstRunView: NSView {
             }
             return height
         }
-        while agentCount > 0, columnHeight() > room { agentCount -= 1 }
+        // The intro explains; live agent rows outrank it.
         if columnHeight() > room { showsIntro = false }
+        while agentCount > 0, columnHeight() > room { agentCount -= 1 }
         if columnHeight() > room { showsHint = false }
         if columnHeight() > room { showsActions = false }
 
@@ -492,7 +493,7 @@ final class ChiefFirstRunView: NSView {
                 let textWidth = max(0, width - textInset - 12)
                 line.alignment = rtl ? .right : .left
                 line.frame = CGRect(x: rtl ? x + 12 : x + textInset, y: y, width: textWidth, height: height)
-                let firstLine = ceil(line.font?.boundingRectForFont.height ?? glyphSize)
+                let firstLine = line.font.map { ceil(NSLayoutManager().defaultLineHeight(for: $0)) } ?? glyphSize
                 glyph.frame = CGRect(x: rtl ? x + width - 12 - glyphSize : x + 12,
                                      y: y + max(0, floor((min(height, firstLine) - glyphSize) / 2)),
                                      width: glyphSize, height: glyphSize)

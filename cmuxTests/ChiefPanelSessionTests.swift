@@ -292,7 +292,7 @@ import Testing
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         defer { manager.finalizeAllWorkspacesForWindowClose() }
         let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
-        let terminal = try #require(manager.addWorkspaceIfActive(select: false))
+        _ = try #require(manager.addWorkspaceIfActive(select: false, autoWelcomeIfNeeded: false))
         manager.selectWorkspace(home)
         #expect(manager.tabs.first?.id == home.id)
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
@@ -304,7 +304,6 @@ import Testing
         #expect(!selected.isChiefHome)
         #expect(selected.id == restored.tabs.first(where: { !$0.isChiefHome })?.id)
         #expect(restored.tabs.contains(where: \.isChiefHome))
-        _ = terminal
     }
 
     @Test func aHomeOnlyWindowGetsATerminalToOpenOn() throws {
