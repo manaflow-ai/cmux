@@ -22,7 +22,7 @@ private actor MobileArtifactDownloadByteCounter {
 /// updates arrive on the `chat.message` event topic, filtered per session.
 /// The returned event stream finishes when the underlying connection drops;
 /// consumers resubscribe when they rebuild a source for a new connection.
-public actor MobileChatEventSource: ChatEventSource {
+public actor MobileChatEventSource: AgentChatSessionSource {
     private let client: MobileCoreRPCClient
     let diagnosticLog: DiagnosticLog?
     private let coding = ChatWireCoding()
