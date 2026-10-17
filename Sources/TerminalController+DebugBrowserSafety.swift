@@ -16,9 +16,30 @@ extension TerminalController {
             return .ok(Self.debugBrowserCrashesPayload(BrowserCrashLog.app))
         case "debug.browser.page_status":
             return debugBrowserPageStatus(params: params)
+        case "debug.browser.extension_prompts":
+            return .ok(Self.debugExtensionPrompts(params: params, dialogs: .app))
         default:
             return .err(code: "method_not_found", message: "Unknown method", data: nil)
         }
+    }
+
+    /// `debug.browser.extension_prompts`: the extension sheets on screen
+    /// (Web Store install, `chrome.permissions`, CLI consent). `{}` lists
+    /// them; `{id, answer: "accept" | "cancel"}` answers one as its buttons do.
+    static func debugExtensionPrompts(params: [String: JSONValue], dialogs: BrowserExtensionOpenDialogs) -> JSONValue {
+        if case .int(let id)? = params["id"], case .string(let answer)? = params["answer"] {
+            return .object(["ok": .bool(dialogs.answer(Int(id), accepted: answer == "accept"))])
+        }
+        return .object(["prompts": .array(dialogs.waiting.map { dialog in
+            .object([
+                "id": .int(Int64(dialog.id)),
+                "title": .string(dialog.title),
+                "target": .string(dialog.target),
+                "extension_id": dialog.targetDetail.map(JSONValue.string) ?? .null,
+                "accept_title": .string(dialog.acceptTitle),
+                "automation": .bool(dialog.isAutomation),
+            ])
+        })])
     }
 
     static func debugBrowserCrashesPayload(_ log: BrowserCrashLog) -> JSONValue {
