@@ -93,6 +93,14 @@ final class MobileChatHomeModel {
                 // source completes its server-side handshake before returning,
                 // and the local stream buffers frames while history loads.
                 let events = await source.events(sessionID: sessionID)
+                let eventTask = Task { [weak self] in
+                    for await event in events {
+                        guard !Task.isCancelled,
+                              self?.refreshGeneration == generation else { return }
+                        self?.apply(event, to: sessionID)
+                    }
+                }
+                defer { eventTask.cancel() }
                 let page = try await source.history(
                     sessionID: sessionID,
                     beforeSeq: nil,
@@ -109,11 +117,7 @@ final class MobileChatHomeModel {
                     )
                 }
                 self?.loadingSessionIDs.remove(sessionID)
-                for await event in events {
-                    guard !Task.isCancelled,
-                          self?.refreshGeneration == generation else { return }
-                    self?.apply(event, to: sessionID)
-                }
+                await eventTask.value
             } catch is CancellationError {
                 return
             } catch {
