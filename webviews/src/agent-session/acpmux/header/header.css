@@ -123,3 +123,13 @@
 .acpmux-header-tray--expand .acpmux-header-tray__label{display:inline-block;max-width:0;overflow:hidden;opacity:0;transition:max-width 180ms cubic-bezier(.2,0,0,1),opacity 120ms ease-out,margin 180ms cubic-bezier(.2,0,0,1)}
 .acpmux-header-tray--expand .acpmux-header-tool:hover .acpmux-header-tray__label,.acpmux-header-tray--expand .acpmux-header-tool:focus-visible .acpmux-header-tray__label{max-width:96px;margin-left:5px;opacity:1}
 @media (prefers-reduced-motion:reduce){.acpmux-header-tray--expand .acpmux-header-tray__label{transition:none}}
+/* The thread's project and title at the header's start (header/ThreadTitle.tsx, layout.json threadTitle):
+   the project muted, a slash, the title in full ink; each is a quiet button, the title turns into a field. */
+.acpmux-thread-title{flex:0 1 auto;display:flex;align-items:center;gap:2px;min-width:0;margin-right:8px;font-size:var(--text-control);line-height:20px}
+.acpmux-thread-title__project,.acpmux-thread-title__name{flex:0 1 auto;min-width:0;height:24px;padding:0 6px;border:0;border-radius:6px;background:none;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-thread-title__project{flex-shrink:2;color:var(--agent-muted)}
+.acpmux-thread-title__name{color:var(--agent-text)}
+.acpmux-thread-title__project:not(:disabled):hover,.acpmux-thread-title__name:not(:disabled):hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-thread-title__project:focus-visible,.acpmux-thread-title__name:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-thread-title__slash{flex:none;color:var(--agent-muted);opacity:.6}
+.acpmux-thread-title__field{flex:0 1 240px;min-width:80px;height:24px;padding:0 6px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;outline:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-text) 20%,transparent)}

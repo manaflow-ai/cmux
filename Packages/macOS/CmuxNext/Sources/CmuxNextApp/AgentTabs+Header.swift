@@ -58,6 +58,11 @@ extension AgentTabStore {
             default: break
             }
         }
+        model.header?.rename = { name in actions.rename(name) }
+        model.header?.openIn = { [weak self] app in
+            let chat = self?.resolve(provisional) ?? provisional
+            return actions.openIn(self?.lookup(chat)?.store.tab(id: chat)?.cwd, app: app)
+        }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

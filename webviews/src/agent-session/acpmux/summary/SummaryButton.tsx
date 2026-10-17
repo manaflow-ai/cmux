@@ -8,7 +8,7 @@ import type { SummaryCardControl } from "./cardState";
 /// stays at the pane's top right until it is hidden here or by its own close button.
 export function SummaryButton({ card }: { card: SummaryCardControl }) {
   const t = useT();
-  const label = t("summary.open");
+  const label = t("summary.threadDetails");
   // Automation and captures show it by its label, as a click does (see pickerOpeners.ts).
   const show = card.show;
   useEffect(() => registerPicker(label, show), [label, show]);

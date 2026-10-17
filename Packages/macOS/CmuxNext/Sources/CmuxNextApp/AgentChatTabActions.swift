@@ -50,6 +50,33 @@ struct AgentChatTabActions {
         if let folder, !folder.isEmpty { files(folder, target) }
     }
 
+    /// The header's thread title: the chat's tab takes `name`, as Rename Tab with a name does.
+    func rename(_ name: String) {
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: ["name": .string(name)], origin: .user)
+        _ = registry()?.perform("renameTab", invocation: invocation)
+    }
+
+    /// Thread details' Open in: the apps this Mac has that open a folder (Finder always), by id and
+    /// name; with `app`, `folder` opens there first. Editors are matched by bundle id, never a path.
+    func openIn(_ folder: String?, app: String?) -> [[String: String]] {
+        let editors: [(id: String, name: String, bundle: String?)] = [
+            ("finder", "Finder", nil), ("vscode", "VS Code", "com.microsoft.VSCode"),
+            ("cursor", "Cursor", "com.todesktop.230313mzl4w4u92"), ("zed", "Zed", "dev.zed.Zed"),
+            ("xcode", "Xcode", "com.apple.dt.Xcode"),
+        ]
+        let workspace = NSWorkspace.shared
+        let installed = editors.filter { $0.bundle.map { workspace.urlForApplication(withBundleIdentifier: $0) != nil } ?? true }
+        if let app, let folder, folder.hasPrefix("/"), let pick = installed.first(where: { $0.id == app }) {
+            let url = URL(fileURLWithPath: folder, isDirectory: true)
+            if let bundle = pick.bundle, let appURL = workspace.urlForApplication(withBundleIdentifier: bundle) {
+                workspace.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+            } else {
+                workspace.open(url)
+            }
+        }
+        return installed.map { ["id": $0.id, "name": $0.name] }
+    }
+
     /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.
     func close(tab id: String) {
         _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))

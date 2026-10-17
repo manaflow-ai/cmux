@@ -120,3 +120,32 @@
 .acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
 .acpmux-rail-output:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-rail-note{margin:0;padding:4px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
+
+/* Thread details' top (summary/ThreadDetails.tsx): folder with Open in, branch, commit. */
+.acpmux-thread-details__row {
+  gap: 6px;
+}
+.acpmux-thread-details__commit {
+  font-family: var(--cv-code-font, var(--cv-mono, ui-monospace, "SF Mono", Menlo, monospace));
+}
+.acpmux-thread-details__open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-thread-details__open:hover,
+.acpmux-thread-details__open[data-popup-open] {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}

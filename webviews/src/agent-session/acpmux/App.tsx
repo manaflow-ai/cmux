@@ -191,7 +191,9 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { configureHeaderStyle } from "./header/headerStyle";
+import { configureHeaderStyle, configureThreadTitle, useThreadTitle } from "./header/headerStyle";
+import { ThreadTitle } from "./header/ThreadTitle";
+import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -2623,6 +2625,7 @@ function AcpmuxPane() {
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  const threadTitle = useThreadTitle();
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
@@ -3553,6 +3556,7 @@ function AcpmuxPane() {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
           configureHeaderStyle(customization.layout);
+          configureThreadTitle(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },
@@ -5424,6 +5428,14 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
+                  {threadTitle && !quick && snapshot.sessionId && (
+                    <ThreadTitle
+                      folder={localCwd}
+                      title={chatName}
+                      onProject={(cwd) => ignoreFailure(callNative("chat.newHere", { cwd }))}
+                      onRename={(name) => callNative("pane.rename", { name })}
+                    />
+                  )}
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     {preview && (
@@ -5519,6 +5531,20 @@ function AcpmuxPane() {
                   onOpenOutput={quick ? undefined : openOutput}
                   onOpenImage={quick ? undefined : openImage}
                   subagents={cardSubagents}
+                  details={
+                    quick ? undefined : (
+                      <ThreadDetails
+                        folder={localCwd}
+                        readStatus={readFolderStatus}
+                        refresh={snapshot.isWorking}
+                        openIn={(app) =>
+                          callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
+                            (reply) => reply?.apps ?? [],
+                          )
+                        }
+                      />
+                    )
+                  }
                 />
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
