@@ -15547,6 +15547,72 @@
             "state": "translated",
             "value": "クライアント証明書を自動選択"
           }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona automaticamente i certificati client"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski odabir klijentskih certifikata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg klientcertifikater automatisk"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសវិញ្ញាបនបត្រម៉ាស៊ីនភ្ញៀវដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg klientsertifikater automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie wybieraj certyfikaty klienta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecionar certificados de cliente automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически выбирать сертификаты клиента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกใบรับรองไคลเอนต์โดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstemci sertifikalarını otomatik seç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичний вибір сертифікатів клієнта"
+          }
         }
       }
     },
@@ -15606,6 +15672,72 @@
             "state": "translated",
             "value": "一致する HTTPS ホストのクライアント証明書リクエストに自動で応答します。証明書が 1 つだけ使用可能な場合にホストのみのルールを適用し、特定の証明書を選ぶには = SERIAL を追加します。"
           }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risponde automaticamente alle richieste di certificato client per gli host HTTPS corrispondenti. Una regola solo host si applica quando è disponibile un solo certificato; aggiungi = SERIAL per scegliere un certificato specifico."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski odgovara na upite za klijentski certifikat za odgovarajuće HTTPS hostove. Pravilo samo za host primjenjuje se kada je dostupan tačno jedan certifikat; dodajte = SERIAL za izbor određenog certifikata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svarer automatisk på anmodninger om klientcertifikater for matchende HTTPS-værter. En regel kun med vært bruges, når der kun er ét certifikat tilgængeligt; tilføj = SERIAL for at vælge et bestemt certifikat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្លើយតបដោយស្វ័យប្រវត្តិចំពោះសំណើវិញ្ញាបនបត្រម៉ាស៊ីនភ្ញៀវសម្រាប់ម៉ាស៊ីន HTTPS ដែលត្រូវគ្នា។ ច្បាប់សម្រាប់ម៉ាស៊ីនតែប៉ុណ្ណោះអនុវត្តនៅពេលមានវិញ្ញាបនបត្រតែមួយ; បន្ថែម = SERIAL ដើម្បីជ្រើសវិញ្ញាបនបត្រជាក់លាក់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svar automatisk på forespørsler om klientsertifikat for samsvarende HTTPS-verter. En regel som bare angir vert, brukes når nøyaktig ett sertifikat er tilgjengelig; legg til = SERIAL for å velge et bestemt sertifikat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie odpowiada na żądania certyfikatu klienta dla pasujących hostów HTTPS. Reguła obejmująca tylko hosta działa, gdy dostępny jest dokładnie jeden certyfikat; dodaj = SERIAL, aby wybrać konkretny certyfikat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responde automaticamente às solicitações de certificado do cliente para hosts HTTPS correspondentes. Uma regra apenas de host é aplicada quando há exatamente um certificado disponível; acrescente = SERIAL para escolher um certificado específico."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически отвечает на запросы клиентского сертификата для подходящих HTTPS-хостов. Правило только для хоста применяется, если доступен ровно один сертификат; добавьте = SERIAL, чтобы выбрать конкретный сертификат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอบสนองต่อคำขอใบรับรองไคลเอนต์สำหรับโฮสต์ HTTPS ที่ตรงกันโดยอัตโนมัติ กฎที่ระบุเฉพาะโฮสต์จะใช้เมื่อมีใบรับรองที่พร้อมใช้งานเพียงรายการเดียว เพิ่ม = SERIAL เพื่อเลือกใบรับรองที่ระบุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen HTTPS ana bilgisayarlarının istemci sertifikası isteklerini otomatik olarak yanıtlar. Yalnızca ana bilgisayar kuralı, tam olarak bir sertifika kullanılabildiğinde uygulanır; belirli bir sertifika seçmek için = SERIAL ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично відповідає на запити клієнтського сертифіката для відповідних HTTPS-хостів. Правило лише для хоста застосовується, коли доступний рівно один сертифікат; додайте = SERIAL, щоб вибрати певний сертифікат."
+          }
         }
       }
     },
@@ -15664,6 +15796,197 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 行に 1 ルールを入力します。例: intranet.example.com または intranet.example.com = 01AB23。サブドメインには *.example.com を使います。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una regola per riga, ad esempio: intranet.example.com oppure intranet.example.com = 01AB23. Usa *.example.com per i sottodomini."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno pravilo po redu, na primjer: intranet.example.com ili intranet.example.com = 01AB23. Koristite *.example.com za poddomene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én regel pr. linje, f.eks.: intranet.example.com eller intranet.example.com = 01AB23. Brug *.example.com til underdomæner."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ច្បាប់មួយក្នុងមួយបន្ទាត់ ឧទាហរណ៍៖ intranet.example.com ឬ intranet.example.com = 01AB23។ ប្រើ *.example.com សម្រាប់ដែនរង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én regel per linje, for eksempel: intranet.example.com eller intranet.example.com = 01AB23. Bruk *.example.com for underdomener."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna reguła w wierszu, na przykład: intranet.example.com lub intranet.example.com = 01AB23. Użyj *.example.com dla subdomen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma regra por linha, por exemplo: intranet.example.com ou intranet.example.com = 01AB23. Use *.example.com para subdomínios."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одно правило в строке, например: intranet.example.com или intranet.example.com = 01AB23. Используйте *.example.com для поддоменов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หนึ่งกฎต่อบรรทัด ตัวอย่างเช่น: intranet.example.com หรือ intranet.example.com = 01AB23 ใช้ *.example.com สำหรับโดเมนย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır başına bir kural, örneğin: intranet.example.com veya intranet.example.com = 01AB23. Alt alan adları için *.example.com kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одне правило в рядку, наприклад: intranet.example.com або intranet.example.com = 01AB23. Використовуйте *.example.com для піддоменів."
+          }
+        }
+      }
+    },
+    "settings.browser.autoSelectCertificateForUrls.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more rules are incomplete or invalid. Finish each host, URL pattern, or serial number before saving."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens eine Regel ist unvollständig oder ungültig. Vervollständigen Sie jeden Host, jedes URL-Muster oder jede Seriennummer vor dem Speichern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ou plusieurs règles sont incomplètes ou invalides. Terminez chaque hôte, motif d’URL ou numéro de série avant d’enregistrer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قاعدة واحدة أو أكثر غير مكتملة أو غير صالحة. أكمل كل مضيف أو نمط URL أو رقم تسلسلي قبل الحفظ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una o más reglas están incompletas o no son válidas. Completa cada host, patrón de URL o número de serie antes de guardar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一或多條規則不完整或無效。請在儲存前完成每個主機、URL 模式或序號。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一条或多条规则不完整或无效。请在保存前完成每个主机、URL 模式或序列号。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 규칙이 불완전하거나 유효하지 않습니다. 저장하기 전에 각 호스트, URL 패턴 또는 일련 번호를 완성하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のルールが不完全または無効です。保存する前に、各ホスト、URL パターン、シリアル番号を完成させてください。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una o più regole sono incomplete o non valide. Completa ogni host, modello URL o numero di serie prima di salvare."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedno ili više pravila je nepotpuno ili nevažeće. Dovršite svaki host, URL obrazac ili serijski broj prije spremanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En eller flere regler er ufuldstændige eller ugyldige. Færdiggør hver vært, URL-skabelon eller serienummer, før du gemmer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ច្បាប់មួយ ឬច្រើនមិនពេញលេញ ឬមិនត្រឹមត្រូវ។ បំពេញម៉ាស៊ីន លំនាំ URL ឬលេខស៊េរីនីមួយៗ មុនពេលរក្សាទុក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én eller flere regler er ufullstendige eller ugyldige. Fullfør hver vert, URL-mal eller serienummer før du lagrer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna lub więcej reguł jest niekompletna albo nieprawidłowa. Uzupełnij każdego hosta, wzorzec URL lub numer seryjny przed zapisaniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma ou mais regras estão incompletas ou inválidas. Conclua cada host, padrão de URL ou número de série antes de salvar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одно или несколько правил неполны или недействительны. Завершите каждый хост, шаблон URL или серийный номер перед сохранением."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีกฎอย่างน้อยหนึ่งรายการไม่สมบูรณ์หรือไม่ถูกต้อง ดำเนินการให้โฮสต์ รูปแบบ URL หรือหมายเลขซีเรียลแต่ละรายการเสร็จก่อนบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir veya daha fazla kural eksik ya da geçersiz. Kaydetmeden önce her ana bilgisayarı, URL desenini veya seri numarasını tamamlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одне або кілька правил неповні або недійсні. Завершіть кожен хост, шаблон URL або серійний номер перед збереженням."
           }
         }
       }
