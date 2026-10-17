@@ -136,7 +136,9 @@ fn cmux_next_machine_catalog_is_exclusive_and_expires_on_disconnect() {
         1
     );
     assert_eq!(second.send(&mux, 1, json!([remote()]))["ok"], true);
-    assert_eq!(first.send(&mux, 9, json!([remote()]))["error_code"], "machine_catalog.not_trusted");
+    // A removed client is classified as remote by the outer dispatcher;
+    // its default-deny gate rejects before the publication handler.
+    assert_eq!(first.send(&mux, 9, json!([remote()]))["error_code"], "remote_denied");
     assert_eq!(
         dispatch(&mux, ResourceOperation::MachineList, None).unwrap().as_array().unwrap().len(),
         2
