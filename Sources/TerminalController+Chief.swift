@@ -190,8 +190,8 @@ extension TerminalController {
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
                 _ = try await Self.chiefOwnerCall {
                     try await owner.submit(HomeIntent(
-                        op: .setReadCursor(conversation: id, seq: upToSeq),
-                        key: IdempotencyKey("mobile-chief-mark-read-\(id.rawValue)-\(upToSeq)")))
+                        key: IdempotencyKey("mobile-chief-mark-read-\(id.rawValue)-\(upToSeq)"),
+                        op: .setReadCursor(conversation: id, seq: upToSeq)))
                 }
                 return .ok(["conversation": id.rawValue, "up_to_seq": upToSeq, "marked": true] as [String: Any])
             case .stop(let conversation):
