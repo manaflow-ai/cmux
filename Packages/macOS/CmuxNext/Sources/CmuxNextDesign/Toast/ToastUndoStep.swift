@@ -67,20 +67,34 @@ public final class ToastUndoStep: NSObject {
     private enum Requested { case toast, stack(ToastUndoStep) }
     private var requested: Requested?
 
-    /// The pending step's inverse came: it is the undo now, or it runs at once when an undo already asked for it.
+    /// Undos asked for while a pending step waits for its inverse, in the order asked: they run in that order (the
+    /// daemon gets B's inverse before A's when B was undone first), each once its inverse is there.
+    private static var queue: [ToastUndoStep] = []
+
+    /// The pending step's inverse came: it is the undo now, or it runs (in the order asked) when an undo asked for it.
     public func fillPending(title: String, _ inverse: @escaping @MainActor () -> Void) {
         guard isEmpty else { return }
         fill(title: title, inverse)
-        switch requested {
-        case nil: return
-        case .toast:
-            requested = nil
-            run(fromToast: true)
+        Self.drain()
+    }
+
+    /// Runs the asked-for undos at the head of the queue whose inverses are there.
+    private static func drain() {
+        while let first = queue.first, first.inverse != nil {
+            queue.removeFirst()
+            first.runRequested()
+        }
+    }
+
+    private func runRequested() {
+        guard let inverse, let asked = requested else { return }
+        requested = nil
+        self.inverse = nil
+        awaitsReply = false
+        Self.held.remove(self)
+        switch asked {
+        case .toast: inverse()
         case let .stack(redo):
-            requested = nil
-            self.inverse = nil
-            awaitsReply = false
-            Self.held.remove(self)
             Self.filling = redo
             defer { Self.filling = nil }
             inverse()
@@ -137,6 +151,7 @@ public final class ToastUndoStep: NSObject {
         Self.held.remove(self)
         if case let .stack(redo)? = requested { redo.abandon() }
         requested = nil
+        if let index = Self.queue.firstIndex(of: self) { Self.queue.remove(at: index); Self.drain() }
         if awaitsReply, let handle, !handle.isDismissed {
             handle.onAction = nil
             handle.dismiss()
@@ -152,6 +167,8 @@ public final class ToastUndoStep: NSObject {
 
     func run(fromToast: Bool) {
         guard let inverse else { return runBeforeReply(fromToast: fromToast) }
+        // An earlier-asked undo still waits for its inverse: this one runs after it.
+        if !Self.queue.isEmpty { return runBeforeReply(fromToast: fromToast) }
         defer { if self.inverse == nil { Self.held.remove(self) } }
         if fromToast {
             self.inverse = nil
@@ -180,7 +197,7 @@ public final class ToastUndoStep: NSObject {
     /// An undo of a pending step before its inverse came: it runs when `fillPending` brings the inverse. From the stack,
     /// the step for the redo goes on the other side now, as for any undo.
     private func runBeforeReply(fromToast: Bool) {
-        guard awaitsReply, isEmpty, requested == nil else { return }
+        guard requested == nil, inverse != nil || (awaitsReply && !abandoned) else { return }
         if let handle, !handle.isDismissed {
             handle.onAction = nil
             handle.dismiss()
@@ -188,6 +205,7 @@ public final class ToastUndoStep: NSObject {
         if fromToast {
             undoManager?.removeAllActions(withTarget: self)
             requested = .toast
+            Self.queue.append(self)
             return
         }
         guard let undoManager, undoManager.isUndoing || undoManager.isRedoing else { return }
@@ -195,5 +213,6 @@ public final class ToastUndoStep: NSObject {
         next.undoManager = undoManager
         next.register()
         requested = .stack(next)
+        Self.queue.append(self)
     }
 }

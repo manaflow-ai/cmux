@@ -25,7 +25,7 @@ enum SidebarDocWiring {
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
-        store.onUndoPending = { [weak services] title in services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
+        store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
             // The inverse runs with its undo step as the origin, so the change it sends fills that step (the redo).
             let inverse: @MainActor () -> Void = { SidebarDocStore.undoOrigin = PinUndoStep.filling; defer { SidebarDocStore.undoOrigin = nil }; undo() }
