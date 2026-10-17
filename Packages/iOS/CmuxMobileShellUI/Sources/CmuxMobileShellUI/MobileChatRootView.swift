@@ -16,6 +16,7 @@ struct MobileChatRootView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showsNewChatSheet = false
     @State private var providerFilter: ChatAgentKind?
+    @Environment(\.scenePhase) private var scenePhase
     private let searchText: String
     private let connectionGeneration: UUID
     private let startNewChat: (ChatAgentKind) -> Void
@@ -71,6 +72,14 @@ struct MobileChatRootView: View {
             transcript
         }
         .task(id: connectionGeneration) { store.restart() }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            // A live event stream can miss frames while iOS suspends the app.
+            // Rebuild both streams on foreground so the authoritative list and
+            // selected transcript heal even when the transport identity did not
+            // change.
+            store.restart()
+        }
         .onDisappear { store.stop() }
         .sheet(isPresented: $showsNewChatSheet) {
             MobileNewChatSheet { provider in
