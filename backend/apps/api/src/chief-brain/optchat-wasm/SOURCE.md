@@ -6,3 +6,7 @@ verbatim; byte-identical to `experiments/chief-optmem/src/optchat-wasm/` (same f
 SHA-1). The Chief brain (`../brain-do.ts`) keeps its memory with it. Rebuild with
 `experiments/chief-optmem/scripts/build-optchat-wasm.sh` on a build host (never the laptop), then
 copy the four files here and in the experiment.
+
+2026-10-16: rebuilt on cmux-rust-builder-1 (rbx lane hqec-optchat-wasm; rustc stable, wasm-bindgen-cli 0.2.129)
+from this tree's `Native/OptChat/optchat-wasm`, which now exposes the core's checkpoint and lazy resume
+(`checkpoint`, `OptChat.resume`, `makeLazy`, `isLazy`, `appendIn`, `completeIn`) for `../memory.ts`.

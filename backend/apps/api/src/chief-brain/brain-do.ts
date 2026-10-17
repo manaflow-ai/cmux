@@ -151,7 +151,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
       },
       onBuilt: () => undefined,
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
-      onRetryWait: (at) => this.schedule("compact", "compact", at)
+      onRetryWait: (at) => this.schedule("compact", "compact", at),
+      retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
     })
   }
 
