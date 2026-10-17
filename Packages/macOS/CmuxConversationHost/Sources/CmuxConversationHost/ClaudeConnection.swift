@@ -1,48 +1,56 @@
-public import Foundation
-public import CmuxConversation
+import Foundation
+import CmuxConversation
 
-/// A Claude Code bidirectional streaming-json connection.
+/// One Claude stream-json session, correlated by native session and echoed user UUIDs.
 actor ClaudeConnection: ConversationProviderConnection {
     nonisolated let events: AsyncThrowingStream<ConversationProviderEvent, any Error>
     private let continuation: AsyncThrowingStream<ConversationProviderEvent, any Error>.Continuation
     private let transport: any ConversationNativeTransport
     private let session: ConversationSession
-    private var nativeSessionID: String?
+    private let nativeSessionID: String
+    private let acknowledgmentTimeout: Duration
     private var activeTurnID: ConversationTurnID?
-    private var requests: [ConversationRequestID: PendingRequest] = [:]
     private var reader: Task<Void, Never>?
     private var closed = false
     private var modelNames: [String] = []
+    private var selectedModel: String?
+    private var requests: [ConversationRequestID: PendingRequest] = [:]
+    private var answers: [String: [String: String]] = [:]
+    private var pendingSends: [String: CheckedContinuation<ConversationJSONValue, any Error>] = [:]
+    private var sendDeadlines: [String: Task<Void, Never>] = [:]
+    private var projection = ClaudeEventProjection()
 
     private struct PendingRequest: Sendable {
         let nativeID: String
         let request: ConversationRequest
-        let subtype: String
+        let input: [String: ConversationJSONValue]
+        let questionCount: Int
     }
 
-    private init(transport: any ConversationNativeTransport, session: ConversationSession) {
-        self.transport = transport
-        self.session = session
+    private init(transport: any ConversationNativeTransport, session: ConversationSession, acknowledgmentTimeout: Duration) {
+        self.transport = transport; self.session = session
+        // The process factory passes this UUID through Claude's documented --session-id option.
+        nativeSessionID = session.providerSessionID ?? session.id.rawValue
+        selectedModel = session.model
+        self.acknowledgmentTimeout = acknowledgmentTimeout
         let pair = AsyncThrowingStream<ConversationProviderEvent, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1_024))
-        events = pair.stream
-        continuation = pair.continuation
+        events = pair.stream; continuation = pair.continuation
     }
 
-    static func open(transport: any ConversationNativeTransport, session: ConversationSession) async throws -> ClaudeConnection {
-        let connection = ClaudeConnection(transport: transport, session: session)
+    static func open(transport: any ConversationNativeTransport, session: ConversationSession, acknowledgmentTimeout: Duration = .seconds(45)) async throws -> ClaudeConnection {
+        let connection = ClaudeConnection(transport: transport, session: session, acknowledgmentTimeout: acknowledgmentTimeout)
         do { try await connection.bootstrap(); return connection }
         catch { await connection.close(); throw error }
     }
 
     private func bootstrap() async throws {
         let response = try await controlCall(subtype: "initialize", payload: [:])
-        if let sessionID = response["session_id"]?.stringValue { nativeSessionID = sessionID }
-        if let models = response["models"]?.arrayValue { modelNames = models.compactMap(\.stringValue) }
+        modelNames = (response["models"]?.arrayValue ?? []).compactMap { $0.objectValue?["value"]?.stringValue }
+        if let selectedModel { _ = try await controlCall(subtype: "set_model", payload: ["model": .string(selectedModel)]) }
         reader = Task { [weak self, transport] in
             do {
                 for try await payload in transport.messages {
-                    guard !Task.isCancelled else { return }
-                    try await self?.receive(payload)
+                    try Task.checkCancellation(); try await self?.receive(payload)
                 }
                 await self?.end(ConversationProviderError.unavailable("Claude Code connection ended"))
             } catch { await self?.end(error) }
@@ -50,145 +58,178 @@ actor ClaudeConnection: ConversationProviderConnection {
     }
 
     func providerSessionID() async -> String? { nativeSessionID }
-
     func capabilities() async -> ConversationCapabilities? {
-        ConversationCapabilities(protocolVersion: "claude-streaming-json/v1", features: ["streaming", "interrupt", "approval", "question", "child"], models: modelNames, supportsResume: nativeSessionID != nil)
+        .init(protocolVersion: "claude-stream-json/v1", features: ["turn/start", "turn/interrupt", "approval", "question", "child", "configure"], models: modelNames, supportsResume: true)
     }
 
     func send(_ command: ConversationCommand) async throws {
         guard !closed else { throw ConversationProviderError.unavailable("Claude Code connection is closed") }
         switch command {
         case .startTurn(let text, let model, let effort):
-            guard activeTurnID == nil else { throw ConversationProviderError.rejected("A turn is active; queue or steer the message") }
-            guard model == nil || modelNames.isEmpty || modelNames.contains(model!) else { throw ConversationProviderError.rejected("The selected Claude model is not available") }
-            guard effort == nil else { throw ConversationProviderError.unsupported("Claude effort settings are provider-version dependent") }
-            let id = ConversationItemID(rawValue: "user:" + UUID().uuidString)
+            guard activeTurnID == nil else { throw ConversationProviderError.rejected("A turn is active; queue the message") }
+            guard effort == nil else { throw ConversationProviderError.unsupported("This Claude connection does not advertise effort controls") }
+            if let model, model != selectedModel { try await configure(model: model, effort: nil, speed: nil) }
             try await sendUser(text: text)
-            try emit(.init(kind: .item, itemID: id, itemKind: .message, role: "user", text: text))
-        case .steer(let text):
-            guard activeTurnID != nil else { throw ConversationProviderError.rejected("No active turn to steer") }
-            try await sendUser(text: text)
-            try emit(.init(kind: .item, itemID: .init(rawValue: "user:" + UUID().uuidString), turnID: activeTurnID, itemKind: .message, role: "user", text: text))
+        case .steer:
+            // A second stream-json user message is queued/folded by Claude; that is not an acknowledged same-turn steer.
+            throw ConversationProviderError.unsupported("This Claude connection does not expose same-turn steering")
         case .interrupt:
             guard activeTurnID != nil else { throw ConversationProviderError.rejected("No active turn to stop") }
             _ = try await controlCall(subtype: "interrupt", payload: [:])
-        case .answerQuestion(let requestID, let answers): try await answer(requestID, answers: answers)
-        case .resolveApproval(let requestID, let decision): try await resolve(requestID, decision: decision)
-        case .configure: throw ConversationProviderError.unsupported("Claude model settings are provider-version dependent")
+        case .configure(let model, let effort, let speed): try await configure(model: model, effort: effort, speed: speed)
+        case .resolveApproval(let id, let decision): try await resolve(id, decision: decision)
+        case .answerQuestion(let id, let values): try await answer(id, values: values)
         case .queue, .editQueued, .cancelQueued, .rename, .setPinned, .setArchived:
             throw ConversationProviderError.rejected("This command is handled by the task journal")
         }
     }
 
+    private func configure(model: String?, effort: String?, speed: String?) async throws {
+        guard effort == nil, speed == nil else { throw ConversationProviderError.unsupported("This Claude connection does not advertise effort or speed controls") }
+        if let model, !modelNames.contains(model) { throw ConversationProviderError.rejected("The selected Claude model is not available") }
+        _ = try await controlCall(subtype: "set_model", payload: ["model": model.map(ConversationJSONValue.string) ?? .null])
+        selectedModel = model
+    }
+
     private func sendUser(text: String) async throws {
+        let uuid = UUID().uuidString
+        let turn = ConversationTurnID(rawValue: uuid)
+        activeTurnID = turn
         let payload: ConversationJSONValue = .object([
-            "type": .string("user"),
+            "type": .string("user"), "uuid": .string(uuid), "session_id": .string(nativeSessionID),
+            "parent_tool_use_id": .null,
             "message": .object(["role": .string("user"), "content": .string(text)]),
-            "session_id": nativeSessionID.map(ConversationJSONValue.string) ?? .null,
         ])
-        _ = try await transport.send(payload)
+        let acknowledgment = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { waiter in
+                pendingSends[uuid] = waiter
+                sendDeadlines[uuid] = Task { [weak self, acknowledgmentTimeout] in
+                    do { try await Task.sleep(for: acknowledgmentTimeout) } catch { return }
+                    await self?.end(ConversationProviderError.unavailable("Claude did not acknowledge the message; delivery is uncertain"))
+                }
+                Task { [weak self, transport] in
+                    do { _ = try await transport.send(payload) }
+                    catch { await self?.end(error) }
+                }
+            }
+        } onCancel: { Task { await self.end(CancellationError()) } }
+        try emit(.init(kind: .item, itemID: .init(rawValue: "user:" + uuid), turnID: turn, itemKind: .message, role: "user", text: text, rawPayload: acknowledgment))
     }
 
     private func controlCall(subtype: String, payload: [String: ConversationJSONValue]) async throws -> [String: ConversationJSONValue] {
         let requestID = UUID().uuidString
-        var request = payload
-        request["subtype"] = .string(subtype)
+        var request = payload; request["subtype"] = .string(subtype)
         let result = try await transport.send(.object(["type": .string("control_request"), "request_id": .string(requestID), "request": .object(request)]))
-        guard let response = result?.objectValue?["response"]?.objectValue ?? result?.objectValue,
-              response["request_id"]?.stringValue == requestID || response["subtype"]?.stringValue == "success" else {
-            throw ConversationProviderError.malformed("Claude control response did not match request")
-        }
-        if response["subtype"]?.stringValue == "error" { throw ConversationProviderError.rejected("Claude Code rejected the control request") }
+        // ProcessConversationTransport returns the matched control_response.response envelope.
+        guard let response = result?.objectValue, response["request_id"]?.stringValue == requestID,
+              response["subtype"]?.stringValue == "success" else { throw ConversationProviderError.malformed("Claude returned an invalid control acknowledgment") }
         return response["response"]?.objectValue ?? [:]
     }
 
-    private func receive(_ payload: ConversationJSONValue) throws {
-        guard !closed, let object = payload.objectValue else { return }
-        let type = object["type"]?.stringValue ?? "unknown"
-        if type == "control_request" { try receiveRequest(object, raw: payload); return }
-        if type == "system" {
-            if let id = object["session_id"]?.stringValue { nativeSessionID = id }
-            try emit(.init(kind: .run, state: object["subtype"]?.stringValue, rawPayload: payload)); return
+    private func receive(_ raw: ConversationJSONValue) throws {
+        guard !closed, let value = raw.objectValue else { return }
+        if let id = value["session_id"]?.stringValue, id != nativeSessionID { return }
+        let type = value["type"]?.stringValue ?? "unknown"
+        let isMainThread = value["parent_tool_use_id"]?.stringValue == nil
+        if isMainThread {
+            var echoes = (value["user_message_uuids"]?.arrayValue ?? []).compactMap(\.stringValue)
+            if let id = value["user_message_uuid"]?.stringValue { echoes.append(id) }
+            if type == "user", let id = value["uuid"]?.stringValue { echoes.append(id) }
+            for id in echoes {
+                if let waiter = pendingSends.removeValue(forKey: id) {
+                    sendDeadlines.removeValue(forKey: id)?.cancel()
+                    try emit(.init(kind: .turn, turnID: .init(rawValue: id), state: "running", rawPayload: raw))
+                    waiter.resume(returning: raw)
+                }
+            }
         }
-        if type == "result" {
-            let failed = object["is_error"]?.boolValue == true
-            try emit(.init(kind: .turn, turnID: activeTurnID, state: failed ? "failed" : "completed", rawPayload: payload))
-            activeTurnID = nil
-            return
+        if type == "control_request" { try receiveRequest(value, raw: raw); return }
+        if type == "control_cancel_request", let id = value["request_id"]?.stringValue {
+            for (key, request) in requests where request.nativeID == id { try settle(request, state: .cancelled); requests.removeValue(forKey: key) }
+            answers.removeValue(forKey: id); return
         }
-        if type == "assistant" || type == "message_start" || type == "message_delta" || type == "content_block_delta" {
-            let message = object["message"]?.objectValue ?? object
-            let delta = object["delta"]?.objectValue?["text"]?.stringValue ?? object["delta"]?.stringValue ?? object["text"]?.stringValue ?? message["content"]?.stringValue
-            let itemID = object["uuid"]?.stringValue ?? object["id"]?.stringValue ?? UUID().uuidString
-            if activeTurnID == nil { activeTurnID = .init(rawValue: object["turn_id"]?.stringValue ?? object["session_id"]?.stringValue ?? UUID().uuidString) }
-            try emit(.init(kind: .item, itemID: .init(rawValue: itemID), turnID: activeTurnID, itemKind: .message, role: "assistant", text: delta, rawPayload: payload)); return
+        let eventTurn = activeTurnID
+        if type == "result", isMainThread {
+            let turn = value["user_message_uuid"]?.stringValue.map(ConversationTurnID.init(rawValue:)) ?? activeTurnID
+            try emit(.init(kind: .turn, turnID: turn, state: value["is_error"]?.boolValue == true ? "failed" : "completed", rawPayload: raw))
+            if turn == activeTurnID { activeTurnID = nil }
         }
-        if type == "user" {
-            let message = object["message"]?.objectValue ?? object
-            let text = message["content"]?.stringValue ?? object["text"]?.stringValue
-            try emit(.init(kind: .item, itemID: .init(rawValue: object["uuid"]?.stringValue ?? UUID().uuidString), turnID: activeTurnID, itemKind: .message, role: "user", text: text, rawPayload: payload)); return
-        }
-        if type == "tool_use" || type == "tool_result" {
-            let toolID = object["id"]?.stringValue ?? UUID().uuidString
-            let status: ConversationToolStatus = type == "tool_result" ? .success : .running
-            let tool = ConversationTool(toolID: toolID, name: object["name"]?.stringValue ?? "Tool", input: object["input"], output: object["content"], status: status)
-            try emit(.init(kind: .item, itemID: .init(rawValue: toolID), turnID: activeTurnID, itemKind: .tool, tool: tool, rawPayload: payload)); return
-        }
-        try emit(.init(kind: .unknown(type), rawPayload: payload))
+        for event in try projection.events(raw, turnID: eventTurn) { try emit(event) }
     }
 
-    private func receiveRequest(_ object: [String: ConversationJSONValue], raw: ConversationJSONValue) throws {
-        guard let nativeID = object["request_id"]?.stringValue else { throw ConversationProviderError.malformed("Claude control request has no request_id") }
-        let requestBody = object["request"]?.objectValue ?? [:]
-        let subtype = requestBody["subtype"]?.stringValue ?? "unknown"
-        let requestID = ConversationRequestID(rawValue: "claude:" + nativeID)
-        if subtype == "can_use_tool" || requestBody["tool_name"] != nil {
-            let input = requestBody["input"]?.objectValue ?? [:]
-            let toolName = requestBody["tool_name"]?.stringValue ?? "Tool permission"
-            let request = ConversationRequest(id: requestID, turnID: activeTurnID, generation: session.generation, kind: "approval", approval: .init(summary: toolName, command: input["command"]?.stringValue, supportsAlwaysAllow: false), rawPayload: raw)
-            requests[requestID] = PendingRequest(nativeID: nativeID, request: request, subtype: subtype)
-            try emit(.init(kind: .request, turnID: activeTurnID, request: request, rawPayload: raw)); return
-        }
-        if subtype == "ask_user_question" || requestBody["questions"] != nil {
-            let questions = requestBody["questions"]?.arrayValue ?? []
+    private func receiveRequest(_ value: [String: ConversationJSONValue], raw: ConversationJSONValue) throws {
+        guard let nativeID = value["request_id"]?.stringValue, let body = value["request"]?.objectValue else { throw ConversationProviderError.malformed("Claude request has no identity") }
+        let subtype = body["subtype"]?.stringValue ?? "unknown"
+        guard subtype == "can_use_tool" else { try emit(.init(kind: .unknown("control_request." + subtype), rawPayload: raw)); return }
+        let input = body["input"]?.objectValue ?? [:]
+        if body["tool_name"]?.stringValue == "AskUserQuestion" {
+            let questions = input["questions"]?.arrayValue ?? []
+            guard !questions.isEmpty else { throw ConversationProviderError.malformed("Claude question has no questions") }
             for (index, value) in questions.enumerated() {
-                let question = value.objectValue ?? [:]
-                let options = (question["options"]?.arrayValue ?? []).compactMap { option -> ConversationQuestionOption? in guard let object = option.objectValue, let label = object["label"]?.stringValue else { return nil }; return .init(id: label, label: label, detail: object["description"]?.stringValue) }
-                let req = ConversationRequest(id: .init(rawValue: "\(requestID.rawValue):\(index)"), turnID: activeTurnID, generation: session.generation, kind: "question", question: .init(category: question["header"]?.stringValue, prompt: question["question"]?.stringValue ?? "Input required", options: options, allowsCustomAnswer: true, index: index, total: questions.count), rawPayload: raw)
-                requests[req.id] = PendingRequest(nativeID: nativeID, request: req, subtype: subtype)
-                try emit(.init(kind: .request, turnID: activeTurnID, request: req, rawPayload: raw))
+                guard let question = value.objectValue, let prompt = question["question"]?.stringValue else { throw ConversationProviderError.malformed("Claude question is incomplete") }
+                let options = (question["options"]?.arrayValue ?? []).compactMap { option -> ConversationQuestionOption? in
+                    guard let value = option.objectValue, let label = value["label"]?.stringValue else { return nil }
+                    return .init(id: label, label: label, detail: value["description"]?.stringValue)
+                }
+                let request = ConversationRequest(id: .init(rawValue: "claude:\(nativeID):\(index)"), turnID: activeTurnID, generation: session.generation, kind: "question", question: .init(category: question["header"]?.stringValue, prompt: prompt, options: options, allowsCustomAnswer: true, index: index, total: questions.count), rawPayload: raw)
+                requests[request.id] = .init(nativeID: nativeID, request: request, input: input, questionCount: questions.count)
+                try emit(.init(kind: .request, turnID: activeTurnID, request: request, rawPayload: raw))
             }
-            return
+        } else {
+            let summary = [body["tool_name"]?.stringValue, body["decision_reason"]?.stringValue].compactMap { $0 }.joined(separator: " — ")
+            let command = input["command"]?.stringValue ?? pretty(.object(input))
+            let request = ConversationRequest(id: .init(rawValue: "claude:" + nativeID), turnID: activeTurnID, generation: session.generation, kind: "approval", approval: .init(summary: summary, command: command, supportsAlwaysAllow: false), rawPayload: raw)
+            requests[request.id] = .init(nativeID: nativeID, request: request, input: input, questionCount: 0)
+            try emit(.init(kind: .request, turnID: activeTurnID, request: request, rawPayload: raw))
         }
-        try emit(.init(kind: .unknown("control_request.\(subtype)"), rawPayload: raw))
     }
 
     private func resolve(_ id: ConversationRequestID, decision: ConversationApprovalDecision) async throws {
-        guard let pending = requests[id] else { throw ConversationProviderError.rejected("This approval is no longer pending") }
-        guard decision != .alwaysApprove else { throw ConversationProviderError.unsupported("Claude does not expose persistent approval rules in this protocol") }
-        let response: ConversationJSONValue = decision == .approve ? .object(["behavior": .string("allow")]) : .object(["behavior": .string("deny"), "message": .string("Denied by user")])
-        _ = try await transport.send(.object(["type": .string("control_response"), "response": .object(["subtype": .string("success"), "request_id": .string(pending.nativeID), "response": response])]))
-        var request = pending.request; request.state = decision == .approve ? .approved : .denied
-        try emit(.init(kind: .request, turnID: request.turnID, request: request)); requests.removeValue(forKey: id)
+        guard let pending = requests[id], pending.request.approval != nil else { throw ConversationProviderError.rejected("This approval is no longer pending") }
+        guard decision != .alwaysApprove else { throw ConversationProviderError.unsupported("This request offers approval for one tool call") }
+        let response: ConversationJSONValue = decision == .approve
+            ? .object(["behavior": .string("allow"), "updatedInput": .object(pending.input)])
+            : .object(["behavior": .string("deny"), "message": .string("Denied by user")])
+        try await reply(pending.nativeID, response: response)
+        try settle(pending, state: decision == .approve ? .approved : .denied); requests.removeValue(forKey: id)
     }
 
-    private func answer(_ id: ConversationRequestID, answers: [ConversationQuestionAnswer]) async throws {
-        guard let pending = requests[id], let question = pending.request.question, let answer = answers.first(where: { $0.index == question.index }) ?? answers.first else { throw ConversationProviderError.rejected("This question is no longer pending") }
-        let value = answer.text?.isEmpty == false ? answer.text! : (answer.optionID ?? "")
-        guard !value.isEmpty else { throw ConversationProviderError.rejected("An answer is required") }
-        let response: ConversationJSONValue = .object(["answers": .array([.string(value)])])
-        _ = try await transport.send(.object(["type": .string("control_response"), "response": .object(["subtype": .string("success"), "request_id": .string(pending.nativeID), "response": response])]))
-        var request = pending.request; request.state = .answered
-        try emit(.init(kind: .request, turnID: request.turnID, request: request)); requests.removeValue(forKey: id)
+    private func answer(_ id: ConversationRequestID, values: [ConversationQuestionAnswer]) async throws {
+        guard let pending = requests[id], let question = pending.request.question,
+              let answer = values.first(where: { $0.index == question.index }) ?? (values.count == 1 ? values.first : nil) else { throw ConversationProviderError.rejected("This question is no longer pending") }
+        let text = answer.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = text?.isEmpty == false ? text : answer.optionID, !value.isEmpty else { throw ConversationProviderError.rejected("An answer is required") }
+        if text?.isEmpty != false, !question.options.contains(where: { $0.id == value }) { throw ConversationProviderError.rejected("The selected answer is not offered") }
+        answers[pending.nativeID, default: [:]][question.prompt] = value
+        if answers[pending.nativeID]?.count == pending.questionCount {
+            var input = pending.input
+            input["answers"] = .object((answers[pending.nativeID] ?? [:]).mapValues(ConversationJSONValue.string))
+            try await reply(pending.nativeID, response: .object(["behavior": .string("allow"), "updatedInput": .object(input)]))
+            answers.removeValue(forKey: pending.nativeID)
+        }
+        try settle(pending, state: .answered); requests.removeValue(forKey: id)
     }
 
+    private func reply(_ id: String, response: ConversationJSONValue) async throws {
+        _ = try await transport.send(.object(["type": .string("control_response"), "response": .object(["subtype": .string("success"), "request_id": .string(id), "response": response])]))
+    }
+    private func settle(_ pending: PendingRequest, state: ConversationRequestState) throws {
+        var request = pending.request; request.state = state
+        try emit(.init(kind: .request, turnID: request.turnID, request: request))
+    }
+    private func pretty(_ value: ConversationJSONValue) -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    }
     private func emit(_ event: ConversationProviderEvent) throws {
-        if case .dropped = continuation.yield(event) { throw ConversationProviderError.unavailable("Claude event buffer overflow; replay required") }
+        if case .dropped = continuation.yield(event) { throw ConversationProviderError.unavailable("Claude event buffer overflow") }
     }
-
     private func end(_ error: any Error) async {
-        guard !closed else { return }; closed = true; continuation.finish(throwing: error); await transport.close()
+        guard !closed else { return }; closed = true
+        reader?.cancel(); reader = nil; continuation.finish(throwing: error)
+        for deadline in sendDeadlines.values { deadline.cancel() }; sendDeadlines.removeAll()
+        for waiter in pendingSends.values { waiter.resume(throwing: error) }; pendingSends.removeAll()
+        await transport.close()
     }
-
-    func close() async { guard !closed else { return }; closed = true; reader?.cancel(); reader = nil; continuation.finish(); await transport.close() }
+    func close() async { await end(ConversationProviderError.unavailable("Claude connection closed")) }
 }

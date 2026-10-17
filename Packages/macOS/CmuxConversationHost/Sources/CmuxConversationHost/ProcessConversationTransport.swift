@@ -18,6 +18,7 @@ public struct ProcessConversationTransportFactory: ConversationNativeTransportFa
             name = "claude"
             providerArguments = ["--print", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio"]
             if let nativeID = session.providerSessionID { providerArguments += ["--resume", nativeID] }
+            else { providerArguments += ["--session-id", session.id.rawValue] }
         case .openCode: throw ConversationProviderError.unsupported("OpenCode requires its HTTP/SSE transport")
         case .unknown: throw ConversationProviderError.unsupported("Unknown provider")
         }
