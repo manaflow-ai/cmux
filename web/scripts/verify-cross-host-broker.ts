@@ -11,11 +11,19 @@ import {
   type VmHostLeaseReceipt,
 } from "../services/vms/hostLeaseTransport";
 import {
+  persistentWorkspaceProviderFromCloudVm,
+  createPersistentWorkspacePromotionRuntimePort,
   createPersistentWorkspaceService,
   type PersistentWorkspaceProvider,
   type PersistentWorkspaceRecord,
   type PersistentWorkspaceStore,
 } from "../services/vms/persistentWorkspace";
+import type { CloudVmPersistentTerminalRef, CloudVmWorkspaceRef } from "../services/vms/cloudVmRunAdapter";
+import {
+  type LifecycleEffectRequest,
+  type LifecycleEffectReceipt,
+  type PersistentWorkspaceEffectBroker,
+} from "../services/vms/lifecycleEffectBroker";
 import {
   promoteRunAttempt,
   type AttemptPromotionDependencies,
@@ -91,12 +99,28 @@ function digest(value: unknown): string {
   return `fixture:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-class FixtureEffectBroker {
+class FixtureEffectBroker implements PersistentWorkspaceEffectBroker {
   private sequence = 0;
-  private readonly effects = new Map<string, { readonly requestDigest: string; readonly result: unknown }>();
+  private readonly effects = new Map<string, { readonly requestDigest: string; readonly result: Record<string, unknown> }>();
   readonly receipts: EffectReceipt[] = [];
+  readonly requests: LifecycleEffectRequest[] = [];
 
-  apply<T>(effectKey: string, request: unknown, operation: () => T): T {
+  async execute(input: LifecycleEffectRequest): Promise<LifecycleEffectReceipt> {
+    this.requests.push(input);
+    const requestDigest = digest(input.payload);
+    const previous = this.effects.get(input.effectKey);
+    if (previous) {
+      this.receipts.push({ effectKey: input.effectKey, requestDigest, sequence: ++this.sequence, replayed: true });
+      return { result: previous.result, replayed: true, jobId: `fixture-job-${input.effectKey}`, sequence: this.sequence };
+    }
+    const result = await input.run();
+    const normalized = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
+    this.effects.set(input.effectKey, { requestDigest, result: normalized });
+    this.receipts.push({ effectKey: input.effectKey, requestDigest, sequence: ++this.sequence, replayed: false });
+    return { result: normalized, replayed: false, jobId: `fixture-job-${input.effectKey}`, sequence: this.sequence };
+  }
+
+  async apply<T>(effectKey: string, request: unknown, operation: () => T | Promise<T>): Promise<T> {
     const requestDigest = digest(request);
     const previous = this.effects.get(effectKey);
     if (previous) {
@@ -104,8 +128,9 @@ class FixtureEffectBroker {
       this.receipts.push({ effectKey, requestDigest, sequence: ++this.sequence, replayed: true });
       return previous.result as T;
     }
-    const result = operation();
-    this.effects.set(effectKey, { requestDigest, result });
+    const result = await operation();
+    const normalized = JSON.parse(JSON.stringify(result)) as Record<string, unknown>;
+    this.effects.set(effectKey, { requestDigest, result: normalized });
     this.receipts.push({ effectKey, requestDigest, sequence: ++this.sequence, replayed: false });
     return result;
   }
@@ -133,11 +158,15 @@ function fixtureFetch(provider: CrossHostProvider, calls: string[]): typeof fetc
     const url = String(input);
     const body = JSON.parse(String(init?.body ?? "{}")) as { effectKey?: string; generation?: number; ttlMs?: number };
     const operation = url.split("/").at(-1) ?? "unknown";
+    const hostId = decodeURIComponent(url.split("/hosts/")[1]?.split("/", 1)[0] ?? "");
+    const wiredHost = hostId.endsWith("-fixture-vm");
     calls.push(`${provider}:${operation}:${body.effectKey ?? "missing"}`);
     return new Response(JSON.stringify({
       leaseId: `${provider}-fixture-lease`,
       generation: body.generation,
-      expiresAtMs: operation === "release" ? null : (body.generation === 1 ? 9_000 : 11_000),
+      // Direct transport checks use a deterministic clock; the wired provider
+      // path uses Date.now(), so its fixture receipt is relative to that clock.
+      expiresAtMs: operation === "release" ? null : wiredHost ? Date.now() + 60_000 : (body.generation === 1 ? 9_000 : 11_000),
       metadata: { fixture: true, provider },
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
@@ -195,6 +224,54 @@ function fixtureWorkspaceProvider(provider: CrossHostProvider, calls: string[]):
   };
 }
 
+function wiredWorkspaceProvider(
+  provider: CrossHostProvider,
+  calls: string[],
+  leaseTransport: VmHostLeaseTransport,
+  effectBroker: FixtureEffectBroker,
+): PersistentWorkspaceProvider {
+  return persistentWorkspaceProviderFromCloudVm({
+    provisionVm: async (input) => {
+      calls.push(`${provider}:vm:create:${input.workspaceKey}`);
+      return { providerVmId: `${provider}-fixture-vm` };
+    },
+    vm: {
+      async resume(providerVmId) { calls.push(`${provider}:vm:resume:${providerVmId}`); },
+      async pause(providerVmId) { calls.push(`${provider}:vm:pause:${providerVmId}`); },
+    },
+    runAdapter: {
+      async createWorkspace(input): Promise<CloudVmWorkspaceRef> {
+        calls.push(`${provider}:workspace:create:${input.workspaceKey}`);
+        return {
+          provider: "cloud-vm",
+          runtimeId: input.runtimeId,
+          vmId: input.vmId,
+          workspaceId: `${provider}-fixture-workspace`,
+          workspaceKey: input.workspaceKey,
+          replayed: false,
+        };
+      },
+      async createTerminal(input): Promise<CloudVmPersistentTerminalRef> {
+        calls.push(`${provider}:terminal:create:${input.terminalKey ?? `cmux-runtime:${input.runtimeId}:terminal`}`);
+        return {
+          provider: "cloud-vm",
+          runtimeId: input.runtimeId,
+          vmId: input.vmId,
+          workspaceId: input.workspaceId,
+          terminalId: `${provider}-fixture-terminal`,
+          terminalKey: input.terminalKey ?? `cmux-runtime:${input.runtimeId}:terminal`,
+          replayed: false,
+        };
+      },
+    },
+    hostLeaseTransport: leaseTransport,
+    effectBroker,
+    hostLeaseProvider: provider,
+    hostLeaseTtlMs: 10_000,
+    attach: async () => ({ provider, url: `wss://${provider}.fixture.invalid/attach?token=fixture` }),
+  });
+}
+
 class FixturePromotionStore implements AttemptPromotionStorePort {
   private readonly byKey = new Map<string, PromotionView>();
   private readonly byAttempt = new Map<string, PromotionView>();
@@ -244,20 +321,12 @@ function promotionSource(provider: CrossHostProvider): AttemptPromotionSource {
   };
 }
 
-function promotionDependencies(source: AttemptPromotionSource, workspace: { runtimeId: string; workspaceId: string }): AttemptPromotionDependencies {
+function promotionDependencies(source: AttemptPromotionSource, service: ReturnType<typeof createPersistentWorkspaceService>): AttemptPromotionDependencies {
   const store = new FixturePromotionStore();
   return {
     source: { find: async (input) => input.userId === source.userId && input.runId === source.runId && input.attemptId === source.attemptId ? source : null },
     store,
-    runtime: {
-      promote: async (input) => ({
-        runtimeId: workspace.runtimeId,
-        workspaceId: workspace.workspaceId,
-        state: "ready" as const,
-        sessionId: input.sessionId,
-        transport: "fixture",
-      }),
-    },
+    runtime: createPersistentWorkspacePromotionRuntimePort({ service }),
   };
 }
 
@@ -333,9 +402,29 @@ async function runFixtureLane(provider: CrossHostProvider): Promise<CrossHostLan
   const release = await transport.release({ ...leaseBase, generation: 2, effectKey: `lease:${provider}:release`, nowMs: reacquireAt + 100 });
   assert.equal(release.state, "released");
 
+  // Keep one direct provider/service lane as a control check, then run the
+  // same lifecycle through the configured host lease + effect-broker path.
+  const directCalls: string[] = [];
+  const directService = createPersistentWorkspaceService({
+    store: fixtureWorkspaceStore(),
+    provider: fixtureWorkspaceProvider(provider, directCalls),
+  });
+  const direct = await directService.create({
+    tenantId: "fixture-team",
+    ownerId: "fixture-user",
+    idempotencyKey: `direct-workspace-${provider}`,
+    workspaceName: `${provider} direct workspace`,
+  });
+  const directLookup = { tenantId: "fixture-team", ownerId: "fixture-user", runtimeId: direct.runtimeId };
+  await directService.suspend(directLookup);
+  await directService.resume(directLookup);
+  await directService.stop(directLookup);
+  assert.equal(directCalls.filter((call) => call.includes(":workspace:create:")).length, 1);
+
+  const wiredProvider = wiredWorkspaceProvider(provider, calls, transport, broker);
   const workspaceService = createPersistentWorkspaceService({
     store: fixtureWorkspaceStore(),
-    provider: fixtureWorkspaceProvider(provider, calls),
+    provider: wiredProvider,
   });
   const request = {
     tenantId: "fixture-team",
@@ -348,6 +437,19 @@ async function runFixtureLane(provider: CrossHostProvider): Promise<CrossHostLan
   const workspaceReplay = await broker.apply(`workspace:${provider}:create`, request, () => workspaceService.create(request));
   assert.equal(workspaceReplay.runtimeId, workspace.runtimeId);
   assert.equal(workspaceReplay.workspaceId, workspace.workspaceId);
+  const providerCreateInput = {
+    runtimeId: workspace.runtimeId,
+    workspaceId: workspace.workspaceId,
+    tenantId: request.tenantId,
+    ownerId: request.ownerId,
+    generation: 1,
+    effectKey: `cmux-runtime:${workspace.runtimeId}:create:v1`,
+    workspaceName: request.workspaceName,
+    workspaceKey: `cmux-runtime:${workspace.runtimeId}:workspace`,
+    providerInput: request.providerInput,
+  } as const;
+  const providerReplay = await wiredProvider.create(providerCreateInput);
+  assert.equal(providerReplay.providerWorkspaceId, workspace.provider === "freestyle" ? `${provider}-fixture-workspace` : `${provider}-fixture-workspace`);
   await workspaceService.suspend({ tenantId: request.tenantId, ownerId: request.ownerId, runtimeId: workspace.runtimeId });
   const resumed = await workspaceService.resume({ tenantId: request.tenantId, ownerId: request.ownerId, runtimeId: workspace.runtimeId });
   assert.equal(resumed.lifecycle, "running");
@@ -360,12 +462,14 @@ async function runFixtureLane(provider: CrossHostProvider): Promise<CrossHostLan
     runId: source.runId,
     attemptId: source.attemptId,
     requestKey: `promote-${provider}`,
-    dependencies: promotionDependencies(source, workspace),
+    dependencies: promotionDependencies(source, workspaceService),
     now: Date.now(),
   });
-  assert.equal(promotion.runtime.id, workspace.runtimeId);
-  assert.equal(promotion.workspace.id, workspace.workspaceId);
+  assert.match(promotion.runtime.id, /^runtime_/);
+  assert.match(promotion.workspace.id, /^workspace_/);
   assert.equal(promotion.attach.reconnectable, true);
+  assert(broker.receipts.some((receipt) => receipt.replayed), "wired lifecycle broker did not record a replay");
+  assert(calls.some((call) => call.startsWith(`${provider}:acquire:`)), "wired provider did not acquire host lease");
 
   return {
     provider,

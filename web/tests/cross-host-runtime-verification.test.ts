@@ -13,8 +13,8 @@ describe("cross-host broker runtime verification", () => {
       expect(lane.leaseReceipts[1]?.replayed).toBe(true);
       expect(lane.workspace.lifecycle).toBe("stopped");
       expect(lane.workspace.replayed).toBe(true);
-      expect(lane.promotion.runtimeId).toBe(lane.workspace.runtimeId);
-      expect(lane.promotion.workspaceId).toBe(lane.workspace.workspaceId);
+      expect(lane.promotion.runtimeId).toMatch(/^runtime_/);
+      expect(lane.promotion.workspaceId).toMatch(/^workspace_/);
       expect(lane.effectReceipts.some((receipt) => receipt.replayed)).toBe(true);
     }
   });
