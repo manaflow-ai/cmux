@@ -84,6 +84,14 @@ final class WorkspaceRowView: SidebarRowView {
     /// The last title painted by this view. Recycled rows clear this so a
     /// different workspace never inherits a title transition.
     private var lastTitle: String?
+    /// A placeholder row can become a titled row after the daemon reports it.
+    /// Keep both layers alive until the first post-layout frame so the loading
+    /// bar can fade away as the title arrives instead of disappearing first.
+    private var titleArrivalPending = false
+    private var titleArrivalScheduled = false
+    private var titleArrivalActive = false
+    private var titleArrivalGeneration: UInt = 0
+    private var titleArrivalVariant = SidebarWorkspaceTitleMotionVariant.instant
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -150,6 +158,12 @@ final class WorkspaceRowView: SidebarRowView {
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
+        titleArrivalGeneration &+= 1
+        titleArrivalPending = false
+        titleArrivalScheduled = false
+        titleArrivalActive = false
+        title.alphaValue = 1
+        placeholderBar.alphaValue = 1
     }
 
     private struct Content: Hashable {
@@ -191,10 +205,25 @@ final class WorkspaceRowView: SidebarRowView {
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         let priorTitle = lastTitle
+        if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
+            titleArrivalGeneration &+= 1
+            titleArrivalPending = false
+            titleArrivalScheduled = false
+            titleArrivalActive = false
+            title.alphaValue = 1
+            placeholderBar.alphaValue = 1
+        }
         title.stringValue = ws.title
         lastTitle = ws.title
-        animateTitleChange(from: priorTitle, to: ws.title, variant: tunables.workspaceTitleMotion,
-                           placeholder: isShowingPlaceholder || isPlaceholderRow)
+        let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
+            && tunables.workspaceTitleMotion != .instant && !Motion.reduceMotion
+        if arrival {
+            titleArrivalPending = true
+            titleArrivalVariant = tunables.workspaceTitleMotion
+        } else {
+            animateTitleChange(from: priorTitle, to: ws.title, variant: tunables.workspaceTitleMotion,
+                               placeholder: isShowingPlaceholder || isPlaceholderRow)
+        }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(row.detail ?? "")
@@ -255,6 +284,36 @@ final class WorkspaceRowView: SidebarRowView {
         transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
         title.layer?.add(transition, forKey: "workspace-title-motion")
+    }
+
+    /// Starts after layout has placed both the title and its placeholder bar.
+    /// The title transition and bar fade then share a frame, so a new name
+    /// never flashes in after the loading state has already vanished.
+    private func startTitleArrival() {
+        titleArrivalScheduled = false
+        guard titleArrivalPending else { return }
+        titleArrivalPending = false
+        titleArrivalActive = true
+        let generation = titleArrivalGeneration
+        let variant = titleArrivalVariant
+        title.isHidden = false
+        placeholderBar.isHidden = false
+        let transition: CATransition = switch variant {
+        case .instant: Motion.crossfadeAction
+        case .crossfade: Motion.crossfadeAction
+        case .lift: Motion.pushUpAction
+        }
+        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.timingFunction = Motion.fadeCurve
+        title.layer?.add(transition, forKey: "workspace-title-motion")
+        Motion.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
+            placeholderBar?.animator().alphaValue = 0
+        }, completion: { [weak self] in
+            guard let self, self.titleArrivalGeneration == generation else { return }
+            self.titleArrivalActive = false
+            self.placeholderBar.alphaValue = 1
+            self.placeholderBar.isHidden = true
+        })
     }
 
     /// Where an NSTextField label with this text would sit (inline rename
@@ -416,8 +475,9 @@ final class WorkspaceRowView: SidebarRowView {
             textX = agentMark.frame.maxX + Metrics.space1
         }
         let textW = max(0, trailing - textX)
-        title.isHidden = renaming || isShowingPlaceholder
-        placeholderBar.isHidden = !isShowingPlaceholder
+        let titleArrival = titleArrivalPending || titleArrivalActive
+        title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
+        placeholderBar.isHidden = !isShowingPlaceholder && !titleArrival
         let barHeight = SidebarStyle.placeholderBarHeight
         placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: cy - barHeight / 2,
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
@@ -438,6 +498,10 @@ final class WorkspaceRowView: SidebarRowView {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
+        if titleArrivalPending && !titleArrivalScheduled {
+            titleArrivalScheduled = true
+            CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
+        }
         // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
         // drop target and appearance changes mark display themselves. Each display costs AppKit a
         // contents-scale walk to the window (perf round 4: the top display frames while scrolling).
