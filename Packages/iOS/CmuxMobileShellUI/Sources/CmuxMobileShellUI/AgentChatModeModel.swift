@@ -105,12 +105,15 @@ final class AgentChatModeModel {
 
     init(
         defaults: UserDefaults = .standard,
-        reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = AgentChatModeModel.defaultReconnectDelay
+        reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = AgentChatModeModel.defaultReconnectDelay,
+        source: (any AgentChatSessionSource)? = nil
     ) {
         self.defaults = defaults
         self.pinnedSessionIDs = Set(defaults.stringArray(forKey: Self.pinnedSessionIDsKey) ?? [])
         self.archivedSessionIDs = Set(defaults.stringArray(forKey: Self.archivedSessionIDsKey) ?? [])
         self.reconnectDelay = reconnectDelay
+        self.source = source
+        self.connectionState = source == nil ? .disconnected : .connecting
     }
 
     /// Keep a dead transport from turning an EOF into a busy resubscribe loop.

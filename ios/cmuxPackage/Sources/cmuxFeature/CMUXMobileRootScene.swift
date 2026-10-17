@@ -556,6 +556,8 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
             ComputerPickerPersistencePreviewView()
+        } else if UITestConfig.agentChatPreviewEnabled {
+            AgentChatPreviewView()
         } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.pushTabNavigationPreviewEnabled {

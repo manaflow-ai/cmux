@@ -16,6 +16,7 @@ import UniformTypeIdentifiers
 /// on iPhone.
 struct AgentChatModeView: View {
     @Bindable var store: CMUXMobileShellStore
+    private let injectedSource: (any AgentChatSessionSource)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var model = AgentChatModeModel()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -24,14 +25,27 @@ struct AgentChatModeView: View {
     @State private var isShowingNewSessionComposer = false
     @Environment(\.scenePhase) private var scenePhase
 
+    init(
+        store: CMUXMobileShellStore,
+        source: (any AgentChatSessionSource)? = nil
+    ) {
+        self._store = Bindable(store)
+        self.injectedSource = source
+        _model = State(initialValue: AgentChatModeModel(source: source))
+    }
+
+    private var isConnected: Bool {
+        if injectedSource != nil { return model.connectionState == .connected }
+        return store.connectionState == .connected && model.connectionState == .connected
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             AgentChatSidebar(
                 model: model,
                 searchText: $searchText,
                 isLoading: isLoading,
-                isConnected: store.connectionState == .connected
-                    && model.connectionState == .connected,
+                isConnected: isConnected,
                 selectSession: selectSession,
                 showNewSessionComposer: { isShowingNewSessionComposer = true },
                 refresh: { await refresh() }
@@ -43,8 +57,7 @@ struct AgentChatModeView: View {
                 store: store,
                 model: model,
                 isLoading: isLoading,
-                isConnected: store.connectionState == .connected
-                    && model.connectionState == .connected,
+                isConnected: isConnected,
                 showSidebar: { columnVisibility = .all },
                 refresh: { await refresh() }
             )
@@ -109,7 +122,7 @@ struct AgentChatModeView: View {
 
     private func updateSourceAndRefresh() async {
         isLoading = true
-        model.updateSource(store.makeChatEventSource())
+        model.updateSource(injectedSource ?? store.makeChatEventSource())
         await model.refresh()
         isLoading = false
     }

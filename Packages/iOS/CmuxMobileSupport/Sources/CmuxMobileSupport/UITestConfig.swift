@@ -306,6 +306,17 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the production Agent Chat surface should run against its
+    /// deterministic typed-source fixture. This bypasses auth and pairing but
+    /// keeps the actual sidebar, transcript cards, composer, and navigation.
+    public static var agentChatPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the UI-test harness should auto-open the first workspace.
     ///
     /// When `CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`, the root view pushes the

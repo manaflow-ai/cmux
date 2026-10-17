@@ -162,3 +162,57 @@ final class SnapshotUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.5)
     }
 }
+
+/// Exercises the real Agent Chat navigation and cards against the DEBUG-only
+/// typed source fixture. This is intentionally separate from the App Store
+/// capture method: the screenshot lane remains deterministic while the normal
+/// iPhone UI lane verifies the interactive surface.
+final class AgentChatModeUITests: XCTestCase {
+    @MainActor
+    func testAgentChatPreviewRendersProvidersCardsAndComposer() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["Implement the authentication flow"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Claude wants to run"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Allow once"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Local development"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileAgentComposer"].exists)
+
+        app.buttons["Allow once"].tap()
+        XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
+
+        let search = app.searchFields["Search sessions"]
+        XCTAssertTrue(search.exists)
+        search.tap()
+        search.typeText("networking")
+        XCTAssertTrue(app.staticTexts["Review the networking changes"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testAgentChatPreviewCanSwitchProviderAndSendPrompt() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
+        let codex = app.staticTexts["Review the networking changes"]
+        XCTAssertTrue(codex.waitForExistence(timeout: 8))
+        codex.tap()
+        XCTAssertTrue(app.staticTexts["Review the networking changes and summarize risks."].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Sources/Network/RetryPolicy.swift"].waitForExistence(timeout: 8))
+
+        let composer = app.textFields["Message your agent"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        composer.tap()
+        composer.typeText("Show the failing test")
+        app.buttons["Send"].tap()
+        XCTAssertTrue(app.staticTexts["Show the failing test"].waitForExistence(timeout: 5))
+    }
+}
