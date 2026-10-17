@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import SwiftUI
+import UIKit
 
 /// A focused transcript view with a native multiline composer.
 struct MobileChatConversationView: View {
@@ -21,6 +22,30 @@ struct MobileChatConversationView: View {
                             workingDirectory: session.workingDirectory,
                             state: sessionState
                         )
+                    }
+                    if model.hasMoreHistory(for: sessionID) {
+                        Button {
+                            model.loadOlderHistory(sessionID: sessionID)
+                        } label: {
+                            HStack(spacing: 7) {
+                                if model.isLoadingOlderHistory(for: sessionID) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(
+                                    model.isLoadingOlderHistory(for: sessionID)
+                                        ? "Loading earlier messages…"
+                                        : "Show earlier messages"
+                                )
+                                .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.isLoadingOlderHistory(for: sessionID))
+                        .accessibilityIdentifier("MobileChatLoadEarlier")
                     }
                     if model.loadingSessionIDs.contains(sessionID) && model.messages(for: sessionID).isEmpty {
                         ProgressView("Loading conversation…")
@@ -46,10 +71,10 @@ struct MobileChatConversationView: View {
                 .padding(.vertical, 20)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.messages(for: sessionID).last?.id) { _, messageID in
-                guard let messageID else { return }
+            .onChange(of: model.messages(for: sessionID).last) { _, message in
+                guard let message else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(messageID, anchor: .bottom)
+                    proxy.scrollTo(message.id, anchor: .bottom)
                 }
             }
         }
@@ -85,13 +110,17 @@ struct MobileChatConversationView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     Menu {
-                        Button("Copy conversation", systemImage: "doc.on.doc") { }
+                        Button("Copy conversation", systemImage: "doc.on.doc") {
+                            UIPasteboard.general.string = model.copyText(for: sessionID)
+                        }
+                        .accessibilityIdentifier("MobileChatCopyConversation")
                         Button("Choose computer", systemImage: "desktopcomputer") { onMenu() }
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.body.weight(.semibold))
                             .frame(width: 28, height: 28)
                     }
+                    .accessibilityIdentifier("MobileChatConversationMenu")
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(provider.map { "\($0.title), \(sessionState.displayName)" } ?? "Chat")

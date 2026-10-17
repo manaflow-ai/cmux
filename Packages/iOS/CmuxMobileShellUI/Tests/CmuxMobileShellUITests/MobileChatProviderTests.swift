@@ -21,6 +21,8 @@ struct MobileChatProviderTests {
         #expect(providers.contains(.claude))
         #expect(providers.contains(.openCode))
         #expect(model.messages(for: "preview-codex").count == 3)
+        #expect(model.copyText(for: "preview-codex").contains("existing shell entry point"))
+        #expect(!model.hasMoreHistory(for: "preview-codex"))
     }
 
     @Test("does not relabel unknown agents as OpenCode")

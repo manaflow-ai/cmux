@@ -14,17 +14,24 @@ final class MobileChatHomeModel {
     private(set) var isLoadingSessions = false
     private(set) var loadingSessionIDs: Set<String> = []
     private(set) var activeComputerID: String?
+    private(set) var hasMoreHistoryBySessionID: [String: Bool] = [:]
+    private(set) var loadingOlderHistorySessionIDs: Set<String> = []
 
     private var source: MobileChatEventSource?
     private var sessionEventsTask: Task<Void, Never>?
     private var conversationTasks: [String: Task<Void, Never>] = [:]
+    private var historyTasks: [String: Task<Void, Never>] = [:]
     private var openSessionIDs: Set<String> = []
     private var pendingLocalMessages: [String: [ChatMessage]] = [:]
+    private var bufferedEventsBySessionID: [String: [ChatSessionEvent]] = [:]
+    private var hydratingSessionIDs: Set<String> = []
+    private var sessionVersions: [String: Int] = [:]
     private var refreshGeneration = UUID()
 
     isolated deinit {
         sessionEventsTask?.cancel()
         conversationTasks.values.forEach { $0.cancel() }
+        historyTasks.values.forEach { $0.cancel() }
     }
 
     /// Loads the current Mac's chat roster and starts the roster event stream.
@@ -37,13 +44,23 @@ final class MobileChatHomeModel {
             messagesBySessionID.removeAll()
             streamingMessageBySessionID.removeAll()
             pendingLocalMessages.removeAll()
+            hasMoreHistoryBySessionID.removeAll()
             loadingSessionIDs.removeAll()
+            loadingOlderHistorySessionIDs.removeAll()
+            bufferedEventsBySessionID.removeAll()
+            hydratingSessionIDs.removeAll()
+            sessionVersions.removeAll()
             self.activeComputerID = targetComputerID
         }
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
         conversationTasks.values.forEach { $0.cancel() }
         conversationTasks.removeAll()
+        historyTasks.values.forEach { $0.cancel() }
+        historyTasks.removeAll()
+        loadingOlderHistorySessionIDs.removeAll()
+        bufferedEventsBySessionID.removeAll()
+        hydratingSessionIDs.removeAll()
         source = nil
         guard let nextSource = store.makeChatEventSource() else {
             guard refreshGeneration == generation else { return }
@@ -62,6 +79,12 @@ final class MobileChatHomeModel {
             source = nextSource
             activeComputerID = targetComputerID
             sessions = Self.sortedSessions(loaded.filter(Self.isSupported))
+            sessionVersions = Dictionary(
+                uniqueKeysWithValues: sessions.map { ($0.id, $0.version) }
+            )
+            hasMoreHistoryBySessionID = Dictionary(
+                uniqueKeysWithValues: sessions.map { ($0.id, false) }
+            )
             errorMessage = nil
             startSessionEvents(from: nextSource, generation: generation)
             for sessionID in openSessionIDs {
@@ -86,7 +109,12 @@ final class MobileChatHomeModel {
         openSessionIDs.insert(sessionID)
         guard let source else { return }
         conversationTasks[sessionID]?.cancel()
+        historyTasks[sessionID]?.cancel()
         loadingSessionIDs.insert(sessionID)
+        loadingOlderHistorySessionIDs.remove(sessionID)
+        hasMoreHistoryBySessionID[sessionID] = false
+        bufferedEventsBySessionID[sessionID] = []
+        hydratingSessionIDs.insert(sessionID)
         conversationTasks[sessionID] = Task { [weak self] in
             do {
                 // Register the live stream before taking the snapshot. The
@@ -97,7 +125,7 @@ final class MobileChatHomeModel {
                     for await event in events {
                         guard !Task.isCancelled,
                               self?.refreshGeneration == generation else { return }
-                        self?.apply(event, to: sessionID)
+                        self?.receive(event, for: sessionID, generation: generation)
                     }
                 }
                 defer { eventTask.cancel() }
@@ -115,6 +143,12 @@ final class MobileChatHomeModel {
                         serverMessages: page.messages,
                         localMessages: existing + local
                     )
+                    self.hasMoreHistoryBySessionID[sessionID] = page.hasMore
+                    self.hydratingSessionIDs.remove(sessionID)
+                    let buffered = self.bufferedEventsBySessionID.removeValue(forKey: sessionID) ?? []
+                    for event in buffered {
+                        self.apply(event, to: sessionID)
+                    }
                 }
                 self?.loadingSessionIDs.remove(sessionID)
                 await eventTask.value
@@ -122,6 +156,8 @@ final class MobileChatHomeModel {
                 return
             } catch {
                 guard !Task.isCancelled, self?.refreshGeneration == generation else { return }
+                self?.hydratingSessionIDs.remove(sessionID)
+                self?.bufferedEventsBySessionID.removeValue(forKey: sessionID)
                 self?.loadingSessionIDs.remove(sessionID)
                 self?.errorMessage = "This chat could not be opened."
             }
@@ -133,7 +169,65 @@ final class MobileChatHomeModel {
         openSessionIDs.remove(sessionID)
         conversationTasks[sessionID]?.cancel()
         conversationTasks[sessionID] = nil
+        historyTasks[sessionID]?.cancel()
+        historyTasks[sessionID] = nil
+        bufferedEventsBySessionID[sessionID] = nil
+        hydratingSessionIDs.remove(sessionID)
+        loadingOlderHistorySessionIDs.remove(sessionID)
         streamingMessageBySessionID[sessionID] = nil
+    }
+
+    /// Loads an older page for an open conversation. The live stream remains
+    /// active while the page is fetched, so new messages cannot be displaced
+    /// by the older snapshot.
+    func loadOlderHistory(sessionID: String) {
+        guard let source,
+              hasMoreHistoryBySessionID[sessionID] == true,
+              !loadingOlderHistorySessionIDs.contains(sessionID),
+              let firstSeq = messagesBySessionID[sessionID]?.map(\.seq).min()
+        else { return }
+
+        let generation = refreshGeneration
+        loadingOlderHistorySessionIDs.insert(sessionID)
+        historyTasks[sessionID]?.cancel()
+        historyTasks[sessionID] = Task { [weak self] in
+            do {
+                let page = try await source.history(
+                    sessionID: sessionID,
+                    beforeSeq: firstSeq,
+                    limit: 200
+                )
+                guard !Task.isCancelled,
+                      let self,
+                      self.refreshGeneration == generation,
+                      self.openSessionIDs.contains(sessionID)
+                else { return }
+                let current = self.messagesBySessionID[sessionID, default: []]
+                let local = self.pendingLocalMessages[sessionID, default: []]
+                self.messagesBySessionID[sessionID] = Self.mergedMessages(
+                    serverMessages: page.messages,
+                    localMessages: current + local
+                )
+                self.hasMoreHistoryBySessionID[sessionID] = page.hasMore
+                self.loadingOlderHistorySessionIDs.remove(sessionID)
+                self.historyTasks[sessionID] = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self, self.refreshGeneration == generation else { return }
+                self.loadingOlderHistorySessionIDs.remove(sessionID)
+                self.historyTasks[sessionID] = nil
+                self.errorMessage = "Earlier messages could not be loaded."
+            }
+        }
+    }
+
+    func hasMoreHistory(for sessionID: String) -> Bool {
+        hasMoreHistoryBySessionID[sessionID] == true
+    }
+
+    func isLoadingOlderHistory(for sessionID: String) -> Bool {
+        loadingOlderHistorySessionIDs.contains(sessionID)
     }
 
     /// Sends a prompt to an existing agent session.
@@ -142,13 +236,20 @@ final class MobileChatHomeModel {
             errorMessage = "Connect a computer before sending a message."
             return false
         }
+        guard let session = sessions.first(where: { $0.id == sessionID }),
+              session.state != .ended
+        else {
+            errorMessage = "This chat has ended. Start a new chat to continue."
+            return false
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
+        let optimisticMessageID = "local-\(UUID().uuidString)"
         var transcript = messagesBySessionID[sessionID, default: []]
         let nextSeq = transcript.map(\.seq).max().map { $0 + 1 } ?? 0
         transcript.append(ChatMessage(
-            id: "local-\(UUID().uuidString)",
+            id: optimisticMessageID,
             seq: nextSeq,
             role: .user,
             timestamp: Date(),
@@ -156,6 +257,9 @@ final class MobileChatHomeModel {
         ))
         messagesBySessionID[sessionID] = transcript
         pendingLocalMessages[sessionID, default: []].append(transcript.last!)
+        updateSession(id: sessionID) { descriptor in
+            descriptor.withState(.working(since: Date()), lastActivityAt: Date())
+        }
         do {
             try await source.send(text: trimmed, attachments: [], sessionID: sessionID)
             errorMessage = nil
@@ -163,6 +267,14 @@ final class MobileChatHomeModel {
         } catch is CancellationError {
             return false
         } catch {
+            // A failed request must not leave a prompt that never reached the
+            // Mac in the transcript. If a server echo already reconciled it,
+            // the optimistic row has been replaced and this removal is a no-op.
+            messagesBySessionID[sessionID]?.removeAll { $0.id == optimisticMessageID }
+            pendingLocalMessages[sessionID]?.removeAll { $0.id == optimisticMessageID }
+            updateSession(id: sessionID) { descriptor in
+                descriptor.withState(session.state, lastActivityAt: session.lastActivityAt)
+            }
             errorMessage = "Your message could not be sent."
             return false
         }
@@ -209,6 +321,37 @@ final class MobileChatHomeModel {
         return nil
     }
 
+    /// Produces a readable plain-text transcript for the conversation menu's
+    /// copy action. Structured rows keep their useful identifying details
+    /// instead of disappearing from the exported transcript.
+    func copyText(for sessionID: String) -> String {
+        messages(for: sessionID).compactMap { message in
+            switch message.kind {
+            case .prose(let prose):
+                prose.text
+            case .thought(let thought):
+                "[Thought]\n\(thought.text)"
+            case .toolUse(let tool):
+                "[\(tool.toolName)] \(tool.summary)"
+            case .terminal(let terminal):
+                terminal.output.map { "$ \(terminal.command)\n\($0)" } ?? "$ \(terminal.command)"
+            case .fileEdit(let edit):
+                "[\(edit.operation)] \(edit.filePath)"
+            case .permissionRequest(let request):
+                "[Permission] \(request.title) \(request.subject)"
+            case .question(let question):
+                "[Question] \(question.prompt)"
+            case .status(let status):
+                "[Status] \(status.detail ?? status.event.rawValue)"
+            case .attachment(let attachment):
+                "[Attachment] \(attachment.displayName ?? "Attachment")"
+            case .unsupported(let payload):
+                "[Unsupported message: \(payload.rawType)]"
+            }
+        }
+        .joined(separator: "\n\n")
+    }
+
     /// Seeds the deterministic UI preview without touching a transport.
     func loadPreview() {
         let now = Date()
@@ -237,6 +380,15 @@ final class MobileChatHomeModel {
         ]
         messagesBySessionID = ["preview-codex": Self.previewMessages(now: now)]
         streamingMessageBySessionID = [:]
+        sessionVersions = Dictionary(
+            uniqueKeysWithValues: sessions.map { ($0.id, $0.version) }
+        )
+        hasMoreHistoryBySessionID = Dictionary(
+            uniqueKeysWithValues: sessions.map { ($0.id, false) }
+        )
+        loadingOlderHistorySessionIDs = []
+        bufferedEventsBySessionID = [:]
+        hydratingSessionIDs = []
         errorMessage = nil
         isLoadingSessions = false
     }
@@ -247,8 +399,21 @@ final class MobileChatHomeModel {
             for await frame in events {
                 guard !Task.isCancelled,
                       self?.refreshGeneration == generation else { return }
-                self?.apply(frame.event, to: frame.sessionID)
+                self?.receive(frame.event, for: frame.sessionID, generation: generation)
             }
+        }
+    }
+
+    private func receive(
+        _ event: ChatSessionEvent,
+        for sessionID: String,
+        generation: UUID
+    ) {
+        guard refreshGeneration == generation else { return }
+        if hydratingSessionIDs.contains(sessionID) {
+            bufferedEventsBySessionID[sessionID, default: []].append(event)
+        } else {
+            apply(event, to: sessionID)
         }
     }
 
@@ -281,11 +446,17 @@ final class MobileChatHomeModel {
                 descriptor.withState(state, lastActivityAt: Date())
             }
         case .descriptorChanged(let descriptor):
+            guard descriptor.version >= sessionVersions[sessionID, default: 0] else { return }
+            sessionVersions[sessionID] = descriptor.version
             upsertSession(descriptor)
-        case .sessionRemoved:
+        case .sessionRemoved(let version):
+            guard version >= sessionVersions[sessionID, default: 0] else { return }
+            sessionVersions[sessionID] = version
             sessions.removeAll { $0.id == sessionID }
             messagesBySessionID[sessionID] = nil
             streamingMessageBySessionID[sessionID] = nil
+            pendingLocalMessages[sessionID] = nil
+            hasMoreHistoryBySessionID[sessionID] = nil
         case .reset:
             messagesBySessionID[sessionID] = []
             streamingMessageBySessionID[sessionID] = nil
@@ -300,10 +471,15 @@ final class MobileChatHomeModel {
             sessions.removeAll { $0.id == descriptor.id }
             return
         }
+        guard descriptor.version >= sessionVersions[descriptor.id, default: 0] else { return }
+        sessionVersions[descriptor.id] = descriptor.version
         if let index = sessions.firstIndex(where: { $0.id == descriptor.id }) {
             sessions[index] = descriptor
         } else {
             sessions.append(descriptor)
+        }
+        if hasMoreHistoryBySessionID[descriptor.id] == nil {
+            hasMoreHistoryBySessionID[descriptor.id] = false
         }
         sessions = Self.sortedSessions(sessions)
     }
