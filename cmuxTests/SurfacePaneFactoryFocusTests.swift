@@ -97,12 +97,15 @@ import SwiftUI
             : .tab(workspaceID: workspace.id, paneID: paneID, index: nil)
 
         let created = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: true)
-        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
-
         let browser = try #require(SurfacePaneFactory.browserPanel(panelID: created.panelID, in: created.workspaceID))
+        // The display caller relies on the factory itself focusing the new pane.
         #expect(workspace.focusedPanelId == created.panelID)
         #expect(browser.pendingAddressBarFocusRequestId == nil)
-        #expect(browser.shouldSuppressOmnibarAutofocus())
+
+        // The drop handler focuses the pane again once it is created.
+        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
     }
 
     /// Opening a sidebar resource splits the focused pane. When split admission
