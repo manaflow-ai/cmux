@@ -146,13 +146,15 @@ struct AgentChatPermissionCardsTests {
             hookEventName: .askUserQuestion,
             source: "opencode",
             toolName: "question",
-            toolInputJSON: #"{"questions":[{"id":"q1","question":"Which file?","options":[{"id":"a","label":"README"},{"id":"b","label":"Source"}]}]}"#,
+            toolInputJSON: #"{"questions":[{"id":"q1","question":"Which file?","options":[{"id":"a","label":"README"},{"id":"b","label":"Source"}]},{"id":"q2","question":"Which mode?","options":[{"id":"r","label":"Read"},{"id":"w","label":"Write"}]}]}"#,
             requestId: "opencode-question-1",
             receivedAt: Date(timeIntervalSince1970: 200)
         ))
 
         let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
         let message = try #require(page.messages.first)
+        let secondMessage = try #require(page.messages.dropFirst().first)
+        #expect(page.messages.count == 2)
         guard case .question(let question) = message.kind else {
             Issue.record("Expected an OpenCode question card")
             return
@@ -160,17 +162,25 @@ struct AgentChatPermissionCardsTests {
         #expect(question.prompt == "Which file?")
         #expect(question.options.map(\.label) == ["README", "Source"])
 
-        let answer = try #require(service.feedAnswer(
+        let firstAnswer = try #require(service.feedAnswer(
             sessionID: sessionID,
             messageID: message.id,
             optionIndex: 1
         ))
+        #expect(firstAnswer.requestID == "opencode-question-1")
+        #expect(firstAnswer.decision == nil)
+        let answer = try #require(service.feedAnswer(
+            sessionID: sessionID,
+            messageID: secondMessage.id,
+            optionIndex: 1
+        ))
         #expect(answer.requestID == "opencode-question-1")
-        guard case .question(let selections) = answer.decision else {
+        guard let decision = answer.decision,
+              case .question(let selections) = decision else {
             Issue.record("Expected a question decision")
             return
         }
-        #expect(selections == ["Source"])
+        #expect(selections == ["Source", "Write"])
         let resolvedPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
         guard case .question(let resolved) = try #require(resolvedPage.messages.first?.kind) else {
             Issue.record("Expected resolved question card")

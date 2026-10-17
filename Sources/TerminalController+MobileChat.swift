@@ -394,10 +394,12 @@ extension TerminalController {
             // the authoritative answer path; these agents do not need a
             // terminal digit injection to accept the decision. The service
             // also resolves the exact synthetic card before returning.
-            FeedCoordinator.shared.deliverReply(
-                requestId: answer.requestID,
-                decision: answer.decision
-            )
+            if let decision = answer.decision {
+                FeedCoordinator.shared.deliverReply(
+                    requestId: answer.requestID,
+                    decision: decision
+                )
+            }
             return .ok(["answered": true, "option_index": optionIndex])
         }
         // Native terminal pickers accept single-digit option keys. Feed cards

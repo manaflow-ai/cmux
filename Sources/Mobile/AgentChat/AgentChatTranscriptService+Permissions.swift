@@ -73,70 +73,94 @@ extension AgentChatTranscriptService {
             return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         } ?? [:]
         let answerKind: FeedAnswerKind = event.hookEventName == .exitPlanMode ? .exitPlan : .question
-        let parsed = questionPayload(input: input, answerKind: answerKind)
+        let parsed = questionPayloads(input: input, answerKind: answerKind)
         let fingerprint = rawRequestID.map { "request:\($0)" }
             ?? "fingerprint:\(event.toolName ?? "question"):" + (event.toolInputJSON ?? "")
         var records = questionRecordsBySessionID[sessionID, default: [:]]
         guard !records.values.contains(where: {
             $0.selectedOptionLabel == nil
-                && ($0.identity == fingerprint
+                && ($0.groupID == fingerprint
+                    || $0.identity == fingerprint
                     || (rawRequestID != nil && $0.rawRequestID == rawRequestID))
         }) else { return }
-        let ordinal = nextPermissionOrdinalBySessionID[sessionID, default: 0]
-        nextPermissionOrdinalBySessionID[sessionID] = ordinal + 1
-        let identity = records[fingerprint] == nil ? fingerprint : "\(fingerprint):\(ordinal)"
-        let record = QuestionRecord(
-            identity: identity,
-            rawRequestID: rawRequestID,
-            messageID: "question:\(sessionID):\(identity)",
-            seq: 1_000_000_000 + ordinal,
-            timestamp: event.receivedAt,
-            prompt: parsed.prompt,
-            options: parsed.options,
-            answerKind: answerKind,
-            selectedOptionLabel: nil
-        )
-        records[identity] = record
+        let groupID = fingerprint
+        let questionCount = parsed.count
+        var messages: [ChatMessage] = []
+        for (questionIndex, question) in parsed.enumerated() {
+            let ordinal = nextPermissionOrdinalBySessionID[sessionID, default: 0]
+            nextPermissionOrdinalBySessionID[sessionID] = ordinal + 1
+            let identity = "\(fingerprint):q\(questionIndex)"
+            let record = QuestionRecord(
+                identity: identity,
+                groupID: groupID,
+                questionIndex: questionIndex,
+                questionCount: questionCount,
+                questionID: question.id,
+                rawRequestID: rawRequestID,
+                messageID: "question:\(sessionID):\(identity)",
+                seq: 1_000_000_000 + ordinal,
+                timestamp: event.receivedAt,
+                prompt: question.prompt,
+                options: question.options,
+                answerKind: answerKind,
+                selectedOptionLabel: nil
+            )
+            records[identity] = record
+            messages.append(record.message)
+        }
         questionRecordsBySessionID[sessionID] = records
         guard chatEventsAreSubscribed else { return }
-        emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .appended([record.message])))
+        emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .appended(messages)))
         _ = agentKind
     }
 
-    private func questionPayload(
+    private struct ParsedQuestion {
+        let id: String?
+        let prompt: String
+        let options: [ChatQuestion.Option]
+    }
+
+    private func questionPayloads(
         input: [String: Any],
         answerKind: FeedAnswerKind
-    ) -> (prompt: String, options: [ChatQuestion.Option]) {
+    ) -> [ParsedQuestion] {
         if case .exitPlan = answerKind {
             let prompt = (input["question"] as? String)
                 ?? (input["plan"] as? String)
                 ?? "Review the plan before continuing"
-            return (
-                prompt,
-                [ChatQuestion.Option(label: "Approve plan"), ChatQuestion.Option(label: "Reject plan")]
-            )
+            return [ParsedQuestion(
+                id: nil,
+                prompt: prompt,
+                options: [ChatQuestion.Option(label: "Approve plan"), ChatQuestion.Option(label: "Reject plan")]
+            )]
         }
         let questions = input["questions"] as? [[String: Any]] ?? []
-        let question = questions.first ?? input
-        let prompt = (question["question"] as? String)
-            ?? (question["prompt"] as? String)
-            ?? (question["label"] as? String)
-            ?? "The agent is waiting for an answer"
-        let options = (question["options"] as? [Any] ?? []).enumerated().compactMap { index, raw -> ChatQuestion.Option? in
-            if let label = raw as? String, !label.isEmpty {
-                return ChatQuestion.Option(label: label)
+        let source = questions.isEmpty ? [input] : questions
+        return source.enumerated().map { questionIndex, question in
+            let prompt = (question["question"] as? String)
+                ?? (question["prompt"] as? String)
+                ?? (question["label"] as? String)
+                ?? "The agent is waiting for an answer"
+            let options = (question["options"] as? [Any] ?? []).enumerated().compactMap { index, raw -> ChatQuestion.Option? in
+                if let label = raw as? String, !label.isEmpty {
+                    return ChatQuestion.Option(label: label)
+                }
+                guard let option = raw as? [String: Any] else { return nil }
+                let label = (option["label"] as? String)
+                    ?? (option["title"] as? String)
+                    ?? (option["value"] as? String)
+                    ?? "Option \(index + 1)"
+                return ChatQuestion.Option(
+                    label: label,
+                    detail: (option["description"] as? String) ?? (option["detail"] as? String)
+                )
             }
-            guard let option = raw as? [String: Any] else { return nil }
-            let label = (option["label"] as? String)
-                ?? (option["title"] as? String)
-                ?? (option["value"] as? String)
-                ?? "Option \(index + 1)"
-            return ChatQuestion.Option(
-                label: label,
-                detail: (option["description"] as? String) ?? (option["detail"] as? String)
+            return ParsedQuestion(
+                id: question["id"] as? String ?? question["key"] as? String ?? "q\(questionIndex)",
+                prompt: prompt,
+                options: options.isEmpty ? [ChatQuestion.Option(label: "Continue")] : options
             )
         }
-        return (prompt, options.isEmpty ? [ChatQuestion.Option(label: "Continue")] : options)
     }
 
     /// Marks a card resolved after the terminal answer was accepted. The
@@ -246,7 +270,7 @@ extension AgentChatTranscriptService {
         sessionID: String,
         messageID: String,
         optionIndex: Int
-    ) -> (requestID: String, decision: WorkstreamDecision)? {
+    ) -> (requestID: String, decision: WorkstreamDecision?)? {
         guard optionIndex >= 0,
               let request = feedAnswerRequest(sessionID: sessionID, messageID: messageID) else {
             return nil
@@ -263,15 +287,24 @@ extension AgentChatTranscriptService {
             return (request.requestID, decision)
         case .question:
             guard request.optionLabels.indices.contains(optionIndex) else { return nil }
-            let decision: WorkstreamDecision = .question(
-                selections: [request.optionLabels[optionIndex]]
-            )
+            let groupID = questionRecordsBySessionID[sessionID]?.values.first {
+                $0.messageID == messageID
+            }?.groupID
             guard resolveQuestion(
                 sessionID: sessionID,
                 messageID: messageID,
                 optionIndex: optionIndex
             ) else { return nil }
-            return (request.requestID, decision)
+            let group = questionRecordsBySessionID[sessionID, default: [:]].values
+                .filter { $0.groupID == groupID }
+                .sorted { $0.questionIndex < $1.questionIndex }
+            guard group.allSatisfy({ $0.selectedOptionLabel != nil }) else {
+                return (request.requestID, nil)
+            }
+            return (
+                request.requestID,
+                .question(selections: group.compactMap(\.selectedOptionLabel))
+            )
         case .exitPlan:
             guard request.optionLabels.indices.contains(optionIndex) else { return nil }
             let decision: WorkstreamDecision = .exitPlan(

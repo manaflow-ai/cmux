@@ -66,6 +66,10 @@ final class AgentChatTranscriptService {
     }
     struct QuestionRecord {
         let identity: String
+        let groupID: String
+        let questionIndex: Int
+        let questionCount: Int
+        let questionID: String?
         let rawRequestID: String?
         let messageID: String
         let seq: Int
@@ -84,7 +88,8 @@ final class AgentChatTranscriptService {
                 kind: .question(ChatQuestion(
                     prompt: prompt,
                     options: options,
-                    selectedOptionLabel: selectedOptionLabel
+                    selectedOptionLabel: selectedOptionLabel,
+                    questionID: questionID
                 ))
             )
         }

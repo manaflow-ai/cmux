@@ -424,48 +424,57 @@ public actor AgentChatTranscriptTailer {
                 OpaquePointer(bitPattern: -1),
                 to: sqlite3_destructor_type.self
             )
-            if sqlite3_bind_text(statement, 1, querySessionID, -1, transient) == SQLITE_OK {
-                var partOrdinalByMessageID: [String: Int] = [:]
-                var stepResult = sqlite3_step(statement)
-                while stepResult == SQLITE_ROW {
-                    if let messageID = sqliteText(statement, 0) {
-                        let messageObject = jsonObject(sqliteText(statement, 1))
-                        let messageRole = openCodeRole(messageObject?["role"] as? String)
-                        let messageTimestamp = openCodeTimestamp(
-                            object: messageObject,
-                            sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 4) : nil
-                        ) ?? Date(timeIntervalSince1970: 0)
-                        let partID = sqliteText(statement, 2)
-                        let partObject = jsonObject(sqliteText(statement, 3))
-                        let ordinal = partOrdinalByMessageID[messageID, default: 0]
-                        partOrdinalByMessageID[messageID] = ordinal + 1
-                        let baseID = "opencode:\(partID ?? "\(messageID)#part-\(ordinal)")"
-                        if let partObject {
-                            drafts.append(contentsOf: openCodeDrafts(
-                                partObject,
-                                baseID: baseID,
-                                role: messageRole,
-                                timestamp: openCodeTimestamp(
-                                    object: partObject,
-                                    sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 5) : nil
-                                ) ?? messageTimestamp
-                            ))
-                        } else {
-                            // A message without a `part` row is unusual, but retaining it
-                            // keeps the transcript inspectable during schema migrations.
-                            drafts.append(OpenCodeDraft(
-                                id: "opencode:\(messageID)",
-                                role: messageRole,
-                                timestamp: messageTimestamp,
-                                kind: .unsupported(ChatUnsupportedPayload(rawType: "opencode.message"))
-                            ))
-                        }
+            guard sqlite3_bind_text(statement, 1, querySessionID, -1, transient) == SQLITE_OK else {
+                // A busy/closed connection can make binding fail while the
+                // agent is replacing or checkpointing its database. Treat
+                // that read as unavailable so the caller keeps its current
+                // transcript and retries on the next invalidation.
+                return nil
+            }
+            var partOrdinalByMessageID: [String: Int] = [:]
+            var stepResult = sqlite3_step(statement)
+            while stepResult == SQLITE_ROW {
+                if let messageID = sqliteText(statement, 0) {
+                    let messageObject = jsonObject(sqliteText(statement, 1))
+                    let messageRole = openCodeRole(messageObject?["role"] as? String)
+                    let messageTimestamp = openCodeTimestamp(
+                        object: messageObject,
+                        sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 4) : nil
+                    ) ?? Date(timeIntervalSince1970: 0)
+                    let partID = sqliteText(statement, 2)
+                    let partObject = jsonObject(sqliteText(statement, 3))
+                    let ordinal = partOrdinalByMessageID[messageID, default: 0]
+                    partOrdinalByMessageID[messageID] = ordinal + 1
+                    let baseID = "opencode:\(partID ?? "\(messageID)#part-\(ordinal)")"
+                    if let partObject {
+                        drafts.append(contentsOf: openCodeDrafts(
+                            partObject,
+                            baseID: baseID,
+                            role: messageRole,
+                            timestamp: openCodeTimestamp(
+                                object: partObject,
+                                sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 5) : nil
+                            ) ?? messageTimestamp
+                        ))
+                    } else {
+                        // A message without a `part` row is unusual, but retaining it
+                        // keeps the transcript inspectable during schema migrations.
+                        drafts.append(OpenCodeDraft(
+                            id: "opencode:\(messageID)",
+                            role: messageRole,
+                            timestamp: messageTimestamp,
+                            kind: .unsupported(ChatUnsupportedPayload(rawType: "opencode.message"))
+                        ))
                     }
-                    stepResult = sqlite3_step(statement)
                 }
-                if stepResult != SQLITE_DONE {
-                    drafts.removeAll()
-                }
+                stepResult = sqlite3_step(statement)
+            }
+            guard stepResult == SQLITE_DONE else {
+                // Do not turn a transient SQLITE_BUSY/IOERR into an empty
+                // transcript. `drainOpenCode` treats a non-nil empty result
+                // as a database replacement and would emit a destructive
+                // reset to the mobile client.
+                return nil
             }
         }
 
