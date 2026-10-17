@@ -145,13 +145,7 @@ test("the classic kind switch gives browser and agent contexts a directional han
   try {
     await act(async () =>
       root.render(
-        <NewTabPage
-          snapshot={noChat()}
-          initialKind="browser"
-          onSubmit={noop}
-          onOpenSession={noop}
-          onShowAll={noop}
-        />,
+        <NewTabPage snapshot={noChat()} initialKind="browser" onSubmit={noop} onOpenSession={noop} onShowAll={noop} />,
       ),
     );
     const row = host.querySelector<HTMLElement>(".acpmux-newtab-row")!;

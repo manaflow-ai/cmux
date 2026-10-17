@@ -833,152 +833,157 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-const RowFrame = React.memo(function RowFrame({
-  row,
-  kind,
-  joinsPrevious,
-  joinsNext,
-  index,
-  setSize,
-  top,
-  rowWidth,
-  expanded,
-  observer,
-  report,
-  enter,
-  onEntered,
-  active,
-  selected,
-  tabStop,
-  onFocus,
-  onRowKeyDown,
-  onCopyRow,
-  copyable,
-  children,
-}: {
-  row: AcpmuxRow;
-  kind: string;
-  /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
-  joinsPrevious: boolean;
-  /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
-  joinsNext: boolean;
-  index: number;
-  setSize: number;
-  top: number;
-  rowWidth: number;
-  expanded: boolean;
-  observer: ResizeObserver | undefined;
-  report: ReportDrawn;
-  /// The row arrived live: it enters with the shared motion on this, its first mount.
-  enter: boolean;
-  onEntered: (id: string) => void;
-  active: boolean;
-  selected: boolean;
-  tabStop: boolean;
-  onFocus: (id: string) => void;
-  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopyRow?: (id: string) => Promise<void>;
-  copyable: boolean;
-  contentType: unknown;
-  controls?: string;
-  onToggleActivity: (id: string) => void;
-  onOpenDiff?: OpenDiff;
-  githubRepository?: string;
-  children: React.ReactNode;
-}) {
-  acpmuxPerf.span("row.renders", 1);
-  const t = useT();
-  const ref = useRef<HTMLElement>(null);
-  const [entering] = useState(enter);
-  const [copied, setCopied] = useState(false);
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event), [index, onRowKeyDown]);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
-  useLayoutEffect(() => {
-    if (entering) onEntered(row.id);
-    // Only the first mount enters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node || !observer) return;
-    observer.observe(node);
-    return () => observer.unobserve(node);
-  }, [observer]);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (node)
-      report(
-        row.id,
-        row.version,
-        acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
-      );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
-  return (
-    <article
-      ref={ref}
-      id={rowDomId(row.id)}
-      data-row-id={row.id}
-      data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
-      data-transcript-active={active ? "true" : undefined}
-      data-transcript-selected={selected ? "true" : undefined}
-      aria-current={active ? "true" : undefined}
-      {...rowTabStop}
-      aria-label={speaker(kind, t)}
-      aria-posinset={index + 1}
-      aria-setsize={setSize}
-      style={{ transform: `translateY(${top}px)` }}
-      onFocus={() => onFocus(row.id)}
-    >
-      {copyable && (
-        <button
-          type="button"
-          className="acpmux-row__copy cv-iconbtn"
-          {...copyTabStop}
-          aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
-          onClick={async () => {
-            try {
-              await onCopyRow?.(row.id);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            } catch {
-              setCopied(false);
-            }
-          }}
-        >
-          <Copy />
-        </button>
-      )}
-      {children}
-    </article>
-  );
-}, (previous, next) =>
-  previous.row === next.row &&
-  previous.kind === next.kind &&
-  previous.joinsPrevious === next.joinsPrevious &&
-  previous.joinsNext === next.joinsNext &&
-  previous.index === next.index &&
-  previous.setSize === next.setSize &&
-  previous.top === next.top &&
-  previous.rowWidth === next.rowWidth &&
-  previous.expanded === next.expanded &&
-  previous.observer === next.observer &&
-  previous.report === next.report &&
-  previous.enter === next.enter &&
-  previous.onEntered === next.onEntered &&
-  previous.active === next.active &&
-  previous.selected === next.selected &&
-  previous.tabStop === next.tabStop &&
-  previous.onRowKeyDown === next.onRowKeyDown &&
-  previous.onCopyRow === next.onCopyRow &&
-  previous.copyable === next.copyable &&
-  previous.contentType === next.contentType &&
-  previous.controls === next.controls &&
-  previous.onToggleActivity === next.onToggleActivity &&
-  previous.onOpenDiff === next.onOpenDiff &&
-  previous.githubRepository === next.githubRepository,
+const RowFrame = React.memo(
+  function RowFrame({
+    row,
+    kind,
+    joinsPrevious,
+    joinsNext,
+    index,
+    setSize,
+    top,
+    rowWidth,
+    expanded,
+    observer,
+    report,
+    enter,
+    onEntered,
+    active,
+    selected,
+    tabStop,
+    onFocus,
+    onRowKeyDown,
+    onCopyRow,
+    copyable,
+    children,
+  }: {
+    row: AcpmuxRow;
+    kind: string;
+    /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
+    joinsPrevious: boolean;
+    /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
+    joinsNext: boolean;
+    index: number;
+    setSize: number;
+    top: number;
+    rowWidth: number;
+    expanded: boolean;
+    observer: ResizeObserver | undefined;
+    report: ReportDrawn;
+    /// The row arrived live: it enters with the shared motion on this, its first mount.
+    enter: boolean;
+    onEntered: (id: string) => void;
+    active: boolean;
+    selected: boolean;
+    tabStop: boolean;
+    onFocus: (id: string) => void;
+    onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+    onCopyRow?: (id: string) => Promise<void>;
+    copyable: boolean;
+    contentType: unknown;
+    controls?: string;
+    onToggleActivity: (id: string) => void;
+    onOpenDiff?: OpenDiff;
+    githubRepository?: string;
+    children: React.ReactNode;
+  }) {
+    acpmuxPerf.span("row.renders", 1);
+    const t = useT();
+    const ref = useRef<HTMLElement>(null);
+    const [entering] = useState(enter);
+    const [copied, setCopied] = useState(false);
+    const handleKeyDown = useCallback(
+      (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
+      [index, onRowKeyDown],
+    );
+    const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+    const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
+    useLayoutEffect(() => {
+      if (entering) onEntered(row.id);
+      // Only the first mount enters.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    useLayoutEffect(() => {
+      const node = ref.current;
+      if (!node || !observer) return;
+      observer.observe(node);
+      return () => observer.unobserve(node);
+    }, [observer]);
+    useLayoutEffect(() => {
+      const node = ref.current;
+      if (node)
+        report(
+          row.id,
+          row.version,
+          acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
+        );
+    }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+    return (
+      <article
+        ref={ref}
+        id={rowDomId(row.id)}
+        data-row-id={row.id}
+        data-row-card={row.ended ? "true" : undefined}
+        className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
+        data-transcript-active={active ? "true" : undefined}
+        data-transcript-selected={selected ? "true" : undefined}
+        aria-current={active ? "true" : undefined}
+        {...rowTabStop}
+        aria-label={speaker(kind, t)}
+        aria-posinset={index + 1}
+        aria-setsize={setSize}
+        style={{ transform: `translateY(${top}px)` }}
+        onFocus={() => onFocus(row.id)}
+      >
+        {copyable && (
+          <button
+            type="button"
+            className="acpmux-row__copy cv-iconbtn"
+            {...copyTabStop}
+            aria-label={copied ? t("turn.copied") : t("turn.copy")}
+            title={copied ? t("turn.copied") : t("turn.copy")}
+            onClick={async () => {
+              try {
+                await onCopyRow?.(row.id);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1200);
+              } catch {
+                setCopied(false);
+              }
+            }}
+          >
+            <Copy />
+          </button>
+        )}
+        {children}
+      </article>
+    );
+  },
+  (previous, next) =>
+    previous.row === next.row &&
+    previous.kind === next.kind &&
+    previous.joinsPrevious === next.joinsPrevious &&
+    previous.joinsNext === next.joinsNext &&
+    previous.index === next.index &&
+    previous.setSize === next.setSize &&
+    previous.top === next.top &&
+    previous.rowWidth === next.rowWidth &&
+    previous.expanded === next.expanded &&
+    previous.observer === next.observer &&
+    previous.report === next.report &&
+    previous.enter === next.enter &&
+    previous.onEntered === next.onEntered &&
+    previous.active === next.active &&
+    previous.selected === next.selected &&
+    previous.tabStop === next.tabStop &&
+    previous.onRowKeyDown === next.onRowKeyDown &&
+    previous.onCopyRow === next.onCopyRow &&
+    previous.copyable === next.copyable &&
+    previous.contentType === next.contentType &&
+    previous.controls === next.controls &&
+    previous.onToggleActivity === next.onToggleActivity &&
+    previous.onOpenDiff === next.onOpenDiff &&
+    previous.githubRepository === next.githubRepository,
 );
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.

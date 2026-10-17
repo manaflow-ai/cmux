@@ -95,9 +95,8 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
 test("link inspection bounds burst requests and coalesces store notifications", async () => {
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const { resetLinkStore, seedLinkStore, usePathInfo, useSiteInfo } = await import(
-    "../src/agent-session/acpmux/chips/linkStore",
-  );
+  const { resetLinkStore, seedLinkStore, usePathInfo, useSiteInfo } =
+    await import("../src/agent-session/acpmux/chips/linkStore");
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
