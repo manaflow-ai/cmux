@@ -11,12 +11,14 @@ private extension TerminalSurface {
     static let ptyInputTraceEnabled =
         ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1"
 
+    /// Logs one opt-in PTY input trace record in DEBUG builds.
     @inline(__always)
     func logPTYInputTrace(_ message: @autoclosure () -> String) {
         guard Self.ptyInputTraceEnabled else { return }
         logDebugEvent(message())
     }
 
+    /// Formats a Ghostty surface handle for diagnostic logging.
     @inline(__always)
     static func ghosttySurfacePointerDescription(_ surface: ghostty_surface_t?) -> String {
         guard let surface else { return "nil" }
@@ -199,6 +201,7 @@ extension TerminalSurface {
         return sendKeyText(text, to: liveSurface)
     }
 
+    /// Sends text as one synthetic key event through the live Ghostty surface.
     @MainActor
     private func sendKeyText(
         _ text: String,
@@ -701,6 +704,7 @@ extension TerminalSurface {
         canonicalKeyCharacter(keycode: keycode)?.unicodeScalars.first?.value
     }
 
+    /// Sends a named or synthetic key event through Ghostty.
     @MainActor
     func sendKeyEvent(
         surface: ghostty_surface_t,
@@ -798,6 +802,7 @@ extension TerminalSurface {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    /// Sends text bytes through Ghostty's text API.
     @MainActor
     func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
@@ -823,6 +828,7 @@ extension TerminalSurface {
 #endif
     }
 
+    /// Sends committed text bytes through Ghostty's text-input API.
     @MainActor
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
         TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)

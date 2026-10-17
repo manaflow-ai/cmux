@@ -3,6 +3,7 @@ import AppKit
 /// Adapts AppKit system-power notifications into main-actor lifecycle actions.
 @MainActor
 struct RemoteSessionPowerObserver {
+    /// Installs main-actor callbacks for system sleep and wake notifications.
     func install(
         in notificationCenter: NotificationCenter,
         onWillSleep: @escaping @MainActor () -> Void,
