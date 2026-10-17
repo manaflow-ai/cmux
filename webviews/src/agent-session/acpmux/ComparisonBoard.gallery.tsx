@@ -78,7 +78,6 @@ const baseComposerSnapshot: AcpmuxSnapshot = {
           name: "GPT-6.1 Sol",
           efforts: ["low", "medium", "high"],
           defaultEffort: "high",
-          fast: true,
           contextWindow: 200_000,
         },
       ],
@@ -110,15 +109,6 @@ const baseComposerSnapshot: AcpmuxSnapshot = {
           { value: "high", name: "High" },
         ],
       },
-      {
-        id: "fast-mode",
-        name: "Fast mode",
-        currentValue: "off",
-        options: [
-          { value: "off", name: "Off" },
-          { value: "on", name: "On" },
-        ],
-      },
     ],
   },
 };
@@ -147,7 +137,6 @@ function ComparisonBoard({
   const [effort, setEffort] = useState("high");
   const [model, setModel] = useState("gpt-6.1-sol");
   const [mode, setMode] = useState("default");
-  const [fast, setFast] = useState("off");
   const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
     { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
   ]);
@@ -179,7 +168,7 @@ function ComparisonBoard({
       modes: { ...baseComposerSnapshot.summary!.modes!, currentModeId: mode },
       configOptions: baseComposerSnapshot.summary!.configOptions!.map((option) => ({
         ...option,
-        currentValue: option.id === "effort" ? effort : option.id === "fast-mode" ? fast : option.currentValue,
+        currentValue: option.id === "effort" ? effort : option.currentValue,
       })),
     },
   };
@@ -293,7 +282,7 @@ function ComparisonBoard({
                     permissionAccess={permissionAccess}
                     onModel={setModel}
                     onMode={setMode}
-                    onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+                    onEffort={(_, value) => setEffort(value)}
                     showPlan
                   />
                 );
