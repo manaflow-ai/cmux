@@ -2349,6 +2349,11 @@ fn machine_ui_state(
                     name: machine.display_name.clone(),
                     subtitle: machine.subtitle.clone(),
                     status: machine_status(machine.status),
+                    platform: machine.platform.as_ref().map(|platform| MachinePlatform {
+                        os: platform.os.clone(),
+                        arch: platform.arch.clone(),
+                    }),
+                    capabilities: machine.capabilities.clone(),
                 })
             })
             .chain(
@@ -2366,6 +2371,8 @@ fn machine_ui_state(
                             name: machine.display_name.clone(),
                             subtitle: String::new(),
                             status: MachineStatus::Stopped,
+                            platform: None,
+                            capabilities: Vec::new(),
                         })
                     }),
             )
@@ -4669,6 +4676,8 @@ mod tests {
                 name: "Mini".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities { create: false, connect: true },
@@ -4703,6 +4712,8 @@ mod tests {
                 name: "Mini".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities::default(),
