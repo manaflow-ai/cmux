@@ -381,8 +381,7 @@ final class MobileChatStore {
                 streamingProse = nil
             }
         case .stateChanged(let state):
-            if let descriptor = reconciler.descriptor(for: sessionID) {
-                _ = reconciler.upsert(descriptor.withState(state))
+            if reconciler.apply(sessionID: sessionID, event: .stateChanged(state)) {
                 publishSessions()
             }
         case .descriptorChanged(let descriptor):
