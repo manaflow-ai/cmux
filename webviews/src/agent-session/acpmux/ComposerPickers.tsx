@@ -715,7 +715,6 @@ function PendingChip({
         type="button"
         className="acpmux-picker-button acpmux-access-trigger"
         aria-label={label}
-        title={label}
         disabled={typeof modeId !== "string" || onPick === undefined}
         onClick={() => {
           if (typeof modeId === "string") onPick?.(modeId);

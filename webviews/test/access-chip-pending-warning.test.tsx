@@ -205,7 +205,11 @@ test("a new chat acpmux starts in full access draws its warning chip on the firs
 
   // A new chat, before acpmux answers again: its kept answer, warning included.
   await fresh();
-  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  // The remembered mode is a live access menu while the new session is pending, so the person
+  // can change it before the harness answers. It is no longer an inert pending chip.
+  const pendingAccess = host.querySelector<HTMLButtonElement>(".acpmux-access-trigger");
+  expect(pendingAccess).not.toBeNull();
+  expect(pendingAccess?.disabled).toBe(false);
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
   await answer();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
