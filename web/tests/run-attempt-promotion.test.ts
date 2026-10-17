@@ -24,6 +24,10 @@ class MemoryPromotionStore implements AttemptPromotionStorePort {
   private readonly byAttempt = new Map<string, PromotionView>();
   private readonly pending = new Map<string, { userId: string; runId: string; attemptId: string }>();
 
+  async findByRequestKey(input: { userId: string; requestKey: string }): Promise<PromotionView | null> {
+    return this.byKey.get(`${input.userId}:${input.requestKey}`) ?? null;
+  }
+
   async reserve(input: { userId: string; runId: string; attemptId: string; requestKey: string }) {
     const key = `${input.userId}:${input.requestKey}`;
     const attempt = `${input.userId}:${input.runId}:${input.attemptId}`;
