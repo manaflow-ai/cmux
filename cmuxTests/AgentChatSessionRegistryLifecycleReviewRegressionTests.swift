@@ -480,6 +480,110 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
         })
     }
 
+    @MainActor
+    @Test("renamed sessions and controls survive service reconstruction")
+    func userMetadataSurvivesServiceReconstruction() throws {
+        let suiteName = "AgentChatTranscriptServiceMetadata.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sessionID = "persisted-agent-session"
+        let initial = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 500),
+            title: nil
+        )
+        let first = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(restoredRecords: [initial]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            metadataDefaults: defaults
+        )
+        defer { first.shutdown() }
+
+        #expect(first.renameSession(sessionID: sessionID, title: "  Release prep  "))
+        let controls = ChatSessionControls(
+            modelID: "gpt-5-codex",
+            reasoningEffortID: "high",
+            permissionMode: "ask",
+            sandboxMode: "workspace",
+            planMode: true,
+            modelOptions: [ChatSessionControlOption(id: "gpt-5-codex", displayName: "GPT-5 Codex")],
+            supportsPlanMode: true
+        )
+        let updated = first.updateSessionControls(sessionID: sessionID) { current in
+            current = controls
+        }
+        #expect(updated == controls)
+        #expect(first.sessionRecord(sessionID: sessionID)?.title == "Release prep")
+
+        let restored = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .codex,
+            workspaceID: initial.workspaceID,
+            surfaceID: initial.surfaceID,
+            state: .idle,
+            lastActivityAt: initial.lastActivityAt,
+            title: nil
+        )
+        let second = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(restoredRecords: [restored]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            metadataDefaults: defaults
+        )
+        defer { second.shutdown() }
+
+        let recovered = try #require(second.sessionRecord(sessionID: sessionID))
+        #expect(recovered.title == "Release prep")
+        #expect(recovered.controls == controls)
+        #expect(second.sessionControls(sessionID: sessionID) == controls)
+    }
+
+    @MainActor
+    @Test("deleted sessions remain hidden after service reconstruction")
+    func deletedMetadataSurvivesServiceReconstruction() throws {
+        let suiteName = "AgentChatTranscriptServiceDeletedMetadata.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sessionID = "deleted-agent-session"
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .claude,
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 600),
+            title: "Old run"
+        )
+        let first = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(restoredRecords: [record]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            metadataDefaults: defaults
+        )
+        defer { first.shutdown() }
+        #expect(first.deleteSession(sessionID: sessionID))
+        #expect(first.sessionRecord(sessionID: sessionID) == nil)
+        #expect(first.sessionDescriptors(workspaceID: nil).isEmpty)
+
+        let second = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(restoredRecords: [record]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            metadataDefaults: defaults
+        )
+        defer { second.shutdown() }
+        #expect(second.sessionRecord(sessionID: sessionID) == nil)
+        #expect(second.sessionDescriptors(workspaceID: nil).isEmpty)
+        // Provider-owned registry data is retained for transcript tooling even
+        // though the mobile history surface honors the tombstone.
+        #expect(second.registry.record(sessionID: sessionID) != nil)
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)

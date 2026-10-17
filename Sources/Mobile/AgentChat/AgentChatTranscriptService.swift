@@ -129,6 +129,17 @@ final class AgentChatTranscriptService {
     /// cannot erase provider-owned data; the tombstone also prevents a live
     /// observation sweep from immediately re-adding the row.
     private var deletedSessionIDs: Set<String> = []
+    /// User-authored session metadata survives host restarts without touching
+    /// provider-owned transcripts. The provider session id is the stable key.
+    private struct PersistedSessionMetadata: Codable {
+        var title: String?
+        var deleted: Bool
+        var controls: ChatSessionControls?
+    }
+    private static let persistedMetadataDefaultsKey = "cmux.agentChat.sessionMetadata.v1"
+    private let metadataDefaults: UserDefaults
+    private var persistedMetadata: [String: PersistedSessionMetadata] = [:]
+    private var applyingPersistedMetadataSessionIDs: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -210,9 +221,21 @@ final class AgentChatTranscriptService {
         fallbackResolutionTimeout: Duration = .seconds(3),
         notificationCenter: NotificationCenter = .default,
         renderedFrameNotificationDemand: any RenderDemandGating = GhosttyApp.renderedFrameNotificationDemand,
-        tickNotificationDemand: any RenderDemandGating = GhosttyApp.tickNotificationDemand
+        tickNotificationDemand: any RenderDemandGating = GhosttyApp.tickNotificationDemand,
+        metadataDefaults: UserDefaults = .standard
     ) {
         self.registry = registry
+        self.metadataDefaults = metadataDefaults
+        if let data = metadataDefaults.data(forKey: Self.persistedMetadataDefaultsKey),
+           let decoded = try? JSONDecoder().decode(
+               [String: PersistedSessionMetadata].self,
+               from: data
+           ) {
+            self.persistedMetadata = decoded
+            self.deletedSessionIDs = Set(
+                decoded.compactMap { $0.value.deleted ? $0.key : nil }
+            )
+        }
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
@@ -241,6 +264,12 @@ final class AgentChatTranscriptService {
             frameDemand: renderedFrameNotificationDemand,
             tickDemand: tickNotificationDemand
         )
+        // A registry may be restored before the service is constructed. Apply
+        // user-authored metadata immediately so the first descriptor pull is
+        // already reconciled, rather than waiting for a new hook event.
+        for record in registry.sessions(workspaceID: nil) {
+            _ = applyPersistedMetadataIfNeeded(to: record)
+        }
         self.proseWakeDriver.start()
     }
 
@@ -507,6 +536,14 @@ final class AgentChatTranscriptService {
         guard !trimmed.isEmpty, !deletedSessionIDs.contains(sessionID), registry.record(sessionID: sessionID) != nil else {
             return false
         }
+        var metadata = persistedMetadata[sessionID] ?? PersistedSessionMetadata(
+            title: nil,
+            deleted: false,
+            controls: nil
+        )
+        metadata.title = String(trimmed.prefix(200))
+        persistedMetadata[sessionID] = metadata
+        persistSessionMetadata()
         registry.update(sessionID: sessionID) { $0.title = String(trimmed.prefix(200)) }
         return true
     }
@@ -519,6 +556,14 @@ final class AgentChatTranscriptService {
         guard !deletedSessionIDs.contains(sessionID),
               let record = registry.record(sessionID: sessionID) else { return false }
         deletedSessionIDs.insert(sessionID)
+        var metadata = persistedMetadata[sessionID] ?? PersistedSessionMetadata(
+            title: record.title,
+            deleted: false,
+            controls: record.controls
+        )
+        metadata.deleted = true
+        persistedMetadata[sessionID] = metadata
+        persistSessionMetadata()
         handleRecordRemoval(record)
         return true
     }
@@ -568,11 +613,30 @@ final class AgentChatTranscriptService {
         sessionID: String,
         mutate: (inout ChatSessionControls) -> Void
     ) -> ChatSessionControls? {
-        guard registry.record(sessionID: sessionID) != nil else { return nil }
+        guard let current = registry.record(sessionID: sessionID) else { return nil }
+        var updatedControls = current.controls
+        mutate(&updatedControls)
+        var metadata = persistedMetadata[sessionID] ?? PersistedSessionMetadata(
+            title: current.title,
+            deleted: false,
+            controls: nil
+        )
+        // Publish the user-authored controls before the registry callback
+        // runs. The callback reapplies persisted metadata to any record
+        // discovered from a hook store, so leaving the old value here
+        // would immediately overwrite a newly selected control.
+        metadata.controls = updatedControls
+        persistedMetadata[sessionID] = metadata
+        persistSessionMetadata()
         registry.update(sessionID: sessionID) { record in
-            mutate(&record.controls)
+            record.controls = updatedControls
         }
         return registry.record(sessionID: sessionID)?.controls
+    }
+
+    private func persistSessionMetadata() {
+        guard let data = try? JSONEncoder().encode(persistedMetadata) else { return }
+        metadataDefaults.set(data, forKey: Self.persistedMetadataDefaultsKey)
     }
 
     /// Whether an ended session can still serve history without expensive
@@ -855,6 +919,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        if applyPersistedMetadataIfNeeded(to: record) { return }
         if deletedSessionIDs.contains(record.sessionID) {
             // A process observation can rediscover a row after a mobile
             // delete. Keep the tombstone authoritative until a new host
@@ -924,6 +989,28 @@ final class AgentChatTranscriptService {
                 version: record.version
             ))
         }
+    }
+
+    /// Reconciles user-authored metadata after a provider observation or a
+    /// restored registry record. Returns true when a registry update was
+    /// issued; the callback should stop processing that intermediate record so
+    /// the reconciled callback can derive one descriptor delta.
+    @discardableResult
+    private func applyPersistedMetadataIfNeeded(to record: AgentChatSessionRecord) -> Bool {
+        guard let metadata = persistedMetadata[record.sessionID],
+              !applyingPersistedMetadataSessionIDs.contains(record.sessionID) else {
+            return false
+        }
+        let controlsDiffer = metadata.controls.map { $0 != record.controls } ?? false
+        let titleDiffer = metadata.title != nil && metadata.title != record.title
+        guard titleDiffer || controlsDiffer else { return false }
+        applyingPersistedMetadataSessionIDs.insert(record.sessionID)
+        registry.update(sessionID: record.sessionID) { current in
+            if let title = metadata.title { current.title = title }
+            if let controls = metadata.controls { current.controls = controls }
+        }
+        applyingPersistedMetadataSessionIDs.remove(record.sessionID)
+        return true
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
