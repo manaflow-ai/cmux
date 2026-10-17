@@ -133,7 +133,8 @@ extension AgentTabStore {
                   let worker = services.machines.daemon(machine: request.providerVMID),
                   worker.connection != nil,
                   let identity = worker.identity,
-                  let sessionID = identity.sessionID else {
+                  let sessionID = identity.sessionID,
+                  identity.session == request.session else {
                 throw DaemonError.notConnected
             }
             let home = services.machines.daemon(forPane: pane)
