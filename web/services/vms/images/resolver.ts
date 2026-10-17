@@ -342,7 +342,7 @@ function resolveRequested(
     // promoted image instead. Restricted entries are the exception: an
     // allowlisted caller explicitly asking for one must continue to get that
     // test image rather than being silently redirected.
-    if (entry.defaultForKind !== true && entry.restricted !== true) {
+    if (!restricted && entry.defaultForKind !== true) {
       const migrated = resolveLegacyImageToDefault(provider, entry, selection.kind, memoryMb);
       if (migrated) return migrated;
     }
