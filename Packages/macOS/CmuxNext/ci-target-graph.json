@@ -106,6 +106,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -123,6 +124,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -279,6 +281,15 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextAppsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests",
+      "targets": [
+        "CmuxNextApps"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
