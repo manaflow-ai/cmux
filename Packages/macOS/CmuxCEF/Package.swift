@@ -81,7 +81,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxCEFBrowserTests",
-            dependencies: ["CmuxCEFBrowser", "CmuxCEF", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
+            dependencies: ["CmuxCEFBrowser", "CmuxCEF", "CmuxCEFExtensions", .product(name: "CmuxBrowser", package: "CmuxBrowser")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
