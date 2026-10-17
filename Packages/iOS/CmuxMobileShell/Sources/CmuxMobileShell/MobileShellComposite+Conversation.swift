@@ -32,7 +32,8 @@ public extension MobileShellComposite {
 
     /// Changes when the native task UI must replace its transport or targets.
     var conversationConnectionKey: String {
-        ([conversationScopeID ?? "signed-out", remoteClient?.instanceID ?? "offline"]
+        ([conversationScopeID ?? "signed-out", remoteClient?.instanceID ?? "offline",
+          connectionState == .connected ? "connected" : "disconnected"]
             + conversationWorkspaces.map { $0.rpcWorkspaceID.rawValue }.sorted())
             .joined(separator: "|")
     }
