@@ -18,9 +18,13 @@ extension CEFRuntime {
     /// CMUX_POPUP_WINDOW_CREATED: adopts on the next main-actor turn (the
     /// event arrives inside Chromium's window creation). `browser` is 0 when
     /// the window has no tab yet; its tab's AFTER_CREATED adopts it then.
-    func popupWindowCreated(window: Int32, browser: Int32) {
-        notePopupWindow("created window=\(window) browser=\(browser)")
+    func popupWindowCreated(window: Int32, browser: Int32, type: Int = 0) {
+        notePopupWindow("created window=\(window) browser=\(browser) type=\(type)")
+        keptPopupWindows.insert(window)
         guard browser != 0 else { return }
+        // Its tab's AFTER_CREATED (no opener) may have arrived in this same
+        // turn: that orphan decision must not close it.
+        deferredOrphans.remove(browser)
         Task { @MainActor [weak self] in self?.adoptPopupWindow(window: window, browser: browser) }
     }
 
@@ -35,7 +39,7 @@ extension CEFRuntime {
         // Closed meanwhile, or adopted by its CMUX_POPUP_WINDOW_CREATED.
         guard deferredOrphans.remove(id) != nil, browsers[id] == nil else { return }
         let window = shim?.tabWindowID(id) ?? 0
-        if window != 0, popupWindowBounds(window) != nil {
+        if window != 0, keptPopupWindows.contains(window) || popupWindowBounds(window) != nil {
             adoptPopupWindow(window: window, browser: id)
         } else {
             closeOrphan(id, created: created)
@@ -52,8 +56,9 @@ extension CEFRuntime {
 
     func adoptPopupWindow(window: Int32, browser: Int32) {
         deferredOrphans.remove(browser)
-        guard browser != 0, browsers[browser] == nil else {
-            notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(browsers[browser] != nil)")
+        guard browser != 0, browsers[browser] == nil, !closedUnregistered.contains(browser) else {
+            notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(browsers[browser] != nil) "
+                            + "closed=\(closedUnregistered.contains(browser))")
             return
         }
         guard let opener = popupWindowOpener() else {

@@ -85,6 +85,10 @@ public final class CEFRuntime {
     /// Tabs created without an opener while popup windows are on, waiting
     /// one turn to learn whether they belong to a popup window.
     var deferredOrphans: Set<Int32> = []
+    /// Popup windows the fork keeps for cmux (CMUX_POPUP_WINDOW_CREATED),
+    /// and browsers that closed before cmux registered them.
+    var keptPopupWindows: Set<Int32> = []
+    var closedUnregistered: Set<Int32> = []
     /// The latest popup window events, for diagnostics (`popupWindowLog`).
     var popupWindowEvents: [String] = []
     private var nextRequest: Int32 = 1
@@ -366,8 +370,8 @@ public final class CEFRuntime {
         case .tab(.windowDestroyed, _, _, let value):
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
-        case .tab(.popupWindowCreated, let browser, let window, _):
-            popupWindowCreated(window: window, browser: browser)
+        case .tab(.popupWindowCreated, let browser, let window, let type):
+            popupWindowCreated(window: window, browser: browser, type: type)
         case .tab(.popupWindowBounds, _, let window, _):
             popupWindowBoundsChanged(window: window)
         case .omniboxSuggestions(let requestID, _, let json):
@@ -419,6 +423,7 @@ public final class CEFRuntime {
 
     private func browserClosed(_ id: Int32) {
         let browser = browsers.removeValue(forKey: id)
+        if browser == nil, popupWindowsEnabled { closedUnregistered.insert(id) }
         deferredOrphans.remove(id)
         browser?.browserDidClose()
         devToolsCalls.failAll(where: { $0.browser == id }, with: CEFError.browserClosed)
@@ -432,6 +437,9 @@ public final class CEFRuntime {
     /// `.newBrowser`; a request without a known source opens nothing in
     /// Chromium and goes to `openURLWithoutOpener`.
     func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String) -> Int32 {
+        if popupWindowsEnabled {
+            notePopupWindow("request kind=\(kind) disposition=\(disposition) source=\(source)")
+        }
         if kind != 3, source != 0, browsers[source] != nil, browsers[source]?.isClosed == false {
             return source
         }
