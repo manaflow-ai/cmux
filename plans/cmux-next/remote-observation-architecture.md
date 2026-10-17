@@ -90,6 +90,53 @@ read remote observation receipts. Page relays and ordinary bearer WebSockets
 remain denied. Acknowledgement proves transport acceptance, not that a model
 understood or acted on the receipt.
 
+## Visual-inspection loop
+
+Visual inspection is a consumer of the same observation contract, not a second
+event or control format. Every inspection run writes one durable receipt with
+these fields:
+
+```text
+source_head          exact source commit under inspection
+source_path          repository/worktree or app artifact identity
+hosted_url           canonical hosted preview or review URL, if any
+browser_matrix       browser/engine, viewport, DPR, theme, and feature flags
+state_transition_ids observation receipt IDs that produced the visible state
+screenshot_artifact  PNG/WebP path or artifact URL plus sha256 and dimensions
+dom_artifact         serialized DOM/accessibility snapshot path plus sha256
+identity             the envelope above (machine/session/generation/sequence)
+verdict              pass | fail | blocked | unverified
+failure_class        product | runner | environment | missing-evidence
+```
+
+The required handoff is deliberately small and reproducible:
+
+1. Record the exact source head and hosted URL before opening the surface.
+2. Declare the browser matrix before capture. A matrix row is one engine,
+   viewport, DPR, theme, and relevant feature-flag tuple.
+3. Apply one named state transition at a time. The transition ID is the
+   observation receipt ID (or a deterministic child ID) and must be present in
+   the screenshot and DOM artifact manifest.
+4. Capture both pixels and structure: one screenshot artifact and one DOM or
+   accessibility snapshot per required state. Hash both artifacts.
+5. Classify failures before proposing a fix. `product` means source/runtime
+   behavior; `runner` means browser/host/CI harness; `environment` means auth,
+   network, or unavailable backend; `missing-evidence` means the path was not
+   actually exercised.
+6. Publish the receipt through the existing mailbox/observation path. A retry
+   reuses the same transition and message IDs, so a reconnect cannot create a
+   second visual result.
+
+The canonical browser matrix should start with Chromium and WebKit at the
+standard and narrow composer widths, light and dark themes, and reduced-motion
+on/off where motion is part of the acceptance criterion. Add Firefox or a
+remote engine only when the surface claims support for it. A skipped matrix row
+is recorded as `unverified`, never as a pass.
+
+Coordination lanes C02, C14, C18, and C04 should consume this receipt shape
+directly. They may add product-specific state names, but must not invent a
+second screenshot manifest, transition ID, or runner-failure taxonomy.
+
 ## Reconnect and backpressure
 
 - Keep one in-flight read per `(machine, session, generation)`.
