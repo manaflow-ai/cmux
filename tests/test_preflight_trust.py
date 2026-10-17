@@ -45,6 +45,8 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/install-git-hooks.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-baseline.py",
+            "scripts/merge-daemon-capabilities.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",

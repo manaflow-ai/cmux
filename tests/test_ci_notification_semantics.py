@@ -30,6 +30,7 @@ class NotificationSemanticsTests(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
             shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
             shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/swift-test-debug-info.sh", helpers)
             shutil.copy(ROOT / "scripts/ci/run_with_timeout.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
