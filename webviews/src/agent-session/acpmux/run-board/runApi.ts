@@ -153,12 +153,17 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
   }
   const expiresAt = nested.expiresAt ?? nested.expires_at;
   const expiresAtUnix = nested.expiresAtUnix ?? nested.expires_at_unix;
-  const optionalString = (key: string, snake: string = key) => stringValue(nested[key]) ?? stringValue(nested[snake]) ?? stringValue(endpoint[key]) ?? stringValue(endpoint[snake]);
+  const optionalString = (key: string, snake: string = key) =>
+    stringValue(nested[key]) ??
+    stringValue(nested[snake]) ??
+    stringValue(endpoint[key]) ??
+    stringValue(endpoint[snake]);
   const transport = optionalString("transport");
   const route = optionalString("route");
   const tokenValue = optionalString("token");
   const session = optionalString("session");
-  const trustedCarrier = nested.trustedCarrier ?? nested.trusted_carrier ?? endpoint.trustedCarrier ?? endpoint.trusted_carrier;
+  const trustedCarrier =
+    nested.trustedCarrier ?? nested.trusted_carrier ?? endpoint.trustedCarrier ?? endpoint.trusted_carrier;
   const endpointExpiresAtUnix = endpoint.expiresAtUnix ?? endpoint.expires_at_unix;
   return {
     runId,
@@ -173,18 +178,28 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
     ...(tokenValue ? { token: tokenValue } : {}),
     ...(session ? { session } : {}),
     ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
-    ...(Object.keys(endpoint).length ? { endpoint: {
-      ...(transport ? { transport } : {}),
-      ...(route ? { route } : {}),
-      ...(tokenValue ? { token: tokenValue } : {}),
-      ...(session ? { session } : {}),
-      ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
-      ...(typeof endpointExpiresAtUnix === "number" ? { expiresAtUnix: endpointExpiresAtUnix } : {}),
-    } } : {}),
+    ...(Object.keys(endpoint).length
+      ? {
+          endpoint: {
+            ...(transport ? { transport } : {}),
+            ...(route ? { route } : {}),
+            ...(tokenValue ? { token: tokenValue } : {}),
+            ...(session ? { session } : {}),
+            ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
+            ...(typeof endpointExpiresAtUnix === "number" ? { expiresAtUnix: endpointExpiresAtUnix } : {}),
+          },
+        }
+      : {}),
     ...(optionalString("provider") ? { provider: optionalString("provider") } : {}),
-    ...(optionalString("providerVmId", "provider_vm_id") ? { providerVmId: optionalString("providerVmId", "provider_vm_id") } : {}),
-    ...(optionalString("providerWorkspaceId", "provider_workspace_id") ? { providerWorkspaceId: optionalString("providerWorkspaceId", "provider_workspace_id") } : {}),
-    ...(optionalString("providerTerminalId", "provider_terminal_id") ? { providerTerminalId: optionalString("providerTerminalId", "provider_terminal_id") } : {}),
+    ...(optionalString("providerVmId", "provider_vm_id")
+      ? { providerVmId: optionalString("providerVmId", "provider_vm_id") }
+      : {}),
+    ...(optionalString("providerWorkspaceId", "provider_workspace_id")
+      ? { providerWorkspaceId: optionalString("providerWorkspaceId", "provider_workspace_id") }
+      : {}),
+    ...(optionalString("providerTerminalId", "provider_terminal_id")
+      ? { providerTerminalId: optionalString("providerTerminalId", "provider_terminal_id") }
+      : {}),
   };
 }
 
@@ -202,7 +217,11 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       const body = await readJson(response);
       if (!response.ok) {
         const error = body as { error?: string; message?: string };
-        throw new RunApiHttpError(response.status, error.message ?? `Run snapshot failed (${response.status})`, error.error);
+        throw new RunApiHttpError(
+          response.status,
+          error.message ?? `Run snapshot failed (${response.status})`,
+          error.error,
+        );
       }
       return body as RunApiSnapshot;
     },
@@ -215,22 +234,23 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       const body = await readJson(response);
       if (!response.ok) {
         const error = body as { error?: string; message?: string };
-        throw new RunApiHttpError(response.status, error.message ?? `Run events failed (${response.status})`, error.error);
+        throw new RunApiHttpError(
+          response.status,
+          error.message ?? `Run events failed (${response.status})`,
+          error.error,
+        );
       }
       const result = body as Partial<RunApiEventPage>;
       return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
     },
     async requestAttachTicket(intent) {
       const path = `/api/runs/${encodeURIComponent(intent.runId)}/attempts/${encodeURIComponent(intent.attemptId)}/attach-ticket`;
-      const response = await request(
-        apiUrl(baseUrl, path),
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: intent.sessionId, cursor: intent.cursor }),
-        },
-      );
+      const response = await request(apiUrl(baseUrl, path), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: intent.sessionId, cursor: intent.cursor }),
+      });
       const body = await readJson(response);
       if (!response.ok) {
         const error = body as { error?: string; code?: string; message?: string };
@@ -250,7 +270,11 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       const redeemedBody = await readJson(redeemedResponse);
       if (!redeemedResponse.ok) {
         const error = redeemedBody as { error?: string; code?: string; message?: string };
-        throw new RunApiHttpError(redeemedResponse.status, error.message ?? `Run attach redemption failed (${redeemedResponse.status})`, error.code ?? error.error);
+        throw new RunApiHttpError(
+          redeemedResponse.status,
+          error.message ?? `Run attach redemption failed (${redeemedResponse.status})`,
+          error.code ?? error.error,
+        );
       }
       return attachTicketFromResponse({ ...record(redeemedBody), ...minted }, intent);
     },
@@ -334,8 +358,17 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
     state,
     activity:
       stringValue(resultValue(result, "activity")) ??
-      (state === "completed" ? "Finished. Ready for your review." : state === "failed" ? attempt.error ?? "Attempt failed." : "Working on the shared intent."),
-    build: buildValue === "failed" || state === "failed" ? "failed" : buildValue === "passed" || state === "completed" ? "passed" : "pending",
+      (state === "completed"
+        ? "Finished. Ready for your review."
+        : state === "failed"
+          ? (attempt.error ?? "Attempt failed.")
+          : "Working on the shared intent."),
+    build:
+      buildValue === "failed" || state === "failed"
+        ? "failed"
+        : buildValue === "passed" || state === "completed"
+          ? "passed"
+          : "pending",
     tests: { passed, failed },
     artifacts: artifacts.filter((item) => item.attemptId === attempt.id).map(mapArtifact),
     rows: rowsFromResult(result),
@@ -358,16 +391,34 @@ export function normalizeRunSnapshot(value: RunApiSnapshot | RunBoardSnapshot): 
 
 function eventText(event: RunApiEvent): string | undefined {
   const payload = record(event.payload);
-  return stringValue(payload.text) ?? stringValue(payload.output) ?? stringValue(payload.message) ?? stringValue(payload.error);
+  return (
+    stringValue(payload.text) ??
+    stringValue(payload.output) ??
+    stringValue(payload.message) ??
+    stringValue(payload.error)
+  );
 }
 
 function appendEventRow(attempt: RunAttempt, event: RunApiEvent): RunAttempt {
   const text = eventText(event);
   if (!text) return attempt;
   const at = event.createdAt ? Date.parse(event.createdAt) : Date.now();
-  const row: AcpmuxRow = event.kind === "attempt.output"
-    ? { id: event.id, version: 1, at, kind: "activity", items: [{ kind: "tool", text: "Agent output", tool: { id: event.id, title: "Agent output", kind: "execute", status: "completed", output: text } }] }
-    : { id: event.id, version: 1, at, kind: "assistant", text };
+  const row: AcpmuxRow =
+    event.kind === "attempt.output"
+      ? {
+          id: event.id,
+          version: 1,
+          at,
+          kind: "activity",
+          items: [
+            {
+              kind: "tool",
+              text: "Agent output",
+              tool: { id: event.id, title: "Agent output", kind: "execute", status: "completed", output: text },
+            },
+          ],
+        }
+      : { id: event.id, version: 1, at, kind: "assistant", text };
   return { ...attempt, rows: [...attempt.rows, row], activity: text.slice(0, 240) };
 }
 
@@ -380,7 +431,13 @@ export function applyRunEvent(snapshot: RunBoardSnapshot, event: RunApiEvent): R
   let next = appendEventRow(current, event);
   if (event.kind === "attempt.started") {
     const providerVmId = stringValue(payload.providerVmId);
-    next = { ...next, state: "running", worker: providerVmId ? `cloud-vm · ${providerVmId}` : next.worker, sessionId: providerVmId ?? next.sessionId, activity: "Agent started." };
+    next = {
+      ...next,
+      state: "running",
+      worker: providerVmId ? `cloud-vm · ${providerVmId}` : next.worker,
+      sessionId: providerVmId ?? next.sessionId,
+      activity: "Agent started.",
+    };
   } else if (event.kind === "attempt.succeeded") {
     next = { ...next, state: "completed", build: "passed", activity: "Finished. Ready for your review." };
   } else if (event.kind === "attempt.failed") {
@@ -389,7 +446,26 @@ export function applyRunEvent(snapshot: RunBoardSnapshot, event: RunApiEvent): R
     const digest = stringValue(payload.digest);
     const name = stringValue(payload.name);
     if (digest && name && !next.artifacts.some((artifact) => artifact.digest === digest || artifact.name === name)) {
-      next = { ...next, artifacts: [...next.artifacts, { id: stringValue(payload.artifactId) ?? `${event.id}-artifact`, name, kind: artifactKind({ id: "", attemptId: current.id, name, sizeBytes: numberValue(payload.sizeBytes) ?? 0, digest, uri: "artifact://event" }), digest, verified: /^sha256:[0-9a-f]{64}$/i.test(digest) }] };
+      next = {
+        ...next,
+        artifacts: [
+          ...next.artifacts,
+          {
+            id: stringValue(payload.artifactId) ?? `${event.id}-artifact`,
+            name,
+            kind: artifactKind({
+              id: "",
+              attemptId: current.id,
+              name,
+              sizeBytes: numberValue(payload.sizeBytes) ?? 0,
+              digest,
+              uri: "artifact://event",
+            }),
+            digest,
+            verified: /^sha256:[0-9a-f]{64}$/i.test(digest),
+          },
+        ],
+      };
     }
   }
   const attempts = [...snapshot.attempts];
@@ -398,7 +474,14 @@ export function applyRunEvent(snapshot: RunBoardSnapshot, event: RunApiEvent): R
 }
 
 function staleCursor(error: unknown): boolean {
-  return error instanceof RunApiHttpError && (error.status === 409 || error.status === 410 || error.code === "run_cursor_stale" || error.code === "run_cursor_gap" || error.code === "run_cursor_invalid");
+  return (
+    error instanceof RunApiHttpError &&
+    (error.status === 409 ||
+      error.status === 410 ||
+      error.code === "run_cursor_stale" ||
+      error.code === "run_cursor_gap" ||
+      error.code === "run_cursor_invalid")
+  );
 }
 
 /** Snapshot-first replay session. It owns the opaque transport cursor separately from UI state. */
@@ -406,7 +489,10 @@ export class RunBoardApiSession {
   private transportCursor: string | undefined;
   private lastSequence = 0;
 
-  constructor(private readonly runId: string, private readonly client: RunApiClient) {}
+  constructor(
+    private readonly runId: string,
+    private readonly client: RunApiClient,
+  ) {}
 
   private async readPages(after?: string): Promise<RunApiEvent[]> {
     const events: RunApiEvent[] = [];
@@ -420,7 +506,8 @@ export class RunBoardApiSession {
         this.transportCursor = last === undefined ? cursor : encodeCursor(last);
         return events;
       }
-      if (result.nextCursor === cursor) throw new RunApiHttpError(409, "event cursor did not advance", "run_cursor_gap");
+      if (result.nextCursor === cursor)
+        throw new RunApiHttpError(409, "event cursor did not advance", "run_cursor_gap");
       cursor = result.nextCursor;
       this.transportCursor = cursor;
     }
@@ -440,7 +527,9 @@ export class RunBoardApiSession {
 
   async replay(current: RunBoardSnapshot): Promise<RunBoardSnapshot> {
     try {
-      const events = await this.readPages(this.transportCursor ?? (this.lastSequence > 0 ? encodeCursor(this.lastSequence) : undefined));
+      const events = await this.readPages(
+        this.transportCursor ?? (this.lastSequence > 0 ? encodeCursor(this.lastSequence) : undefined),
+      );
       let snapshot = current;
       for (const event of events) snapshot = applyRunEvent(snapshot, event);
       if (this.lastSequence > 0) snapshot = { ...snapshot, cursor: String(this.lastSequence) };

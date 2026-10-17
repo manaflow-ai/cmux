@@ -47,10 +47,18 @@ function verdictLabel(value: RunAttempt["build"]): string {
 function MiniPreview({ attempt, detail = false }: { attempt: RunAttempt; detail?: boolean }) {
   const values = attempt.id === "attempt-b" ? [8, 3, 19] : attempt.id === "attempt-c" ? [18, 6, 31] : [12, 4, 28];
   return (
-    <div className={`compare-preview ${detail ? "compare-preview-detail" : ""}`} data-layout={attempt.id} aria-label={`${attempt.label} UI preview`}>
+    <div
+      className={`compare-preview ${detail ? "compare-preview-detail" : ""}`}
+      data-layout={attempt.id}
+      aria-label={`${attempt.label} UI preview`}
+    >
       <div className="compare-preview-bar">
-        <strong><span aria-hidden="true">◉</span> atlas</strong>
-        <span>Workspace <span aria-hidden="true">/</span> Overview</span>
+        <strong>
+          <span aria-hidden="true">◉</span> atlas
+        </strong>
+        <span>
+          Workspace <span aria-hidden="true">/</span> Overview
+        </span>
         <span className="compare-preview-key">⌘ K</span>
       </div>
       <div className="compare-preview-body">
@@ -78,8 +86,12 @@ function MiniPreview({ attempt, detail = false }: { attempt: RunAttempt; detail?
           {detail && (
             <div className="compare-preview-list">
               <b>Today</b>
-              <p>Refresh workspace navigation <small>Design</small></p>
-              <p>Improve the first run experience <small>Product</small></p>
+              <p>
+                Refresh workspace navigation <small>Design</small>
+              </p>
+              <p>
+                Improve the first run experience <small>Product</small>
+              </p>
             </div>
           )}
         </div>
@@ -117,12 +129,16 @@ function CandidateCard({
           aria-label={`Select ${attempt.label} as comparison winner`}
           onClick={onSelect}
         >
-          <span className="compare-candidate-index" aria-hidden="true">{attempt.label.slice(-1)}</span>
+          <span className="compare-candidate-index" aria-hidden="true">
+            {attempt.label.slice(-1)}
+          </span>
           <span>
             <strong>{attempt.label}</strong>
             <span className="compare-candidate-meta">
               <small>{attempt.direction}</small>
-              <small className="compare-provider-badge"><span aria-hidden="true">⌁</span> {attempt.worker}</small>
+              <small className="compare-provider-badge">
+                <span aria-hidden="true">⌁</span> {attempt.worker}
+              </small>
             </span>
           </span>
         </button>
@@ -130,19 +146,44 @@ function CandidateCard({
           <span className="compare-state-dot" aria-hidden="true" /> {statusLabel(attempt)}
         </span>
       </div>
-      <button className="compare-candidate-preview-button" type="button" onClick={onSelect} aria-label={`Preview ${attempt.label}`}>
+      <button
+        className="compare-candidate-preview-button"
+        type="button"
+        onClick={onSelect}
+        aria-label={`Preview ${attempt.label}`}
+      >
         <MiniPreview attempt={attempt} />
       </button>
       <div className="compare-candidate-metrics" aria-label={`${attempt.label} synchronized status`}>
-        <div><span>Build</span><strong data-verdict={attempt.build}>{verdictLabel(attempt.build)}</strong></div>
-        <div><span>Tests</span><strong data-verdict={attempt.tests.failed ? "failed" : "passed"}>{attempt.tests.passed} / {attempt.tests.passed + attempt.tests.failed}</strong></div>
-        <div><span>Evidence</span><strong>{verified} / 3</strong></div>
-        <div><span>Changes</span><strong>{changes} files</strong></div>
+        <div>
+          <span>Build</span>
+          <strong data-verdict={attempt.build}>{verdictLabel(attempt.build)}</strong>
+        </div>
+        <div>
+          <span>Tests</span>
+          <strong data-verdict={attempt.tests.failed ? "failed" : "passed"}>
+            {attempt.tests.passed} / {attempt.tests.passed + attempt.tests.failed}
+          </strong>
+        </div>
+        <div>
+          <span>Evidence</span>
+          <strong>{verified} / 3</strong>
+        </div>
+        <div>
+          <span>Changes</span>
+          <strong>{changes} files</strong>
+        </div>
       </div>
       <p className="compare-candidate-activity">{attempt.activity}</p>
       <div className="compare-candidate-footer">
         <span>{selected ? "Winner under review" : "Select to review"}</span>
-        <button type="button" className="compare-attach-button" aria-label={`Attach terminal to ${attempt.label}`} disabled={attachDisabled} onClick={onAttach}>
+        <button
+          type="button"
+          className="compare-attach-button"
+          aria-label={`Attach terminal to ${attempt.label}`}
+          disabled={attachDisabled}
+          onClick={onAttach}
+        >
           {attachLabel} <span aria-hidden="true">↗</span>
         </button>
       </div>
@@ -154,7 +195,10 @@ function ActivityTrace({ attempt }: { attempt: RunAttempt }) {
   const rows = attempt.rows.filter((row) => row.kind === "assistant" || row.kind === "activity").slice(-4);
   return (
     <div className="compare-activity" aria-label={`${attempt.label} agent activity`}>
-      <div className="compare-panel-title"><span>Durable activity</span><small>{attempt.worker}</small></div>
+      <div className="compare-panel-title">
+        <span>Durable activity</span>
+        <small>{attempt.worker}</small>
+      </div>
       {rows.map((row) => (
         <div className="compare-activity-row" key={row.id}>
           <small>{row.kind === "assistant" ? "Agent" : "Tools"}</small>
@@ -169,21 +213,40 @@ function ActivityTrace({ attempt }: { attempt: RunAttempt }) {
 function EvidenceRail({ attempt }: { attempt: RunAttempt }) {
   return (
     <aside className="compare-evidence" aria-label={`${attempt.label} evidence`}>
-      <div className="compare-panel-title"><span>Evidence ledger</span><small>Cursor-bound</small></div>
+      <div className="compare-panel-title">
+        <span>Evidence ledger</span>
+        <small>Cursor-bound</small>
+      </div>
       <div className="compare-evidence-build">
-        <span className="compare-evidence-icon" data-verdict={attempt.build}>{attempt.build === "passed" ? "✓" : attempt.build === "failed" ? "!" : "○"}</span>
-        <span><strong>Build {verdictLabel(attempt.build)}</strong><small>{attempt.tests.passed} tests passed{attempt.tests.failed ? ` · ${attempt.tests.failed} failed` : ""}</small></span>
+        <span className="compare-evidence-icon" data-verdict={attempt.build}>
+          {attempt.build === "passed" ? "✓" : attempt.build === "failed" ? "!" : "○"}
+        </span>
+        <span>
+          <strong>Build {verdictLabel(attempt.build)}</strong>
+          <small>
+            {attempt.tests.passed} tests passed{attempt.tests.failed ? ` · ${attempt.tests.failed} failed` : ""}
+          </small>
+        </span>
       </div>
       <ul className="compare-evidence-list">
         {attempt.artifacts.map((artifact) => (
           <li key={artifact.id}>
-            <span className="compare-evidence-kind" aria-hidden="true">{artifact.kind === "recording" ? "▷" : artifact.kind === "patch" ? "±" : "▧"}</span>
-            <span><strong>{artifact.name}</strong><small>{artifact.verified ? "Digest verified" : "Awaiting verification"}</small></span>
+            <span className="compare-evidence-kind" aria-hidden="true">
+              {artifact.kind === "recording" ? "▷" : artifact.kind === "patch" ? "±" : "▧"}
+            </span>
+            <span>
+              <strong>{artifact.name}</strong>
+              <small>{artifact.verified ? "Digest verified" : "Awaiting verification"}</small>
+            </span>
             <b data-verdict={artifact.verified ? "passed" : "pending"}>{artifact.verified ? "✓" : "○"}</b>
           </li>
         ))}
       </ul>
-      {attempt.artifacts.length === 0 && <p className="compare-empty-evidence">Evidence will appear when the worker publishes its screenshot, recording and patch.</p>}
+      {attempt.artifacts.length === 0 && (
+        <p className="compare-empty-evidence">
+          Evidence will appear when the worker publishes its screenshot, recording and patch.
+        </p>
+      )}
       <p className="compare-evidence-note">Original artifacts remain owned by this attempt.</p>
     </aside>
   );
@@ -294,7 +357,11 @@ export function CompareRunBoard({
           ? await client.requestAttachTicket(intent)
           : undefined;
       if (ticket && attachTicketExpired(ticket)) {
-        throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
+        throw new RunApiHttpError(
+          410,
+          "This attach ticket has expired. Request a fresh ticket and try again.",
+          "run_attach_expired",
+        );
       }
       if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
       dispatch({ type: "select", attemptId: target.id });
@@ -348,9 +415,14 @@ export function CompareRunBoard({
     >
       <header className="compare-run-header">
         <div>
-          <div className="compare-run-eyebrow">RUN {state.snapshot.id} <span>COMPARISON STAGE</span></div>
+          <div className="compare-run-eyebrow">
+            RUN {state.snapshot.id} <span>COMPARISON STAGE</span>
+          </div>
           <h1>{state.snapshot.title}</h1>
-          <p>{state.snapshot.source} <span aria-hidden="true">·</span> {state.snapshot.attempts.length} independent candidates <span aria-hidden="true">·</span> {readyCount} ready to compare</p>
+          <p>
+            {state.snapshot.source} <span aria-hidden="true">·</span> {state.snapshot.attempts.length} independent
+            candidates <span aria-hidden="true">·</span> {readyCount} ready to compare
+          </p>
         </div>
         <div className="compare-run-connection" aria-live="polite">
           <span className="compare-live-dot" aria-hidden="true" />
@@ -360,23 +432,51 @@ export function CompareRunBoard({
       </header>
 
       <section className="compare-run-intent" aria-label="Shared intent">
-        <div><span>Shared intent</span><p>{state.snapshot.intent}</p></div>
-        <small>Same starting commit <span aria-hidden="true">·</span> Separate workspaces <span aria-hidden="true">·</span> Synchronized event cursor</small>
+        <div>
+          <span>Shared intent</span>
+          <p>{state.snapshot.intent}</p>
+        </div>
+        <small>
+          Same starting commit <span aria-hidden="true">·</span> Separate workspaces <span aria-hidden="true">·</span>{" "}
+          Synchronized event cursor
+        </small>
       </section>
 
       {state.connection === "disconnected" && (
         <section className="compare-replay-banner" data-replay-banner aria-live="polite">
-          <span className="compare-replay-icon" aria-hidden="true">↻</span>
-          <div><strong>Offline mirror · workers continue independently</strong><span>Showing the last durable snapshot. Reconnect to replay the owner event stream and recover finished evidence.</span></div>
-          <button type="button" onClick={() => void reconnect()}>Reconnect and replay <span aria-hidden="true">↗</span></button>
+          <span className="compare-replay-icon" aria-hidden="true">
+            ↻
+          </span>
+          <div>
+            <strong>Offline mirror · workers continue independently</strong>
+            <span>
+              Showing the last durable snapshot. Reconnect to replay the owner event stream and recover finished
+              evidence.
+            </span>
+          </div>
+          <button type="button" onClick={() => void reconnect()}>
+            Reconnect and replay <span aria-hidden="true">↗</span>
+          </button>
         </section>
       )}
-      {apiError && <p className="compare-api-error" role="alert">{apiError}</p>}
+      {apiError && (
+        <p className="compare-api-error" role="alert">
+          {apiError}
+        </p>
+      )}
 
       <section className="compare-matrix-section" aria-labelledby="compare-matrix-title">
         <div className="compare-matrix-heading">
-          <div><span className="compare-section-kicker">COMPARE IN PARALLEL</span><h2 id="compare-matrix-title">Candidate matrix <small>2 × 2</small></h2></div>
-          <output className="compare-capture-receipt" data-testid="compare-capture-receipt" aria-live="polite">Capture receipt · {state.snapshot.attempts.length} previews · event {state.snapshot.cursor} · {actionReceipt}</output>
+          <div>
+            <span className="compare-section-kicker">COMPARE IN PARALLEL</span>
+            <h2 id="compare-matrix-title">
+              Candidate matrix <small>2 × 2</small>
+            </h2>
+          </div>
+          <output className="compare-capture-receipt" data-testid="compare-capture-receipt" aria-live="polite">
+            Capture receipt · {state.snapshot.attempts.length} previews · event {state.snapshot.cursor} ·{" "}
+            {actionReceipt}
+          </output>
         </div>
         <ul className="compare-matrix" aria-label="Independent candidate attempts">
           {state.snapshot.attempts.map((item) => (
@@ -396,19 +496,47 @@ export function CompareRunBoard({
       {attempt && (
         <section className="compare-review" aria-labelledby="compare-review-title">
           <header className="compare-review-header">
-            <div><span className="compare-section-kicker">WINNER / REVIEW</span><h2 id="compare-review-title">{attempt.label}<span aria-hidden="true"> · </span>{attempt.direction}</h2><p>{attempt.worker} <span aria-hidden="true">/</span> {attempt.sessionId}</p></div>
-            <div className="compare-review-state" data-review-state={state.approval ? "approved" : reviewed ? "reviewed" : "unreviewed"}>
+            <div>
+              <span className="compare-section-kicker">WINNER / REVIEW</span>
+              <h2 id="compare-review-title">
+                {attempt.label}
+                <span aria-hidden="true"> · </span>
+                {attempt.direction}
+              </h2>
+              <p>
+                {attempt.worker} <span aria-hidden="true">/</span> {attempt.sessionId}
+              </p>
+            </div>
+            <div
+              className="compare-review-state"
+              data-review-state={state.approval ? "approved" : reviewed ? "reviewed" : "unreviewed"}
+            >
               <span aria-hidden="true">{state.approval ? "✓" : reviewed ? "◉" : "○"}</span>
-              {state.approval ? "Winner approved" : reviewed ? "Ready to approve" : evidenceReady(attempt) ? "Review evidence" : "Evidence pending"}
+              {state.approval
+                ? "Winner approved"
+                : reviewed
+                  ? "Ready to approve"
+                  : evidenceReady(attempt)
+                    ? "Review evidence"
+                    : "Evidence pending"}
             </div>
           </header>
           <div className="compare-review-toolbar">
             <fieldset className="compare-tabs">
               <legend className="compare-tabs-label">Winner detail view</legend>
-              <button type="button" aria-pressed={tab === "preview"} onClick={() => setTab("preview")}>Side-by-side preview</button>
-              <button type="button" aria-pressed={tab === "activity"} onClick={() => setTab("activity")}>Activity trace</button>
+              <button type="button" aria-pressed={tab === "preview"} onClick={() => setTab("preview")}>
+                Side-by-side preview
+              </button>
+              <button type="button" aria-pressed={tab === "activity"} onClick={() => setTab("activity")}>
+                Activity trace
+              </button>
             </fieldset>
-            <button type="button" className="compare-detail-attach" disabled={state.connection !== "live" || Boolean(actionPending)} onClick={() => void attach(attempt)}>
+            <button
+              type="button"
+              className="compare-detail-attach"
+              disabled={state.connection !== "live" || Boolean(actionPending)}
+              onClick={() => void attach(attempt)}
+            >
               {attachLabel(attempt)} <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -416,22 +544,69 @@ export function CompareRunBoard({
             <div className="compare-review-main">
               {tab === "preview" ? (
                 <div className="compare-side-by-side" aria-label="Selected candidate preview and baseline">
-                  <div><span className="compare-pane-label">Candidate preview</span><MiniPreview attempt={attempt} detail /></div>
-                  <div className="compare-baseline"><span className="compare-pane-label">Shared starting surface</span><div className="compare-baseline-surface"><strong>Baseline</strong><span>Compare this candidate against the same intent and commit.</span><i /><i className="short" /><i className="tiny" /></div></div>
+                  <div>
+                    <span className="compare-pane-label">Candidate preview</span>
+                    <MiniPreview attempt={attempt} detail />
+                  </div>
+                  <div className="compare-baseline">
+                    <span className="compare-pane-label">Shared starting surface</span>
+                    <div className="compare-baseline-surface">
+                      <strong>Baseline</strong>
+                      <span>Compare this candidate against the same intent and commit.</span>
+                      <i />
+                      <i className="short" />
+                      <i className="tiny" />
+                    </div>
+                  </div>
                 </div>
-              ) : <ActivityTrace attempt={attempt} />}
+              ) : (
+                <ActivityTrace attempt={attempt} />
+              )}
             </div>
             <EvidenceRail attempt={attempt} />
           </div>
           <footer className="compare-approval-bar">
-            <div><strong>{state.approval ? "Integration review requested" : "Choose what moves forward"}</strong><p>{state.approval ? `${approved?.label ?? state.approval.attemptId} is queued with its cursor and artifact digests.` : "Inspect the preview, activity and evidence before approving a winner."}</p></div>
-            <label><input type="checkbox" aria-label={`I reviewed ${attempt.label}`} checked={reviewed} disabled={!evidenceReady(attempt) || state.connection !== "live" || Boolean(state.approval)} onChange={(event) => dispatch({ type: "review", checked: event.currentTarget.checked })} /> I reviewed this candidate</label>
-            <button className="compare-approve" type="button" disabled={!canApprove(state) || Boolean(actionPending)} onClick={() => void approve()}>{actionPending === "approve" ? "Recording approval…" : state.approval ? "Approval recorded" : `Approve ${attempt.label} for integration`}</button>
+            <div>
+              <strong>{state.approval ? "Integration review requested" : "Choose what moves forward"}</strong>
+              <p>
+                {state.approval
+                  ? `${approved?.label ?? state.approval.attemptId} is queued with its cursor and artifact digests.`
+                  : "Inspect the preview, activity and evidence before approving a winner."}
+              </p>
+            </div>
+            <label>
+              <input
+                type="checkbox"
+                aria-label={`I reviewed ${attempt.label}`}
+                checked={reviewed}
+                disabled={!evidenceReady(attempt) || state.connection !== "live" || Boolean(state.approval)}
+                onChange={(event) => dispatch({ type: "review", checked: event.currentTarget.checked })}
+              />{" "}
+              I reviewed this candidate
+            </label>
+            <button
+              className="compare-approve"
+              type="button"
+              disabled={!canApprove(state) || Boolean(actionPending)}
+              onClick={() => void approve()}
+            >
+              {actionPending === "approve"
+                ? "Recording approval…"
+                : state.approval
+                  ? "Approval recorded"
+                  : `Approve ${attempt.label} for integration`}
+            </button>
           </footer>
         </section>
       )}
 
-      <footer className="compare-run-footnote"><span>Comparison variant · durable run evidence</span><span>Matrix <span aria-hidden="true">→</span> review <span aria-hidden="true">→</span> attach <span aria-hidden="true">→</span> approve</span></footer>
+      <footer className="compare-run-footnote">
+        <span>Comparison variant · durable run evidence</span>
+        <span>
+          Matrix <span aria-hidden="true">→</span> review <span aria-hidden="true">→</span> attach{" "}
+          <span aria-hidden="true">→</span> approve
+        </span>
+      </footer>
     </main>
   );
 }

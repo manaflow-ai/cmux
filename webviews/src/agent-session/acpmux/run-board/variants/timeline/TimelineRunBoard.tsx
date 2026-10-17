@@ -66,14 +66,16 @@ function eventsFor(attempt: RunAttempt): TimelineEvent[] {
     }
     const kind: TimelineEvent["kind"] = row.kind === "user" ? "prompt" : row.kind === "assistant" ? "agent" : "status";
     const detail = row.text?.trim() || (row.error ? row.error : "Recorded activity");
-    return [{
-      id: `${attempt.id}-${row.id}`,
-      kind,
-      title: kind === "prompt" ? "Shared intent received" : kind === "agent" ? "Agent update" : "Run event",
-      detail,
-      status: row.failed ? "failed" : row.pending || row.streaming ? "running" : row.status,
-      seq: row.seq ?? (rowIndex > 0 ? undefined : undefined),
-    }];
+    return [
+      {
+        id: `${attempt.id}-${row.id}`,
+        kind,
+        title: kind === "prompt" ? "Shared intent received" : kind === "agent" ? "Agent update" : "Run event",
+        detail,
+        status: row.failed ? "failed" : row.pending || row.streaming ? "running" : row.status,
+        seq: row.seq ?? (rowIndex > 0 ? undefined : undefined),
+      },
+    ];
   });
 }
 
@@ -137,9 +139,20 @@ function AttemptFilmstrip({
   );
 }
 
-function ReplayCursor({ cursor, eventCount, connection }: { cursor: string; eventCount: number; connection: "live" | "disconnected" }) {
+function ReplayCursor({
+  cursor,
+  eventCount,
+  connection,
+}: {
+  cursor: string;
+  eventCount: number;
+  connection: "live" | "disconnected";
+}) {
   const numericCursor = Number(cursor);
-  const progress = Number.isFinite(numericCursor) && numericCursor > 0 ? Math.min(100, Math.max(8, (eventCount / numericCursor) * 100)) : 100;
+  const progress =
+    Number.isFinite(numericCursor) && numericCursor > 0
+      ? Math.min(100, Math.max(8, (eventCount / numericCursor) * 100))
+      : 100;
   return (
     <section className="timeline-cursor-panel" aria-label="Replay cursor">
       <div className="timeline-cursor-heading">
@@ -178,26 +191,38 @@ function TimelineStream({ attempt, cursor }: { attempt: RunAttempt; cursor: stri
             <div className="timeline-event-body">
               <div className="timeline-event-head">
                 <span className="timeline-event-kind">{eventLabel(event.kind)}</span>
-                <span className="timeline-event-sequence">{event.seq ? `Event ${event.seq}` : `Record ${String(index + 1).padStart(2, "0")}`}</span>
+                <span className="timeline-event-sequence">
+                  {event.seq ? `Event ${event.seq}` : `Record ${String(index + 1).padStart(2, "0")}`}
+                </span>
               </div>
               <strong>{event.title}</strong>
               <p>{event.detail}</p>
               {event.output && <pre>{event.output}</pre>}
-              {event.status && <span className={`timeline-event-status timeline-event-status-${event.status}`}>{event.status}</span>}
+              {event.status && (
+                <span className={`timeline-event-status timeline-event-status-${event.status}`}>{event.status}</span>
+              )}
             </div>
           </li>
         ))}
       </ol>
-      <p className="timeline-stream-receipt">This activity is replayed from the run owner at cursor {cursor}; it remains available after a worker disconnect.</p>
+      <p className="timeline-stream-receipt">
+        This activity is replayed from the run owner at cursor {cursor}; it remains available after a worker disconnect.
+      </p>
     </section>
   );
 }
 
 function SelectedPreview({ attempt }: { attempt: RunAttempt }) {
   return (
-    <div className="timeline-preview" data-preview-attempt={attempt.id} aria-label={`${attempt.label} selected attempt preview`}>
+    <div
+      className="timeline-preview"
+      data-preview-attempt={attempt.id}
+      aria-label={`${attempt.label} selected attempt preview`}
+    >
       <div className="timeline-preview-chrome">
-        <span><i /> <i /> <i /></span>
+        <span>
+          <i /> <i /> <i />
+        </span>
         <small>{attempt.label.toLowerCase().replaceAll(" ", "-")}.workspace</small>
         <span>⌘ K</span>
       </div>
@@ -223,8 +248,16 @@ function SelectedPreview({ attempt }: { attempt: RunAttempt }) {
               </div>
             ))}
           </div>
-          <div className="timeline-preview-row"><span>Today</span><b>Refresh workspace navigation</b><small>Design</small></div>
-          <div className="timeline-preview-row"><span>Tomorrow</span><b>Improve first run experience</b><small>Product</small></div>
+          <div className="timeline-preview-row">
+            <span>Today</span>
+            <b>Refresh workspace navigation</b>
+            <small>Design</small>
+          </div>
+          <div className="timeline-preview-row">
+            <span>Tomorrow</span>
+            <b>Improve first run experience</b>
+            <small>Product</small>
+          </div>
         </div>
       </div>
       <span className="timeline-preview-caption">Selected attempt preview · captured by {attempt.worker}</span>
@@ -240,24 +273,34 @@ function Provenance({ attempt, cursor }: { attempt: RunAttempt; cursor: string }
           <span className="timeline-kicker">Evidence chain</span>
           <h2>Artifact provenance</h2>
         </div>
-        <span className="timeline-provenance-count">{attempt.artifacts.filter((artifact) => artifact.verified).length}/3 verified</span>
+        <span className="timeline-provenance-count">
+          {attempt.artifacts.filter((artifact) => artifact.verified).length}/3 verified
+        </span>
       </div>
       <p className="timeline-provenance-intro">Every file stays attributed to this attempt and its worker session.</p>
       <div className="timeline-artifacts">
         {attempt.artifacts.map((artifact) => (
           <div className="timeline-artifact" key={artifact.id} data-artifact={artifact.id}>
-            <span className="timeline-artifact-icon" aria-hidden="true">{artifact.kind === "recording" ? "▷" : artifact.kind === "patch" ? "±" : "▧"}</span>
+            <span className="timeline-artifact-icon" aria-hidden="true">
+              {artifact.kind === "recording" ? "▷" : artifact.kind === "patch" ? "±" : "▧"}
+            </span>
             <div>
               <strong>{artifact.name}</strong>
               <span>{artifact.verified ? "Digest verified" : "Awaiting verification"}</span>
               <small>{shortDigest(artifact.digest)}</small>
-              <small>Source: {attempt.worker} · {attempt.sessionId} · Event {cursor}</small>
+              <small>
+                Source: {attempt.worker} · {attempt.sessionId} · Event {cursor}
+              </small>
             </div>
             <b data-verdict={artifact.verified ? "passed" : "pending"}>{artifact.verified ? "✓" : "○"}</b>
           </div>
         ))}
       </div>
-      {attempt.artifacts.length === 0 && <p className="timeline-empty-evidence">The worker has not published evidence yet. It will appear here when the owner replays the next event.</p>}
+      {attempt.artifacts.length === 0 && (
+        <p className="timeline-empty-evidence">
+          The worker has not published evidence yet. It will appear here when the owner replays the next event.
+        </p>
+      )}
     </section>
   );
 }
@@ -304,7 +347,10 @@ export function TimelineRunBoard({
   useEffect(() => {
     if (!client || disconnected || !session.current || pollMs <= 0) return;
     const timer = setInterval(() => {
-      void session.current?.replay(stateRef.current.snapshot).then((next) => dispatch({ type: "receive", snapshot: next })).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+      void session.current
+        ?.replay(stateRef.current.snapshot)
+        .then((next) => dispatch({ type: "receive", snapshot: next }))
+        .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     }, pollMs);
     return () => clearInterval(timer);
   }, [client, disconnected, pollMs]);
@@ -317,20 +363,40 @@ export function TimelineRunBoard({
 
   const attach = async () => {
     if (!attempt || state.connection !== "live" || pending) return;
-    const intent: AttachTicketIntent = { runId: state.snapshot.id, attemptId: attempt.id, sessionId: attempt.sessionId, cursor: state.snapshot.cursor };
+    const intent: AttachTicketIntent = {
+      runId: state.snapshot.id,
+      attemptId: attempt.id,
+      sessionId: attempt.sessionId,
+      cursor: state.snapshot.cursor,
+    };
     try {
       setPending("attach");
       setAttachState("idle");
       setError(undefined);
-      const ticket = onAttach ? await onAttach(intent) : client?.requestAttachTicket ? await client.requestAttachTicket(intent) : undefined;
-      if (ticket && attachTicketExpired(ticket)) throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
+      const ticket = onAttach
+        ? await onAttach(intent)
+        : client?.requestAttachTicket
+          ? await client.requestAttachTicket(intent)
+          : undefined;
+      if (ticket && attachTicketExpired(ticket))
+        throw new RunApiHttpError(
+          410,
+          "This attach ticket has expired. Request a fresh ticket and try again.",
+          "run_attach_expired",
+        );
       if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
       setAttachState(ticket ? "attached" : "idle");
     } catch (cause) {
       const status = cause instanceof RunApiHttpError ? cause.status : 0;
-      const code = cause instanceof RunApiHttpError ? cause.code ?? "" : "";
-      setAttachState(status === 410 || code.includes("expire") ? "expired" : status === 409 && (code.includes("replay") || code.includes("consum")) ? "replayed" : "error");
+      const code = cause instanceof RunApiHttpError ? (cause.code ?? "") : "";
+      setAttachState(
+        status === 410 || code.includes("expire")
+          ? "expired"
+          : status === 409 && (code.includes("replay") || code.includes("consum"))
+            ? "replayed"
+            : "error",
+      );
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setPending(undefined);
@@ -354,12 +420,24 @@ export function TimelineRunBoard({
   };
 
   return (
-    <main className="timeline-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""} data-attach-state={attachState} data-api-error={error ?? ""}>
+    <main
+      className="timeline-board"
+      data-connection={state.connection}
+      data-approved={state.approval?.attemptId ?? ""}
+      data-attach-state={attachState}
+      data-api-error={error ?? ""}
+    >
       <header className="timeline-header">
         <div>
-          <div className="timeline-eyebrow"><span>RUN {state.snapshot.id}</span><i /> <span>chronological review</span></div>
+          <div className="timeline-eyebrow">
+            <span>RUN {state.snapshot.id}</span>
+            <i /> <span>chronological review</span>
+          </div>
           <h1>{state.snapshot.title}</h1>
-          <p>{state.snapshot.source} <i /> {state.snapshot.attempts.length} independent attempts <i /> {readyCount} ready to compare</p>
+          <p>
+            {state.snapshot.source} <i /> {state.snapshot.attempts.length} independent attempts <i /> {readyCount} ready
+            to compare
+          </p>
         </div>
         <div className="timeline-connection" data-connection-label={state.connection}>
           <span className="timeline-connection-dot" />
@@ -370,46 +448,130 @@ export function TimelineRunBoard({
 
       <section className="timeline-intent" aria-label="Shared intent">
         <span className="timeline-kicker">Shared intent</span>
-        <div><p>{state.snapshot.intent}</p><small>{state.snapshot.source} · Same starting commit · Separate workspaces</small></div>
+        <div>
+          <p>{state.snapshot.intent}</p>
+          <small>{state.snapshot.source} · Same starting commit · Separate workspaces</small>
+        </div>
       </section>
 
       {state.connection === "disconnected" && (
         <section className="timeline-recovery" aria-live="polite" data-recovery="available">
-          <span className="timeline-recovery-icon" aria-hidden="true">↻</span>
-          <div><strong>Disconnected after event {state.snapshot.cursor}</strong><p>Your workers are retained. The board is showing the last durable activity and evidence.</p></div>
-          <button type="button" onClick={() => void replay()} aria-label={`Reconnect and replay from saved event ${state.snapshot.cursor}`}>Reconnect and replay</button>
+          <span className="timeline-recovery-icon" aria-hidden="true">
+            ↻
+          </span>
+          <div>
+            <strong>Disconnected after event {state.snapshot.cursor}</strong>
+            <p>Your workers are retained. The board is showing the last durable activity and evidence.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void replay()}
+            aria-label={`Reconnect and replay from saved event ${state.snapshot.cursor}`}
+          >
+            Reconnect and replay
+          </button>
         </section>
       )}
-      {error && <p className="timeline-error" role="alert">{error}</p>}
+      {error && (
+        <p className="timeline-error" role="alert">
+          {error}
+        </p>
+      )}
 
-      <AttemptFilmstrip attempts={state.snapshot.attempts} selected={state.selected} onSelect={(attemptId) => dispatch({ type: "select", attemptId })} />
+      <AttemptFilmstrip
+        attempts={state.snapshot.attempts}
+        selected={state.selected}
+        onSelect={(attemptId) => dispatch({ type: "select", attemptId })}
+      />
 
       {attempt && (
         <>
           <ReplayCursor cursor={state.snapshot.cursor} eventCount={events.length} connection={state.connection} />
           <section className="timeline-workspace" aria-label="Selected attempt review">
             <header className="timeline-workspace-header">
-              <div><span className="timeline-kicker">Selected attempt</span><h2>{attempt.label}</h2><p>{attempt.direction} · Provider / placement: {attempt.worker} · {attempt.sessionId}</p></div>
-              <button className="timeline-attach" type="button" disabled={state.connection !== "live" || pending === "attach"} onClick={() => void attach()}>
-                {pending === "attach" ? "Attaching…" : state.attached === attempt.id ? "Worker terminal attached" : attachState === "expired" ? "Attach expired · Retry" : attachState === "replayed" ? "Attach used · Retry" : attachState === "error" ? "Attach failed · Retry" : "Attach worker terminal"}
+              <div>
+                <span className="timeline-kicker">Selected attempt</span>
+                <h2>{attempt.label}</h2>
+                <p>
+                  {attempt.direction} · Provider / placement: {attempt.worker} · {attempt.sessionId}
+                </p>
+              </div>
+              <button
+                className="timeline-attach"
+                type="button"
+                disabled={state.connection !== "live" || pending === "attach"}
+                onClick={() => void attach()}
+              >
+                {pending === "attach"
+                  ? "Attaching…"
+                  : state.attached === attempt.id
+                    ? "Worker terminal attached"
+                    : attachState === "expired"
+                      ? "Attach expired · Retry"
+                      : attachState === "replayed"
+                        ? "Attach used · Retry"
+                        : attachState === "error"
+                          ? "Attach failed · Retry"
+                          : "Attach worker terminal"}
                 <span aria-hidden="true">↗</span>
               </button>
             </header>
-            {(attachState === "expired" || attachState === "replayed" || attachState === "error") && <p className="timeline-attach-status" role={attachState === "error" ? "alert" : "status"}>{attachState === "expired" ? "The one-use ticket expired. Requesting a fresh ticket is safe." : attachState === "replayed" ? "That ticket was already consumed. Request a fresh ticket to reconnect." : "The worker session could not be attached. Try again while it is retained."}</p>}
+            {(attachState === "expired" || attachState === "replayed" || attachState === "error") && (
+              <p className="timeline-attach-status" role={attachState === "error" ? "alert" : "status"}>
+                {attachState === "expired"
+                  ? "The one-use ticket expired. Requesting a fresh ticket is safe."
+                  : attachState === "replayed"
+                    ? "That ticket was already consumed. Request a fresh ticket to reconnect."
+                    : "The worker session could not be attached. Try again while it is retained."}
+              </p>
+            )}
             <div className="timeline-review-grid">
               <TimelineStream attempt={attempt} cursor={state.snapshot.cursor} />
-              <div className="timeline-preview-column"><SelectedPreview attempt={attempt} /><Provenance attempt={attempt} cursor={state.snapshot.cursor} /></div>
+              <div className="timeline-preview-column">
+                <SelectedPreview attempt={attempt} />
+                <Provenance attempt={attempt} cursor={state.snapshot.cursor} />
+              </div>
             </div>
             <footer className="timeline-approval">
-              <div><span className="timeline-kicker">Human decision</span><strong>{state.approval ? "Integration intent recorded" : "Choose what moves forward"}</strong><p>{state.approval ? `${approved?.label ?? state.approval.attemptId} is queued for a separate integration review.` : "Review the event story, preview and provenance before approving this candidate."}</p></div>
-              <label><input type="checkbox" aria-label="I reviewed this attempt" checked={reviewed} disabled={!evidenceReady(attempt) || state.connection !== "live" || Boolean(state.approval)} onChange={(event) => dispatch({ type: "review", checked: event.currentTarget.checked })} /> I reviewed this attempt</label>
-              <button type="button" disabled={!canApprove(state) || pending === "approve"} onClick={() => void approve()}>{pending === "approve" ? "Recording approval…" : state.approval ? "Approval recorded" : "Approve for integration"}</button>
+              <div>
+                <span className="timeline-kicker">Human decision</span>
+                <strong>{state.approval ? "Integration intent recorded" : "Choose what moves forward"}</strong>
+                <p>
+                  {state.approval
+                    ? `${approved?.label ?? state.approval.attemptId} is queued for a separate integration review.`
+                    : "Review the event story, preview and provenance before approving this candidate."}
+                </p>
+              </div>
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="I reviewed this attempt"
+                  checked={reviewed}
+                  disabled={!evidenceReady(attempt) || state.connection !== "live" || Boolean(state.approval)}
+                  onChange={(event) => dispatch({ type: "review", checked: event.currentTarget.checked })}
+                />{" "}
+                I reviewed this attempt
+              </label>
+              <button
+                type="button"
+                disabled={!canApprove(state) || pending === "approve"}
+                onClick={() => void approve()}
+              >
+                {pending === "approve"
+                  ? "Recording approval…"
+                  : state.approval
+                    ? "Approval recorded"
+                    : "Approve for integration"}
+              </button>
             </footer>
           </section>
         </>
       )}
 
-      <footer className="timeline-footnote"><span>Timeline variant · Interactive prototype</span><span>Intent → activity → evidence → human selection</span></footer>
+      <footer className="timeline-footnote">
+        <span>Timeline variant · Interactive prototype</span>
+        <span>Intent → activity → evidence → human selection</span>
+      </footer>
     </main>
   );
 }

@@ -12,7 +12,11 @@ import type { TimelineRunBoardProps } from "./TimelineRunBoard";
  */
 const replay: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /Reconnect and replay/ });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-connection="live"]') !== null && ctx.document.querySelector('[data-replay-cursor="event-151"]') !== null);
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector('[data-connection="live"]') !== null &&
+      ctx.document.querySelector('[data-replay-cursor="event-151"]') !== null,
+  );
 };
 
 const attach: Play = async (ctx) => {

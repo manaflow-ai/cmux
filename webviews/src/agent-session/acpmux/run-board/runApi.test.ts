@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { RunApiHttpError, RunBoardApiSession, createRunApiClient, normalizeRunSnapshot, type RunApiEvent, type RunApiSnapshot } from "./runApi";
+import {
+  RunApiHttpError,
+  RunBoardApiSession,
+  createRunApiClient,
+  normalizeRunSnapshot,
+  type RunApiEvent,
+  type RunApiSnapshot,
+} from "./runApi";
 import type { RunBoardSnapshot } from "./model";
 
 const digest = "sha256:" + "a".repeat(64);
@@ -43,7 +50,8 @@ describe("Run API client", () => {
       fetch: async (input) => {
         const url = String(input);
         calls.push(url);
-        if (url.endsWith("/events")) return new Response(JSON.stringify({ events: [output], nextCursor: null }), { status: 200 });
+        if (url.endsWith("/events"))
+          return new Response(JSON.stringify({ events: [output], nextCursor: null }), { status: 200 });
         return new Response(JSON.stringify(run), { status: 200 });
       },
     });
@@ -95,13 +103,21 @@ describe("Run API client", () => {
   });
 
   test("normalizes a board fixture without treating it as a server snapshot", () => {
-    const board: RunBoardSnapshot = { id: "run-1", title: "Fixture", intent: "intent", source: "fixture", cursor: "4", attempts: [] };
+    const board: RunBoardSnapshot = {
+      id: "run-1",
+      title: "Fixture",
+      intent: "intent",
+      source: "fixture",
+      cursor: "4",
+      attempts: [],
+    };
     expect(normalizeRunSnapshot(board)).toBe(board);
   });
 
   test("reports HTTP error codes for reconnect policy", async () => {
     const client = createRunApiClient({
-      fetch: async () => new Response(JSON.stringify({ error: "run_cursor_stale", message: "expired" }), { status: 409 }),
+      fetch: async () =>
+        new Response(JSON.stringify({ error: "run_cursor_stale", message: "expired" }), { status: 409 }),
     });
     await expect(client.getEvents("run-1", "stale")).rejects.toMatchObject({ status: 409, code: "run_cursor_stale" });
     await expect(client.getEvents("run-1", "stale")).rejects.toBeInstanceOf(RunApiHttpError);
@@ -112,7 +128,14 @@ describe("Run API client", () => {
       ...run,
       attempts: [{ ...run.attempts[0]!, status: "succeeded" }],
       artifacts: [
-        { id: "artifact-1", attemptId: "attempt-1", name: "workspace.png", sizeBytes: 1, digest, uri: "artifact://one" },
+        {
+          id: "artifact-1",
+          attemptId: "attempt-1",
+          name: "workspace.png",
+          sizeBytes: 1,
+          digest,
+          uri: "artifact://one",
+        },
       ],
     });
     expect(snapshot.attempts[0]?.artifacts[0]).toMatchObject({ kind: "screenshot", verified: true });
@@ -127,7 +150,16 @@ describe("Run API client", () => {
         requests.push(init);
         call += 1;
         if (call === 2)
-          return new Response(JSON.stringify({ transport: "cmux-remote", route: "wss://vm.example/v1/link", token: "carrier", session: "cloud", expiresAtUnix: 1_800_000_000_000 }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              transport: "cmux-remote",
+              route: "wss://vm.example/v1/link",
+              token: "carrier",
+              session: "cloud",
+              expiresAtUnix: 1_800_000_000_000,
+            }),
+            { status: 200 },
+          );
         return new Response(
           JSON.stringify({
             attachTicket: {
@@ -164,7 +196,10 @@ describe("Run API client", () => {
 
   test("preserves attach ticket expiry and replay error codes", async () => {
     const client = createRunApiClient({
-      fetch: async () => new Response(JSON.stringify({ error: "run_attach_replayed", message: "ticket already consumed" }), { status: 409 }),
+      fetch: async () =>
+        new Response(JSON.stringify({ error: "run_attach_replayed", message: "ticket already consumed" }), {
+          status: 409,
+        }),
     });
     await expect(
       client.requestAttachTicket?.({ runId: "run-1", attemptId: "attempt-1", sessionId: "session-1", cursor: "42" }),

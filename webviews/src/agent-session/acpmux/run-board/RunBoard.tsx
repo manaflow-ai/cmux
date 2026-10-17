@@ -160,7 +160,16 @@ function WorkspacePreview({ attempt }: { attempt: RunAttempt }) {
   );
 }
 
-export function RunBoard({ snapshot, recovered, disconnected = false, client, onAttach, onAttachTicket, onApprove, pollMs = 4_000 }: RunBoardProps) {
+export function RunBoard({
+  snapshot,
+  recovered,
+  disconnected = false,
+  client,
+  onAttach,
+  onAttachTicket,
+  onApprove,
+  pollMs = 4_000,
+}: RunBoardProps) {
   const [state, dispatch] = useReducer(reduceBoard, undefined, () => initialBoard(snapshot, disconnected));
   const [tab, setTab] = useState<"preview" | "activity">("preview");
   const [apiError, setApiError] = useState<string>();
@@ -244,7 +253,11 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
           ? await client.requestAttachTicket(intent)
           : undefined;
       if (ticket && attachTicketExpired(ticket)) {
-        throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
+        throw new RunApiHttpError(
+          410,
+          "This attach ticket has expired. Request a fresh ticket and try again.",
+          "run_attach_expired",
+        );
       }
       if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
@@ -272,7 +285,13 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
     }
   };
   return (
-    <main className="run-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""} data-api-error={apiError ?? ""} data-attach-state={attachState}>
+    <main
+      className="run-board"
+      data-connection={state.connection}
+      data-approved={state.approval?.attemptId ?? ""}
+      data-api-error={apiError ?? ""}
+      data-attach-state={attachState}
+    >
       <header className="run-board-header">
         <div>
           <div className="run-board-eyebrow">
@@ -307,7 +326,11 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
           </button>
         </div>
       )}
-      {apiError && <p className="run-board-api-error" role="alert">{apiError}</p>}
+      {apiError && (
+        <p className="run-board-api-error" role="alert">
+          {apiError}
+        </p>
+      )}
       <section className="run-board-attempts" aria-label="Independent attempts">
         {state.snapshot.attempts.map((item) => (
           <AttemptCard
@@ -355,9 +378,21 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
               <span aria-hidden="true">↗</span>
             </button>
           </div>
-          {attachState === "expired" && <p className="run-board-attach-status" role="status">The one-use attach ticket expired. Requesting a new ticket is safe.</p>}
-          {attachState === "replayed" && <p className="run-board-attach-status" role="status">That attach ticket was already consumed. Request a fresh ticket to reconnect.</p>}
-          {attachState === "error" && <p className="run-board-attach-status" role="alert">The agent session could not be attached. Try again while the worker is retained.</p>}
+          {attachState === "expired" && (
+            <p className="run-board-attach-status" role="status">
+              The one-use attach ticket expired. Requesting a new ticket is safe.
+            </p>
+          )}
+          {attachState === "replayed" && (
+            <p className="run-board-attach-status" role="status">
+              That attach ticket was already consumed. Request a fresh ticket to reconnect.
+            </p>
+          )}
+          {attachState === "error" && (
+            <p className="run-board-attach-status" role="alert">
+              The agent session could not be attached. Try again while the worker is retained.
+            </p>
+          )}
           <div className="run-board-workspace-content">
             {tab === "preview" ? (
               <WorkspacePreview attempt={attempt} />
@@ -427,8 +462,16 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
               />
               I reviewed this attempt
             </label>
-            <button type="button" disabled={!canApprove(state) || actionPending === "approve"} onClick={() => void approve()}>
-              {actionPending === "approve" ? "Recording approval…" : state.approval ? "Approval recorded" : "Approve for integration"}
+            <button
+              type="button"
+              disabled={!canApprove(state) || actionPending === "approve"}
+              onClick={() => void approve()}
+            >
+              {actionPending === "approve"
+                ? "Recording approval…"
+                : state.approval
+                  ? "Approval recorded"
+                  : "Approve for integration"}
             </button>
           </footer>
         </section>

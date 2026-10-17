@@ -11,8 +11,18 @@ describe("Run board attach bridge", () => {
 
   test("checks both ISO and Unix expiry forms before handing a ticket to the host", () => {
     const now = Date.parse("2026-10-16T20:00:00.000Z");
-    expect(attachTicketExpired({ runId: "r", attemptId: "a", sessionId: "s", cursor: "1", expiresAt: "2026-10-16T19:59:59.000Z" }, now)).toBe(true);
-    expect(attachTicketExpired({ runId: "r", attemptId: "a", sessionId: "s", cursor: "1", expiresAtUnix: now / 1000 + 60 }, now)).toBe(false);
+    expect(
+      attachTicketExpired(
+        { runId: "r", attemptId: "a", sessionId: "s", cursor: "1", expiresAt: "2026-10-16T19:59:59.000Z" },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      attachTicketExpired(
+        { runId: "r", attemptId: "a", sessionId: "s", cursor: "1", expiresAtUnix: now / 1000 + 60 },
+        now,
+      ),
+    ).toBe(false);
     expect(attachTicketExpired({ runId: "r", attemptId: "a", sessionId: "s", cursor: "1" }, now)).toBe(false);
   });
 });

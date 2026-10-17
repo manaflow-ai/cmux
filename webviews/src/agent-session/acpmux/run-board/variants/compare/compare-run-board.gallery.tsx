@@ -22,13 +22,21 @@ const selectCandidate: Play = async (ctx) => {
 const reconnectAndReplay: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Reconnect and replay" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-replay-state="replayed"]'));
-  await ctx.waitFor(() => ctx.document.querySelector('[data-testid="compare-capture-receipt"]')?.textContent?.includes("Replayed through event 151"));
+  await ctx.waitFor(() =>
+    ctx.document
+      .querySelector('[data-testid="compare-capture-receipt"]')
+      ?.textContent?.includes("Replayed through event 151"),
+  );
 };
 
 const attachTerminal: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Attach terminal to Attempt B" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-attach-state="attached"]'));
-  await ctx.waitFor(() => ctx.document.querySelector('[data-testid="compare-capture-receipt"]')?.textContent?.includes("Attached terminal to Attempt B"));
+  await ctx.waitFor(() =>
+    ctx.document
+      .querySelector('[data-testid="compare-capture-receipt"]')
+      ?.textContent?.includes("Attached terminal to Attempt B"),
+  );
 };
 
 const approveWinner: Play = async (ctx) => {
@@ -56,8 +64,15 @@ export default componentEntry<CompareRunBoardProps>({
   widths: { narrow: 560, normal: 1180, wide: 1480 },
   anchors: [{ testId: "compare-capture-receipt" }],
   checks: {
-    anchorMovePx: { value: 0, reason: "Selection, replay, attach and approval update the stable capture receipt without moving it." },
-    settleMaxMs: { value: 250, reason: "Matrix selection and human review controls are local state changes and should settle within a quarter second." },
+    anchorMovePx: {
+      value: 0,
+      reason: "Selection, replay, attach and approval update the stable capture receipt without moving it.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason:
+        "Matrix selection and human review controls are local state changes and should settle within a quarter second.",
+    },
   },
   covers: ["agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx#CompareRunBoard"],
   styles: () => import("./styles.css"),
