@@ -281,7 +281,7 @@ extension TerminalSurface {
             }
         }
 
-        let resolvedWorkingDirectory = resolvedRuntimeWorkingDirectory(baseConfig: baseConfig)
+        let resolvedWorkingDirectory = openableRuntimeWorkingDirectory(baseConfig: baseConfig)
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,

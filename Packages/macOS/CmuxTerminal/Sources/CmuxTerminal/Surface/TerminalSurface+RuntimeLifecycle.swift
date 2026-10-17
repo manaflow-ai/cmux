@@ -785,12 +785,13 @@ extension TerminalSurface {
         )
         guard agentShimState.isReady else { return }
         let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
+        // Ahead of pacing, so restored spawns keep their cadence after the open.
+        guard runtimeWorkingDirectoryStateForSurface(view: view, source: source) else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
         if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
-        guard runtimeWorkingDirectoryStateForSurface(view: view, source: source) else { return }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1

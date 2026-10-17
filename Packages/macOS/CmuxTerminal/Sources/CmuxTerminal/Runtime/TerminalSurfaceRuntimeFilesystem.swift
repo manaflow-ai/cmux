@@ -24,16 +24,29 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// `ghostty_surface_new` opens the requested working directory on the
     /// calling thread. Opening it here first, off the main actor, absorbs a
     /// slow volume, File Provider or privacy check so the main-thread open
-    /// hits a warm lookup (#21260). The result is advisory: Ghostty still
-    /// decides whether the directory is usable.
-    public let prepareWorkingDirectory: @Sendable (_ path: String) async -> Void
+    /// hits a warm lookup (#21260).
+    ///
+    /// - Returns: Whether the directory opened. A directory that did not open
+    ///   is not passed to Ghostty, which would otherwise retry it on main.
+    public let prepareWorkingDirectory: @Sendable (_ path: String) async -> Bool
 
-    /// Opens and closes a directory, blocking the calling thread until the
-    /// kernel lookup completes.
-    public static let openWorkingDirectory: @Sendable (_ path: String) async -> Void = { path in
-        let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        if descriptor >= 0 {
-            close(descriptor)
+    private static let workingDirectoryOpenQueue = DispatchQueue(
+        label: "com.cmuxterm.terminal.working-directory-open",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    /// Opens and closes a directory on a dedicated queue, so a stalled lookup
+    /// never parks a Swift concurrency pool thread.
+    public static let openWorkingDirectory: @Sendable (_ path: String) async -> Bool = { path in
+        await withCheckedContinuation { continuation in
+            workingDirectoryOpenQueue.async {
+                let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+                if descriptor >= 0 {
+                    close(descriptor)
+                }
+                continuation.resume(returning: descriptor >= 0)
+            }
         }
     }
 
@@ -48,7 +61,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
-        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Void =
+        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Bool =
             TerminalSurfaceRuntimeFilesystem.openWorkingDirectory
     ) {
         self.agentCommandShimRootDirectory = agentCommandShimRootDirectory
@@ -68,7 +81,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ rootDirectory: URL
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
-        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Void =
+        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Bool =
             TerminalSurfaceRuntimeFilesystem.openWorkingDirectory
     ) {
         self.init(

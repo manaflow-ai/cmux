@@ -488,8 +488,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The in-flight off-main open of the runtime working directory (#21260).
     var runtimeWorkingDirectoryPreflightTask: Task<Void, Never>?
     /// The working directory whose off-main open completed for the next
-    /// native creation. Cleared once that creation consumes it.
-    var preparedRuntimeWorkingDirectory: String?
+    /// native creation, and whether it opened. Cleared once consumed.
+    var preparedRuntimeWorkingDirectory: TerminalSurfacePreparedWorkingDirectory?
     var runtimeWorkingDirectoryPreflightPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
