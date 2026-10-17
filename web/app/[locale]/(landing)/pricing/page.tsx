@@ -276,6 +276,7 @@ function PricingContent({
     yearly: t("pro.annual.yearly"),
     monthly: t("monthly"),
     perMonth: t("perMonth"),
+    annualPeriod: t("perMonthBilledYearly"),
   };
   const proCheckoutHrefs = {
     month: proCheckoutHref,

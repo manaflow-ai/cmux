@@ -134,6 +134,7 @@ export function AppPricingContent({
     yearly: pricing.pro.annual.yearly,
     monthly: pricing.monthly,
     perMonth: pricing.perMonth,
+    annualPeriod: pricing.perMonthBilledYearly,
   };
   const teamCheckoutHrefs = {
     month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),

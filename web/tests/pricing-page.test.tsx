@@ -394,6 +394,8 @@ describe("localized pricing page", () => {
     const html = (await renderSettled(element));
 
     expect(html).toContain("$45.83");
+    const annualProPrice = html.indexOf("$45.83");
+    expect(html.slice(annualProPrice, annualProPrice + 240)).toContain("/mo, billed annually");
     expect(html).toContain("/mo, billed annually");
     expect(html).toContain("$55");
     expect(html).toContain("/user/mo, billed annually");
