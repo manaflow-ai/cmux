@@ -169,8 +169,9 @@ def until(marker):
     while marker not in output:
         if time.monotonic() > deadline: raise AssertionError(repr(output))
         if select.select([master], [], [], 0.1)[0]:
-            # The prompt hook reports the cwd (OSC 7) right before each prompt.
-            output = re.sub(rb"\x1b\]7;[^\x07]*\x07", b"", output + os.read(master, 65536))
+            # The prompt hook reports the cwd (OSC 7) right before each prompt,
+            # and ghost.bash wraps each redraw in a synchronized update.
+            output = re.sub(rb"\x1b\]7;[^\x07]*\x07|\x1b\[\?2026[hl]", b"", output + os.read(master, 65536))
 try:
     until(b"@brave-blue-otter")
     (root / "vm-name").write_text("renamed-box\n")

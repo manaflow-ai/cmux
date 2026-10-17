@@ -385,8 +385,10 @@ run(b"\x19\r", rb"[\r\n]a b\r\n")
 # A history entry larger than a pipe buffer does not stall typing.
 os.write(fd, b"echo xx"); expect(gray + rb"x{20}")
 os.write(fd, b"\x15"); run(b"echo alive\r", rb"[\r\n]alive\r\n")
-# Ctrl-C erases the suggestion after the ^C.
-os.write(fd, b"echo ol"); expect(gray + rb"der-entry")
+# Ctrl-C erases the suggestion after the ^C. The handler draws the gray text
+# before readline's redraw ends the held update; a ^C sent in between
+# interrupts the handler instead of the line, so wait for the redraw.
+os.write(fd, b"echo ol"); expect(gray + rb"der-entry[\s\S]*\x1b\[\?2026l")
 os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
 # set -e survives the accept keys at column 0.
 run(b"set -e\r", rb"set -e")
