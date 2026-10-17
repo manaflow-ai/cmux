@@ -40,6 +40,27 @@ When we change the fork, update this document and the parent submodule SHA.
   alpha zeroing in `updateFrame`; keep them together, and keep the Zig
   `Uniforms.bools` and the MSL `Uniforms` field order identical.
 
+### Requested working directory is validated on the IO thread
+
+- Branch: `cmux-21260-offmain-cwd-probe`
+  ([manaflow-ai/ghostty#273](https://github.com/manaflow-ai/ghostty/pull/273)),
+  based on the cmux classic pin `cb1ef7091`. Merge it with a merge commit so
+  the pin stays reachable from fork `main`.
+- Commit: `2f695c9a4`.
+- Summary: the embedded `Surface.init` opened and stat'd the requested
+  working directory on the host main thread inside `ghostty_surface_new`. A
+  slow or busy filesystem then blocked the cmux UI in `openat` while a burst
+  of restored Codex sessions started (manaflow-ai/cmux#21260). The requested
+  directory is now passed through unchecked. `Subprocess.start`, already on
+  the IO thread, opens it as a directory, falls back to the configured
+  `working-directory` and then to inheriting, and keeps `PWD` in sync.
+- Coverage: `usableWorkingDirectory prefers a directory and falls back from
+  files` in `src/termio/Exec.zig`.
+- Conflict notes: keep filesystem probes out of the embedded surface init
+  path. `termio.Exec.Config` gains `working_directory_fallback`, which
+  `Surface.init` reads through the embedded runtime's
+  `workingDirectoryFallback()`.
+
 ### CSI 996 reports the surface's runtime color scheme
 
 - Branch: `cmux-csi996-runtime-scheme`
