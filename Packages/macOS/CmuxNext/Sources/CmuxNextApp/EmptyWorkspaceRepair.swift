@@ -193,7 +193,7 @@ final class EmptyWorkspaceRepair {
     private func closeIfEmptied(_ key: WorkspaceKey) -> Bool {
         guard populated[key] == epoch(), states[key] == nil, canCreate() else { return states[key] == .closing }
         states[key] = .closing
-        populated[key] = nil
+        let populatedEpoch = populated.removeValue(forKey: key)
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
@@ -217,8 +217,8 @@ final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
+                // Keep evidence so a later update can retry cleanup.
+                if states[key] == .closing { states[key] = nil; populated[key] = populatedEpoch }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
