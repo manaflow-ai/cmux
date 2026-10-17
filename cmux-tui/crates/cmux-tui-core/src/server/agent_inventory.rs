@@ -16,6 +16,7 @@ use super::{MessageWriter, Response};
 use crate::mux::Mux;
 
 pub(super) const CAPABILITY: &str = "agent-inventory-v1";
+pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
 const CALL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -33,6 +34,7 @@ impl Drop for ReadSlot {
 enum Failure {
     NotTrusted,
     BadRequest,
+    OwnerMismatch,
     Unavailable,
     Unsupported,
     Busy,
@@ -44,6 +46,7 @@ impl Failure {
         match self {
             Self::NotTrusted => "agent_inventory.not_trusted",
             Self::BadRequest => "agent_inventory.bad_request",
+            Self::OwnerMismatch => "agent_inventory.owner_mismatch",
             Self::Unavailable => "agent_inventory.unavailable",
             Self::Unsupported => "agent_inventory.unsupported",
             Self::Busy => "agent_inventory.busy",
@@ -52,8 +55,9 @@ impl Failure {
     }
 }
 
-/// Only `cmd` and the response correlation id are admitted. Trust is checked
-/// before params, and unknown fields never reach the owner's acpmux.
+/// The optional owner fence only verifies this daemon; it never selects or
+/// connects to another machine. Trust precedes params and no client fields
+/// reach the owner's acpmux.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -73,8 +77,20 @@ pub(super) fn try_handle(
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
+    let expected_machine = fields.remove("expected_machine_id");
     if !fields.is_empty() {
         return Some(reply(writer, id, Err(Failure::BadRequest)));
+    }
+    if let Some(expected) = expected_machine {
+        let Value::String(expected) = expected else {
+            return Some(reply(writer, id, Err(Failure::BadRequest)));
+        };
+        let Ok(expected) = crate::resource::MachinePublicId::parse(expected) else {
+            return Some(reply(writer, id, Err(Failure::BadRequest)));
+        };
+        if expected != mux.machine_public_id {
+            return Some(reply(writer, id, Err(Failure::OwnerMismatch)));
+        }
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return Some(reply(writer, id, Err(Failure::Unavailable)));

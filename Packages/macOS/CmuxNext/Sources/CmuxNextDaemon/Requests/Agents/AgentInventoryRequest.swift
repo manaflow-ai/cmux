@@ -7,6 +7,8 @@
 /// Call on the selected machine's connection with a 15-second deadline to
 /// cover the daemon's two bounded owner calls. Never fall back to another
 /// machine when this request fails.
+/// For a machine selected by public ID, use ``MachineAgentInventoryRequest``
+/// to have the daemon verify ownership before reading its cache.
 ///
 /// ```swift
 /// let inventory = try await connection.request(AgentInventoryRequest(), timeout: .seconds(15))

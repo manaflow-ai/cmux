@@ -8932,9 +8932,19 @@ answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
 
 `agent-inventory-v1` is advertised when the daemon has its own acpmux socket
 configured. A trusted native connection (the app's local, SSH or Cloud carrier)
-may send `{id, cmd:"agent-inventory"}` with no other fields. WebSocket clients
-and the conversations-only remote relay cannot use it. This command reads this
-daemon's machine only; it accepts no machine, session, socket or command selector.
+may send `{id, cmd:"agent-inventory"}`. WebSocket clients and the
+conversations-only remote relay cannot use it. This command reads this daemon's
+machine only; it accepts no machine, session, socket or command selector.
+
+With `agent-inventory-owner-v1`, a client selecting a public machine ID sends
+`{id, cmd:"agent-inventory", expected_machine_id:"machine_…"}`. The daemon
+validates the canonical ID and compares it to its own persisted machine ID
+before checking or opening acpmux. A different owner returns
+`agent_inventory.owner_mismatch` without an owner call or local identity in the
+response. The field is an identity fence, never a routing selector. Clients must
+negotiate this capability separately, require a known public machine ID and
+propagate a mismatch instead of removing the fence or retrying elsewhere.
+All other fields remain refused.
 
 The daemon first calls `initialize` on its own acpmux socket and requires the
 exact `harnessInventory` feature in a string array at `_meta.acpmux.features`.
@@ -8955,7 +8965,7 @@ rows and eight concurrent reads per daemon are accepted.
 
 Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
 `unavailable` (including a stopped or unresponsive owner), `unsupported` (no
-negotiated view), `busy` or `invalid_response`. An unavailable remote owner is
+negotiated view), `owner_mismatch`, `busy` or `invalid_response`. An unavailable remote owner is
 never replaced with this computer's inventory.
 
 ## Agent CLI updates
