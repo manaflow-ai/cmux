@@ -1552,7 +1552,7 @@ public final class ConversationViewController: UIViewController {
     func openInfo() {
         guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
         view.endEditing(true)
-        guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds) else { return }
+        guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds, avatarImage: options.avatarImage) else { return }
         details.background = store.background
         details.onEditBackground = { [weak self, weak details] kind in
             guard let self, let details else { return }
