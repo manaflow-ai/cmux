@@ -486,7 +486,12 @@ final class AgentChatModeModel {
                     }
                 }
                 historyCursors[sessionID] = page.messages.first?.seq
-                historyHasMore[sessionID] = page.hasMore
+                // The host can report that older transcript lines exist on
+                // disk even when they have fallen outside its bounded cache.
+                // An empty page has no cursor to advance, so retaining
+                // `hasMore` would make every tap request the newest page
+                // again forever.
+                historyHasMore[sessionID] = page.hasMore && !page.messages.isEmpty
                 break
             }
         } catch is CancellationError {

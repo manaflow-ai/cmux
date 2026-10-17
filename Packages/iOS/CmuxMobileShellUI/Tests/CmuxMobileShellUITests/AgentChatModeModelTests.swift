@@ -115,6 +115,32 @@ import Testing
         #expect((await source.historyRequests).map(\.beforeSeq) == [nil, 2])
     }
 
+    @Test func emptyOlderPageStopsPaginationWithoutRefetchingNewestPage() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [
+                    ChatHistoryPage(messages: [message(id: "new", seq: 2, text: "new")], hasMore: true),
+                    ChatHistoryPage(messages: [], hasMore: true),
+                ],
+            ]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+        #expect(model.selectedHasMoreHistory)
+
+        await model.loadOlderMessages()
+        await settle()
+        #expect(!model.selectedHasMoreHistory)
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, 2])
+
+        await model.loadOlderMessages()
+        await settle()
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, 2])
+    }
+
     @Test func eventsUpsertStreamingStateAndResetTranscript() async {
         let initial = message(id: "one", seq: 1, text: "one")
         let replacement = message(id: "one", seq: 1, text: "edited")
