@@ -11539,26 +11539,14 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let groups = tabManager.workspaceGroups.map { group in
-            CustomSidebarGroupSnapshot(
-                id: group.id,
-                name: group.name,
-                isCollapsed: group.isCollapsed,
-                isPinned: group.isPinned,
-                anchorWorkspaceId: group.anchorWorkspaceId,
-                customColor: group.customColor,
-                iconSymbol: group.iconSymbol
-            )
-        }
-        let snapshot = CustomSidebarContextSnapshot(
+        return ContentView.customSidebarDataContext(
             workspaces: workspaces,
-            groups: groups,
+            workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: unreadSnapshot.totalUnreadCount,
             now: now
         )
-        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
     @AppStorage("sidebarMatchTerminalBackground")

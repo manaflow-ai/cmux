@@ -64,6 +64,7 @@ esac
 # shellcheck source=lib/gatekeeper-assessment.sh
 source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
 SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
 
@@ -131,6 +132,7 @@ start_submission() {
   # Give the helper its final Developer ID signature before upload. Later host
   # signing must use all-except-computer-use so this exact CDHash survives until
   # finish staples the ticket and re-seals only the outer app.
+  "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" \
     --force \
     --options runtime \
