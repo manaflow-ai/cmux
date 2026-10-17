@@ -214,4 +214,3 @@ import Testing
         #expect(ChiefText.turnFailed("boom").contains("boom"))
     }
 }
-}

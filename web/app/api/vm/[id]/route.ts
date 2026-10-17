@@ -19,7 +19,6 @@ import { PublicationNotFoundError } from "../../../../services/vm-publications/r
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
-import { computerUseReadinessFor } from "../../../../services/vms/computerUse";
 
 
 // Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
@@ -60,13 +59,6 @@ export async function GET(
         image: vm.image,
         imageVersion: vm.imageVersion,
         kind: vmImageKindFor(vm.provider, vm.image),
-        ...(typeof vm.status === "string" ? {
-          computerUse: computerUseReadinessFor({
-            provider: vm.provider,
-            kind: vmImageKindFor(vm.provider, vm.image),
-            status: vm.status,
-          }),
-        } : {}),
         capabilities: vmCapabilitiesFor(vm.provider),
         status: vm.status,
         createdAt: vm.createdAt,
