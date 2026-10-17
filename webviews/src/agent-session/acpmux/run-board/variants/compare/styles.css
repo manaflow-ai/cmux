@@ -46,7 +46,7 @@
 .compare-matrix-heading h2, .compare-review-header h2 { margin: 7px 0 0; font-size: var(--text-heading); font-weight: 550; letter-spacing: -.025em; }
 .compare-matrix-heading h2 small { margin-left: 7px; color: var(--compare-muted); font-size: var(--text-caption); font-weight: 450; letter-spacing: 0; }
 .compare-capture-receipt { max-width: min(590px, 50%); color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; }
-.compare-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.compare-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 0; padding: 0; list-style: none; }
 .compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-background, Canvas); transition: border-color 120ms ease, box-shadow 120ms ease; }
 .compare-candidate[data-selected]:not([data-selected=""]) { border-color: color-mix(in srgb, var(--compare-ink) 45%, var(--compare-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--compare-ink) 10%, transparent); }
 .compare-candidate-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px 11px; }
@@ -110,7 +110,8 @@
 .compare-review-state[data-review-state="reviewed"] { color: var(--compare-amber); }
 .compare-review-state[data-review-state="approved"] { color: var(--compare-green); }
 .compare-review-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-block: 1px solid var(--compare-line); background: var(--compare-soft); padding: 8px 14px; }
-.compare-tabs { display: flex; gap: 3px; }
+.compare-tabs { display: flex; gap: 3px; margin: 0; padding: 0; border: 0; }
+.compare-tabs-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .compare-tabs button { border: 0; border-radius: 5px; background: transparent; padding: 6px 8px; color: var(--compare-muted); font-size: var(--text-caption); cursor: pointer; }
 .compare-tabs button[aria-pressed="true"] { background: var(--compare-ink); color: var(--cmux-surface-background, Canvas); }
 .compare-review-content { display: grid; grid-template-columns: minmax(0, 1fr) 245px; min-height: 300px; }

@@ -107,7 +107,7 @@ function CandidateCard({
   const changes = sessionSummary(attempt.rows).outputs.length;
   const verified = attempt.artifacts.filter((artifact) => artifact.verified).length;
   return (
-    <article className="compare-candidate" role="listitem" data-state={attempt.state} data-selected={selected ? attempt.id : ""}>
+    <li className="compare-candidate" data-state={attempt.state} data-selected={selected ? attempt.id : ""}>
       <div className="compare-candidate-head">
         <button
           className="compare-candidate-select"
@@ -146,7 +146,7 @@ function CandidateCard({
           {attachLabel} <span aria-hidden="true">↗</span>
         </button>
       </div>
-    </article>
+    </li>
   );
 }
 
@@ -378,7 +378,7 @@ export function CompareRunBoard({
           <div><span className="compare-section-kicker">COMPARE IN PARALLEL</span><h2 id="compare-matrix-title">Candidate matrix <small>2 × 2</small></h2></div>
           <output className="compare-capture-receipt" data-testid="compare-capture-receipt" aria-live="polite">Capture receipt · {state.snapshot.attempts.length} previews · event {state.snapshot.cursor} · {actionReceipt}</output>
         </div>
-        <div className="compare-matrix" role="list" aria-label="Independent candidate attempts">
+        <ul className="compare-matrix" aria-label="Independent candidate attempts">
           {state.snapshot.attempts.map((item) => (
             <CandidateCard
               key={item.id}
@@ -390,7 +390,7 @@ export function CompareRunBoard({
               attachDisabled={state.connection !== "live" || Boolean(actionPending)}
             />
           ))}
-        </div>
+        </ul>
       </section>
 
       {attempt && (
@@ -403,10 +403,11 @@ export function CompareRunBoard({
             </div>
           </header>
           <div className="compare-review-toolbar">
-            <div className="compare-tabs" role="group" aria-label="Winner detail view">
+            <fieldset className="compare-tabs">
+              <legend className="compare-tabs-label">Winner detail view</legend>
               <button type="button" aria-pressed={tab === "preview"} onClick={() => setTab("preview")}>Side-by-side preview</button>
               <button type="button" aria-pressed={tab === "activity"} onClick={() => setTab("activity")}>Activity trace</button>
-            </div>
+            </fieldset>
             <button type="button" className="compare-detail-attach" disabled={state.connection !== "live" || Boolean(actionPending)} onClick={() => void attach(attempt)}>
               {attachLabel(attempt)} <span aria-hidden="true">↗</span>
             </button>
