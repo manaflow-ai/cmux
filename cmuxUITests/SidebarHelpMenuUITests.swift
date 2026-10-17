@@ -40,6 +40,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let checkForUpdatesItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionCheckForUpdates", title: "Check for Updates"),
@@ -66,6 +67,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let sendFeedbackItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionSendFeedback", title: "Send Feedback"),
@@ -154,6 +156,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let settingsItem = requireElement(
             candidates: helpMenuItemCandidates(
