@@ -55,6 +55,36 @@ The server may return `mutation.indeterminate` after a crash around an external
 effect. SDKs retain the structured error and never repeat that key
 automatically.
 
+## Machine catalog reads
+
+Machine reads keep the original local-only response by default. Opt in per request
+to the extended catalog with `catalog: true`; the endpoint advertises this format as
+`machine-catalog-read-v1`. False or omitted options send no `catalog` field. This
+choice is never stored on the connection or handle. Older endpoints may reject an
+explicit opt-in, so callers should check the endpoint capability before using it.
+
+| SDK | List with catalog metadata | Refresh the captured owner |
+| --- | --- | --- |
+| Rust | `client.machine_snapshots_with(MachineReadOptions { catalog: true })` | `owner.refresh_with(MachineReadOptions { catalog: true })` |
+| Python, sync and async | `client.list_machines(catalog=True)` | `owner.refresh(catalog=True)` |
+| TypeScript | `client.listMachines({ catalog: true })` | `owner.refresh({ catalog: true })` |
+| Go | `client.ListMachinesWith(ctx, cmux.MachineReadOptions{Catalog: true})` | `owner.RefreshWith(ctx, cmux.MachineReadOptions{Catalog: true})` |
+| Java | `client.listMachinesWith(new Options.MachineRead(true))` | `owner.refresh(new Options.MachineRead(true))` |
+| C++ | `client.machines(cmux::MachineReadOptions{true})` | `owner.refresh(cmux::MachineReadOptions{true})` |
+| Zig | `client.listMachinesWith(.{ .catalog = true })` | `owner.refreshWith(.{ .catalog = true })` |
+
+Python async calls use `await`. Rust also offers `machines_with` for handles and
+`find_machines_by_name_with` for exact name matches; the snapshot form retains all
+list metadata in a single read. Other SDK list results carry snapshots directly or
+cache them on their handles. Existing cancellation, deadline and allocator lifetime
+rules apply to these reads.
+
+The catalog may include Cloud, SSH and persistent-server entries already admitted by
+the app. Platform and capability fields are optional; omission means unknown.
+Reading an entry never connects to its machine, starts a server, installs an agent,
+or grants session execution rights. A refresh keeps the handle's captured machine
+selector. Session operations still require their separate routing and permissions.
+
 ## Commands
 
 An exact command preserves every argument and does not invoke a shell:
