@@ -25,7 +25,8 @@ final class AgentPanePageSettings {
     private weak var settings: SettingsController?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
-    func follow(_ settings: SettingsController, push: @escaping () -> Void) {
+    @MainActor
+    func follow(_ settings: SettingsController, push: @escaping @MainActor @Sendable () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         debugSettings.follow(setComposer: { [weak self] slider, style in
