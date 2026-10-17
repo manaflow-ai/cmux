@@ -187,10 +187,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
-        let focused = (layoutModel.focusedPane, layoutModel.activeScreenID)
         sendTopology()
-        // The focus the topology landed (a split's pane) rings in this frame.
-        if (layoutModel.focusedPane, layoutModel.activeScreenID) != focused { layoutView.syncWithModel() }
+        // The focus the mount or the topology landed (a split's pane) rings
+        // in this frame. An equality check when nothing moved: the view
+        // syncs only a model that changed since its last sync.
+        layoutView.syncWithModel()
     }
 
     /// A workspace with no pane shows its title; Return creates the first
