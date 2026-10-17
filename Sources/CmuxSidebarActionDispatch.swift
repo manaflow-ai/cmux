@@ -55,6 +55,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         // this thread and hops main-actor methods back to the main actor itself,
         // so nothing here blocks SwiftUI and ordering is preserved end to end.
         let commands = action.commands
+        let selectedWorkspaceID = controller.tabManager?.selectedTabId
         let selectGeneration = sidebarSelectCoalescer.generation(for: commands)
         cmuxSidebarWorkerQueue.async {
             // A newer select is already queued behind this one: skip the heavy
@@ -98,8 +99,9 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                     }
                 case let .log(message):
                     let quotedMessage = quotedLogMessage(message)
+                    let tabOption = selectedWorkspaceID.map { " --tab=\($0.uuidString)" } ?? ""
                     _ = controller.handleSocketLine(
-                        "log --source=custom-sidebar -- \(quotedMessage)"
+                        "log\(tabOption) --source=custom-sidebar -- \(quotedMessage)"
                     )
                 }
             }

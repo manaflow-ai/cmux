@@ -163,15 +163,18 @@ struct SidebarJSRuntimeTests {
     @Test func logHandlerDispatchesAnInfoAction() async throws {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
+        let (completions, completion) = AsyncStream<Void>.makeStream()
         runtime.dispatch = SidebarActionDispatch { action in
             captured.append(contentsOf: action.commands)
+            completion.yield()
         }
         runtime.start(source: """
         sidebar(() => Button("Trace", () => log("row tapped")))
         """)
         let rootId = try #require(runtime.store.rootId)
+        var completionIterator = completions.makeAsyncIterator()
         runtime.dispatchEvent(nodeId: rootId, event: "tap")
-        await pumpActions()
+        _ = await completionIterator.next()
         #expect(captured == [.log("row tapped")])
     }
 

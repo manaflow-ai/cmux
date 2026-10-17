@@ -25,6 +25,7 @@ struct CmuxSidebarActionDispatchTests {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
         window.isReleasedWhenClosed = false
         let manager = TabManager(autoWelcomeIfNeeded: false)
+        let previousActiveTabManager = TerminalController.shared.tabManager
 
         app.registerMainWindow(
             window,
@@ -40,10 +41,10 @@ struct CmuxSidebarActionDispatchTests {
         let message = "row \"tapped\"\nnext"
 
         defer {
-            TerminalController.shared.setActiveTabManager(nil)
             app.unregisterMainWindowContextForTesting(windowId: windowID)
             window.orderOut(nil)
             AppDelegate.shared = previousAppDelegate
+            TerminalController.shared.setActiveTabManager(previousActiveTabManager)
         }
 
         makeCmuxSidebarActionDispatch().run(ButtonAction(commands: [.log(message)]))
