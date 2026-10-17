@@ -200,6 +200,8 @@ struct CloudFirstRunPlanTests {
 struct CloudFirstRunModelTests {
     final class Fake {
         var vault: Set<String> = []
+        /// Project-scoped names by project key.
+        var projectVault: [String: Set<String>] = [:]
         var team: Set<String> = []
         var ready: CloudFirstRunMachine?
         var createCount = 0
@@ -221,7 +223,9 @@ struct CloudFirstRunModelTests {
 
     private func makeModel(_ fake: Fake) -> CloudFirstRunModel {
         CloudFirstRunModel(backend: .init(
-            vaultNames: { fake.vault },
+            vaultNames: { projectKey in
+                fake.vault.union(projectKey.flatMap { fake.projectVault[$0] } ?? [])
+            },
             activeTeamProviders: { fake.team },
             findReadyMachine: { fake.ready },
             createMachine: { finished in
@@ -304,6 +308,24 @@ struct CloudFirstRunModelTests {
         #expect(model.typedKey.isEmpty)
         #expect(model.keySource == .vault(name: "ANTHROPIC_API_KEY"))
         #expect(fake.cloneArguments.count == 1)
+    }
+
+    @Test func projectScopedKeyForTheChosenRepositoryCounts() async {
+        let fake = Fake()
+        fake.ready = CloudFirstRunMachine(id: "vm-1", name: "vivid")
+        fake.projectVault["github.com/a/b"] = ["ANTHROPIC_API_KEY"]
+        let model = makeModel(fake)
+        model.start()
+        await model.machineTask?.value
+        #expect(model.keySource == .missing)
+        model.repoText = "https://github.com/A/B.git"
+        #expect(model.keySource == .vault(name: "ANTHROPIC_API_KEY"))
+        model.go()
+        await model.keyTask?.value
+        #expect(fake.savedNames.isEmpty)
+        #expect(fake.cloneArguments.count == 1)
+        model.repoText = "a/other"
+        #expect(model.keySource == .missing)
     }
 
     @Test func keySaveFailureOffersFixTheKey() async {

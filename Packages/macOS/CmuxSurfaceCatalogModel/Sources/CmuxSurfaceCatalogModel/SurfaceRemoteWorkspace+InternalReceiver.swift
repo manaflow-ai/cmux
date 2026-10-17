@@ -11,7 +11,7 @@ import Foundation
 /// as a local workspace titled `cmux env 2EDB0839-…`.
 ///
 /// This predicate is the one definition of such a workspace. The delivery code
-/// names its workspace with ``internalReceiverWorkspaceName(title:id:)`` and every
+/// names its workspace with ``internalReceiverWorkspaceName(title:id:clientID:)`` and every
 /// catalog reader goes through ``SurfaceCatalogSnapshot/hidingInternalReceiverWorkspaces()``.
 extension SurfaceRemoteWorkspace {
     /// Receiver titles that mark an internal workspace. The terminal inside keeps
@@ -22,8 +22,11 @@ extension SurfaceRemoteWorkspace {
     static let internalReceiverTitles = [environmentReceiverTitle, fileReceiverTitle]
 
     /// The name a link-delivery receiver workspace is created with.
-    public static func internalReceiverWorkspaceName(title: String, id: UUID = UUID()) -> String {
-        "\(title) \(id.uuidString)"
+    public static func internalReceiverWorkspaceName(title: String, id: UUID = UUID(), clientID: String? = nil) -> String {
+        if let clientID, !clientID.isEmpty {
+            return "\(title) \(clientID) \(id.uuidString)"
+        }
+        return "\(title) \(id.uuidString)"
     }
 
     /// Whether `name` is a receiver workspace name: a reserved title, one space,
@@ -32,12 +35,27 @@ extension SurfaceRemoteWorkspace {
         internalReceiverTitles.contains { title in
             let prefix = title + " "
             guard name.hasPrefix(prefix) else { return false }
-            return UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+            let components = name.dropFirst(prefix.count).split(separator: " ")
+            return (components.count == 1 || components.count == 2)
+                && UUID(uuidString: String(components.last!)) != nil
         }
     }
 
     /// Whether this workspace is internal plumbing that no reader may show or adopt.
     public var isInternalReceiver: Bool { Self.isInternalReceiverWorkspaceName(name) }
+
+    /// The client identifier embedded in a receiver name, when this process created it.
+    /// Older receiver names have no client identifier and are intentionally returned as nil.
+    public var internalReceiverClientID: String? {
+        guard isInternalReceiver else { return nil }
+        for title in Self.internalReceiverTitles {
+            let prefix = title + " "
+            guard name.hasPrefix(prefix) else { continue }
+            let components = name.dropFirst(prefix.count).split(separator: " ")
+            if components.count == 2 { return String(components[0]) }
+        }
+        return nil
+    }
 
     /// The receiver workspaces a link sweep may close: every internal receiver on the
     /// machine, sorted by id, once this Mac has no link delivery of its own in flight.
@@ -49,10 +67,13 @@ extension SurfaceRemoteWorkspace {
     /// the sweep waits for the next connect instead of guessing.
     public static func leakedInternalReceiverIDs(
         in workspaces: [SurfaceRemoteWorkspace],
-        deliveriesInFlight: Int
+        deliveriesInFlight: Int,
+        clientID: String? = nil
     ) -> [String] {
         guard deliveriesInFlight == 0 else { return [] }
-        return workspaces.filter(\.isInternalReceiver).map(\.id).sorted()
+        return workspaces.filter { workspace in
+            workspace.isInternalReceiver && (clientID == nil || workspace.internalReceiverClientID == clientID)
+        }.map(\.id).sorted()
     }
 }
 

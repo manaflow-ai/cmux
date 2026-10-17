@@ -694646,6 +694646,315 @@
           }
         }
       }
+    },
+    "cloudPort.share.changeFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change could not be confirmed. Check the port's sharing and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Änderung konnte nicht bestätigt werden. Prüfen Sie die Freigabe des Ports und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modification n’a pas pu être confirmée. Vérifiez le partage du port et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تأكيد التغيير. تحقّق من مشاركة المنفذ وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo confirmar el cambio. Revisa cómo se comparte el puerto y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認此變更。請檢查此連接埠的分享設定，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认此更改。请检查此端口的共享设置，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항을 확인할 수 없습니다. 포트 공유 설정을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を確認できませんでした。ポートの共有設定を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow SSH Machine to Write Clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لجهاز SSH بالكتابة إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Maschine darf Zwischenablage schreiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que la máquina SSH escriba en el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la machine SSH à écrire dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH マシンによるクリップボードへの書き込みを許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 머신의 클립보드 쓰기 허용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 SSH 机器写入剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 SSH 機器寫入剪貼簿"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli SSH računaru da piše u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad SSH-maskinen at skrive til udklipsholderen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al computer SSH di scrivere negli appunti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីន SSH សរសេរទៅក្ដារតម្បៀតខ្ទាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat SSH-maskinen å skrive til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól maszynie SSH na zapisywanie w schowku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que a máquina SSH escreva na área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить машине SSH запись в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH เขียนลงในคลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH makinesinin panoya yazmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити машині SSH записувати в буфер обміну"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allows OSC 52 clipboard writes only from this SSH machine. The existing clipboard-read policy remains unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسمح فقط بكتابات OSC 52 من جهاز SSH هذا إلى الحافظة. تظل سياسة قراءة الحافظة الحالية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt dieser SSH-Maschine nur OSC-52-Schreibvorgänge in die Zwischenablage. Die bestehende Richtlinie zum Lesen der Zwischenablage bleibt unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que esta máquina SSH solo escriba mediante OSC 52 en el portapapeles. La política existente de lectura del portapapeles permanece sin cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorise uniquement les écritures OSC 52 de cette machine SSH dans le presse-papiers. La politique existante de lecture du presse-papiers reste inchangée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH マシンからの OSC 52 によるクリップボード書き込みのみを許可します。既存のクリップボード読み取りポリシーは変更されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 SSH 머신의 OSC 52 클립보드 쓰기만 허용합니다. 기존 클립보드 읽기 정책은 변경되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅允许此 SSH 机器通过 OSC 52 写入剪贴板。现有的剪贴板读取策略保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅允許此 SSH 機器透過 OSC 52 寫入剪貼簿。現有的剪貼簿讀取政策維持不變。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoljava samo upis u međuspremnik putem OSC 52 s ovog SSH računara. Postojeća pravila za čitanje međuspremnika ostaju nepromijenjena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillader kun skrivning til udklipsholderen via OSC 52 fra denne SSH-maskine. Den eksisterende politik for læsning af udklipsholderen forbliver uændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente solo la scrittura negli appunti tramite OSC 52 da questo computer SSH. La politica esistente di lettura degli appunti rimane invariata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតតែការសរសេរទៅក្ដារតម្បៀតខ្ទាស់តាមរយៈ OSC 52 ពីម៉ាស៊ីន SSH នេះប៉ុណ្ណោះ។ គោលការណ៍អានក្ដារតម្បៀតខ្ទាស់ដែលមានស្រាប់នៅដដែល។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillater bare skriving til utklippstavlen via OSC 52 fra denne SSH-maskinen. Den eksisterende politikken for lesing fra utklippstavlen forblir uendret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwala tej maszynie SSH wyłącznie na zapisywanie w schowku za pomocą OSC 52. Obowiązująca zasada odczytu schowka pozostaje bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite apenas gravações na área de transferência via OSC 52 a partir desta máquina SSH. A política existente de leitura da área de transferência permanece inalterada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешает этой машине SSH только записывать данные в буфер обмена через OSC 52. Действующая политика чтения буфера обмена остаётся без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH นี้เขียนลงในคลิปบอร์ดผ่าน OSC 52 เท่านั้น นโยบายการอ่านคลิปบอร์ดที่มีอยู่ยังคงไม่เปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu SSH makinesinin yalnızca OSC 52 aracılığıyla panoya yazmasına izin verir. Mevcut pano okuma politikası değişmeden kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє цій машині SSH лише записувати дані в буфер обміну через OSC 52. Чинна політика читання буфера обміну залишається без змін."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

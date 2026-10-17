@@ -289,14 +289,24 @@ enum CloudSecretsSheetPresentation {
         return String(format: String(localized: "cloudSecrets.machine.delivered", defaultValue: "Delivered %@"), relative)
     }
 
+    private static let relativeFormatters = NSCache<NSString, RelativeDateTimeFormatter>()
+
     /// nil under a minute (or in the future); otherwise "2h ago" in the locale.
     static func relativePhrase(_ date: Date, now: Date, locale: Locale) -> String? {
         let elapsed = now.timeIntervalSince(date)
         guard elapsed >= 60 else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = locale
-        formatter.unitsStyle = relativeUnitsStyle(for: locale)
-        formatter.dateTimeStyle = .numeric
+        let key = locale.identifier as NSString
+        let formatter: RelativeDateTimeFormatter
+        if let cached = relativeFormatters.object(forKey: key) {
+            formatter = cached
+        } else {
+            let created = RelativeDateTimeFormatter()
+            created.locale = locale
+            created.unitsStyle = relativeUnitsStyle(for: locale)
+            created.dateTimeStyle = .numeric
+            relativeFormatters.setObject(created, forKey: key)
+            formatter = created
+        }
         return formatter.localizedString(for: date, relativeTo: now)
     }
 

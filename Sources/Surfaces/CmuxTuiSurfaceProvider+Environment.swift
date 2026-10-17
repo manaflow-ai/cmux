@@ -43,7 +43,9 @@ extension CmuxTuiSurfaceProvider {
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let result = try await link.run(arguments: CloudTuiRequests.createWorkspaceArguments(
             socketPath: connected.socketPath,
-            name: SurfaceRemoteWorkspace.internalReceiverWorkspaceName(title: CloudEnvDelivery.receiverTitle),
+            name: SurfaceRemoteWorkspace.internalReceiverWorkspaceName(
+                title: CloudEnvDelivery.receiverTitle, clientID: receiverClientID
+            ),
             empty: true
         ))
         guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],

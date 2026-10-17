@@ -36,6 +36,7 @@ public enum CloudSecretRequirements {
         var seen: Set<String> = []
         func add(_ requirement: CloudSecretRequirement) {
             guard !requirement.name.isEmpty,
+                  (try? CloudSecretInput.validateNameSyntax(requirement.name)) != nil,
                   !CloudSecretInput.isReservedName(requirement.name),
                   seen.insert(requirement.name).inserted else { return }
             requirements.append(requirement)

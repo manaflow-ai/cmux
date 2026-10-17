@@ -23,8 +23,10 @@ import Observation
 final class CloudFirstRunModel {
     /// The app seams. The presenter binds the live ones; tests inject fakes.
     struct Backend {
-        /// Cloud Secrets names that reach every machine. Names only.
-        var vaultNames: @MainActor () -> Set<String>
+        /// Cloud Secrets names that reach a machine cloned into `projectKey`:
+        /// every machine's plus that project's (`vm clone` links the machine to
+        /// it). Names only.
+        var vaultNames: @MainActor (_ projectKey: String?) -> Set<String>
         /// CodeRouter account types the team has active.
         var activeTeamProviders: @MainActor () -> Set<String>
         /// A ready machine to reuse, from a fleet read.
@@ -105,7 +107,13 @@ final class CloudFirstRunModel {
     var agent: CloudFirstRunAgent = .claude {
         didSet { resolveKey() }
     }
-    var repoText = ""
+    var repoText = "" {
+        didSet {
+            // A key scoped to the chosen repository's project reaches the machine too.
+            guard CloudFirstRunRepo.reference(oldValue)?.projectKey != repoReference?.projectKey else { return }
+            refreshVaultNames()
+        }
+    }
     var prompt = CloudFirstRunRepo.defaultPrompt
     /// The key typed this run. Never logged, never in debug state; cleared
     /// once the vault holds it.
@@ -177,8 +185,12 @@ final class CloudFirstRunModel {
     /// Re-reads vault names and team accounts (the presenter calls this when
     /// either changes).
     func refreshKeys() {
-        vaultNames = backend.vaultNames()
         teamProviders = backend.activeTeamProviders()
+        refreshVaultNames()
+    }
+
+    private func refreshVaultNames() {
+        vaultNames = backend.vaultNames(repoReference?.projectKey)
         resolveKey()
     }
 
