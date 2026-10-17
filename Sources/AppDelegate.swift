@@ -20587,7 +20587,6 @@ private extension NSWindow {
         // dispatcher, whose browser-scoped action cannot handle it without a
         // browser panel in the event window.
         if let firstResponderGhosttyView,
-           shouldRouteCommandEquivalentDirectlyToMainMenu(event),
            AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
            AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
             if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
