@@ -32,6 +32,7 @@ SHA, command, host, and receipt in each row.
 | `DAY-003` | `/root/cmux_next_async_perf` | Async workspace-switch benchmark lane | analysis-only | verified | Existing tab-switch/frame-pacing benches; no native build run |
 | `DAY-004` | `/root/fleet_health_repair` | Fleet health and supported repair audit | analysis-only | verified | `fleet up`, `xcode-pin-audit`, Tailscale ping receipts; no mutation applied |
 | `DAY-005` | Codex threads `01a1470a-8f11-77c0-8d28-b4006b0bac08` and `01a143d8-1958-7c41-8bfb-7bcf247edce6` | Cross-root fleet/PR coordination | pending | sent | Explicitly authorized messages sent; acceptance/ownership receipt pending |
+| `DAY-006` | `/root/workspace_switch_impl`, reviewed by `/root/workspace_switch_review` | Async workspace-switch benchmark | `5cf9943`, `2bb1320` | integrated | 11 portable tests, actionlint, `bash -n`, Python compilation, diff-check; warning-only workflow and JSON receipts |
 
 ## Fast-forward rules
 
