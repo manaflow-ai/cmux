@@ -59,7 +59,9 @@ struct ConversationNewTaskSheet: View {
                 workspaceID = model.newTaskWorkspace?.id ?? model.workspaces.first?.id
             }
         }
-        .presentationDetents([.medium, .large])
+        // File browsing needs the full sheet height so the last changed-file
+        // row remains a real hit target on both iPhone and iPad.
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("ConversationNewTaskSheet")
     }
