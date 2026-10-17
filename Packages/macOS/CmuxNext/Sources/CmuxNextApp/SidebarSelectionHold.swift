@@ -22,8 +22,7 @@ final class SidebarSelectionHold {
 
     /// The window's selection changed to `selected`.
     func offer(_ selected: SidebarItem?) {
-        if case .workspace(let id)? = selected, model.selectedItem != selected,
-           !model.sections.contains(where: { $0.workspaces.contains { $0.id == id } }) {
+        if case .workspace(let id)? = selected, model.selectedItem != selected, !model.lists(id) {
             held = .some(selected)
             backstop.schedule(after: Self.limit) { @MainActor [weak self] in self?.flush() }
             return

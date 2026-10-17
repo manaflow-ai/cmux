@@ -53,7 +53,8 @@ extension SidebarView {
     func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
-            for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
+            // A trigger: `renderNow` draws outside the stream; `render` compares with what it drew.
+            for await state in ObservationStream({ ObservationTrigger(RenderState(model, design)) }) { self?.render(state.value) }
         }
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
@@ -64,13 +65,14 @@ extension SidebarView {
             || lastState?.titlebarHeight != state.titlebarHeight
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
+            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || Self.bandsDrawSelectionChange(from: lastState?.selected, to: state.selected)
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
-        let listChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.selection != state.selection
-            || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
+        let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
+        let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences)
+        let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
@@ -84,7 +86,7 @@ extension SidebarView {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
-            } else {
+            } else if rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
             }
             lastSections = model.sections
@@ -92,6 +94,13 @@ extension SidebarView {
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
+    }
+    /// The bands draw only a top item's selection; a move between two list rows leaves them as they are.
+    static func bandsDrawSelectionChange(from old: SidebarItem?, to new: SidebarItem?) -> Bool {
+        guard old != new else { return false }
+        if case .topItem? = old { return true }
+        if case .topItem? = new { return true }
+        return false
     }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {

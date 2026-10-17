@@ -2678,6 +2678,18 @@ jobs:
           mkdir -p prepared-app-handoff
           tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
 
+      # nightly-sign.yml (run from main) reads this annotation of this job
+      # through the checks API and refuses a tarball with another sha256.
+      - name: Record prepared app digest
+        env:
+          PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+        run: |
+          set -euo pipefail
+          digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
+          echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+
       - name: Upload prepared app for signing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -12,12 +12,13 @@ import Observation
 /// (`page-tabs-v1`) a page opens as a store tab with a page source and
 /// moves, splits and closes like any other tab; else it is an app-only tab
 /// (`LocalPageTab`) this app session keeps. Observable for `tabsByPane`
-/// only: the control snapshot lists app-only page tabs and republishes
+/// only, keyed by pane (`ObservedMap`): a pane's strip observes its own
+/// page tabs; the control snapshot lists app-only page tabs and republishes
 /// when one opens or closes (bd cx-5xsi).
 @Observable @MainActor
 final class InternalPageTabStore {
     @ObservationIgnored private var providers: [InternalPageID: any InternalPageProvider] = [:]
-    private var tabsByPane: [String: [String]] = [:]
+    private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
@@ -78,7 +79,7 @@ final class InternalPageTabStore {
         } else {
             tabs.append(key)
         }
-        tabsByPane[paneKey] = tabs
+        tabsByPane[paneKey] = tabs.isEmpty ? nil : tabs
         windows[key] = window
         paneStores[paneKey] = store
         watch(store)
@@ -97,7 +98,7 @@ final class InternalPageTabStore {
 
     /// Every open tab of `page`, by the key its provider knows it by.
     func keys(of page: InternalPageID) -> [String] {
-        (tabsByPane.values.flatMap { $0 } + Set(storeKeys.values).sorted()).filter { LocalPageTab.page(of: $0) == page }
+        (tabsByPane.entries.flatMap(\.value) + Set(storeKeys.values).sorted()).filter { LocalPageTab.page(of: $0) == page }
     }
 
     /// The strip id of `pane`'s tab whose provider key is `key`: the key
@@ -122,7 +123,7 @@ final class InternalPageTabStore {
     /// The tab's view, made on first show.
     func view(for key: String) -> InternalPageView? {
         if let view = views[key] { return view }
-        guard tabsByPane.values.contains(where: { $0.contains(key) }), let page = LocalPageTab.page(of: key),
+        guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
         view.navigate = navigate
@@ -280,8 +281,10 @@ final class InternalPageTabStore {
 
     /// The tab closed: drop its view and tell its provider.
     func close(_ key: String) {
-        for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
-        tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
+        for (pane, tabs) in tabsByPane.entries where tabs.contains(key) {
+            let rest = tabs.filter { $0 != key }
+            tabsByPane[pane] = rest.isEmpty ? nil : rest
+        }
         forget(key)
         forgetUnusedStores()
     }
