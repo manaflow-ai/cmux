@@ -33,7 +33,7 @@ public actor DaemonConnection {
     private enum Phase {
         case idle
         case connecting
-        case ready(LineTransport, serial: UInt64, userOriginAllowed: Bool)
+        case ready(DaemonReadyConnection)
         case waiting
         case closed
     }
@@ -58,7 +58,7 @@ public actor DaemonConnection {
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
-    public var userOriginAllowed: Bool { if case .ready(_, _, let allowed) = phase { allowed } else { false } }
+    public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
     /// the requests held while a handoff runs (nil: none runs).
@@ -108,7 +108,7 @@ public actor DaemonConnection {
         heartbeat.stop()
         reconnectTask?.cancel()
         reconnectTask = nil
-        if case .ready(let transport, _, _) = phase { transport.close() }
+        if case .ready(let ready) = phase { ready.transport.close() }
         phase = .closed
         releaseHandoffHold()
         continuation.finish()
@@ -153,11 +153,11 @@ public actor DaemonConnection {
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         await waitOutHandoff()
-        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        guard let ready else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
-        let response = try await Self.perform(request, on: transport, timeout: timeout)
+        let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }
@@ -168,8 +168,8 @@ public actor DaemonConnection {
     /// every event the daemon emitted before that reply (the reply's
     /// `eventBarrier` is at most this). Sequences grow across reconnects.
     public func eventSequence() -> UInt64? {
-        guard case .ready(let transport, let serial, _) = phase else { return nil }
-        return DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount)
+        guard let ready else { return nil }
+        return DaemonEventEnvelope.sequence(serial: ready.serial, index: ready.transport.routedEventCount)
     }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
@@ -177,10 +177,10 @@ public actor DaemonConnection {
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
                                        as type: R.Type, timeout: Duration? = nil) async throws -> R {
         await waitOutHandoff()
-        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        guard let ready else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
-        let response = try await transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
+        let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
@@ -189,10 +189,10 @@ public actor DaemonConnection {
     /// Delivers an event the connection itself produced, after those routed so far.
     func yieldEvent(_ envelope: DaemonEventEnvelope) { continuation.yield(envelope) }
 
-    /// The ready transport and its connection serial, or nil when not connected.
-    var ready: (transport: LineTransport, serial: UInt64)? {
-        guard case .ready(let transport, let serial, _) = phase else { return nil }
-        return (transport, serial)
+    /// The admitted control session, or nil when not connected.
+    var ready: DaemonReadyConnection? {
+        guard case .ready(let ready) = phase else { return nil }
+        return ready
     }
 
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
@@ -233,7 +233,7 @@ public actor DaemonConnection {
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
                 }
             )
-            let (identity, userOriginAllowed) = try await handshake(transport)
+            let (identity, userOriginAllowed) = try await DaemonHandshake(configuration: configuration, logger: logger).run(on: transport)
             guard self.serial == serial, !isClosedPhase else {
                 transport.close()
                 throw DaemonError.connectionClosed(reason: "superseded")
@@ -243,7 +243,7 @@ public actor DaemonConnection {
             } ?? false
             self.identity = identity
             self.endpoint = endpoint
-            phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
+            phase = .ready(DaemonReadyConnection(transport: transport, serial: serial, identity: identity, userOriginAllowed: userOriginAllowed))
             releaseHandoffHold()
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
@@ -262,34 +262,6 @@ public actor DaemonConnection {
     }
 
     private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
-
-    /// `identify`, `set-client-info` and `subscribe` go out together (one
-    /// round trip, with `client-hello` when configured: `HandshakeLines`);
-    /// the identity is checked before the connection is used. Against the
-    /// wrong or an incompatible daemon the other lines are harmless, and the
-    /// socket closes. The page relay has its own (`PageRelayHandshake`).
-    private func handshake(_ transport: LineTransport) async throws -> (DaemonIdentity, userOriginAllowed: Bool) {
-        if configuration.role == .pageRelay { return (try await PageRelayHandshake.run(transport, configuration: configuration), false) }
-        let handshake = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
-        let replies = handshake.lines
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
-        DaemonLaunchTimings.shared.mark("daemon.identify_end")
-        guard identity.app == "cmux-tui" else {
-            transport.close()
-            throw DaemonError.wrongApp(identity.app)
-        }
-        guard identity.protocolVersion == 12 else {
-            transport.close()
-            throw DaemonError.unsupportedProtocol(identity.protocolVersion)
-        }
-        let missing = configuration.requiredCapabilities.filter { !identity.supports($0) }
-        guard missing.isEmpty else {
-            transport.close()
-            throw DaemonError.missingCapabilities(missing)
-        }
-        _ = try (replies[1].get(), replies[2].get())
-        return (identity, handshake.userOriginAllowed)
-    }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }

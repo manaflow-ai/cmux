@@ -32,10 +32,10 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
-pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
+pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
-    Ok(json!({
+    let mut identity = json!({
         "app": "cmux-tui",
         "version": env!("CARGO_PKG_VERSION"),
         "build_commit": stamped_build_commit(),
@@ -55,7 +55,13 @@ pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
         "daemon_handoff": 1,
         "lifecycle_ready": mux.server_lifecycle_ready(),
         "launch_snapshot_path": mux.launch_snapshot_path(),
-    }))
+    });
+    if machine_metadata {
+        identity["machine_id"] = json!(mux.machine_public_id);
+        identity["machine_platform"] = crate::resource_api::machine_platform();
+        identity["machine_capabilities"] = crate::resource_api::machine_capabilities();
+    }
+    Ok(identity)
 }
 
 pub(super) fn shutdown_daemon(

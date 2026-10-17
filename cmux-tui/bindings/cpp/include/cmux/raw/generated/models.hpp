@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+inline constexpr std::string_view kProtocolIrSha256 = "e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -104,6 +104,7 @@ struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
 struct MachineListeningTcpResult;
+struct MachinePlatform;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
@@ -3061,7 +3062,14 @@ struct IdMapping {
 };
 
 struct IdentifyRequest {
+    std::optional<bool> machine_metadata{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct MachinePlatform {
+    std::string arch{};
+    std::string os{};
+    friend bool operator==(const MachinePlatform&, const MachinePlatform&) = default;
 };
 
 struct IdentifyResult {
@@ -3073,7 +3081,10 @@ struct IdentifyResult {
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
+    std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
+    std::optional<MachinePlatform> machine_platform{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -6274,6 +6285,12 @@ template <>
 struct Codec<MachineListeningTcpResult> {
     static Result<Json> encode(const MachineListeningTcpResult& value);
     static Result<MachineListeningTcpResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachinePlatform> {
+    static Result<Json> encode(const MachinePlatform& value);
+    static Result<MachinePlatform> decode(const Json& value);
 };
 
 template <>
