@@ -26,3 +26,9 @@ the persistent Runtime repository and Freestyle workspace lifecycle; those
 adapters keep provider handles internal and must preserve the stable
 `sessionId`. The route returns only `PromotionView` and never provider tokens,
 credentials, or raw handles.
+
+`createRunAttemptPromotionStore()` is the current durable adapter. It uses a
+private marker on the terminal attempt's result JSON, locks the tenant-owned
+run and attempt during reservation, and redacts that marker from Run views.
+The marker can be moved to a dedicated promotion table later without changing
+the service or route ports.
