@@ -10,6 +10,33 @@ extension LayoutRootView {
             addSubview(overlayPlane)
         }
         overlayPlane.syncFrame()
+        overlayIsStale = true
+        flushOverlaySync()
+    }
+
+    /// Marks the overlay stale: it syncs once, at the end of the sync, frame
+    /// or layout pass that runs now, else before this run-loop turn's
+    /// frame commits. A pointer event, a drag frame or a scroll that moves
+    /// several hosts syncs the plane once, not once per host or per pass.
+    func setNeedsOverlaySync() {
+        overlayIsStale = true
+        guard !overlayFlushScheduled else { return }
+        overlayFlushScheduled = true
+        // Blocks run before the run loop waits, so before Core Animation
+        // commits this turn's frame.
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
+            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
+                guard let self else { return }
+                self.overlayFlushScheduled = false
+                self.flushOverlaySync()
+            }
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
+
+    /// Syncs the overlay when it is stale.
+    func flushOverlaySync() {
+        guard overlayIsStale else { return }
         syncOverlay()
     }
 
@@ -20,24 +47,28 @@ extension LayoutRootView {
     /// Ring frames are in this view's coordinates, so only the plane's
     /// frame can go stale: the rings sync only when it moved.
     public func resyncOverlay() {
-        if overlayPlane.syncFrame() { syncOverlay() }
+        if overlayPlane.syncFrame() { overlayIsStale = true }
+        flushOverlaySync()
     }
 
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
-    func syncOverlay() {
+    /// Callers mark it stale and flush (`setNeedsOverlaySync`).
+    private func syncOverlay() {
+        overlayIsStale = false
         let plane = overlayPlane
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
+            let above = screen.panesAbove()
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
-                chrome.setExcluded(screen.ringCovers(of: host, docks: docks).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
+                chrome.setExcluded(screen.ringCovers(of: host, docks: docks, above: above).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }

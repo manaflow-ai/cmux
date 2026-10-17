@@ -96,7 +96,7 @@ extension TabStripView {
         if hasSynced, !added.isEmpty {
             // An insert ends closing mode (Chrome).
             closingModeWidth = nil
-            endClosingModeWatch()
+            closingWatch.end()
         }
 
         if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }

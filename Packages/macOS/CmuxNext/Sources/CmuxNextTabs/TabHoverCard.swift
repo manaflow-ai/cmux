@@ -104,7 +104,7 @@ final class TabHoverCardController: HoverCardSource {
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
-        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), strip?.hoverContent(for: tab) != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), content(for: tab) != nil else { return nil }
         return tab
     }
     var isVisible: Bool { shownID != nil }
@@ -115,7 +115,7 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let strip, let window = strip.window,
-              let target = strip.hoverCardTarget(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+              let target = self.target(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
@@ -133,11 +133,11 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
         guard let tab = tabID(id) else { return nil }
-        return strip?.hoverCardAnchor(for: tab)
+        return anchor(forTab: tab)
     }
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
-        guard let strip, let tab = tabID(id), let content = strip.hoverContent(for: tab) else { return nil }
+        guard let strip, let tab = tabID(id), let content = self.content(for: tab) else { return nil }
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)

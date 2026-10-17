@@ -26,7 +26,7 @@ extension SidebarListView {
               // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
               // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
               case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
-              row.rowState != .placeholder else { return nil }
+              !row.rowState.isPending else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.

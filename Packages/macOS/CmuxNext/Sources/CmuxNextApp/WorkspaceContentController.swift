@@ -35,6 +35,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private var isApplying = false
+    private var appliedTree = LayoutAppliedTree()
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -142,10 +143,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent() {
-        apply(LayoutMapping.shared.map(workspace))
+        apply(LayoutMapping.shared.map(workspace), force: true) // sends the topology again (unpark, expected focus)
     }
 
-    private func apply(_ result: LayoutMapping.Result) {
+    private func apply(_ result: LayoutMapping.Result, force: Bool = false) {
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else { return }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
         #endif
@@ -157,10 +159,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         for (id, controller) in panes {
             if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
         }
-        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
-        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
-        let rows = daemon.supports(DaemonCapabilities.shared.rows)
-        if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
+        if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
+        if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)

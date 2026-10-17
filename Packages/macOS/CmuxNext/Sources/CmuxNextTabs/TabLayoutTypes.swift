@@ -59,3 +59,23 @@ public struct TabLayoutResult: Equatable, Sendable {
         slots.first { $0.id == id }
     }
 }
+
+extension [TabLayoutItem] {
+    /// Inserts a drop gap before the `tabIndex`-th tab. The gap goes before
+    /// that tab's chip unless it joins that tab's group.
+    mutating func insertPlaceholder(_ placeholder: TabLayoutItem, atTabIndex tabIndex: Int) {
+        var seen = 0
+        var position = count
+        for (offset, item) in enumerated() where !item.isGroupChip {
+            if seen == tabIndex {
+                position = offset
+                break
+            }
+            seen += 1
+        }
+        if position > 0, self[position - 1].isGroupChip, self[position - 1].groupID != placeholder.groupID {
+            position -= 1
+        }
+        insert(placeholder, at: position)
+    }
+}
