@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 
 extension GhosttyNSView {
@@ -56,7 +57,20 @@ extension GhosttyNSView {
         let inject = {
             // Diff against what clients recently read, on the main thread
             // where the snapshot lives.
-            let inserted = self.terminalAccessibilityText.insertedText(settingValue: content)
+            let inserted: String
+            if self.accessibilityScreenTextEnabled {
+                inserted = self.terminalAccessibilityText.insertedText(settingValue: content)
+            } else {
+                // In opt-out mode the value is the native selection rather
+                // than the rendered screen, so derive a suffix from the
+                // value the client read immediately before writing it.
+                let snapshot = (self.accessibilityValue() as? String) ?? ""
+                inserted = TerminalAccessibilityText.insertedText(
+                    settingValue: content,
+                    over: snapshot,
+                    allowsPartialMatch: false
+                ) ?? content
+            }
             self.insertAccessibilityCommittedText(inserted)
         }
         if Thread.isMainThread {
@@ -91,7 +105,14 @@ extension GhosttyNSView {
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
-        selectedRange()
+        if !accessibilityScreenTextEnabled,
+           let snapshot = readSelectionSnapshot() {
+            // In the opt-out mode AXValue contains only the native selection,
+            // so its range must use that value's coordinate space rather than
+            // Ghostty's grid range (which may include terminal padding).
+            return NSRange(location: 0, length: (snapshot.string as NSString).length)
+        }
+        return selectedRange()
     }
 
     override func accessibilitySelectedText() -> String? {
@@ -100,9 +121,18 @@ extension GhosttyNSView {
     }
 
     private func accessibilityTextValue() -> String {
-        terminalAccessibilityText.value {
+        guard accessibilityScreenTextEnabled else {
+            // Keep a native selection available to AX clients while hiding the
+            // unselected screen that makes Speak Selection read a whole TUI.
+            return readSelectionSnapshot()?.string ?? ""
+        }
+        return terminalAccessibilityText.value {
             terminalSurface?.readText(region: .active)
         }
+    }
+
+    private var accessibilityScreenTextEnabled: Bool {
+        TerminalCatalogSection().accessibilityScreenText.value(in: .standard)
     }
 
     private static func accessibilityCommittedString(_ value: Any?) -> String? {

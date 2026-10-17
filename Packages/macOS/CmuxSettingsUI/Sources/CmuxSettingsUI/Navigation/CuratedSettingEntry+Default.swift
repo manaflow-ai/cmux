@@ -204,6 +204,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["terminal.showCopyConfirmation"],
                 synonyms: "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
             ),
+            .init(
+                section: .terminal,
+                id: "accessibility-screen-text",
+                title: String(localized: "settings.terminal.accessibilityScreenText", defaultValue: "Expose Terminal Text to Accessibility"),
+                detailText: String(localized: "settings.terminal.accessibilityScreenText.subtitle", defaultValue: "Lets accessibility tools read the rendered terminal screen. Turn this off if Speak Selection reads a whole terminal-based app instead of the selected text."),
+                paths: ["terminal.accessibilityScreenText"],
+                synonyms: "terminal.accessibilityScreenText accessibility screen text Speak Selection spoken content VoiceOver TUI selection whole terminal"
+            ),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(
                 section: .terminal,
