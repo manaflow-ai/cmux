@@ -36,6 +36,7 @@ export function EffortPicker({
   ultracode,
   speed,
   chevron,
+  short,
   slider = false,
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
@@ -48,6 +49,8 @@ export function EffortPicker({
   ultracode?: SpeedSection;
   speed?: SpeedSection;
   chevron?: React.ReactNode;
+  /// The level's short name ("Med"), for a narrow composer row (composerRowFit.ts).
+  short?: string;
   /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
 }) {
@@ -115,7 +118,10 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
+          <EffortLabel
+            label={fast ? `${level} ${t("picker.chipFast")}` : level}
+            short={short && short !== level ? (fast ? `${short} ${t("picker.chipFast")}` : short) : undefined}
+          />
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
@@ -180,6 +186,21 @@ export function EffortPicker({
         </MenuPopup>
       </Menu>
     </span>
+  );
+}
+
+/// The effort chip's label: the level, and its short name for a narrow composer row, which swaps
+/// one for the other whole (composerRowFit.ts). The short name is drawn, so the chip's text stays
+/// the level's name.
+export function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
+  if (!short) return <span>{label}</span>;
+  return (
+    <>
+      <span data-fit-part="effort" data-fit-forms="full">
+        {label}
+      </span>
+      <span className="acpmux-fit-label" data-fit-part="effort" data-fit-forms="short" data-label={short} />
+    </>
   );
 }
 

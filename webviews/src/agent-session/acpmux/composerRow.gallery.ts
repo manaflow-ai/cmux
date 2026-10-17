@@ -28,6 +28,17 @@ const effort = {
   ],
 };
 
+const fastMode = {
+  id: "fast-mode",
+  name: "Fast mode",
+  category: "model_config",
+  currentValue: "on",
+  options: [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On" },
+  ],
+};
+
 const modes = {
   currentModeId: "auto",
   availableModes: [
@@ -64,6 +75,19 @@ const longCatalog = CATALOG.map((entry) =>
     : entry,
 );
 
+// The model as the catalog names it in Leo's capture ("Claude Opus 5.5"; its short name is
+// "Opus 5.5"), and a permission mode with a long label: the row the footer steps measure.
+const leoCatalog = CATALOG.map((entry) =>
+  entry.id === "claude"
+    ? {
+        ...entry,
+        models: entry.models.map((model) =>
+          model.id === "claude-opus-5-5" ? { ...model, name: "Claude Opus 5.5" } : model,
+        ),
+      }
+    : entry,
+);
+
 export default agentPaneEntry({
   id: "agent-pane.composer-row",
   title: "Composer controls row",
@@ -80,6 +104,13 @@ export default agentPaneEntry({
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
+    },
+    "leo-report": {
+      note: "Claude Opus 5.5 with Fast mode, Medium and Auto: a narrower pane swaps whole units (effort's short name, the model's family, its mark alone, then the mode's label and the mic), never an ellipsis; effort stays a chip of its own.",
+      snapshot: {
+        ...row({}, { configOptions: [effort, fastMode], modes }),
+        catalog: leoCatalog,
+      },
     },
     granted: {
       note: "A chat-wide allowance: the row still shows one lock, the mode's; the granted status gets no slot in it.",
