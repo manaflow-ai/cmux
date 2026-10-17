@@ -323,9 +323,32 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             choices: choices,
             text: text?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-        let refreshed = try await client.read(conversation: conversationID, limit: 200)
+        let refreshed: MobileChiefReadResult
+        do {
+            refreshed = try await client.read(conversation: conversationID, limit: 200)
+        } catch {
+            // `chief.answer` commits before the follow-up snapshot is
+            // necessarily available. Return the retained row so the sheet
+            // closes without asking the user to submit the same answer again;
+            // the next poll will replace its pending card with the receipt.
+            if let previous = withState({ $0.previousMessagesByID[messageID] }) {
+                return map(previous, clientMessageID: clientMessageID(for: previous))
+            }
+            throw error
+        }
         withState { state in mergeMessages(refreshed.messages, into: &state) }
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
+            return map(message, clientMessageID: clientMessageID(for: message))
+        }
+        if let previous = withState({ $0.previousMessagesByID[messageID] }),
+           previous.seq < UInt64.max,
+           let targeted = try? await client.read(
+               conversation: conversationID,
+               beforeSeq: previous.seq + 1,
+               limit: 1
+           ),
+           let message = targeted.messages.first(where: { $0.id == messageID }) {
+            withState { $0.previousMessagesByID[messageID] = message }
             return map(message, clientMessageID: clientMessageID(for: message))
         }
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
