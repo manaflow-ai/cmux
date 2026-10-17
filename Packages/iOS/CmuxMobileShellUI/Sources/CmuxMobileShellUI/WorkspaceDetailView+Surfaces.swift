@@ -124,6 +124,17 @@ extension WorkspaceDetailView {
         }
         let canOpenOnMac = store.supportsSurfaceFocus(in: workspace.id)
         switch renderer {
+        case .fallbackCard where macSurface.kind == .agentSession:
+            // Agent sessions have a native, typed transcript path on iOS.
+            // Recreate the owner when connection availability changes so a
+            // surface that was opened during recovery can attach as soon as
+            // the paired Mac is reachable again.
+            AgentChatSurfaceView(
+                surface: macSurface,
+                source: store.makeChatEventSource(),
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+            .id("agent-chat|\(macSurface.id.rawValue)|\(effectiveConnectionStatus)")
         case .todo(let todo):
             // The capability set empties while the connection recovers, so it
             // doubles as the "Mac can take mutations right now" signal; the
