@@ -88,7 +88,7 @@ extension NewTabPage {
             guard let source else { return nil }
             let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
             let sizing = source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: axis) ?? []
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { [weak source] moved in
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
                 guard let source else { return input.endIncoming(keys, pageMade: false) }
