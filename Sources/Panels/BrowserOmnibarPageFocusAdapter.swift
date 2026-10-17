@@ -22,6 +22,17 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
             completion(nil, nil)
             return
         }
+        // A Chromium panel's page is its engine page; its WebKit view is unused.
+        if let enginePage = panel.enginePage {
+            Task { @MainActor in
+                do {
+                    completion(try await enginePage.evaluateJavaScript(script, in: .page), nil)
+                } catch {
+                    completion(nil, error)
+                }
+            }
+            return
+        }
         let bridge = BrowserJavaScriptCompletionBridge()
         panel.webView.evaluateJavaScript(script) { result, error in
             // WebKit may invoke an Objective-C completion without an active

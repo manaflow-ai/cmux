@@ -517,6 +517,11 @@ public final class CEFBrowserPage: BrowserPage {
         case .renderResponsive: .unresponsiveChanged(false)
         // Tab or Shift+Tab past the page's last or first control.
         case .takeFocus(_, let forward): .focusLeftPage(forward: forward)
+        // A key the page left unhandled (cmux Next CEFTab+Events).
+        case .keyUnhandled(_, let keyCode, let shift):
+            keyCode == 0x1B
+                ? BrowserPageEvent.unhandledEscape
+                : BrowserPageKey(windowsKeyCode: keyCode, shift: shift).map(BrowserPageEvent.unhandledKey)
         default: nil
         }
     }

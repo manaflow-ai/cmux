@@ -14707,6 +14707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
                 let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
                     || self.handleCustomShortcut(event: event)
+                    || self.runBrowserExtensionShortcut(event: event)
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(
@@ -14748,6 +14749,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return event
         }
+    }
+
+    /// A Chrome extension shortcut (`chrome.commands`, including
+    /// `_execute_action`) for the focused Chromium panel, after cmux's own
+    /// shortcuts declined the key: Chromium dispatches these from the toolbar
+    /// cmux hides, so cmux routes them, as cmux Next does. Not while a modal,
+    /// sheet, command palette or input method has the keyboard.
+    private func runBrowserExtensionShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              NSApp.modalWindow == nil,
+              !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording,
+              let window = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow,
+              window.attachedSheet == nil,
+              !isCommandPaletteEffectivelyVisible(for: window),
+              !shortcutResponderHasMarkedText(window.firstResponder),
+              let panel = shortcutEventBrowserPanel(event) else { return false }
+        return panel.runExtensionShortcut(for: event)
     }
 
     private func installShortcutDefaultsObserver() {
@@ -15181,10 +15201,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if browserFocusModePanelForShortcutEvent(event) != nil {
+        if let focusModePanel = browserFocusModePanelForShortcutEvent(event) {
 #if DEBUG
             cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            // A Chromium page has no CmuxWebView key handler to count the
+            // exit Escapes, so they are counted here, before the page.
+            if focusModePanel.enginePage != nil {
+                return focusModePanel.handleBrowserFocusModeKeyEvent(event, reason: "chromium.shortcutMonitor") == .consume
+            }
             return false
         }
 
@@ -17855,7 +17880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if event.type == .keyDown {
-            return handleCustomShortcut(event: event)
+            return handleCustomShortcut(event: event) || runBrowserExtensionShortcut(event: event)
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
         return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
@@ -18979,6 +19004,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
+        // A Chromium page has the keyboard in its own child window.
+        if let enginePage = panel.enginePage {
+            return BrowserPanel.enginePageHasKeyboardFocus(enginePage)
+        }
         guard let window = panel.webView.window else { return false }
         guard let fr = window.firstResponder as? NSView else { return false }
         return fr.isDescendant(of: panel.webView)

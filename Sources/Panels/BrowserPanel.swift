@@ -5277,6 +5277,15 @@ final class BrowserPanel: Panel, ObservableObject {
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
 
+        if let enginePage {
+            let pageView = enginePage.contentView
+            guard pageView.window != nil, !pageView.isHiddenOrHasHiddenAncestor,
+                  enginePage.setFocused(true) else { return false }
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
+
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
         if Self.responderChainContains(window.firstResponder, target: webView) {
@@ -8017,9 +8026,11 @@ extension BrowserPanel {
     }
 
     var canEnterBrowserFocusMode: Bool {
-        shouldRenderWebView &&
-            browserInteractiveModalHostWindow(for: webView) != nil &&
-            !webView.isHiddenOrHasHiddenAncestor &&
+        // A Chromium page draws over its content view; the WebKit view is unused.
+        let pageView: NSView = enginePage?.contentView ?? webView
+        return shouldRenderWebView &&
+            browserInteractiveModalHostWindow(pageView.window) != nil &&
+            !pageView.isHiddenOrHasHiddenAncestor &&
             searchState == nil &&
             // Design Mode owns the pointer/keyboard and needs the omnibar's
             // pen toggle reachable; never hide the chrome under it.

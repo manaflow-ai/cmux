@@ -558,9 +558,10 @@ import WebKit
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             adapter.evaluateOmnibarPageFocusScript("probe()") { _, _ in continuation.resume() }
         }
-        #expect(page.evaluatedScripts == ["probe()"])
+        #expect(page.evaluatedScripts.last == "probe()")
 
         let focusesBefore = page.focusChanges.count
+        let scriptsBefore = page.evaluatedScripts.count
         var returned = false
         // Completes after the previously focused field's restore ran in the page.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -570,7 +571,7 @@ import WebKit
         #expect(returned)
         #expect(page.focusChanges.count == focusesBefore + 1)
         #expect(page.focusChanges.last == true)
-        #expect(page.evaluatedScripts.count > 1)
+        #expect(page.evaluatedScripts.count > scriptsBefore)
     }
 
     @Test func webKitPanelLeavesTheAddressBarThroughWebKit() {

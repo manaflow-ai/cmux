@@ -3150,6 +3150,19 @@ struct BrowserPanelView: View {
             syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
             setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
+                // A Chromium page draws in a child window; the WebKit view is
+                // never in a window, so the page takes the keyboard back here.
+                if panel.enginePage != nil {
+                    let panelID = panel.id
+                    guard isPanelFocusedInModel(), panel.searchState == nil,
+                          panel.returnFocusToEnginePageAfterAddressBar(completion: {
+                              NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panelID)
+                          }) else {
+                        NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                        return
+                    }
+                    return
+                }
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
                 guard shouldApplyAddressBarExitFallback(in: window) else {
