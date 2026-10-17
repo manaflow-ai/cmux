@@ -8,6 +8,18 @@ class BrowserPDFPreviewActionUIDelegate: NSObject, WKUIDelegate {
     var downloadsDefaults: UserDefaults = .standard
     var printOperationRunner: any BrowserPDFPrintOperationRunning = BrowserPDFPrintOperationRunner()
 
+    /// WebKit delivers the Pointer Lock API permission handshake through this
+    /// private UI delegate selector. WebKit has already checked that the page
+    /// request came from a user activation before calling the embedder.
+    @objc(_webViewDidRequestPointerLock:completionHandler:)
+    @MainActor
+    func webView(
+        _ webView: WKWebView,
+        didRequestPointerLock completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
+    }
+
     @objc(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)
     @MainActor
     func webView(
