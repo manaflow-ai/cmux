@@ -60,6 +60,7 @@ import {
 import {
   newTerminalWorkspace,
   closeTab,
+  closeWorkspace,
   openSessionIds,
   selectTab,
   terminalFirst,
@@ -162,6 +163,17 @@ export function WorkspaceShell() {
     },
     [mini, spaces, stack, showSpaces],
   );
+  const closeWorkspaceRow = useCallback(
+    (workspaceId: string) => {
+      const result = closeWorkspace(stack, workspaceId);
+      if (!result.closed) return;
+      if (result.focus) focusAfterClose.current = result.focus;
+      const nextSpaces = withStack(spaces, result.stack);
+      if (mini && !miniTargetExists(nextSpaces, mini)) setMini(undefined);
+      showSpaces(nextSpaces);
+    },
+    [mini, spaces, stack, showSpaces],
+  );
 
   useEffect(() => {
     const target = focusAfterClose.current;
@@ -238,8 +250,8 @@ export function WorkspaceShell() {
       detail={details.get(workspace.id)!}
       items={items}
       onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
-      onClose={() => close(workspace.id, workspaceLead(workspace).id)}
-      canClose={workspace.tabs.length > 1 || stack.workspaces.length > 1}
+      onClose={() => closeWorkspaceRow(workspace.id)}
+      canClose={stack.workspaces.length > 1}
     />
   );
 
