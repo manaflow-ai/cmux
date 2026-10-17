@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   AGENT_BROKER_PROTOCOL_VERSION,
   AgentBrokerInputError,
+  assertAgentBrokerEnvelope,
   requestDigest,
   type AgentBrokerEnvelope,
   type AgentBrokerJobState,
@@ -151,6 +152,7 @@ describe("agent broker lifecycle contract", () => {
     broker.fail(job, lease.leaseToken, lease.leaseGeneration, new Date(300));
     expect(job.status).toBe("failed");
     expect(job.receipts.at(-1)?.state).toBe("failed");
+    expect(() => assertAgentBrokerEnvelope({ ...envelope("huge-blue"), requestDigest: "not-a-digest" })).toThrow("requestDigest");
     expect(() => {
       const malformed = { ...envelope("huge-blue"), protocolVersion: 2 as 1 };
       if (malformed.protocolVersion !== AGENT_BROKER_PROTOCOL_VERSION) throw new AgentBrokerInputError("unsupported version");
