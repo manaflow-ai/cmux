@@ -20,7 +20,8 @@ public enum ConversationJSONValue: Codable, Hashable, Sendable {
         if c.decodeNil() { self = .null; return }
         if let value = try? c.decode(Bool.self) { self = .bool(value); return }
         if let value = try? c.decode(Int64.self) { self = .number(String(value)); return }
-        if let value = try? c.decode(Double.self) { self = .number(String(value)); return }
+        if let value = try? c.decode(UInt64.self) { self = .number(String(value)); return }
+        if let value = try? c.decode(Decimal.self) { self = .number(String(describing: value)); return }
         if let value = try? c.decode(String.self) { self = .string(value); return }
         if let value = try? c.decode([ConversationJSONValue].self) { self = .array(value); return }
         self = .object(try c.decode([String: ConversationJSONValue].self))

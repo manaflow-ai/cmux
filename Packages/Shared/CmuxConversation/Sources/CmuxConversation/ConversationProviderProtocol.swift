@@ -35,6 +35,8 @@ public struct ConversationProviderEvent: Codable, Hashable, Sendable {
 
 /// A connected provider session owned by the broker.
 public protocol ConversationProviderConnection: Sendable {
+    /// Provider-native session identity, when the protocol exposes one.
+    func providerSessionID() async -> String?
     /// Native events emitted by this connection.
     var events: AsyncThrowingStream<ConversationProviderEvent, any Error> { get }
     /// Sends a command using the provider's native protocol.
@@ -67,4 +69,9 @@ public enum ConversationProviderError: Error, Codable, Hashable, Sendable, Custo
     case staleGeneration
 
     public var description: String { switch self { case .unsupported(let v): "unsupported: \(v)"; case .rejected(let v): "rejected: \(v)"; case .unavailable(let v): "unavailable: \(v)"; case .malformed(let v): "malformed: \(v)"; case .staleGeneration: "stale generation" } }
+}
+
+public extension ConversationProviderConnection {
+    /// Providers without a resumable native identifier return nil.
+    func providerSessionID() async -> String? { nil }
 }
