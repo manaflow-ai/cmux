@@ -1349,6 +1349,34 @@ export function VirtualTranscript({
   const [seeking, setSeeking] = useState(false);
   const [seekExpired, setSeekExpired] = useState(false);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Older pages can be requested from several render paths: the open-at seek and the top
+  // prefetch both run while the transcript is settling. Keep one request per loaded first row so
+  // streaming renders cannot repeatedly enqueue the same page. A new first row is the host's
+  // pagination/version signal and permits the next page.
+  const olderLoad = useRef<{ key: string; promise?: Promise<void> } | undefined>(undefined);
+  const requestOlder = useCallback(
+    (key: string) => {
+      if (!canLoadOlder || !onLoadOlder) return;
+      const current = olderLoad.current;
+      if (current?.promise || current?.key === key) return;
+      const promise = Promise.resolve().then(() => onLoadOlder());
+      olderLoad.current = { key, promise };
+      void promise
+        .catch(() => {
+          // A transient transport failure should remain retryable for this page.
+          if (olderLoad.current?.promise === promise) olderLoad.current = undefined;
+        })
+        .finally(() => {
+          if (olderLoad.current?.promise === promise) olderLoad.current = { key };
+        });
+    },
+    [canLoadOlder, onLoadOlder],
+  );
+  useLayoutEffect(() => {
+    // A pending page belongs to the previous chat. Do not let it block the new chat's first page;
+    // its completion also cannot overwrite this ref because the promise identity changed.
+    olderLoad.current = undefined;
+  }, [sessionId]);
   /// When the walk began, and the first row it had then: a new first row is a page landed.
   const seekStart = useRef<number | undefined>(undefined);
   const seekFirstRow = useRef<string | undefined>(undefined);
@@ -1760,7 +1788,7 @@ export function VirtualTranscript({
           seekTimer.current = setTimeout(() => setSeekExpired(true), Math.max(0, left));
         }
         setSeeking(true);
-        onLoadOlder().catch(() => {});
+        requestOlder(`${sessionId ?? ""}:${rows[0]?.id ?? ""}`);
       } else if (layout.totalHeight <= node.clientHeight) {
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
@@ -1785,7 +1813,7 @@ export function VirtualTranscript({
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder, requestOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2026,8 +2054,8 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
-    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
-  });
+    if (node.scrollTop < node.clientHeight * 2) requestOlder(`${sessionId ?? ""}:${rows[0]?.id ?? ""}`);
+  }, [canLoadOlder, onLoadOlder, requestOlder, rows, sessionId, scroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;
