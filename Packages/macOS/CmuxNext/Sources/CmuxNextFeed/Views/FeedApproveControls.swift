@@ -13,6 +13,34 @@ struct FeedApproveControls: View {
     private var scope: FeedApproveScope { model.drafts.scopes[item.id] ?? prompt.scopes.first ?? .once }
 
     var body: some View {
+        if density == .detail {
+            VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(prompt.action.summary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(colors.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let risk = prompt.action.risk, !risk.isEmpty {
+                        Text(risk)
+                            .font(.system(size: 11))
+                            .foregroundStyle(colors.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                controls
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(colors.hover))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(colors.borders ? colors.separator : .clear, lineWidth: 1))
+        } else {
+            controls
+        }
+    }
+
+    private var controls: some View {
         HStack(spacing: 6) {
             if prompt.scopes.count > 1 && density != .menubar {
                 Menu {
