@@ -99,7 +99,7 @@ struct ConversationTaskListView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(session.title.isEmpty ? ConversationL10n.value("conversation.untitled", "Untitled task") : session.title)
-                            .font(.body.weight(session.isUnread ? .semibold : .regular))
+                            .font(.body)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                         if session.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
@@ -115,7 +115,6 @@ struct ConversationTaskListView: View {
                     .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if session.isUnread { Circle().fill(.blue).frame(width: 8, height: 8) }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
