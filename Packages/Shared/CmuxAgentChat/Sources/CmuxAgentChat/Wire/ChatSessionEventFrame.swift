@@ -7,9 +7,11 @@ public struct ChatSessionEventFrame: Sendable, Equatable, Codable {
     /// The event itself.
     public let event: ChatSessionEvent
 
-    /// Monotonic session revision associated with state/descriptor pushes.
-    /// Older hosts omitted this field; clients treat `nil` as an
-    /// unversioned best-effort event for wire compatibility.
+    /// Monotonic session revision associated with the push. Newer hosts attach
+    /// it to transcript and lifecycle events alike so clients can detect a
+    /// dropped burst and pull an authoritative snapshot/history. Older hosts
+    /// omitted this field; clients treat `nil` as an unversioned best-effort
+    /// event for wire compatibility.
     public let version: Int?
 
     /// Creates a frame.
