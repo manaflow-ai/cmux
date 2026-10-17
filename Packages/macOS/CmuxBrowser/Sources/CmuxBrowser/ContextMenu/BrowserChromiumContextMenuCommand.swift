@@ -11,10 +11,20 @@ public enum BrowserChromiumContextMenuCommand: Int, Hashable, Sendable, CaseIter
     case openLinkOffTheRecord = 50102
     /// "Copy Link Address".
     case copyLinkLocation = 50104
+    /// "Search Google for …": replaced by the cmux search engine's row.
+    case searchWebFor = 50191
+    /// "Search Google for … in a new tab": replaced by the cmux search engine's row.
+    case searchWebForNewTab = 50192
 
     /// Commands a Classic Chromium menu never shows.
     public static let hiddenInClassic: Set<Int> = [
         BrowserChromiumContextMenuCommand.openLinkInNewWindow.rawValue,
         BrowserChromiumContextMenuCommand.openLinkOffTheRecord.rawValue,
+    ]
+
+    /// Chromium's selection search rows, which search with Chromium's default engine.
+    public static let webSearch: Set<Int> = [
+        BrowserChromiumContextMenuCommand.searchWebFor.rawValue,
+        BrowserChromiumContextMenuCommand.searchWebForNewTab.rawValue,
     ]
 }

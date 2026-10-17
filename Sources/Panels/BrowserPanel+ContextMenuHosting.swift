@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxSettings
 
 /// The cmux rows a Chromium page's context menu shows, the same actions the WebKit menu adds
 /// (design spec §11). A WebKit page never asks: its menu is built by `CmuxWebView`.
@@ -8,6 +9,15 @@ extension BrowserPanel: BrowserContextMenuHosting {
         guard let link = target.linkURL else { return nil }
         let scheme = link.scheme?.lowercased() ?? ""
         return scheme == "http" || scheme == "https" ? link : nil
+    }
+
+    /// Chromium's "Search Google for …" row searches with the omnibar's search engine instead.
+    func contextMenuWebSearch(for target: BrowserContextMenuTarget) -> BrowserContextMenuWebSearch? {
+        let query = target.selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+        let configuration = BrowserSearchSettingsStore().currentConfiguration
+        guard let url = configuration.searchURL(query: query) else { return nil }
+        return BrowserContextMenuWebSearch(engineName: configuration.displayName, query: query, url: url)
     }
 
     func contextMenuHostGroups(for target: BrowserContextMenuTarget) -> [[BrowserContextMenuHostAction]] {
@@ -27,6 +37,9 @@ extension BrowserPanel: BrowserContextMenuHosting {
         switch action {
         case .openLinkInDefaultBrowser(let url):
             _ = NSWorkspace.shared.open(url)
+        case .searchWeb(let search):
+            // Chromium opens its own search row in a new tab; so does the cmux row.
+            openContextMenuLinkInNewTab(url: search.url)
         case .moveTabToNewWorkspace:
             guard let app = AppDelegate.shared, let target = app.browserActionTarget(for: self),
                   BrowserActionDispatcher(appDelegate: app).perform(.moveToNewWorkspace, on: target) else {

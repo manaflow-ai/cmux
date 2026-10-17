@@ -99,7 +99,7 @@ public struct BrowserContextMenuPresenter {
             item.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: item.title)
         case .toggleFocusMode(let isActive):
             item.state = isActive ? .on : .off
-        case .openLinkInDefaultBrowser, .moveTabToNewWorkspace:
+        case .openLinkInDefaultBrowser, .searchWeb, .moveTabToNewWorkspace:
             break
         }
         return item
@@ -112,6 +112,12 @@ public struct BrowserContextMenuPresenter {
         switch action {
         case .openLinkInDefaultBrowser:
             String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser")
+        case .searchWeb(let search):
+            String(
+                localized: "browser.contextMenu.searchWebFor",
+                defaultValue: "Search \(search.engineName) for \u{201C}\(search.snippet)\u{201D}",
+                bundle: .module
+            )
         case .screenshotPage:
             String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot Page")
         case .screenshotSection:
