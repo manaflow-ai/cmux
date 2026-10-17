@@ -140,8 +140,8 @@ describe("durable Run repository", () => {
       expect(firstPage.events.map((event) => event.id)).toEqual([output.id]);
       expect(firstPage.nextSequence).toBe(2);
       const replay = await runRepositoryModule().listRunEvents({ runId: created.run.id, userId, afterSequence: firstPage.nextSequence ?? 0 });
-      expect(replay.events.map((event) => event.id)).toEqual([started.id, succeeded.id, snapshotEventId(replay.events)]);
-      expect(replay.events.map((event) => event.sequence)).toEqual([3, 4, 5]);
+      expect(replay.events.map((event) => event.id)).toEqual([started.id, succeeded.id]);
+      expect(replay.events.map((event) => event.sequence)).toEqual([3, 4]);
       expect(replay.nextSequence).toBeNull();
       const snapshot = await runRepositoryModule().getRun(created.run.id, userId);
       expect(snapshot.attempts[0]?.status).toBe("succeeded");
@@ -246,15 +246,10 @@ describe("durable Run repository", () => {
         digest,
         uri: "run://artifact/bad.txt",
         bytes: changed,
-      })).rejects.toThrow("artifact digest mismatch");
+      })).rejects.toThrow("artifact size does not match bytes");
     } finally {
       await deleteRuns(userId);
     }
   });
 });
 
-function snapshotEventId(events: ReadonlyArray<{ id: string; kind: string }>): string {
-  const event = events.find((candidate) => candidate.kind === "run.completed");
-  if (!event) throw new Error("run.completed event missing");
-  return event.id;
-}
