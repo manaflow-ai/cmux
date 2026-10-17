@@ -9,6 +9,7 @@ import { callChipHost } from "./host";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
+import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { useT } from "../i18n";
 
@@ -66,13 +67,13 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const showCard = (immediate = false) => {
     clearTimers();
     if (immediate) setCardOpen(true);
-    else openTimer.current = setTimeout(() => setCardOpen(true), 700);
+    else openTimer.current = setTimeout(() => setCardOpen(true), HOVER_INTENT.cardDwell);
   };
   const hideCard = () => {
     clearTimers();
     closeTimer.current = setTimeout(() => {
       if (!cardHoverRef.current) setCardOpen(false);
-    }, 180);
+    }, HOVER_INTENT.cardGrace);
   };
   useEffect(() => () => clearTimers(), []);
   const onPointerEnter = () => showCard();
@@ -106,7 +107,12 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         {mark}
         <span className="cv-chip__label">{children}</span>
       </a>
-      <AnchoredCard anchor={cardOpen ? anchor.current : null} className="cv-link-preview" interactive>
+      <AnchoredCard
+        anchor={cardOpen ? anchor.current : null}
+        className="cv-link-preview"
+        interactive
+        ariaLabel={site?.title ?? host}
+      >
         <div
           onPointerEnter={() => {
             clearTimers();

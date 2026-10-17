@@ -73,6 +73,7 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => link.focus());
   const card = rootElement.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.getAttribute("role")).toBe("dialog");
+  expect(card.getAttribute("aria-label")).toBe("GitHub");
   expect(card.textContent).toContain("GitHub");
   expect(card.textContent).toContain("github.com");
   expect(card.querySelector("button")?.textContent).toContain("Open");
@@ -84,7 +85,7 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   ]);
   await act(async () => {
     card.querySelector<HTMLButtonElement>("button")!.blur();
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    await new Promise((resolve) => setTimeout(resolve, 240));
   });
   expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
   await act(async () => root.unmount());

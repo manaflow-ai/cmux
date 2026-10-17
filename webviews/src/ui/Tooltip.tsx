@@ -65,12 +65,15 @@ export interface AnchoredCardProps {
   instant?: boolean;
   /** Interactive cards use dialog semantics instead of tooltip semantics. */
   interactive?: boolean;
+  /** Accessible name for an interactive card. */
+  ariaLabel?: string;
   children: ReactNode;
 }
 
 /**
  * A hover card for content the page does not render with React (a link inside the editor): a
- * tooltip anchored to that element, opened and closed by the caller. It never takes focus.
+ * tooltip anchored to that element, opened and closed by the caller. Non-interactive cards never
+ * take focus; interactive cards may contain focusable controls.
  */
 export function AnchoredCard({
   anchor,
@@ -79,6 +82,7 @@ export function AnchoredCard({
   state,
   instant,
   interactive = false,
+  ariaLabel,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -97,6 +101,7 @@ export function AnchoredCard({
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
+            aria-label={interactive ? ariaLabel : undefined}
           >
             {children}
           </BaseTooltip.Popup>
