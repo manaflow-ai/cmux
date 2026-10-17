@@ -2736,8 +2736,12 @@ function AcpmuxPane() {
         (row.kind === "activity" &&
           row.items?.some((item) => {
             const tool = item.tool;
-            return (
-              tool && (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think" || tool.kind === "execute")
+            if (!tool) return false;
+            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            if (tool.kind !== "execute") return false;
+            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
+            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
+              command,
             );
           })),
     );
