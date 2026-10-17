@@ -256,7 +256,7 @@ impl Supervisor {
         let pending = PendingRun { callback: cb, export, args, gesture, respond };
         match (host.state, host.process.clone()) {
             (HostState::Starting | HostState::Running, Some(process)) => {
-                pending.dispatch(host, &process)
+                pending.dispatch(host, &process);
             }
             (HostState::Stopping, Some(_)) => {
                 host.state = HostState::Restarting;
