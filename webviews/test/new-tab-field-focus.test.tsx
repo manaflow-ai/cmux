@@ -137,3 +137,32 @@ test("the classic New Tab page keeps the caret where it is across updates and a 
   );
   expect(result).toEqual({ focused: 0, selection: [3, 3], ready: ["token-1"] });
 });
+
+test("the classic kind switch gives browser and agent contexts a directional handoff", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  const root: Root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <NewTabPage snapshot={noChat()} initialKind="browser" onSubmit={noop} onOpenSession={noop} onShowAll={noop} />,
+      ),
+    );
+    const row = host.querySelector<HTMLElement>(".acpmux-newtab-row")!;
+    const under = host.querySelector<HTMLElement>(".acpmux-newtab-under")!;
+    const agent = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-newtab-kind")].find((button) =>
+      button.textContent?.includes("Agent"),
+    )!;
+    expect(row.dataset.kindSwitch).toBeUndefined();
+    await act(async () => agent.click());
+    // The animation is armed on the next paint so repeated forward switches restart it.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 25)));
+    expect(host.querySelector(".acpmux-newtab")?.getAttribute("data-kind")).toBe("agent");
+    expect(row.dataset.kindSwitch).toBe("next");
+    expect(under.dataset.kindSwitch).toBe("next");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 240)));
+    expect(row.dataset.kindSwitch).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

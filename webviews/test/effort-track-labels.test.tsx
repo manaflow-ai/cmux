@@ -52,7 +52,7 @@ afterAll(() => {
 
 const text = (selector: string) => host.querySelector(selector)?.textContent ?? null;
 
-test("the effort slider names its ends and the model's recommended level", async () => {
+test("the compact effort slider exposes its range and recommended level", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EffortTrack } = await import("../src/agent-session/acpmux/EffortTrack");
   const { reasoningChoices } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -68,12 +68,19 @@ test("the effort slider names its ends and the model's recommended level", async
     act(() => root!.render(<EffortTrack efforts={efforts} current={current} onPick={() => {}} />));
 
   draw("medium");
-  expect(text(".acpmux-effort-faster")).toBe("Faster");
-  expect(text(".acpmux-effort-smarter")).toBe("Smarter");
-  expect(text(".acpmux-effort-recommended")).toBe("Recommended: High");
-  expect(host.querySelector("input")?.getAttribute("aria-valuetext")).toBe("Medium");
+  // The compact track intentionally omits redundant visible captions; the native range carries
+  // the complete accessible name and current/recommended value instead.
+  expect(text(".acpmux-effort-faster")).toBeNull();
+  expect(text(".acpmux-effort-smarter")).toBeNull();
+  expect(text(".acpmux-effort-recommended")).toBeNull();
+  const input = host.querySelector<HTMLInputElement>("input")!;
+  expect(input.getAttribute("aria-label")).toBe("Effort");
+  expect(input.min).toBe("0");
+  expect(input.max).toBe(String(efforts.length - 1));
+  expect(input.step).toBe("1");
+  expect(input.getAttribute("aria-valuetext")).toBe("Medium");
   draw("high");
-  expect(host.querySelector("input")?.getAttribute("aria-valuetext")).toBe("High, recommended");
+  expect(host.querySelector<HTMLInputElement>("input")?.getAttribute("aria-valuetext")).toBe("High, recommended");
 
   // A model with no known default marks none.
   const plain = reasoningChoices(options, undefined, (key) => translate(key));
