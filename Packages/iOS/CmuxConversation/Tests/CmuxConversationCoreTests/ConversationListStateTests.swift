@@ -134,14 +134,12 @@ final class ListStateBackend: ConversationBackend, @unchecked Sendable {
     private var _hold = false
     private var _fail = false
     private var _received: [ConversationListStateChange] = []
-    private var _replied = false
     private var _waiters: [CheckedContinuation<Void, Never>] = []
 
     var server: ConversationListState { get { lock.withLock { _server } } set { lock.withLock { _server = newValue } } }
     var hold: Bool { get { lock.withLock { _hold } } set { lock.withLock { _hold = newValue } } }
     var fail: Bool { get { lock.withLock { _fail } } set { lock.withLock { _fail = newValue } } }
     var received: [ConversationListStateChange] { lock.withLock { _received } }
-    var replied: Bool { lock.withLock { _replied } }
 
     func release() {
         let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
@@ -167,7 +165,6 @@ final class ListStateBackend: ConversationBackend, @unchecked Sendable {
                 if resumeNow { waiter.resume() }
             }
         }
-        defer { lock.withLock { _replied = true } }
         if fail { throw ConversationBackendError(code: -32004, message: "pin limit") }
         var result = info
         let state = lock.withLock { () -> ConversationListState in
