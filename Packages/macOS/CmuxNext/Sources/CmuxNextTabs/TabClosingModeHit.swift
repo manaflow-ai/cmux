@@ -31,10 +31,11 @@ struct TabClosingModeHit {
 
     /// The strip's shown tabs' frames in its clip once their springs settle.
     static func laidOut(_ strip: TabStripView) -> [(id: TabID, frame: CGRect)] {
-        strip.displayed.compactMap { item in
+        let mapping = strip.scrollMapping(offset: strip.scroll.target)
+        return strip.displayed.compactMap { item in
             guard let m = strip.motion[item.id], m.width.target > 0.5 else { return nil }
             let height = strip.tabsClip.bounds.height
-            return (item.id, CGRect(x: m.x.target - strip.scroll.target, y: 0, width: m.width.target, height: height))
+            return (item.id, CGRect(x: mapping.viewX(m.x.target, isPinned: item.isPinned), y: 0, width: m.width.target, height: height))
         }
     }
 }

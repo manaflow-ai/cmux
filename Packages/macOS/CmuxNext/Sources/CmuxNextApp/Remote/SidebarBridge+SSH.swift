@@ -19,7 +19,8 @@ extension SidebarBridge {
 
     static func sshStatus(_ session: SSHMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
         let connected = if case .connected = session.daemon.store.connectionState { true } else { false }
-        return sshStatus(link: session.linkStatus, startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility)
+        let status = sshStatus(link: session.linkStatus, startupFailed: session.daemonFailure != nil, daemonConnected: connected, compatibility: compatibility)
+        return status == .connected && session.updateOffered ? .updateAvailable : status
     }
 
     /// `startupFailed`: the daemon gave up after SSH reached the machine

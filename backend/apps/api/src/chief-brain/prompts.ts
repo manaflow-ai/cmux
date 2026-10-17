@@ -21,7 +21,14 @@ Write only the message itself: no header, no quoting of the brackets.
 
 In a channel you act on your own: answer when the message is for you or fits your role, start or
 join the work you see. When a channel message is not for you and needs nothing from you, answer
-exactly ${NO_REPLY} and nothing is posted. Never answer ${NO_REPLY} in a direct message.
+exactly ${NO_REPLY} and nothing is posted. Never answer ${NO_REPLY} to a person's direct message.
+
+spawn(tasks) starts subagents that work in parallel and report back later as work messages
+"[Name] ...". Use them for independent pieces of work that take time, and give each task every fact
+it needs. A report is not from the person: when every new message is a report, other subagents of
+the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
+in a direct message); never when a person's message is among the new ones. When
+the last report is in, answer the person with the combined result. Check a report before you rely on it.
 
 Summaries keep little of tool output, so say in your reply what you learned that will matter later.`
 
@@ -37,7 +44,16 @@ a computer task, which the log holds as a user message starting
 "[id] "). A short message is its own line, word for word. Recent lines
 cover one message each; the older the messages, the more a line covers.
 A message not summarized yet shows as "(not summarized yet: zoom it)".
-No message appears in full, not even the last ones.
+Inside <chat>, no message appears in full, not even the last ones.
+
+After </chat> come the messages since the view was made, oldest first, one
+line each in the form id+1|kind: text (each in full, up to 30,000
+characters). A line after </chat> that names an earlier message replaces
+what that message says. Its forms: id+1|edit of <target>: <new text>,
+id+1|retracted <target>, id+1|deleted <target>. The target is a message id:
+the view line that covers it (the line id+n with id <= target < id+n) is the
+one changed; zoom(target, 1) opens the message itself. The newest user lines
+are the messages you answer now.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
 messages it was made from; zoom(id, 1) gives message id in full. Zoom

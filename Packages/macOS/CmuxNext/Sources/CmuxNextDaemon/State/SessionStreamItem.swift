@@ -16,6 +16,35 @@ public enum SessionStateChange: Sendable, Hashable {
     case statusRemoved(ResourceID)
     case screenGroup(StateScreenGroup)
     case screenGroupRemoved(String)
+    /// The `sidebar_item` / `sidebar_section` changes of one batch, raw
+    /// (`sidebar-doc-v1`): the client mirror applies them with the Rust reducer.
+    case sidebarBatch(SidebarDocBatch)
+}
+
+/// One `session.events` batch of sidebar document changes: the revision it
+/// leaves the document at, the idempotency key of the intent that caused it
+/// (nil for another client's or the daemon's change) and its changes as sent.
+public struct SidebarDocBatch: Sendable, Hashable {
+    public var revision: UInt64?
+    public var idempotencyKey: String?
+    public var changes: [JSONValue]
+
+    public init(revision: UInt64?, idempotencyKey: String?, changes: [JSONValue]) {
+        self.revision = revision
+        self.idempotencyKey = idempotencyKey
+        self.changes = changes
+    }
+
+    /// The batch as the mirror's FFI reads it.
+    public var json: JSONValue {
+        var object: [String: JSONValue] = ["changes": .array(changes)]
+        if let revision { object["revision"] = .string(revision.description) }
+        if let idempotencyKey { object["idempotency_key"] = .string(idempotencyKey) }
+        return .object(object)
+    }
+
+    /// `sidebar_doc` is the batch's marker (its revision, previous revision and key).
+    static let resources: Set<String> = ["sidebar_item", "sidebar_section", "sidebar_doc"]
 }
 
 /// A `session.events` stream line, decoded for the state the app mirrors.
@@ -45,7 +74,9 @@ public enum SessionStreamItem: Sendable, Hashable {
             guard let state = snapshot.extra?.state else { return nil }
             return .snapshot(snapshot.mirror(state))
         case "delta":
-            return .delta(item.changes?.compactMap(\.change) ?? [])
+            var changes = item.changes?.compactMap(\.change) ?? []
+            if let batch = item.sidebarBatch { changes.append(.sidebarBatch(batch)) }
+            return .delta(changes)
         default:
             return nil
         }
@@ -66,6 +97,31 @@ enum SessionWire {
         var kind: String
         var snapshot: Snapshot?
         var changes: [Lossy<Change>]?
+        /// The batch's sidebar document changes, kept raw (`sidebar-doc-v1`).
+        var sidebarBatch: SidebarDocBatch?
+
+        enum CodingKeys: String, CodingKey {
+            case kind, snapshot, changes, revision
+            case idempotencyKey = "idempotency_key"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try c.decode(String.self, forKey: .kind)
+            snapshot = try c.decodeIfPresent(Snapshot.self, forKey: .snapshot)
+            changes = try c.decodeIfPresent([Lossy<Change>].self, forKey: .changes)
+            let raw = (try? c.decodeIfPresent([JSONValue].self, forKey: .changes)) ?? []
+            let sidebar = raw.filter { change in
+                guard case .object(let object) = change, let resource = object["resource"]?.stringValue else { return false }
+                return SidebarDocBatch.resources.contains(resource)
+            }
+            if !sidebar.isEmpty {
+                // The item's `revision` is the session journal's, not the document's: the
+                // `sidebar_doc` marker change carries the document revision the mirror reads.
+                sidebarBatch = SidebarDocBatch(revision: nil, idempotencyKey: try? c.decodeIfPresent(String.self, forKey: .idempotencyKey),
+                                               changes: sidebar)
+            }
+        }
     }
 
     /// A workspace, screen, tab, or terminal: its id and `extra` map.

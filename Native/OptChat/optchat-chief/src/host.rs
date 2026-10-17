@@ -207,6 +207,10 @@ pub fn turn_preset(
     if family == Family::Claude {
         env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
+    // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
+    // presets set it for a Chief that sends no env.
+    let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+    env.insert(servers_key.to_owned(), servers.to_owned());
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -449,6 +453,12 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
     }
 }
 
+/// The build-session kill switch, the test of acpmux launch_policy.rs.
+fn agent_launch_disabled() -> bool {
+    env("ACPMUX_AGENT_LAUNCH").is_some_and(|v| v.trim().eq_ignore_ascii_case("deny"))
+        || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -478,6 +488,13 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         log(format!("creating {}: {e}", paths.root.display()));
         return 1;
     }
+    // cx-tgf4h: agents are off in this build session (acpmux refuses every
+    // launch), so no turn could start; the host would only hold messages.
+    if agent_launch_disabled() {
+        log("not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)");
+        return 0;
+    }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
         Ok(lock) => {
             // A stop mark an earlier host of this home left says nothing now.
@@ -498,7 +515,10 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         }
     };
     // A status left by a host that crashed mid-wait says nothing true now.
-    crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
+    let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
+    settle.clear();
+    // The start-up probe says again when the compactor cannot work.
+    settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source);
     if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
         // A stop signal: whatever `start` returned (its acpmux connection
@@ -777,6 +797,7 @@ fn start(
         tools,
         user_env: session_dir::host_user_env(),
         profile_tool: chief_tools.grant().allows("profile"),
+        chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -1351,6 +1372,9 @@ fn start(
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
+    // The app watches only the default Chief's state/ (cx-oqnw3 review): another
+    // Chief still hears a compactor fault as its message until the app watches its home.
+    .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);

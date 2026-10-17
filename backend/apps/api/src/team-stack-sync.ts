@@ -6,7 +6,7 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
-import type { StackServer } from "./stack-server.ts"
+import type { StackMember, StackServer } from "./stack-server.ts"
 
 /**
  * Stack team webhook deliveries in TeamDO (cx-3bi.43). Svix does not keep the order of
@@ -251,19 +251,37 @@ export class StackTeamSync {
       if (ev.type === "team.deleted") return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
+    const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
+    // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
+    // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.
+    const fresh = deps.state().team == null
+    let listed: ReadonlyArray<StackMember & { user_id: string }> | undefined
+    let member: StackMember | null | undefined
+    if (ev.stack_user === undefined) {
+      const r = await stack.listTeamMembers(ev.stack_team)
+      // The team was there a moment ago: never a tombstone from this read, only a later re-check.
+      if (r === "team_gone") return missing()
+      if (fresh && r.length > 0 && r.every((m) => m.anonymous === true)) return "anonymous_team_ignored"
+      listed = r
+    } else {
+      const r = await stack.getTeamMember(ev.stack_team, ev.stack_user)
+      if (r === "team_gone") return missing()
+      // Only the named member was read: the team itself is mirrored by its team event if it has a signed-in member.
+      if (fresh && r?.anonymous === true) return "member_anonymous"
+      member = r
+    }
     const mirrored = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, display_name: displayName(team.display_name, "Team") })
     if (mirrored) return mirrored
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
     storePlan(deps.sql, team.plan, readAt)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
-    if (ev.stack_user === undefined) return (await this.syncMembers(deps, stack, ev, attempt, commit)) ?? "team_mirrored"
-    const member = await stack.getTeamMember(ev.stack_team, ev.stack_user)
-    // The team was there a moment ago: never a tombstone from this read, only a later re-check.
-    if (member === "team_gone") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
-    const user = userIdFor(deps.stackProjectId, ev.stack_user)
+    if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
+    const user = userIdFor(deps.stackProjectId, ev.stack_user!)
+    // An anonymous Stack user is never a member here: one already provisioned (before this rule) is removed.
+    if (member?.anonymous === true) return memberOf(deps.state(), deps.rows(), user) ? (commit("team.member.remove", { user, from_stack: true }) ?? "member_anonymous_removed") : "member_anonymous"
     // Stack removed them: an owner of this Stack team is demoted and removed in one commit (review P2-1).
-    if (member === null) return commit("team.member.remove", { user, from_stack: true }) ?? "member_absent"
+    if (member == null) return commit("team.member.remove", { user, from_stack: true }) ?? "member_absent"
     // The role is read from Stack's permissions on every delivery: a change in Stack changes it here (cx-3bi.4).
     return commit("team.member.provision", { user, role: stackRole(member.permissions), source: "stack", display_name: displayName(member.display_name, "Member") }) ?? "member_present"
   }
@@ -288,10 +306,9 @@ export class StackTeamSync {
   }
 
   /** Adds every member Stack lists and removes every member it no longer lists; a reject or a missing team is the outcome, else undefined. */
-  private async syncMembers(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, commit: (op: string, params: Record<string, unknown>) => string | undefined): Promise<string | undefined> {
-    const listed = await stack.listTeamMembers(ev.stack_team)
-    if (listed === "team_gone") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
-    const want = new Map(listed.map((m) => [userIdFor(deps.stackProjectId, UUIDISH.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id), m] as const))
+  private syncMembers(deps: StackSyncDeps, listed: ReadonlyArray<StackMember & { user_id: string }>, commit: (op: string, params: Record<string, unknown>) => string | undefined): string | undefined {
+    // Anonymous Stack users are left out, so one provisioned before this rule is removed below.
+    const want = new Map(listed.filter((m) => m.anonymous !== true).map((m) => [userIdFor(deps.stackProjectId, UUIDISH.test(m.user_id) ? m.user_id.toLowerCase() : m.user_id), m] as const))
     // Owners first: a handover in one sync (A demoted, B promoted) never passes through "no owner" (re-review P3).
     for (const [user, m] of [...want].sort(([, a], [, b]) => Number(stackRole(b.permissions) === "owner") - Number(stackRole(a.permissions) === "owner"))) {
       const r = commit("team.member.provision", { user, role: stackRole(m.permissions), source: "stack", display_name: displayName(m.display_name, "Member") })

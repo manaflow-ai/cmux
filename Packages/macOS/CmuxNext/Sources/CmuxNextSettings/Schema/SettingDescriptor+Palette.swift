@@ -63,7 +63,7 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
             return []
         }
     }
@@ -100,6 +100,8 @@ extension SettingDescriptor {
         let number = value.formatted(.number.precision(.fractionLength(0...2)))
         switch unit {
         case .points: return String(format: SettingsText.text("settings.value.points", "%@ pt"), number)
+        // "1,300 ms", localized by Foundation.
+        case .milliseconds: return Measurement(value: value, unit: UnitDuration.milliseconds).formatted(.measurement(width: .abbreviated))
         case .seconds: return String(format: SettingsText.text("settings.value.seconds", "%@ s"), number)
         case .minutes: return String(format: SettingsText.text("settings.value.minutes", "%@ min"), number)
         case .days: return days(Int(value.rounded())) ?? number

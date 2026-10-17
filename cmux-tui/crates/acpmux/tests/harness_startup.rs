@@ -6,6 +6,11 @@
 //! ask" with Claude and Codex installed, until the app relaunched.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -100,16 +105,13 @@ impl Drop for Daemon {
 /// The daemon as the app starts it: the bare GUI PATH, the login shell read
 /// at startup. Returns once it reports ready.
 async fn start(dir: &Path) -> Daemon {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(dir)
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
-        .env("HOME", dir)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "1")
         .env("SHELL", dir.join("loginsh"))
         .env("PATH", "/usr/bin:/bin")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -140,7 +142,7 @@ async fn a_harness_on_the_login_path_reaches_clients_that_asked_during_startup()
         dir.join("loginsh"),
         format!(
             "#!/bin/sh\nsleep 2\nPATH={}:/usr/bin:/bin\nexport PATH\nexec /bin/sh -c \"$4\"\n",
-            dir.join("bin").display()
+            daemon_env::sh_quote(dir.join("bin").display())
         ),
     );
 

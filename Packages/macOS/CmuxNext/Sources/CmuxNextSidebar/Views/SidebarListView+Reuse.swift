@@ -25,6 +25,14 @@ extension SidebarListView {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.wire(id, in: self)
+        case let (.item(id), view as SidebarItemListRowView):
+            // A link, tab or app row runs as the band's item does (AXPress too).
+            view.onSelect = { [weak self] in self?.model.send(.activateItem(LayoutItemID(id))) }
+        case (.block, let view as SidebarBlockRowView):
+            if view.region.docList !== self {
+                view.region.docList = self
+                configureBlockRegion?(view.region)
+            }
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))

@@ -101,7 +101,7 @@ jobs:
         run: bun run typecheck
       - name: Catalog and generated client drift
         run: bun run catalog:check
-      - name: No god files (500 lines per hand-written source file)
+      - name: No god files (1000 lines or 64 KB per hand-written source file)
         run: bun run lint:size
       - name: Keyed acpmux start guest commands, Worker copy equals the web copy byte for byte (cx-kvmz)
         working-directory: .

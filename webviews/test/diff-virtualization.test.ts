@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The real diff viewer in real engines (headless Chromium and WebKit from
 // Playwright), over a 2,000-file patch with two 20,000-line files
 // (test/browser/diff-virtualization.html, served by the webviews dev server):
@@ -18,7 +19,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("diff-virtualization.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -79,10 +82,11 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/diff-virtualization.html");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** Mounted files and line rows, and how many of them lie outside the viewer. */
@@ -196,6 +200,32 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       );
       if (point != null) {
         await page.waitForTimeout(POINTER_SETTLE_MS);
+        // The virtualized tree can lay out again while the pointer settles (a loaded WebKit on
+        // CI): click only if the row is still under the point, else find it again.
+        const still = await page.evaluate(
+          ([name, x, y]) => {
+            let hit = document.elementFromPoint(Number(x), Number(y));
+            while (hit?.shadowRoot != null) {
+              const inner = hit.shadowRoot.elementFromPoint(Number(x), Number(y));
+              if (inner == null || inner === hit) break;
+              hit = inner;
+            }
+            // Climb out of any shadow root inside the row (an icon element) to the row itself.
+            for (let node: Element | null = hit; node != null;) {
+              if (node.getAttribute("data-type") === "item") {
+                return node.getAttribute("data-item-path")?.endsWith(`/${name}`) === true;
+              }
+              const root = node.getRootNode();
+              node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+            }
+            return false;
+          },
+          [name, point.x, point.y] as const,
+        );
+        if (!still) {
+          await page.waitForTimeout(100);
+          continue;
+        }
         await page.mouse.click(point.x, point.y);
         await page.waitForTimeout(900);
         return;

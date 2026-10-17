@@ -22,7 +22,7 @@ use tokio::sync::{broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
-pub use windows_socket::{UnixListener, bind_unix, serve_unix};
+pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]
@@ -700,9 +700,9 @@ async fn serve_connection_from(
                     ev = rx.recv() => ev,
                     note = harnesses.recv() => {
                         match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
-                                &Message::notification(method::MUX_HARNESSES_CHANGED, note),
-                            ),
+                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
+                                harness_admin::watch_note(&conn, note)
+                            }
                             // Lagged: a newer change follows with the full list.
                             Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                             Err(broadcast::error::RecvError::Closed) => break,
@@ -878,33 +878,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir != "mux" {
             return;
         }
-        let kind = match rec.kind.as_str() {
-            "status"
-            | "created"
-            | "user_message"
-            | "turn_end"
-            | "turn_error"
-            | "renamed"
-            | "forked"
-            | "imported"
-            | "permission_request"
-            | "permission_decision"
-            | "permission_group"
-            | "permission_chat_allowance"
-            | "mode"
-            | "model"
-            | "config"
-            | "policy"
-            | "tools"
-            | "rules"
-            | "tags"
-            | "turn_started"
-            | "turn_result" => rec.kind.as_str(),
-            k if k == "dequeued" || k.starts_with("queue") => "queue",
-            "permission_auto" => "permission_resolved",
-            "permission_reissued" => "permission_request",
-            _ => return,
-        };
+        let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
         if let Ok(s) = hub.resolve(&ev.session_id) {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
@@ -993,6 +967,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod change_kind;
 mod chats;
 pub mod conn_auth;
 pub use conn_auth::ConnAuth;

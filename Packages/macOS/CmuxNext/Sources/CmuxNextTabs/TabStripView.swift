@@ -53,10 +53,16 @@ public final class TabStripView: NSView {
     var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
+    /// Holds the unpinned tabs, group chips and bands in `tabsClip`'s coordinates (its bounds origin is its
+    /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
+    /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
+    let scrollingLayer = CALayer()
     let fadeMask = CAGradientLayer()
     /// Edges whose fade is shown or fading in (`updateFadeMask`).
     var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
+    /// The one-time Shrink-mode hint (`TabStripView+OverflowHint`), made when first shown.
+    var overflowHint: TabOverflowHintView?
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -71,21 +77,34 @@ public final class TabStripView: NSView {
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
     var dying: Set<TabID> = []
+    /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
+    /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
+    var closingAnchors: [TabID: TabID?] = [:]
+    /// The extended closing-mode area while the pointer is outside the strip (`TabStripView+ClosingMode`),
+    /// on the window's content view (AppKit clips a tracking area to its view's bounds, and the pad
+    /// lies outside the strip).
+    var closingTrackingArea: NSTrackingArea?
+    weak var closingTrackingHost: NSView?
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
     var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
+    /// Mouse closing mode ends `closingModeExitDelay` after the pointer leaves the strip's extended
+    /// area (`TabStripView+ClosingMode.swift`); the monitor follows it outside the strip meanwhile.
+    let closingExit = DemandTimer(owner: "TabStrip.closingModeExit")
+    var closingExitMonitor: Any?
+    var closingExitGlobalMonitor: Any?
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll tick on the window's FrameScheduler.
-    lazy var animationClient = FrameClient(owner: "TabStrip.animation", view: self) { [weak self] tick in
-        self?.advance(CGFloat(tick.elapsed)) ?? false
-    }
+    /// Springs and drag autoscroll step on the window's one `MotionClock`,
+    /// with the window's other chrome springs.
+    weak var motionClock: MotionClock?
+    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -151,6 +170,9 @@ public final class TabStripView: NSView {
         contentView.wantsLayer = true
         tabsClip.wantsLayer = true
         tabsClip.layer?.masksToBounds = true
+        scrollingLayer.masksToBounds = true
+        scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        tabsClip.layer?.addSublayer(scrollingLayer)
         fadeMask.startPoint = CGPoint(x: 0, y: 0.5)
         fadeMask.endPoint = CGPoint(x: 1, y: 0.5)
         fadeMask.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull()]
@@ -198,6 +220,8 @@ public final class TabStripView: NSView {
     // Every event is handled here, never by a tab subview.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
+        // The overflow hint's buttons take their own clicks.
+        if let hint = overflowHint, !hint.isHidden, let hit = hint.hitTest(contentView.convert(local, from: self)), hit !== hint { return hit }
         return bounds.contains(local) ? self : nil
     }
 
@@ -217,6 +241,7 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
+        if let hint = overflowHint, !hint.isHidden { children.append(contentsOf: [hint.label, hint.useButton, hint.dismissButton]) }
         return children
     }
 
@@ -239,10 +264,15 @@ public final class TabStripView: NSView {
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
-            animationClient.deactivate()
+            motionClock?.stop(self)
+            motionClock = nil
             groupEditor.hide()
+            hideOverflowHint()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
+            endClosingModeWatch()
+            // Closing mode belongs to this window's pointer; the strip in another window lays out fully.
+            closingModeWidth = nil
             endMenuTracking()
             buttonReveal.pointerInStrip = false
         }
@@ -315,7 +345,6 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
-        hoverCard.metrics = metrics
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body
@@ -328,6 +357,7 @@ public final class TabStripView: NSView {
             chip.font = Typography.caption
         }
         groupEditor.hide()
+        overflowHint?.applyTokens()
         newTabButton.needsLayout = true
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
@@ -341,15 +371,15 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0))
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0) - overflowHintReserve)
+        layoutOverflowHint()
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
+            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
+            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
             lastViewportWidth = viewport
-            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5).
-            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion)
         } else {
             applyFrames()
         }
@@ -366,6 +396,7 @@ public final class TabStripView: NSView {
         )
         addTrackingArea(area)
         trackingArea = area
+        if closingTrackingArea != nil { installClosingModeTracking() }
     }
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".

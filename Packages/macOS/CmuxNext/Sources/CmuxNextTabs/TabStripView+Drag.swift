@@ -9,7 +9,7 @@ extension TabStripView {
     func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
         let local = convert(press.start, to: tabsClip)
-        let contentX = local.x + scroll.value
+        let contentX = scrollMapping.contentX(local.x, isPinned: displayed[index].isPinned)
         drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - m.x.value,
@@ -19,7 +19,8 @@ extension TabStripView {
             lastPoint: press.start,
             originalGroup: displayed[index].groupID,
             targetGroup: displayed[index].groupID,
-            grabY: local.y
+            grabY: local.y,
+            lastMoveX: contentX
         )
         self.press = nil
         setHovered(nil)
@@ -37,12 +38,12 @@ extension TabStripView {
         }
         drag.lastPoint = point
         guard let width = motion[drag.id]?.width.target else { return }
-        let contentX = convert(point, to: tabsClip).x + scroll.value
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: drag.isPinned)
         let region = result.slots.filter { $0.isPinned == drag.isPinned && $0.id != Self.placeholderID }
         guard let first = region.first, let last = region.last else { return }
         let x = min(max(contentX - drag.grabOffset, first.x), last.maxX - width)
         let entries = region.filter { $0.id != drag.id }
-        let index: Int
+        var index: Int
         var group: TabGroupID?
         if drag.isPinned {
             index = TabReorderMath.insertionIndex(draggedMinX: x, groupStart: first.x, otherWidths: entries.map(\.width))
@@ -57,8 +58,18 @@ extension TabStripView {
             index = displayed.count(where: \.isPinned) + resolution.index
             group = resolution.groupID
         }
-        motion[drag.id]?.x.follow(x, at: event?.timestamp ?? CACurrentMediaTime())
+        motion[drag.id]?.x.follow(x)
+        // Chrome: a reorder waits until the pointer moved 16 x width / maxWidth pt (the density's max,
+        // hq-4e + cmux2-0b) since the last one, the width of the tab being passed: moving right that is
+        // the tab now just left of the target index among the others, moving left the one at it.
+        let others = displayed.filter { $0.id != drag.id }
+        if index != drag.currentIndex, group == drag.targetGroup, !others.isEmpty {
+            let passedIndex = index > drag.currentIndex ? index - 1 : index
+            let passed = result.slot(others[min(max(passedIndex, 0), others.count - 1)].id)?.width ?? width
+            if abs(contentX - drag.lastMoveX) <= metrics.chrome.reorderThreshold(forTabWidth: passed) { index = drag.currentIndex }
+        }
         let moved = index != drag.currentIndex || group != drag.targetGroup
+        if moved { drag.lastMoveX = contentX }
         drag.currentIndex = index
         drag.targetGroup = group
         self.drag = drag
@@ -82,14 +93,17 @@ extension TabStripView {
     /// trailing edge to join or leave the group.
     static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
-    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
+    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade. The leading fade is after a
+    /// fixed pinned band; a pinned tab dragged in that band scrolls nothing.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
         guard let point = drag?.lastPoint ?? groups.drag?.lastPoint ?? phantomPoint, result.isOverflowing else { return false }
-        let local = convert(point, to: tabsClip).x
+        let band = scrollMapping.band
+        if drag?.isPinned == true, band > 0 { return false }
+        let local = max(convert(point, to: tabsClip).x, band)
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
         let gain = TabTunables.autoscrollGain.value
-        if local < edge { speed = -(edge - local) * gain }
+        if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
         let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
@@ -110,8 +124,8 @@ extension TabStripView {
         self.drag = nil
         removeEscapeMonitor()
         cells[drag.id]?.isLifted = false
-        // The release settles into the slot carrying the pointer's velocity.
-        motion[drag.id]?.x.release(at: CACurrentMediaTime())
+        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome).
+        motion[drag.id]?.use(.tabMove)
         let regrouped = drag.targetGroup != drag.originalGroup
         // The model may have changed during the drag (tabs closed by the
         // daemon); indexes captured at the start no longer hold.
@@ -275,4 +289,17 @@ extension TabStripView {
     /// How long a committed reorder waits for the store's change (it
     /// trails the reply by a frame or two) before the model's order shows.
     static let reorderSettleTimeout: Duration = .milliseconds(300)
+}
+
+// Debug proofs (debug.new_tab frame_strip `drag_new`) drive a drag at a tab's place.
+extension TabStripView {
+    /// The tabs in the order the strip shows them.
+    public var displayedOrder: [TabID] { displayed.map(\.id) }
+
+    /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
+    public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
+        guard let m = motion[id], let cell = cells[id] else { return nil }
+        let x = scrollMapping.viewX(m.x.value + m.width.value / 2, isPinned: cell.item.isPinned)
+        return tabsClip.convert(CGPoint(x: x, y: tabsClip.bounds.midY), to: nil)
+    }
 }

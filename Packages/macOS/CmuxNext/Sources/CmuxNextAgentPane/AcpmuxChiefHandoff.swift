@@ -51,7 +51,7 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
         // LaunchAgent that does not set the Chief home), so it would not help.
         let bundled = await AcpmuxVersionHandoff.bundledBuild(environment)
         if let build = status.build, build == bundled {
-            Self.logger.error("Chief acpmux \(pid) for Chief home \(chiefMuxHome, privacy: .public) runs without ACPMUX_CHIEF_MUX_HOME and this app's build: not handed off; codex built-in presets fail closed until the Chief host restarts (restart the Chief host)")
+            Self.logger.error("Chief acpmux \(pid) for Chief home \(chiefMuxHome, privacy: .public) runs without ACPMUX_CHIEF_MUX_HOME and this app's build: not handed off; until the Chief host restarts, its built-in codex turn and compactor presets fail closed and its other built-in Chief presets start without their Chief's MUX_HOME (restart the Chief host)")
             return false
         }
         Self.logger.info("Chief acpmux \(pid) lacks the Chief home; handing it off")

@@ -29,11 +29,12 @@ nonisolated extension CloudHomeSource {
             return HomeOpResult(rev: result.rev ?? 0, replayed: result.replayed, conversation: conversation)
         }
         switch intent.op {
-        case .sendMessage(let conversation, let parts, let threadRoot):
+        case .sendMessage(let conversation, let parts, let threadRoot, let parent):
             // The owner's message.send key must equal client_msg_id. `thread_root` is the thread
-            // (cx-59n8.4); the reply to the root's first part keeps it on an owner from before threads.
+            // (cx-59n8.4); `reply_to` the message answered (a nested reply), else the root's first part,
+            // which keeps it on an owner from before threads.
             return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity),
-                                        replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                        replyTo: threadRoot.map { ConversationPartRef(messageID: (parent ?? $0).rawValue, partIndex: 0) },
                                         threadRoot: threadRoot?.rawValue),
                                   in: conversation)
         case .editMessage(let message, let conversation, let parts):
@@ -49,6 +50,9 @@ nonisolated extension CloudHomeSource {
         case .addReaction(let message, let conversation, let reaction, let partIndex):
             return try await edit(.addReaction(messageID: message.rawValue, partIndex: partIndex,
                                                kind: CloudHomeMapping.reaction(reaction)), in: conversation)
+        case .updateThread(let conversation, let root, let title, let status, let owner):
+            return try await edit(.updateThread(root: root.rawValue, title: title, status: status?.rawValue,
+                                                owner: owner.map { $0.isEmpty ? $0 : identity.toCloud(ParticipantID($0)) }), in: conversation)
         case .setTyping(let conversation, _):
             // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)

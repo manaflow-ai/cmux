@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
+// cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -100,6 +100,9 @@ pub type AttachSurfaceResult = T::EmptyResult;
 pub struct BindConversationTabSessionRequest {
     /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
     pub expected_session: Nullable<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
     pub session: String,
     pub surface: T::Id,
 }
@@ -491,6 +494,9 @@ pub struct CloseWorkspaceRequest {
     /// With end_terminals: the close is not recorded in the closed history (session_end).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub reason: Optional<T::CloseReason>,
+    /// With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub report_closed_ids: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -625,6 +631,15 @@ pub struct CloudConversationHistoryRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationLiveRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationLiveResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1076,6 +1091,31 @@ pub struct ConversationListRequest {
 pub struct ConversationListResult {
     pub conversations: Vec<T::ConversationSummary>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveResult {
+    pub conversation: String,
+    pub runs: Vec<T::JsonValue>,
+    #[serde(rename = "type")]
+    pub type_: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLivePublishRequest {
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ConversationLivePublishResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1741,6 +1781,21 @@ pub struct HistorySearchRequest {
 pub struct HistorySearchResult {
     pub hits: Vec<T::HistorySearchHit>,
     pub took_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HomeInboxRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owners: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeInboxResult {
+    pub cloud: String,
+    pub me: String,
+    pub rows: Vec<T::HomeInboxRow>,
 }
 
 #[rustfmt::skip]
@@ -4127,6 +4182,10 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
     }
 
+    pub fn cloud_conversation_live(&mut self, request: CloudConversationLiveRequest) -> Result<CloudConversationLiveResult> {
+        self.execute(&CLOUD_CONVERSATION_LIVE_METADATA, &request)
+    }
+
     pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
     }
@@ -4245,6 +4304,14 @@ impl CmuxClient {
 
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
         self.execute(&CONVERSATION_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_live(&mut self, request: ConversationLiveRequest) -> Result<ConversationLiveResult> {
+        self.execute(&CONVERSATION_LIVE_METADATA, &request)
+    }
+
+    pub fn conversation_live_publish(&mut self, request: ConversationLivePublishRequest) -> Result<ConversationLivePublishResult> {
+        self.execute(&CONVERSATION_LIVE_PUBLISH_METADATA, &request)
     }
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
@@ -4459,6 +4526,10 @@ impl CmuxClient {
 
     pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
         self.execute(&HISTORY_SEARCH_METADATA, &request)
+    }
+
+    pub fn home_inbox(&mut self, request: HomeInboxRequest) -> Result<HomeInboxResult> {
+        self.execute(&HOME_INBOX_METADATA, &request)
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {

@@ -328,6 +328,8 @@ impl Mux {
             "workspace_ids": ids(BulkLevel::Workspace),
         });
         if surfaces.is_empty() {
+            let mut result = result;
+            result["closed_ids"] = json!([]);
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(

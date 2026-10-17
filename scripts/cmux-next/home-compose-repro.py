@@ -14,6 +14,8 @@ Usage: home-compose-repro.py --tag <tag> --out DIR
 """
 import argparse, json, os, socket, subprocess, sys, time
 import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -65,13 +67,15 @@ def step(name):
 
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local"}
+       "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local", **home_classic.ENV}
 if os.path.exists(sock):
     os.unlink(sock)
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
 pid = process.pid
 try:
+    if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     if not poll(lambda: "conversations" in (rpc("debug.home.api", {"call": "inbox"}) or {}), timeout=180):
         sys.exit("FAIL the local owner never answered")
     rpc("debug.window.ax_set_frame", {"frames": [[120, 120, 1100, 760]]})
@@ -108,7 +112,7 @@ finally:
     rpc("action.run", {"id": "quitEndSessions"})
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
-    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
+    subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     with open(os.path.join(opts.out, "steps.json"), "w") as handle:
         json.dump(log, handle, indent=1)

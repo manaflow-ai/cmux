@@ -121,6 +121,7 @@ const longProfiles = longRows.map((r, i) => ({
   is_default: i === 0,
   source: "Imported sample browser profile",
 }));
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
     note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
@@ -661,24 +662,6 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
-// The two overall looks for the chief's pick (layout.css): each on the Theme section with every
-// bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
-for (const look of ["quiet", "dense"] as const) {
-  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
-  variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
-  variants[`look-${look}-browser`] = variant("browser", {
-    look,
-    options: { values: customValues },
-    note: `${look} look: Browser, customized, with an MDM lock.`,
-  });
-  variants[`look-${look}-changed`] = variant("general", {
-    look,
-    options: { values: customValues },
-    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
-    note: `${look} look: Show Only Changed.`,
-  });
-}
-
 // The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
 // kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
 // anchors (the row's title, the next row's title) on each.
@@ -773,6 +756,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

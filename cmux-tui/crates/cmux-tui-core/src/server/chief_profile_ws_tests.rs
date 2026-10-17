@@ -180,7 +180,7 @@ fn the_persons_page_websocket_renames_a_chief_but_cannot_plant_or_widen_one() {
             &page_ws,
             &v2("chief.profile.get", &params(json!({"chief": id})), None, None),
         ));
-        assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
+        assert_eq!(kept["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]), "{kept}");
         assert_eq!(kept["self_edit"], json!(["avatar"]), "{kept}");
         assert_eq!(kept["instructions"], "Ask before a merge.", "{kept}");
         let listed =
@@ -443,5 +443,5 @@ fn a_page_write_is_recorded_as_the_page_and_no_page_field_stands_in_for_the_gest
         &channels,
         &v2("chief.profile.get", &params(json!({"chief": id})), None, None),
     ));
-    assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
+    assert_eq!(kept["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]), "{kept}");
 }

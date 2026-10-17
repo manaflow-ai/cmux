@@ -18,9 +18,10 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript. Defaults to the
-    /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
+    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
@@ -85,7 +86,7 @@ public final class AgentPaneView: NSView {
         NSPasteboard.general.setString(text, forType: .string)
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
-    let loadingView = AgentPaneLoadingView()
+    public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -142,6 +143,10 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            if let script = AgentPaneTunables.documentScript {
+                configuration.userContentController.addUserScript(
+                    WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG
@@ -240,20 +245,16 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
         }
     }
 
-    private func applyZoom() {
-        let scale = Double(DesignSettings.shared.uiScale) * zoom
-        if let page {
-            page.additionalZoom = zoom
-        } else {
-            webView.pageZoom = scale
-        }
+    func applyZoom() {
+        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
-@@ -85,9 +85,14 @@
+@@ -94,10 +94,15 @@
                  }
              }
              if r.mention != nil { traits.insert(.traitBold) }
@@ -8,15 +8,16 @@
 +            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
              if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
                  a.addAttribute(.font, value: f, range: range)
-+            }
+             }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
 +            if r.style?.contains("code") == true {
 +                a.addAttribute(.font, value: HomeFonts.code, range: range)
-             }
++            }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-@@ -945,7 +950,8 @@
+             }
+@@ -1024,7 +1029,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -26,18 +27,19 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -957,6 +963,10 @@
-                 }
+@@ -1043,6 +1049,11 @@
              }
              prev = m; prevIndex = idx
-+        }
-+        // cmux: the host's notice, centered like the date row, under the newest message.
-+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
-+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
          }
-         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
-             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -1046,7 +1056,7 @@
++        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
++        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
++        }
+         // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
+         let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
+             || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
+@@ -1145,7 +1156,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -46,7 +48,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1065,7 +1075,7 @@
+@@ -1164,7 +1175,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -55,7 +57,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1115,7 +1125,8 @@
+@@ -1214,7 +1225,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -65,7 +67,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1148,7 +1159,8 @@
+@@ -1255,7 +1267,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

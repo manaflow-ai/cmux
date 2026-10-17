@@ -21,6 +21,12 @@ pub fn home() -> PathBuf {
     if let Some(path) = HOME_OVERRIDE.get() {
         return path.clone();
     }
+    default_home()
+}
+
+/// The default state directory, with no ACPMUX_HOME and no override: the
+/// person's own daemon home (a hand, which runs its own daemon, protects it).
+pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
@@ -416,6 +422,30 @@ impl Default for TuiConfig {
     }
 }
 
+/// `titles` in the config: how a chat its harness never titles gets one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TitlesConfig {
+    /// `generate`: title such a chat after its first turn. Default on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the
+    /// title. Env `ACPMUX_TITLE_COMMAND` (one program) wins. Unset: the
+    /// chat's own Claude Code profile, with `model`; another harness's chat
+    /// then keeps its first-prompt title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the Claude model of the default command. Default `haiku`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl TitlesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -486,6 +516,13 @@ pub struct Config {
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
+    /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
+    #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
+    pub btw: BtwConfig,
+    /// `titles`: short titles for chats their harness never titles
+    /// (`hub/titles.rs`).
+    #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
+    pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -883,7 +920,8 @@ pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Opti
 /// The cmux terminal launch credential (plans/cmux-next/identity.md
 /// section 2). It names the one terminal that started a process; acpmux, its
 /// daemon, agents and hooks serve many terminals, so none of them carries it.
-/// Both scrubs remove it from every child they prepare.
+/// Both scrubs remove it from every child they prepare; an agent gets one
+/// minted for its own session instead (`launch_credential.rs`).
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// A Chief host's credential and participant (optchat-chief: the token file
@@ -938,10 +976,7 @@ pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
-pub use codex_adapter::{
-    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
-    resolve_adapter_package_bin,
-};
+pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
@@ -950,6 +985,8 @@ mod peer;
 pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
+mod btw;
+pub use btw::BtwConfig;
 pub mod folder_profiles;
 pub mod profiles;
 pub use profiles::{
