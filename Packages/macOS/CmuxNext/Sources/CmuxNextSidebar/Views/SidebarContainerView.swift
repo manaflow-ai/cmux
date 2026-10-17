@@ -38,6 +38,11 @@ public final class SidebarContainerView: NSView {
     private var targetWidth: CGFloat
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
+    /// Completion gates for the optional opacity leg. Width and opacity use
+    /// separate tokens, so a reduced-motion fade can finish after the width
+    /// snaps without exposing a panel that is not ready to be hidden.
+    private var widthCompletedGeneration: Int?
+    private var fadeCompletedGeneration: Int?
     /// The collapse prototype used by the current transition. Keeping it
     /// alongside the width target lets a Debug Settings change retarget a
     /// transition already in flight without changing the default geometry.
@@ -62,6 +67,8 @@ public final class SidebarContainerView: NSView {
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
+        widthCompletedGeneration = nil
+        fadeCompletedGeneration = nil
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         clip.wantsLayer = true
@@ -258,6 +265,8 @@ public final class SidebarContainerView: NSView {
         if !hidden { panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1 }
         animationGeneration += 1
         let generation = animationGeneration
+        widthCompletedGeneration = nil
+        fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
         // Animate only the constraint: descendants re-lay out each frame at
         // their real size. Forcing layout inside the animation block would
         // make every subview frame an implicit animation whose completion
@@ -267,17 +276,37 @@ public final class SidebarContainerView: NSView {
         // A toggle mid-animation starts from the constant on screen.
         Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
-            if collapseMotion.fadesPanel {
-                panel.animator().alphaValue = hidden ? 0 : 1
-            } else {
-                panel.alphaValue = 1
-            }
         }, completion: { [weak self] in
-            guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
-            self.panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1
-            self.panel.isHidden = true
-            PointerHover.refresh(in: self.window)
+            guard let self, generation == self.animationGeneration else { return }
+            self.widthCompletedGeneration = generation
+            self.finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: collapseMotion.fadesPanel)
         })
+
+        // Keep the width's existing appear/disappear timing, but let the
+        // prototype use the short fade tokens. This makes slideFade read as
+        // a quick reveal over the structural slide instead of extending the
+        // opacity animation to the sidebar's full travel time.
+        if collapseMotion.fadesPanel {
+            Motion.animateTimed(hidden ? .fadeOut : .fadeIn, in: self, {
+                panel.animator().alphaValue = hidden ? 0 : 1
+            }, completion: { [weak self] in
+                guard let self, generation == self.animationGeneration else { return }
+                self.fadeCompletedGeneration = generation
+                self.finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: true)
+            })
+        }
+    }
+
+    /// Hides a collapsed panel only after each active leg reaches its target.
+    /// Width normally finishes last; the explicit gate also keeps Reduce
+    /// Motion's instant width snap from racing the short opacity fade.
+    private func finishCollapseIfReady(generation: Int, hidden: Bool, fadesPanel: Bool) {
+        guard hidden, generation == animationGeneration, model.isHidden,
+              widthCompletedGeneration == generation,
+              !fadesPanel || fadeCompletedGeneration == generation else { return }
+        panel.alphaValue = fadesPanel ? 0 : 1
+        panel.isHidden = true
+        PointerHover.refresh(in: window)
     }
 }
 
