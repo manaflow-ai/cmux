@@ -85,6 +85,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    var openAgents: () -> Void = {}
     let title: String
     let isLoading: Bool
     let selection: WorkspaceMacSelection
@@ -160,6 +161,13 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+        ToolbarItem(id: "workspace-list-agents", placement: .topBarTrailing) {
+            Button(action: openAgents) {
+                Image(systemName: "sparkles")
+            }
+            .accessibilityLabel(L10n.string("mobile.agents.open", defaultValue: "Agents"))
+            .accessibilityIdentifier("MobileAgentsModeButton")
+        }
     }
 }
 
@@ -168,6 +176,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    var openAgents: () -> Void = {}
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
@@ -177,6 +186,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
         WorkspaceRootToolbarContent(
             openSettings: openSettings,
             openDevices: openDevices,
+            openAgents: openAgents,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
             selection: pendingSelection ?? renderContext.visibleSelection,
@@ -247,6 +257,7 @@ struct WorkspaceShellView: View {
     /// are released when the sheet is dismissed.
     @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
+    @State private var showsAgentChatMode = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     /// Compact Feed-tab stack: workspaces opened from Feed rows push here.
     @State private var feedNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -412,6 +423,9 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
             }
+        }
+        .sheet(isPresented: $showsAgentChatMode) {
+            AgentChatModeView(store: store)
         }
         #endif
         #else
@@ -1401,6 +1415,7 @@ struct WorkspaceShellView: View {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
             openDevices: showComputers,
+            openAgents: { showsAgentChatMode = true },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
