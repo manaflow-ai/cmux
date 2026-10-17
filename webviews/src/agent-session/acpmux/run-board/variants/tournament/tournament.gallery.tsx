@@ -56,7 +56,7 @@ const attachTerminal: Play = async (ctx) => {
 const approveWinner: Play = async (ctx) => {
   await ctx.click({ selector: `${comparePane} [data-select-attempt="attempt-a"]` });
   await ctx.click({ selector: `${comparePane} input[aria-label="I reviewed Attempt A"]` });
-  await ctx.click({ selector: `${comparePane} button[aria-label="Approve Attempt A for integration"]` });
+  await ctx.click({ selector: `${comparePane} .compare-approve` });
   await ctx.waitFor(() => ctx.document.querySelector(`${comparePane} [data-approved="attempt-a"]`));
 };
 
