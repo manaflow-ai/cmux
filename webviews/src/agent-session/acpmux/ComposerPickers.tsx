@@ -132,6 +132,8 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
+  /** New Tab shows the model before a session exists; do not draw chat-only loading chrome. */
+  startsChat?: boolean;
 };
 
 /// The composer bar's controls: the
@@ -156,6 +158,7 @@ export function ComposerPickers({
   onCompact,
   catalogRefresh,
   pickerCatalog,
+  startsChat = false,
 }: Props) {
   const t = useT();
   // The ring hides from its right-click; the composer's button row shows it again (composerChrome.tsx).
@@ -407,6 +410,10 @@ export function ComposerPickers({
   // by one beside the model (cx-ncc.58).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
+  // A New Tab has no session yet. Its model chip is useful before the first prompt, but the
+  // context, effort and access skeletons read as placeholder controls (and imply a chat exists).
+  // Existing chats keep the stable skeleton geometry while their catalog arrives.
+  const showPendingChrome = !startsChat;
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -443,7 +450,7 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || summary?.sessionId || awaiting) && (
+      {(usage || summary?.sessionId || (showPendingChrome && awaiting)) && (
         <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
@@ -477,9 +484,9 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
+      {showPendingChrome && !(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
       <span className="acpmux-chips-spacer" />
-      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
+      {showPendingChrome && modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}

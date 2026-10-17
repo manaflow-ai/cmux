@@ -1871,6 +1871,7 @@ function DefaultComposerChips({
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
       showPlan={false}
+      startsChat={startsChat}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
@@ -4588,6 +4589,7 @@ function AcpmuxPane() {
               // once); only a submit waits for acpmux (`whenHandshaken`).
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+              host={newTab.host ?? machineName}
               {...(startFolder ? { startCwd: startFolder } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
