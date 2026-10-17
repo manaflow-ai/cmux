@@ -62,7 +62,6 @@ extension TabContentCache {
     /// Applies a new warm set budget (memory pressure changed).
     func setWarmBudget(_ budget: WarmSetBudget) {
         guard budget != warmBudget else { return }
-        // A smaller budget (memory pressure) frees the surfaces now, with no last picture.
         evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
         defer { evictsAtOnce = false }
         warmBudget = budget
@@ -86,17 +85,15 @@ extension TabContentCache {
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
-    /// A hidden terminal leaves the warm set: its last picture (rendered off the main thread)
-    /// stays for its hover card and drag, then the surface closes. Its view leaves the pane now.
+    /// A hidden terminal leaves the warm set: its last picture (off the main thread) stays, then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
         entry.session.view.removeFromSuperview()
         guard !evictsAtOnce, TerminalOutput.shows(entry.session) else { return entry.close() }
         Task { [weak self] in
-            // Read after this eviction's `.released` (it runs once `apply` returns).
             let generation = self?.lifecycle.record(key)?.generation
             let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
             entry.close()
-            // Not when the tab closed (no record), has a live surface again, or a later eviction's picture is newer.
+            // Not for a closed tab (no record), a live surface again, or a newer eviction (generation after `.released`).
             guard let image, let self, self.terminals[key] == nil, let record = self.lifecycle.record(key),
                   record.generation == generation else { return }
             self.previews.insert(image, for: key)
@@ -160,8 +157,7 @@ extension TabContentCache {
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
         if let entry = terminals[key] {
-            // No picture on a switch: a live terminal renders its hover or drag thumbnail when one is
-            // asked for (`previewImage`); one leaving the warm set leaves one behind (`evict`).
+            // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
         }

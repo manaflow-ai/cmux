@@ -72,11 +72,6 @@ final class AgentPaneLaunchImages {
         return frame.image
     }
 
-    /// A New Tab frame is held for exactly this size and appearance.
-    func hasNewTabFrame(size: NSSize, appearance: NSAppearance.Name?) -> Bool {
-        newTabFrame.map { $0.size == size && $0.appearance == appearance } ?? false
-    }
-
     func rememberNewTabFrame(_ image: NSImage, size: NSSize, appearance: NSAppearance.Name?) {
         newTabFrame = (image, size, appearance)
     }

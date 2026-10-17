@@ -90,9 +90,7 @@ struct AgentTabContent {
     /// `view` 400 ms after it painted here (its chats and chips in), clear areas left clear (the pane
     /// paints under it): what the next New Tab page draws until it paints (cx-ec99). The first page's
     /// first paint on the theme's color showed under each Cmd-T: no chats, no model (Leo 2026-10-13).
-    /// A page gives it once per size and appearance, and again only when the held frame is another
-    /// size or appearance; one capture per page at a time, and none for a page that does not show
-    /// by then (a switch away, a parked page): a tab switch takes no snapshot (perf-tabs I6).
+    /// Once per page, size and appearance (unless the held frame is another), one at a time, never hidden (perf-tabs I6).
     private func rememberNewTabFrame(of view: AgentPaneView) {
         let images = pane.services.agentTabs.launchImages
         let redraw = view.redraw
@@ -108,7 +106,7 @@ struct AgentTabContent {
                 let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
                 guard size != .zero else { return }
                 if let given = view.redraw.givenNewTabFrame, given.size == size, given.appearance == appearance,
-                   images.hasNewTabFrame(size: size, appearance: appearance) { return }
+                   images.newTabFrame(size: size, appearance: appearance) != nil { return }
                 guard let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
                 images.rememberNewTabFrame(image, size: size, appearance: appearance)
                 view.redraw.givenNewTabFrame = (size, appearance)

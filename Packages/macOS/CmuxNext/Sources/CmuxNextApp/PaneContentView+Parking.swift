@@ -8,12 +8,9 @@ import CmuxNextTerminal
 /// perf phase 2, cx-asb1; terminals, perf-tabs I6). Taking a browser's chrome
 /// out of the window and back costs AppKit tens of ms on each tab switch (its
 /// constraints and controls leave and join the window's layout engine, and a
-/// Chromium page re-adds its child window); a terminal re-registers its window
-/// observers, scale, size and occlusion. A hidden view stops drawing, takes no
-/// events and is not in the accessibility tree; the content lifecycle
-/// (`TabContentCache.conceal`) already stops the page or surface rendering, and
-/// the warm set (`WarmSetBudget`) closes a hidden terminal past its budget,
-/// which takes its view out (`TerminalEntry.close`).
+/// Chromium page re-adds its child window). A hidden view stops drawing, takes
+/// no events and is not in the accessibility tree; the content lifecycle
+/// (`TabContentCache.conceal`) stops the page or surface rendering.
 @MainActor
 protocol PaneParkableContent: NSView {}
 

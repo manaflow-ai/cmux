@@ -113,8 +113,7 @@ final class TerminalEntry {
         watch.stop()
         session.close()
         io.close()
-        // Parked hidden in a pane (`PaneContentView+Parking`) until now.
-        session.view.removeFromSuperview()
+        session.view.removeFromSuperview() // parked hidden in a pane until now
     }
 }
 

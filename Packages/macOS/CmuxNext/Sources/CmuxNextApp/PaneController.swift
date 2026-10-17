@@ -228,7 +228,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
-            PaneSelectionPresenter(pane: self).present() // a close selected the neighbor
+            presentSelection() // a close selected the neighbor
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
@@ -307,19 +307,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Another pane took `key`'s view (the tab moved there) or its surface
     /// was destroyed. Let the view go without pausing it; re-present when
     /// this pane shows the tab again.
-    func surfaceWasDisplaced(_ key: String) {
+    func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }
         currentTabKey = nil
-        view.detachContent()
-        services.surfaceInvariant.noteChange()
-    }
-
-    /// A first visit empties the pane until its surface exists (`PaneSelectionPresenter`): what
-    /// showed stays alive, parked hidden in the pane, so going back to it moves no view.
-    func withdrawShown() {
-        guard currentTabKey != nil else { return }
-        currentTabKey = nil
-        view.withdrawContent()
+        view.detachContent(parks: parks)
         services.surfaceInvariant.noteChange()
     }
 
