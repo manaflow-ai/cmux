@@ -655198,6 +655198,256 @@
           }
         }
       }
+    },
+    "settings.search.browser.autoSelectCertificateForUrls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Select Client Certificates"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clientzertifikate automatisch auswählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner automatiquement les certificats client"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار شهادات العميل تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar certificados de cliente automáticamente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動選取用戶端憑證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动选择客户端证书"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트 인증서 자동 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアント証明書を自動選択"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona automaticamente i certificati client"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski odabir klijentskih certifikata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg klientcertifikater automatisk"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសវិញ្ញាបនបត្រម៉ាស៊ីនភ្ញៀវដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg klientsertifikater automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie wybieraj certyfikaty klienta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecionar certificados de cliente automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически выбирать сертификаты клиента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกใบรับรองไคลเอนต์โดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstemci sertifikalarını otomatik seç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичний вибір сертифікатів клієнта"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.auto-select-certificate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls client certificate mTLS mutual TLS certificate picker automatic selection host domain serial number AutoSelectCertificateForUrls"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls Clientzertifikat mTLS automatische Auswahl Zertifikatsauswahl Host Domain Seriennummer AutoSelectCertificateForUrls"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificat client mTLS sélection automatique sélecteur de certificat hôte domaine numéro de série AutoSelectCertificateForUrls"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls شهادة العميل mTLS اختيار تلقائي منتقي الشهادة مضيف نطاق رقم تسلسلي AutoSelectCertificateForUrls"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificado de cliente mTLS selección automática selector de certificados host dominio número de serie AutoSelectCertificateForUrls"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 用戶端憑證 mTLS 自動選取 憑證選擇器 主機 網域 序號 AutoSelectCertificateForUrls"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 客户端证书 mTLS 自动选择 证书选择器 主机 域名 序列号 AutoSelectCertificateForUrls"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls 클라이언트 인증서 mTLS 자동 선택 인증서 선택기 호스트 도메인 일련 번호 AutoSelectCertificateForUrls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls クライアント証明書 mTLS 自動選択 証明書ピッカー ホスト ドメイン シリアル番号 AutoSelectCertificateForUrls"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificato client mTLS selezione automatica selettore certificati host dominio numero di serie AutoSelectCertificateForUrls"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls klijentski certifikat mTLS automatski odabir birač certifikata host domen serijski broj AutoSelectCertificateForUrls"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls klientcertifikat mTLS automatisk valg certifikatvælger vært domæne serienummer AutoSelectCertificateForUrls"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls វិញ្ញាបនបត្រម៉ាស៊ីនភ្ញៀវ mTLS ជ្រើសដោយស្វ័យប្រវត្តិ អ្នកជ្រើសវិញ្ញាបនបត្រ ម៉ាស៊ីន ដែន លេខស៊េរី AutoSelectCertificateForUrls"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls klientsertifikat mTLS automatisk valg sertifikatvelger vert domene serienummer AutoSelectCertificateForUrls"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certyfikat klienta mTLS automatyczny wybór selektor certyfikatów host domena numer seryjny AutoSelectCertificateForUrls"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls certificado do cliente mTLS seleção automática seletor de certificados host domínio número de série AutoSelectCertificateForUrls"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls клиентский сертификат mTLS автоматический выбор выбор сертификата хост домен серийный номер AutoSelectCertificateForUrls"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls ใบรับรองไคลเอนต์ mTLS การเลือกอัตโนมัติ ตัวเลือกใบรับรอง โฮสต์ โดเมน หมายเลขซีเรียล AutoSelectCertificateForUrls"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls istemci sertifikası mTLS otomatik seçim sertifika seçici ana bilgisayar alan adı seri numarası AutoSelectCertificateForUrls"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.autoSelectCertificateForUrls клієнтський сертифікат mTLS автоматичний вибір вибір сертифіката хост домен серійний номер AutoSelectCertificateForUrls"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

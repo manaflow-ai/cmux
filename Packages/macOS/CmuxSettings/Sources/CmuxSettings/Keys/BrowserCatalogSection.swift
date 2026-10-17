@@ -132,6 +132,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
     )
 
+    /// Host rules that may auto-select a browser client certificate.
+    public let autoSelectCertificateForUrls = DefaultsKey<String>(
+        id: "browser.autoSelectCertificateForUrls",
+        defaultValue: "",
+        userDefaultsKey: BrowserClientCertificateAutoSelectionPolicy.userDefaultsKey
+    )
+
     public let showImportHintOnBlankTabs = DefaultsKey<Bool>(
         id: "browser.showImportHintOnBlankTabs",
         defaultValue: true,
