@@ -237,6 +237,65 @@
         }
       }
     },
+    "cloudEnv.error.reservedKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is reserved by the machine or by cmux and cannot be set."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ محجوز من قِبل الجهاز أو cmux ولا يمكن تعيينه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist von der Maschine oder von cmux reserviert und kann nicht gesetzt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está reservado por la máquina o por cmux y no se puede establecer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est réservé par la machine ou par cmux et ne peut pas être défini."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はマシンまたは cmux が予約しているため、設定できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 머신 또는 cmux에서 예약한 이름이므로 설정할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已被机器或 cmux 保留，无法设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已由機器或 cmux 保留，無法設定。"
+          }
+        }
+      }
+    },
     "projectPanel.reload": {
       "extractionState": "manual",
       "localizations": {

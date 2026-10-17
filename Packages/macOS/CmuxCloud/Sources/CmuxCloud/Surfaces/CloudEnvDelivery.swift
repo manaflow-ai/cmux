@@ -152,7 +152,7 @@ public enum CloudEnvDelivery {
             case .invalidKey(let key):
                 return "invalid variable name '\(key)' (keys match [A-Za-z_][A-Za-z0-9_]*)"
             case .reservedKey(let key):
-                return "'\(key)' is reserved by the machine or by cmux and cannot be set"
+                return String(format: String(localized: "cloudEnv.error.reservedKey", defaultValue: "%@ is reserved by the machine or by cmux and cannot be set."), key)
             case .multilineValue(let key):
                 return "value of \(key) must be a single line"
             case .emptyPayload:
