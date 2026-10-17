@@ -50,6 +50,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         XCTAssertTrue(accountButton.waitForExistence(timeout: 10))
         accountButton.click()
         XCTAssertEqual(app.popovers.count, 0, "Account should use a native menu instead of a popover")
+        XCTAssertTrue(app.menuItems["SidebarAccountSwitchAccountButton"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.menuItems["SidebarAccountSignOutButton"].waitForExistence(timeout: 5))
         capture("account-menu")
         XCTAssertFalse(
