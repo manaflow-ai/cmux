@@ -82,7 +82,9 @@ if [ -n "$LOCAL_BIN" ]; then
   echo "cmux-hand install: using the local file $LOCAL_BIN (development; no published hash)" >&2
 else
   [ -n "$RELEASE" ] && [ -n "$SHA" ] || { echo "cmux-hand install: this server has no published hand for $TARGET" >&2; exit 1; }
-  curl -fsSL "$RELEASE/cmux-tui-acpmux-$TARGET" -o "$TMP"
+  # A sandbox image may carry the hand already: used only when it is exactly the published file.
+  PRE=/usr/local/lib/cmux-hand/cmux-hand
+  if [ -f "$PRE" ] && [ "$(sha256 "$PRE")" = "$SHA" ]; then cp "$PRE" "$TMP"; else curl -fsSL "$RELEASE/cmux-tui-acpmux-$TARGET" -o "$TMP"; fi
   GOT="$(sha256 "$TMP")"
   [ "$GOT" = "$SHA" ] || { echo "cmux-hand install: SHA-256 mismatch for $TARGET (got $GOT, want $SHA)" >&2; exit 1; }
 fi
