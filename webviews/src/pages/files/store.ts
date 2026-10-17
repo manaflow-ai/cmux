@@ -38,6 +38,9 @@ export interface FilesSnapshot {
   selected?: string;
 }
 
+/// How long the search waits after a keystroke before it asks the host.
+const SEARCH_WAIT_MS = 120;
+
 export const joinPath = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 export const parentPath = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
@@ -56,6 +59,7 @@ export class FilesStore {
   private query = "";
   private results?: string[];
   private lastSearch = 0;
+  private searchTimer?: ReturnType<typeof setTimeout>;
   private snapshot: FilesSnapshot = { rows: [], query: "", folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -92,20 +96,24 @@ export class FilesStore {
     const folders = ["", ...[...this.expanded].sort()];
     await Promise.all([
       ...folders.map((folder) => this.list(folder)),
-      ...(this.query.trim() ? [this.search(this.query)] : []),
+      ...(this.query.trim() ? [this.search(this.query, 0)] : []),
     ]);
   }
 
   /** Searches the folder for `query` (an empty one shows the tree again); a reply older than the
    * last query is dropped. */
-  async search(query: string): Promise<void> {
+  async search(query: string, wait = SEARCH_WAIT_MS): Promise<void> {
     this.query = query;
     const request = ++this.lastSearch;
+    clearTimeout(this.searchTimer);
     if (!query.trim() || !this.client) {
       this.results = undefined;
       return this.emit();
     }
     this.emit();
+    // One host search per pause in typing, not per keystroke: each walks the folder.
+    if (wait > 0) await new Promise<void>((done) => (this.searchTimer = setTimeout(done, wait)));
+    if (request !== this.lastSearch) return;
     try {
       const reply = await this.client.call<SearchResults>(FilesOps.search, { query });
       if (request !== this.lastSearch) return;

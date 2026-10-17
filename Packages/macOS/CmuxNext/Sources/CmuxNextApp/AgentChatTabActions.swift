@@ -50,10 +50,11 @@ struct AgentChatTabActions {
         if let folder, !folder.isEmpty { files(folder, target) }
     }
 
-    /// The header's thread title: the chat's tab takes `name`, as Rename Tab with a name does.
-    func rename(_ name: String) {
+    /// The header's thread title: the chat's tab takes `name`, as Rename Tab with a name does;
+    /// whether the action ran.
+    func rename(_ name: String) -> Bool {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: ["name": .string(name)], origin: .user)
-        _ = registry()?.perform("renameTab", invocation: invocation)
+        return registry()?.perform("renameTab", invocation: invocation) ?? false
     }
 
     /// Thread details' Open in: the apps this Mac has that open a folder (Finder always), by id and

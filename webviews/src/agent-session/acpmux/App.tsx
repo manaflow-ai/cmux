@@ -5537,7 +5537,7 @@ function AcpmuxPane() {
                   onOpenImage={quick ? undefined : openImage}
                   subagents={cardSubagents}
                   details={
-                    quick ? undefined : (
+                    quick || !threadTitle ? undefined : (
                       <ThreadDetails
                         folder={localCwd}
                         {...(machineName ? { machine: machineName } : {})}

@@ -1,7 +1,7 @@
 // The thread's place at the header's start (Lucas 2026-10-17, layout.json `threadTitle`): its
 // project, as a label, then its title, which renames the chat in place (`pane.rename`): Return or
 // leaving the field keeps the name, Escape puts the old one back.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useNt } from "../newtab/strings";
 import { folderName } from "../summary/ThreadDetails";
@@ -20,11 +20,15 @@ export function ThreadTitle({
   const t = useT();
   const nt = useNt();
   const [editing, setEditing] = useState(false);
+  // Set once Return or Escape settled the field, so the blur its removal may send does nothing.
+  const settled = useRef(false);
   const home = isAgentHome(folder);
   // The name this page gave the chat, shown until its title catches up.
   const [renamed, setRenamed] = useState<{ from: string; to: string }>();
   const shown = renamed && renamed.from === title ? renamed.to : title || t("header.agentChat");
   const commit = (value: string) => {
+    if (settled.current) return;
+    settled.current = true;
     setEditing(false);
     const name = value.trim();
     if (!name || name === shown || !onRename) return;
@@ -57,8 +61,13 @@ export function ThreadTitle({
           onFocus={(event) => event.currentTarget.select()}
           onBlur={(event) => commit(event.currentTarget.value)}
           onKeyDown={(event) => {
+            // Return or Escape inside an input method's composition belongs to the composition.
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter") commit(event.currentTarget.value);
-            if (event.key === "Escape") setEditing(false);
+            if (event.key === "Escape") {
+              settled.current = true;
+              setEditing(false);
+            }
           }}
         />
       ) : (
@@ -67,7 +76,10 @@ export function ThreadTitle({
           className="acpmux-thread-title__name"
           title={onRename ? t("chatMenu.rename") : undefined}
           disabled={!onRename}
-          onClick={() => setEditing(true)}
+          onClick={() => {
+            settled.current = false;
+            setEditing(true);
+          }}
         >
           {shown}
         </button>

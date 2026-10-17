@@ -1,3 +1,4 @@
+import { useThreadTitle } from "../header/headerStyle";
 import type { ReactNode } from "react";
 import React, { useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
@@ -68,7 +69,8 @@ export function SummaryCard({
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
-  const title = t("summary.threadDetails");
+  const threadDetails = useThreadTitle();
+  const title = threadDetails ? t("summary.threadDetails") : t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   return (
     <>
@@ -83,7 +85,7 @@ export function SummaryCard({
             onClick={() => card.fold(!card.collapsed)}
           >
             <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            <span className="acpmux-summary-card__title">{title}</span>
+            <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
             {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
           </button>
           <button

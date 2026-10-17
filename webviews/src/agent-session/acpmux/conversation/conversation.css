@@ -794,8 +794,7 @@ pre.cv-math-source {
   opacity: 1;
 }
 .acpmux-row:has(.cv-user__edit) .acpmux-row__copy {
-  opacity: 0;
-  pointer-events: none;
+  visibility: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-row .acpmux-row__copy {

@@ -81,10 +81,10 @@ public nonisolated struct AgentPaneTunables {
     /// Right Sidebar runs the focused chat's New tab / Hide tabs, so a column of panes opens beside the
     /// chat (a New Tab page whose tiles open a terminal, browser, files or changes there) and hides
     /// again, closing nothing. Off, Toggle Right Sidebar reports that cmux-next has no right sidebar.
-    /// Read when the app starts.
+    /// Read on every press.
     public static let sideColumn = Tunable<Bool>.toggle(
         "agentChat.sideColumn", .panes, "Opt-Cmd-B opens the chat's side column",
-        help: "Toggle Right Sidebar shows and hides a column of panes beside the focused agent chat, starting with a page of tiles for a terminal, browser, files or changes. Relaunch to apply.",
+        help: "Toggle Right Sidebar shows and hides a column of panes beside the focused agent chat, starting with a page of tiles for a terminal, browser, files or changes.",
         default: false, code: "AgentPaneTunables.sideColumn")
 
     /// A chat that shares its pane with other tabs docks left when Files, Changes or Preview opens

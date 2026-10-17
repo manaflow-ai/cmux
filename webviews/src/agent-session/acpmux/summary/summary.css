@@ -231,3 +231,11 @@ button.acpmux-thread-details__row:focus-visible {
   align-items: center;
   gap: 10px;
 }
+
+/* No borders (appearance.borders = none): the details' rule and Open in's divider go too. */
+:root[data-borders="none"] .acpmux-thread-details {
+  border-bottom: 0;
+}
+:root[data-borders="none"] .acpmux-thread-details__more::before {
+  display: none;
+}

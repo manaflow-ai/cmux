@@ -50,13 +50,17 @@ extension AgentTabStore {
         // The side column's tiles page: Files' tree or Changes' diff as a tab in the page's own pane.
         model.header?.openHere = { [weak self] action, cwd in
             let tab = self?.resolve(provisional) ?? provisional
-            let folder = cwd ?? self?.lookup(tab)?.store.tab(id: tab)?.cwd
+            guard let folder = cwd ?? self?.lookup(tab)?.store.tab(id: tab)?.cwd, !folder.isEmpty else { return false }
             switch action {
-            case AgentChatSplitToggles.files: actions.openFiles(folder, on: tab)
+            // Files reads this Mac's folders only: a page of another machine's chat gets no tree.
+            case AgentChatSplitToggles.files:
+                guard self?.gitLink?(tab)?.isLocal == true else { return false }
+                actions.openFiles(folder, on: tab)
             case AgentChatSplitToggles.changes:
-                actions.runBeside(AgentChatSplitToggles.changes, arguments: folder.map { ["path": .string($0)] } ?? [:], on: tab)
-            default: break
+                actions.runBeside(AgentChatSplitToggles.changes, arguments: ["path": .string(folder)], on: tab)
+            default: return false
             }
+            return true
         }
         model.header?.rename = { name in actions.rename(name) }
         model.header?.openIn = { [weak self] app in

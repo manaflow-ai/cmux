@@ -87,9 +87,7 @@ export function ThreadDetails({
         <div className="acpmux-thread-details__row acpmux-thread-details__split">
           <button type="button" className="acpmux-thread-details__main" onClick={() => open(primary)}>
             <AppIcon app={primary} />
-            <span className="acpmux-thread-details__text">
-              {t("preview.openIn")} {primary.name}
-            </span>
+            <span className="acpmux-thread-details__text">{t("summary.openInApp", { app: primary.name })}</span>
           </button>
           {apps && apps.length > 1 && (
             <Menu>

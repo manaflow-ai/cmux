@@ -37,9 +37,10 @@ public struct AgentPaneHeaderHooks {
     public var refreshPullRequest: (@MainActor () -> Void)?
     /// The side column's tiles page (`pane.action {id: "here:<action>"}`, `agentChat.sideColumn`): opens
     /// Files' tree or Changes' diff as a tab in the page's own pane, with the folder the page names.
-    public var openHere: (@MainActor (_ action: String, _ cwd: String?) -> Void)?
-    /// The header's thread title (`pane.rename`): the chat's tab takes the name.
-    public var rename: (@MainActor (String) -> Void)?
+    /// Whether it opened (an unknown action, or no folder on this Mac, opens nothing).
+    public var openHere: (@MainActor (_ action: String, _ cwd: String?) -> Bool)?
+    /// The header's thread title (`pane.rename`): the chat's tab takes the name; whether it did.
+    public var rename: (@MainActor (String) -> Bool)?
     /// Thread details' Open in (`folder.openIn`): with nil, the apps the chat's folder can open in
     /// (`[{id, name}]`); with an app id, the folder opens there and the list comes back.
     public var openIn: (@MainActor (String?) -> [[String: String]])?
@@ -102,6 +103,8 @@ extension AgentPaneModel {
     static let sideTabsAction = "sideTabs"
     /// The side column's tiles (`pane.action {id: "here:files"}`): the view opens in the page's own pane.
     static let herePrefix = "here:"
+    /// What the tiles open in their own pane: Files' tree and Changes' diff.
+    static let hereActions: Set<String> = ["files", "openDiffViewer"]
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
     public static let previewAction = "preview"
 
@@ -127,11 +130,13 @@ extension AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .paneAction(let id, let cwd, _) where id.hasPrefix(Self.herePrefix):
-            // Only the side column's tiles page, a New Tab page, opens a view in its own pane.
-            guard newTab != nil, let here = header?.openHere else {
+            // Only the side column's tiles page (a New Tab page opened as the column) opens a view in
+            // its own pane, and only Files and Changes.
+            let action = String(id.dropFirst(Self.herePrefix.count))
+            guard newTab?.surfaces == true, Self.hereActions.contains(action), let here = header?.openHere,
+                  here(action, cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action \(id)")
             }
-            here(String(id.dropFirst(Self.herePrefix.count)), cwd)
             return AgentPaneReply.success(["ran": true])
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
@@ -175,10 +180,10 @@ extension AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .renameChat(let name):
-            guard newTab == nil, let rename = header?.rename else {
+            // A refusal (a tab that can't take a name) answers so: the page puts the old name back.
+            guard newTab == nil, let rename = header?.rename, rename(name) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.rename")
             }
-            rename(name)
             return AgentPaneReply.success()
         case .openFolderIn(let app):
             // The chat's own folder, as its tab knows it, on this Mac only; the page names no path.

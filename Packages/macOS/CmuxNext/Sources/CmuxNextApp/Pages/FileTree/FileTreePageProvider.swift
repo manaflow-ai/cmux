@@ -45,9 +45,13 @@ final class FileTreePageProvider: PageProvider {
         do {
             let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.list", params: ["path": .string(directory.path)]))
             let listed = reply["entries"]?.arrayValue ?? []
-            let ignored = link.isLocal ? Self.ignored(in: directory, besides: listed) : []
+            let cut = reply["truncated"]?.boolValue == true
+            // A listing git cut short leaves tracked names out, which the disk scan would call
+            // ignored: none then. The scan reads the disk, so off the main actor.
+            let ignored = link.isLocal && !cut
+                ? await Task.detached(priority: .userInitiated) { Self.ignored(in: directory, besides: listed) }.value : []
             return ["entries": .array(Self.sorted(listed + ignored)),
-                    "truncated": .bool(reply["truncated"]?.boolValue == true || ignored.count >= Self.ignoredLimit)]
+                    "truncated": .bool(cut || ignored.count >= Self.ignoredLimit)]
         } catch let failure as AgentPaneGitFailure {
             throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: failure), retryable: true)
         }
@@ -62,17 +66,21 @@ final class FileTreePageProvider: PageProvider {
             let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.search", params: [
                 "path": .string(folder.path), "query": .string(trimmed), "limit": .number(100),
             ]))
-            let root = URL(fileURLWithPath: reply["root"]?.stringValue ?? folder.path, isDirectory: true).standardizedFileURL.path
-            let base = folder.standardizedFileURL.path
-            let results: [CmuxNextSettings.JSONValue] = (reply["results"]?.arrayValue ?? []).compactMap { result in
-                guard let path = result["path"]?.stringValue else { return nil }
-                let absolute = (root as NSString).appendingPathComponent(path)
-                guard absolute.hasPrefix(base + "/") else { return nil }
-                return ["path": .string(String(absolute.dropFirst(base.count + 1)))]
-            }
-            return ["results": .array(results)]
+            return ["results": .array(Self.searchResults(reply["results"]?.arrayValue ?? []).map { ["path": .string($0)] })]
         } catch let failure as AgentPaneGitFailure {
             throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: failure), retryable: true)
+        }
+    }
+
+    /// The search's result paths the page may name: the session host gives them relative to the
+    /// folder searched (the tab's), so they are kept as they are; one that is absolute or steps out
+    /// (`..`, `.`, empty parts, NUL) is dropped. `open` checks each again (``resolve(_:in:)``).
+    nonisolated static func searchResults(_ results: [CmuxNextSettings.JSONValue]) -> [String] {
+        results.compactMap { result in
+            guard let path = result["path"]?.stringValue, !path.isEmpty, !path.hasPrefix("/"), !path.contains("\u{0}"),
+                  path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
+            else { return nil }
+            return path
         }
     }
 
@@ -86,9 +94,14 @@ final class FileTreePageProvider: PageProvider {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return [] }
         var entries: [CmuxNextSettings.JSONValue] = []
         for name in names.sorted() where !known.contains(name) && name != ".git" && name != ".DS_Store" {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path, isDirectory: &isDirectory) else { continue }
-            entries.append(["name": .string(name), "kind": .string(isDirectory.boolValue ? "directory" : "file"), "ignored": .bool(true)])
+            // The entry itself, not what a symlink points at: a link to a folder elsewhere is a file
+            // here, never a folder the tree would open outside the tab's folder.
+            guard let type = (try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path))?[.type]
+                    as? FileAttributeType else { continue }
+            let folder = type == .typeDirectory
+            // An empty folder is no ignored one: git never lists empty folders.
+            if folder, (try? FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent(name).path))?.isEmpty == true { continue }
+            entries.append(["name": .string(name), "kind": .string(folder ? "directory" : "file"), "ignored": .bool(true)])
             if entries.count >= ignoredLimit { break }
         }
         return entries
