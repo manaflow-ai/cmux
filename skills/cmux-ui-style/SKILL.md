@@ -54,6 +54,12 @@ real treatment in context, not to decorate a screenshot or invent a second desig
 7. Capture images only after the visual state is stable. Record the route, theme, width, and
    variant in the artifact name; never use a stale comparison grid as evidence.
 
+## Review gate
+
+Before calling a visual change complete, get at least one independent read-only review of the live
+gallery route against the references and token/component rules. Record its blockers and verdict in
+the handoff. A clean typecheck or a screenshot alone does not satisfy this gate.
+
 When the existing tokens or primitives cannot express a treatment, extend the shared token or
 primitive first and document the new role beside its owner. Keep gallery-only composition styles
 scoped to the gallery entry.
