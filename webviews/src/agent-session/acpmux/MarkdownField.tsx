@@ -358,6 +358,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
+        if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
