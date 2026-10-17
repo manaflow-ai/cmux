@@ -11,10 +11,15 @@ Run those on an enrolled GUI host and write their JSON artifacts to one director
 ```sh
 python3 scripts/cmux-next/sidebar-perf-validate.py "$NX_ARTIFACTS/sidebar" \
   --require-counters \
+  --max-main-us-per-tick 250 \
+  --max-scroll-configures-per-realize 4 \
+  --max-frame-p95-ms 16.7 \
   --max-frame-p99-ms 16.7 \
+  --max-hitch-p95-ms 16.7 \
+  --max-hitch-p99-ms 25 \
   --max-hitch-total-ms 250
 ```
 
-The default structural budgets are zero rebuilds and zero list reloads during the measured counter phases, with row configures no greater than row patches. The validator also rejects harness-reported failures and requires mirror receipts to report successful view calls and rebuilds. Frame and hitch limits are explicit arguments because the absolute floor depends on the enrolled display and host; a workflow can tighten them after collecting base/candidate data on the same host.
+The default structural budgets are zero rebuilds and zero list reloads during the measured counter phases. Tick receipts can opt into a main-thread microsecond-per-tick budget. Scroll receipts can opt into an absolute row-configure budget or a configure-to-realize ratio; realization configures newly visible rows without a row patch, so the tick-only patch/configure invariant is not applied to scroll phases. The validator also rejects harness-reported failures and requires mirror receipts to report successful view calls and rebuilds. Frame and hitch limits are explicit arguments because the absolute floor depends on the enrolled display and host; a workflow can tighten them after collecting base/candidate data on the same host. Missing optional metrics remain unknown and do not pass by being coerced to zero.
 
 This validator is intentionally separate from the GUI runner. The runner owns app launch, input, and trace capture; the portable validator owns deterministic receipt policy. A future fleet workflow can upload both base and candidate receipts and invoke this script before publishing the comparison.

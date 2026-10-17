@@ -391,7 +391,8 @@ def hitches(trace, pid):
                     sink.append(int(duration.text) / 1e6)
     except Exception as error:  # noqa: BLE001 (export failures are reported, the run goes on)
         return {"error": f"export: {error}"}
-    return {"hitches": len(durations), "total_ms": round(sum(durations), 1), "max_ms": round(max(durations), 2) if durations else None,
+    return {"hitches": len(durations), "p95_ms": percentile(durations, 95), "p99_ms": percentile(durations, 99),
+            "total_ms": round(sum(durations), 1), "max_ms": round(max(durations), 2) if durations else None,
             "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
             "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
 
