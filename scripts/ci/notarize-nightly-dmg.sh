@@ -318,13 +318,12 @@ PY
 #               (an earlier attempt of the same build number does not count).
 # Sets STAPLED_APP_FALLBACK_ID to the newest such submission (recovery). An
 # unknown clock (nothing recorded, history unreadable) is not passed.
-stapled_app_deadline_passed() {
-  local mode="$1" recorded="${2:-}" when="${3:-}" history="$NOTARY_DIR/history.json" verdict
-  : >"$history"
-  if [ "$mode" = recovery ]; then
-    "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
-  fi
-  verdict="$(python3 - "$mode" "$history" "$STAPLED_DMG_NAME" "$recorded" "$when" "$STAPLED_APP_FALLBACK_SECONDS" <<'PY'
+# The clock of the DMG around the stapled app. Its own function, not a heredoc
+# inside $(...): macOS /bin/bash 3.2 reads quotes in such a heredoc as shell
+# quotes, and an apostrophe in the Python broke the whole script (nightly-next
+# run 39011132580: "unexpected EOF while looking for matching `'").
+stapled_app_clock() {
+  python3 - "$@" <<'PY'
 import datetime, json, re, sys, time
 mode, path, name, recorded, when, limit = sys.argv[1:]
 def epoch(text):
@@ -366,7 +365,15 @@ else:
     age = time.time() - min(times)
     print(("passed" if age >= int(limit) else "waiting"), newest[0] or "-", int(age))
 PY
-)"
+}
+
+stapled_app_deadline_passed() {
+  local mode="$1" recorded="${2:-}" when="${3:-}" history="$NOTARY_DIR/history.json" verdict
+  : >"$history"
+  if [ "$mode" = recovery ]; then
+    "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
+  fi
+  verdict="$(stapled_app_clock "$mode" "$history" "$STAPLED_DMG_NAME" "$recorded" "$when" "$STAPLED_APP_FALLBACK_SECONDS")"
   echo "Stapled-app DMG clock ($mode) for $STAPLED_DMG_NAME: $verdict (limit ${STAPLED_APP_FALLBACK_SECONDS}s)"
   case "$verdict" in
     passed\ *)
