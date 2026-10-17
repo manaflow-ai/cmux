@@ -1,3 +1,4 @@
+import CoreFoundation
 public import Foundation
 
 /// Decodes `/api/vm` response bodies into the domain values.
@@ -38,7 +39,8 @@ public struct CloudAPIResponseDecoding: Sendable {
                 status: status,
                 displayName: displayName,
                 slug: slug,
-                resources: Self.resources(dict["resources"])
+                resources: Self.resources(dict["resources"]),
+                supportsRestart: Self.supportsRestart(dict)
             )
         }
         let availableKinds: Set<CloudMachineKind>?
@@ -170,7 +172,14 @@ public struct CloudAPIResponseDecoding: Sendable {
         let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug)
+        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName, slug: slug, supportsRestart: Self.supportsRestart(dict))
+    }
+
+    private static func supportsRestart(_ dict: [String: Any]) -> Bool {
+        guard let capabilities = dict["capabilities"] as? [String: Any],
+              let value = capabilities["restart"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
+        return value.boolValue
     }
 
     private static func int(_ value: Any?) -> Int? {

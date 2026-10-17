@@ -182,6 +182,12 @@ extension AppDelegate {
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
             guard let window = window as? CmuxMainWindow else { continue }
+            // AppKit owns inactive-Space placement while it restores a display
+            // topology. Setting a frame on those windows moves them onto the
+            // currently visible Space instead of letting macOS restore them.
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             // Native-fullscreen windows are owned by AppKit's Space machinery;
             // clamping them mid-transition fights the fullscreen teardown.
             guard !window.styleMask.contains(.fullScreen) else { continue }
@@ -200,9 +206,17 @@ extension AppDelegate {
 #endif
             window.setFrameForManagedPlacement(corrected, display: true)
         }
+        // Keep inactive-Space windows out of the fit pass for the same reason:
+        // the reconciler applies frames even when reachability needed no fix.
+        let activeSpaceWindows = mainWindows.filter { window in
+            guard let window = window as? CmuxMainWindow else { return false }
+            return Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            )
+        }
         let fitCompleted = MainWindowFrameReconciler().repair(
             displays: displays.available,
-            windows: mainWindows,
+            windows: activeSpaceWindows,
             trigger: .displayTopology(changed: visibleFrameFitTopologyChanged)
         )
         if visibleFrameFitTopologyChanged {
@@ -227,6 +241,9 @@ extension AppDelegate {
         for window in mainWindowsForVisibilityController() {
             guard let window = window as? CmuxMainWindow else { continue }
             guard !window.styleMask.contains(.fullScreen) else { continue }
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             guard let context = contextForMainTerminalWindow(window) else { continue }
             let windowTag = context.windowId.uuidString.prefix(8)
             guard let entry = windowConfigFrames[context.windowId]?.entry(for: signature) else {

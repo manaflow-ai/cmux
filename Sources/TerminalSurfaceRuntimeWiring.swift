@@ -7,6 +7,18 @@ import GhosttyKit
 import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
+private enum GhosttyLinkFilterAPI {
+    // Xcode 26.6's Clang importer omits this declaration even though the
+    // pinned GhosttyKit header and binary export it. Keep the ABI declaration
+    // local until the importer exposes the API directly.
+    @_silgen_name("ghostty_surface_set_link_filter")
+    static func set(
+        _ surface: ghostty_surface_t,
+        _ callback: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt) -> Bool)?,
+        _ userdata: UnsafeMutableRawPointer?
+    )
+}
+
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
 // here carries behavior verbatim from the legacy god-file reach-up it
@@ -118,6 +130,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
+/// It also installs the surface's link filter, whose userdata shares the
+/// tee's lifetime: both are released only after the surface is freed.
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
@@ -132,13 +146,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let linkFilter: Unmanaged<TerminalLinkHoverFilter>
         private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
         init(
             context: Unmanaged<TerminalOutputTeeContext>,
+            linkFilter: Unmanaged<TerminalLinkHoverFilter>,
             scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
         ) {
             self.context = context
+            self.linkFilter = linkFilter
             self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
         }
 
@@ -149,6 +166,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
                 registration: teeContext.scrollbackCheckpointFlags
             )
             context.release()
+            linkFilter.release()
         }
     }
 
@@ -170,7 +188,13 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext, scrollbackCheckpointActivity: scrollbackCheckpointActivity)
+        let linkFilter = Unmanaged.passRetained(TerminalLinkHoverFilter(surfaceID: surfaceID))
+        GhosttyLinkFilterAPI.set(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
+        return Lease(
+            context: teeContext,
+            linkFilter: linkFilter,
+            scrollbackCheckpointActivity: scrollbackCheckpointActivity
+        )
     }
 
     @MainActor

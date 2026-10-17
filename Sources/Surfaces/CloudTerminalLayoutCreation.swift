@@ -40,7 +40,12 @@ struct CloudTerminalLayoutCreation: Sendable {
             let state: CloudVMState
             if attempt == 0, let initialState, initialState.cursor != nil,
                initialState.lookupIndex.tab(id: nearTabID) != nil { state = initialState }
-            else { state = try await snapshot(deadline: snapshotBudget) }
+            else {
+                #if DEBUG
+                cmuxDebugLog("cloud.split.create.snapshot attempt=\(attempt) cursor=\(initialState?.cursor != nil ? 1 : 0)")
+                #endif
+                state = try await snapshot(deadline: snapshotBudget)
+            }
             guard let tab = state.lookupIndex.tab(id: nearTabID),
                   tab.contentKind == "terminal" else {
                 throw CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound(nearTabID)
@@ -63,7 +68,13 @@ struct CloudTerminalLayoutCreation: Sendable {
                 try Task.checkCancellation()
                 let mutationBudget = clock.now.duration(to: deadline)
                 guard mutationBudget > .zero else { throw CloudDiagnosticFailure.timeout }
+                #if DEBUG
+                cmuxDebugLog("cloud.split.create.paneCreate attempt=\(attempt)")
+                #endif
                 let data = try await commandRunner.runTuiCommand(arguments: arguments, deadline: mutationBudget)
+                #if DEBUG
+                cmuxDebugLog("cloud.split.create.paneCreated attempt=\(attempt)")
+                #endif
                 guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
                     throw CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated(nearTabID)

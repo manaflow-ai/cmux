@@ -366,5 +366,67 @@ class HostedQueueRescueCalls(StepHarness):
         self.assertIn("another rescue owns it", out)
 
 
+class CmuxBotTokenWorkflowShape(unittest.TestCase):
+    """High-volume bot jobs use the dedicated installation budget when configured."""
+
+    JOBS = {
+        "ci-queue-janitor.yml": ("sweep",),
+        "ci-failure-attribution.yml": ("attribute",),
+        "ci-compile-attribution.yml": ("analyze", "report", "fix"),
+        "ci-guard-attribution.yml": ("analyze", "report"),
+        "ci-hosted-queue-rescue.yml": ("rescue",),
+        "ci-owned-pool-rescue.yml": ("rescue",),
+        # The publish job runs in the artifacts environment, which is limited
+        # to R2 credentials by the production-secret guard. Its explicitly
+        # scoped GITHUB_TOKEN preserves that trust boundary; capture has no
+        # artifact secrets and can use cmux-bot's separate budget.
+        "dogfood-artifact-publish.yml": ("capture",),
+    }
+    PERMISSIONS = {
+        "permission-actions": "write",
+        "permission-checks": "read",
+        "permission-contents": "read",
+        "permission-issues": "write",
+        "permission-pull-requests": "write",
+    }
+
+    def test_bot_jobs_mint_and_use_the_scoped_app_token(self) -> None:
+        for filename, job_names in self.JOBS.items():
+            document = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            for job_name in job_names:
+                with self.subTest(workflow=filename, job=job_name):
+                    job = document["jobs"][job_name]
+                    steps = job["steps"]
+                    mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+                    self.assertEqual(mint["uses"],
+                                     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+                    self.assertIn("vars.CMUX_BOT_APP_ID != ''", mint["if"])
+                    self.assertTrue(mint["continue-on-error"])
+                    self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+                    self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+                    self.assertEqual({key: mint["with"][key] for key in self.PERMISSIONS}, self.PERMISSIONS)
+
+                    # Every shell step that can call gh receives the App token,
+                    # while the expression keeps forks and rollouts working.
+                    token_envs = [(step.get("id"), step.get("env", {}).get("GH_TOKEN")) for step in steps]
+                    token_envs = [(step_id, value) for step_id, value in token_envs if value is not None]
+                    self.assertTrue(token_envs)
+                    for step_id, value in token_envs:
+                        if filename == "ci-queue-janitor.yml" and step_id == "fresh":
+                            self.assertEqual(value, "${{ github.token }}")
+                        else:
+                            self.assertIn("steps.cmux-bot-token.outputs.token", value)
+
+    def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
+        document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
+        publish = document["jobs"]["publish"]
+        self.assertEqual(publish["environment"], "artifacts")
+        self.assertFalse(any(step.get("id") == "cmux-bot-token" for step in publish["steps"]))
+        for step in publish["steps"]:
+            token = step.get("env", {}).get("GH_TOKEN")
+            if token is not None:
+                self.assertEqual(token, "${{ github.token }}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,13 +20,129 @@ def manifest_program():
     workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
     step = workflow.split("- name: Prepare pending notarization recovery artifact\n", 1)[1]
     step = step.split("\n      - name:", 1)[0]
-    match = re.search(r"<<'PY'\n(.*?)^          PY$", step, re.MULTILINE | re.DOTALL)
-    if not match:
-        raise AssertionError("recovery manifest generator is missing")
-    return "\n".join(line.removeprefix("          ") for line in match.group(1).splitlines())
+    matches = re.findall(r"<<'PY'\n(.*?)^          PY$", step, re.MULTILINE | re.DOTALL)
+    for body in matches:
+        if "state_path, actual_sha, dmg_path" in body:
+            return "\n".join(line.removeprefix("          ") for line in body.splitlines())
+    raise AssertionError("DMG recovery manifest generator is missing")
 
 
 class RecoveryManifestTests(unittest.TestCase):
+    def metadata_fixture(self, root):
+        manifest = {
+            "schema": 1, "source_run_id": "123", "source_run_attempt": "1",
+            "head_sha": "a" * 40, "short_sha": "a" * 7, "should_publish": True,
+            "channel": "nightly", "variant": "arm64", "release_tag": "nightly",
+            "dmg_prefix": "cmux-nightly-macos", "build": "123",
+            "dmg_path": "cmux-nightly-macos-arm64.dmg",
+            "immutable_path": "cmux-nightly-macos-arm64-123.dmg",
+            "app_path": "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app",
+            "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+            "state_path": "cmux-nightly-macos-arm64.dmg.notarization.state",
+            "log_path": "cmux-nightly-macos-arm64.dmg.notarization.log",
+            "dmg_sha256": "b" * 64, "submission_id": "fixture-id",
+        }
+        path = root / "cmux-nightly-notarization-recovery.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        state = root / manifest["state_path"]
+        state.write_text("submission_id=fixture-id\ndmg_sha256=" + "b" * 64 + "\nsubmit_exit=0\n")
+        return manifest, path, state
+
+    def resolve_metadata(self, path):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/resolve-notarization-recovery.py"),
+             str(path), "123", "a" * 40, "nightly", "arm64", "--run-attempt", "1",
+             "--strict", "--metadata-only"],
+            capture_output=True, text=True,
+        )
+
+    def test_metadata_only_needs_no_dmg_app_or_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, path, state = self.metadata_fixture(root)
+            resolved = self.resolve_metadata(path)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertIn(f"STATE_FILE={state.resolve()}\n", resolved.stdout)
+            self.assertEqual({p.name for p in root.iterdir()}, {path.name, state.name})
+
+    def test_metadata_only_rejects_unbound_or_failed_state(self):
+        for invalid, expected in (
+            ("submission_id=other\ndmg_sha256=" + "b" * 64, "does not match"),
+            ("submission_id=fixture-id\ndmg_sha256=" + "c" * 64, "does not match"),
+            ("submission_id=fixture-id\nsubmission_id=fixture-id", "duplicate"),
+            ("malformed-state-line", "invalid"),
+            ("submission_id=fixture-id\ndmg_sha256=" + "b" * 64 + "\nsubmit_exit=1", "nonzero"),
+        ):
+            with self.subTest(state=invalid), tempfile.TemporaryDirectory() as directory:
+                _, path, state = self.metadata_fixture(Path(directory))
+                state.write_text(invalid, encoding="utf-8")
+                resolved = self.resolve_metadata(path)
+                self.assertNotEqual(resolved.returncode, 0)
+                self.assertIn(expected, resolved.stderr)
+                self.assertNotIn("STATE_FILE=", resolved.stdout)
+
+    def test_metadata_only_rejects_wrong_source_and_unsafe_state(self):
+        for key, value in (
+            ("source_run_id", "456"), ("source_run_attempt", "2"), ("head_sha", "c" * 40),
+            ("channel", "rc"), ("variant", "universal"), ("should_publish", False),
+            ("state_path", "../cmux-nightly-macos-arm64.dmg.notarization.state"),
+        ):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                manifest, path, _ = self.metadata_fixture(Path(directory))
+                manifest[key] = value
+                path.write_text(json.dumps(manifest), encoding="utf-8")
+                resolved = self.resolve_metadata(path)
+                self.assertNotEqual(resolved.returncode, 0)
+                self.assertNotIn("STATE_FILE=", resolved.stdout)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "artifact"
+            artifact.mkdir()
+            _, path, state = self.metadata_fixture(artifact)
+            outside = root / "outside.state"
+            state.rename(outside)
+            state.symlink_to(outside)
+            resolved = self.resolve_metadata(path)
+            self.assertNotEqual(resolved.returncode, 0)
+            self.assertIn("escapes artifact", resolved.stderr)
+
+    def test_helper_pending_manifest_binds_signed_app_and_submission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hashes = "arm64=" + "a" * 40
+            state = root / "cmux-computer-use-notarization.state"
+            state.write_text(
+                f"submission_id=helper-id\ncdhashes={hashes}\nstatus=In Progress\nwait_exit=124\npending=true\n",
+                encoding="utf-8",
+            )
+            (root / "cmux-computer-use-notarization.state.log").write_text("timeout\n", encoding="utf-8")
+            manifest = {
+                "schema": 2, "recovery_kind": "computer-use-helper",
+                "source_run_id": "123", "source_run_attempt": "1",
+                "head_sha": "a" * 40, "short_sha": "a" * 7, "should_publish": True,
+                "channel": "nightly", "variant": "arm64", "release_tag": "nightly",
+                "dmg_prefix": "cmux-nightly-macos", "build": "123",
+                "dmg_path": "cmux-nightly-macos-arm64.dmg",
+                "immutable_path": "cmux-nightly-macos-arm64-123.dmg",
+                "app_path": "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app",
+                "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+                "helper_state_path": state.name,
+                "helper_log_path": "cmux-computer-use-notarization.state.log",
+                "submission_id": "helper-id", "helper_cdhashes": hashes,
+            }
+            path = root / "cmux-nightly-notarization-recovery.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            resolved = self.resolve_metadata(path)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertIn("RECOVERY_KIND=computer-use-helper", resolved.stdout)
+            self.assertIn(f"STATE_FILE={state.resolve()}", resolved.stdout)
+            manifest["helper_cdhashes"] = "c" * 40
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            rejected = self.resolve_metadata(path)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("CDHash evidence", rejected.stderr)
+
     def test_manifest_paths_survive_relocation(self):
         for absolute in (False, True):
             with self.subTest(absolute_source_paths=absolute), tempfile.TemporaryDirectory() as directory:

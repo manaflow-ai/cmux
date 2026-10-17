@@ -47,6 +47,7 @@ import {
   PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
+  ResumePlanButton,
   SecondaryLink,
   visibleCompareRows,
   visibleFaqItems,
@@ -208,6 +209,13 @@ function PricingContent({
   };
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
+  // The current plan's one action: Resume while a cancellation is scheduled,
+  // otherwise the billing portal.
+  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+    <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
+  ) : (
+    <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
+  );
   // An App Store subscriber never gets Stripe checkout for a personal plan:
   // every personal action becomes "Manage in the App Store", plus Stripe's
   // "Manage billing" while a Stripe subscription still bills them.
@@ -243,9 +251,11 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // Max is monthly only: one checkout link, no interval parameter.
+  // Max has the same monthly/yearly choices as Pro. A Pro subscriber is sent
+  // to the portal switch flow, so Stripe owns the interval selector there.
+  const maxPortalSwitch = snapshot.authenticated && snapshot.isPro && !isMax;
   const maxCheckoutHref = withCheckoutAttribution(
-    snapshot.authenticated && snapshot.isPro && !isMax
+    maxPortalSwitch
       ? "/api/billing/portal?flow=switch_plan&plan=max"
       : MAX_CHECKOUT_URL,
     attribution,
@@ -334,11 +344,7 @@ function PricingContent({
           >
             {appStoreAction ? appStoreAction() : isGo ? (
               <div className="space-y-2">
-                {canManageBilling ? (
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                ) : (
+                {canManageBilling ? currentPlanAction(t("go.name")) : (
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                 )}
               </div>
@@ -358,7 +364,7 @@ function PricingContent({
         </>
       ) : null}
 
-      {/* Pro: the only plan sold yearly as well as monthly. */}
+      {/* Pro: sold monthly or yearly. */}
       <ProPlanCard
         name={t("pro.name")}
         surface="public_pricing"
@@ -374,11 +380,7 @@ function PricingContent({
           ) : null
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
-          <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
-          </div>
+          <div className="space-y-2">{currentPlanAction(t("pro.name"))}</div>
         ) : (canManageBilling && !isGo) || isMax ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
@@ -389,40 +391,35 @@ function PricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines on the monthly personal plan.
-                A Pro subscriber sees checkout; the server routes an active
-                Pro subscription to the Stripe portal upgrade flow. */}
-      <PlanCard
+      {/* Max: larger machines with the same 20% annual discount as Pro. */}
+      <ProPlanCard
         name={t("max.name")}
-        price={`$${MAX_PRICING_USD.month.billedAmount}`}
-        period={t("perMonth")}
+        plan="max"
+        pricing={MAX_PRICING_USD}
+        surface="public_pricing"
+        monthlyOnly={maxPortalSwitch}
+        initialInterval={query.interval === "month" ? "month" : "year"}
+        labels={proAnnualLabelSet}
+        checkoutHrefs={{
+          month: withCheckoutInterval(maxCheckoutHref, "month"),
+          year: withCheckoutInterval(maxCheckoutHref, "year"),
+        }}
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={t("max.cta")}
         badge={
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }
-      >
-        {appStoreAction ? appStoreAction() : isMax ? (
-          <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
-          </div>
+        action={appStoreAction ? appStoreAction() : isMax ? (
+          <div className="space-y-2">{currentPlanAction(t("max.name"))}</div>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
-        ) : (
-          <PricingCheckoutButton
-            href={maxCheckoutHref}
-            requiresSignIn={!pending && !snapshot.authenticated}
-            location="pricing_page"
-            plan="max"
-          >
-            {t("max.cta")}
-          </PricingCheckoutButton>
-        )}
+        ) : undefined}
+      >
         <p className="mt-5 text-sm font-medium">{t("max.featuresLead")}</p>
         <FeatureList items={maxFeatures} />
-      </PlanCard>
+      </ProPlanCard>
     </PricingCategorySection>
   );
   const comparison = (
@@ -642,6 +639,8 @@ type PlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** The Stripe subscription ends at period end; pricing offers Resume. */
+  cancelScheduled?: boolean;
 };
 
 /**
@@ -689,5 +688,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
+    cancelScheduled: status.cancelScheduled ?? false,
   };
 }

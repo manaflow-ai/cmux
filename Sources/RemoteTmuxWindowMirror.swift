@@ -396,6 +396,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
+            connection?.unsubscribePaneAgent(paneId: paneId)
             panelsByPaneId[paneId] = nil
             onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
@@ -609,6 +610,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             activeConnection?.unsubscribePanePath(paneId: paneId)
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
+            activeConnection?.unsubscribePaneAgent(paneId: paneId)
         }
         let removedPanels = Array(panelsByPaneId)
         for (paneId, panel) in removedPanels {
