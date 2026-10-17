@@ -269,4 +269,38 @@ public struct PhoneActionRequest: Codable, Equatable, Sendable {
         self.text = text
         self.button = button
     }
+
+    @discardableResult
+    public func validated() throws -> Self {
+        guard !actionID.isEmpty, actionID.utf8.count <= 256 else {
+            throw PhoneError(code: "invalid_action", message: "action_id is required and must be at most 256 bytes")
+        }
+        if let durationMilliseconds {
+            guard (1...60_000).contains(durationMilliseconds) else {
+                throw PhoneError(code: "invalid_action", message: "duration_ms must be between 1 and 60000")
+            }
+        }
+        switch kind {
+        case .tap, .longPress:
+            guard let point, endPoint == nil else {
+                throw PhoneError(code: "invalid_action", message: "\(kind.rawValue) requires point")
+            }
+            try point.validated()
+        case .swipe:
+            guard let point, let endPoint else {
+                throw PhoneError(code: "invalid_action", message: "swipe requires point and end_point")
+            }
+            try point.validated()
+            try endPoint.validated()
+        case .type:
+            guard let text, !text.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "type requires non-empty text")
+            }
+        case .press:
+            guard let button, !button.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "press requires button")
+            }
+        }
+        return self
+    }
 }

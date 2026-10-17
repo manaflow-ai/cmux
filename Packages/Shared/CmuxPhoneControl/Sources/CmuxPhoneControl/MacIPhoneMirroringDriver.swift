@@ -110,6 +110,7 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
 
     public func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
         try Task.checkCancellation()
+        try action.validated()
         guard AXIsProcessTrusted() else {
             throw PhoneError(
                 code: "permission_denied",

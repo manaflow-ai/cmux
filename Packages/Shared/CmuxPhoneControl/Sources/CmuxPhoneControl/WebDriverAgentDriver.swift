@@ -128,6 +128,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
+        try action.validated()
         try await refreshGeometry()
         let geometry = currentGeometry
         let response: PhoneJSONValue

@@ -95,6 +95,7 @@ public actor MockPhoneDriver: PhoneDriver {
                 detail: previous.detail
             )
         }
+        try action.validated()
         switch action.kind {
         case .tap, .longPress:
             guard let point = action.point else {
