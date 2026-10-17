@@ -11,6 +11,7 @@
 
 pub mod auto;
 pub mod channel;
+pub(crate) mod inventory;
 pub mod latest;
 pub mod probe;
 
