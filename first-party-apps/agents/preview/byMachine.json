@@ -93,6 +93,7 @@
       "$sequence": [
         {
           "machine": "machine_mac01",
+          "complete": true,
           "clis": [
             {
               "cli": "claude",
@@ -188,6 +189,7 @@
         },
         {
           "machine": "machine_srv01",
+          "complete": true,
           "clis": [
             {
               "cli": "claude",
@@ -243,6 +245,7 @@
         },
         {
           "machine": "machine_vm01",
+          "complete": true,
           "clis": [
             {
               "cli": "claude",

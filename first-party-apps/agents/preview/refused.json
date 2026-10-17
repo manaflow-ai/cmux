@@ -49,6 +49,7 @@
     ],
     "agent_cli.list": {
       "machine": "machine_mac01",
+      "complete": true,
       "clis": [
         {
           "cli": "claude",

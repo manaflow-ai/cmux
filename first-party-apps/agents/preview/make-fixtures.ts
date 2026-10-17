@@ -61,7 +61,7 @@ const started = { job: "job_01", terminal: "terminal_77" }
 const full = {
   ops: {
     "machine.list": machines,
-    "agent_cli.list": sequence({ machine: "machine_mac01", clis: local }, { machine: "machine_srv01", clis: server }, { machine: "machine_vm01", clis: vm }),
+    "agent_cli.list": sequence({ machine: "machine_mac01", complete: true, clis: local }, { machine: "machine_srv01", complete: true, clis: server }, { machine: "machine_vm01", complete: true, clis: vm }),
     "agent_cli.update": started,
     "agent_cli.install": started,
     "agent_cli.sign_in": started,
@@ -71,12 +71,14 @@ const full = {
 
 for (const v of ["byCli", "byMachine", "matrix"]) write(v, full)
 
-write("localOnly", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", clis: local }, "agent_cli.update": started, "agent_cli.sign_in": started, "app.pane.open": {} } })
-write("empty", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", clis: [] }, "app.pane.open": {} } })
+write("localOnly", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", complete: true, clis: local }, "agent_cli.update": started, "agent_cli.sign_in": started, "app.pane.open": {} } })
+write("empty", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", complete: true, clis: [] }, "app.pane.open": {} } })
+write("partial", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", complete: false, clis: [] }, "app.pane.open": {} } })
+write("launcher", { ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", complete: false, clis: [{ cli: "codex", installed: null, version: null, latest: null, install_method: null, updatable: false, accounts: [], auth_status: "unknown" }] }, "app.pane.open": {} } })
 write("error", { ops: { "machine.list": [machines[0]], "agent_cli.list": { $error: { code: "agent_cli.detect_failed", message: "The session host on this Mac did not answer in time.", retryable: true } } } })
 write("missing", { ops: { "machine.list": [machines[0]] } })
 write("refused", {
   grant: ["machine:read", "agent_cli:read"],
-  ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", clis: local }, "agent_cli.update": { $error: { code: "scope.missing", message: "agent_cli:execute is not granted" } } }
+  ops: { "machine.list": [machines[0]], "agent_cli.list": { machine: "machine_mac01", complete: true, clis: local }, "agent_cli.update": { $error: { code: "scope.missing", message: "agent_cli:execute is not granted" } } }
 })
 console.log("fixtures written")

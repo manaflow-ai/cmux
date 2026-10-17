@@ -47,6 +47,7 @@ export function statusTone(s: Status): string {
 /** "2.1.281", "2.1.281 → 2.1.290", "Not installed". */
 export function versionLine(e: CliEntry): string {
   const s = statusOf(e)
+  if (e.installed !== true && e.installed !== false) return t("installation.unknown", "Installation unknown")
   if (s === "missing") return t("version.missing", "Not installed")
   const v = shortVersion(e.version) || t("version.unknown", "Unknown version")
   if (s === "update") return t("version.update", "{current} → {latest}", { current: v, latest: shortVersion(e.latest!.version) })
@@ -90,6 +91,7 @@ export function refusalText(code: string | null): string {
 export function primaryAction(machine: string, e: () => CliEntry) {
   return () => {
     const entry = e()
+    if (entry.installed !== true && entry.installed !== false) return null
     const j = jobOf(machine, entry.cli)
     if (j && (busy(j) || j.phase === "failed" || j.phase === "refused")) {
       const retry = !busy(j)
@@ -142,7 +144,7 @@ export function accountLines(machine: string, e: () => CliEntry) {
   return () => {
     const entry = e()
     if (!showsAccounts(entry)) return null
-    const list = entry.accounts.length ? entry.accounts : [{ account: "", label: "", status: "missing" as const }]
+    const list = entry.accounts.length ? entry.accounts : [{ account: "", label: "", status: entry.auth_status ?? "unknown" }]
     return VStack({ spacing: 3 }, list.map((a) => accountLine(machine, entry, a)))
   }
 }
