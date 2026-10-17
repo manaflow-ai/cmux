@@ -19,6 +19,8 @@ struct CmuxPhoneCommand {
             let configuration = WebDriverAgentDriver.Configuration(baseURL: url)
             try await runLineServer(driver: WebDriverAgentDriver(configuration: configuration))
         #if canImport(Network)
+        case "tcp-self-test":
+            try await runTCPClientSelfTest()
         case "tcp-server":
             let serverArguments = Array(arguments.dropFirst())
             let port = try parsePort(arguments: serverArguments)
@@ -81,6 +83,34 @@ struct CmuxPhoneCommand {
         guard tree.first?.type == .response else { throw CLIError.selfTest("ui.snapshot") }
         print("{\"ok\":true,\"checks\":[\"device.list\",\"session.open\",\"snapshot\",\"tap\",\"duplicate\",\"ui.snapshot\"]}")
     }
+
+    #if canImport(Network)
+    private static func runTCPClientSelfTest() async throws {
+        let server = try PhoneTCPServer(port: 0, driver: MockPhoneDriver())
+        let port = try await server.start()
+        let client = try PhoneControlClient(port: port)
+
+        let devices = try await client.listDevices()
+        guard devices.count == 1 else { throw CLIError.selfTest("tcp device.list") }
+        let session = try await client.openSession()
+        let frame = try await client.snapshot()
+        let receipt = try await client.perform(.init(
+            actionID: "tcp-self-test-tap",
+            kind: .tap,
+            screenSequence: frame.sequence,
+            point: .init(x: 0.5, y: 0.5)
+        ))
+        guard receipt.accepted else { throw CLIError.selfTest("tcp action receipt") }
+        let event = try await client.nextEvent()
+        guard event.method == "ui.changed" else {
+            throw CLIError.selfTest("tcp action event")
+        }
+        try await client.closeSession(sessionID: session.sessionID)
+        await client.close()
+        server.stop()
+        print("{\"ok\":true,\"checks\":[\"tcp device.list\",\"tcp session.open\",\"tcp snapshot\",\"tcp action\",\"tcp close\"]}")
+    }
+    #endif
 
     private static func runLineServer(driver: any PhoneDriver) async throws {
         let server = PhoneControlServer(driver: driver)
@@ -154,6 +184,7 @@ struct CmuxPhoneCommand {
 
         Commands:
           self-test                 Run a deterministic end-to-end protocol check.
+          tcp-self-test             Run the typed client through loopback TCP.
           mock-server               Read newline JSON requests from stdin.
           wda-server --url URL      Use a loopback WebDriverAgent HTTP endpoint.
           tcp-server --port PORT    Serve a source on loopback TCP.

@@ -31,6 +31,12 @@ still use the same newline envelopes and session lifecycle. Select a source with
 `--source mock`, `--source wda --url http://127.0.0.1:8100`, or
 `--source mirroring` on macOS.
 
+Agents that run on the same Mac can use the typed `PhoneControlClient` or run
+`swift run cmux-phone tcp-self-test` to exercise discovery, session opening,
+snapshot, input, events, and close through the real loopback transport. The
+platform research and source-selection matrix live in
+[`docs/phone-agent-control-research.md`](phone-agent-control-research.md).
+
 The protocol is newline-delimited JSON (`cmux.phone` version 1). Requests have
 an id, method, optional session id, and JSON parameters. Responses echo the id;
 events carry a session id and monotonic sequence. Incoming control requests are
