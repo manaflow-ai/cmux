@@ -898,13 +898,21 @@ extension TerminalController {
         switch sendResult {
         case .sent, .queued:
             terminalTarget.forceRefresh(reason: "mobileHost.chatAnswer")
-            _ = service?.resolvePermission(sessionID: sessionID, requestID: requestID, optionIndex: optionIndex)
-            if let requestID {
-                _ = service?.resolveQuestion(
+            if let firstOptionIndex = terminalOptionIndexes.first {
+                _ = service?.resolvePermission(
                     sessionID: sessionID,
-                    messageID: requestID,
-                    optionIndex: optionIndex
+                    requestID: requestID,
+                    optionIndex: firstOptionIndex
                 )
+                if let requestID {
+                    for optionIndex in terminalOptionIndexes {
+                        _ = service?.resolveQuestion(
+                            sessionID: sessionID,
+                            messageID: requestID,
+                            optionIndex: optionIndex
+                        )
+                    }
+                }
             }
             if let surfaceID = record?.surfaceID {
                 service?.noteExplicitInput(surfaceID: surfaceID)
