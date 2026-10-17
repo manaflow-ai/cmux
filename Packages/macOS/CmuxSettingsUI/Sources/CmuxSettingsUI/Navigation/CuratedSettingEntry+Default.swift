@@ -325,6 +325,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "path-last-segment-only", title: String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), synonyms: "Truncate Path From Start sidebar.pathLastSegmentOnly cwd path directory last segment basename short truncate folder repo"),
             .init(section: .sidebarAppearance, id: "show-notification-message", title: String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), synonyms: "Show Notification Message in Sidebar sidebar.showNotificationMessage latest message unread notification text sidebar"),
             .init(section: .sidebarAppearance, id: "notification-message-line-limit", title: String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), synonyms: "sidebar.notificationMessageLineLimit notification message preview lines limit sidebar"),
+            .init(section: .sidebarAppearance, id: "status-entry-limit", title: String(localized: "settings.app.statusEntryLimit", defaultValue: "Sidebar Status Rows"), synonyms: "sidebar.statusEntryLimit status rows metadata show more all limit"),
             .init(section: .sidebarAppearance, id: "show-branch-directory", title: String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), synonyms: "Show Branch + Directory in Sidebar sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
             .init(section: .sidebarAppearance, id: "show-cloud-device-icons", title: String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar"), synonyms: "Show Cloud and Device Icons in Sidebar sidebar.showCloudDeviceIcons cloud device computer icon remote workspace"),
             .init(section: .sidebarAppearance, id: "show-pull-requests", title: String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), synonyms: "Show Pull Requests in Sidebar sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
@@ -361,6 +362,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), synonyms: "Show Custom Metadata in Sidebar sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(section: .sidebarAppearance, id: "show-program-status", title: String(localized: "settings.app.showProgramStatus", defaultValue: "Show Program Status in Sidebar"), synonyms: "sidebar.showProgramStatus OSC 7501 program status claude code"),
             .init(
                 section: .sidebarAppearance,
                 id: "compact-agent-status",

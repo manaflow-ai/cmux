@@ -11,6 +11,64 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
+    @Test(arguments: [0, 1, 3, 50])
+    func statusEntryLimitControlsCollapsedRows(_ limit: Int) {
+        let entries = (0..<4).map { SidebarStatusEntry(key: "entry\($0)", value: "value\($0)") }
+        let collapsed = SidebarStatusEntryDisplayPolicy.visibleEntries(
+            entries,
+            limit: limit,
+            isExpanded: false
+        )
+
+        #expect(collapsed.count == (limit == 0 ? 4 : min(limit, 4)))
+        #expect(
+            SidebarStatusEntryDisplayPolicy.visibleEntries(
+                entries,
+                limit: limit,
+                isExpanded: true
+            ) == entries
+        )
+    }
+
+    @Test
+    func programStatusVisibilityOnlyFiltersTheSidebarProjection() {
+        let entries = [
+            SidebarStatusEntry(key: Workspace.programStatusKey, value: "claude · Working"),
+            SidebarStatusEntry(key: "agent", value: "Running"),
+        ]
+
+        #expect(SidebarStatusEntryDisplayPolicy.entries(entries, showingProgramStatus: true) == entries)
+        #expect(
+            SidebarStatusEntryDisplayPolicy.entries(entries, showingProgramStatus: false)
+                .map(\.key) == ["agent"]
+        )
+    }
+
+    @Test
+    func sidebarSnapshotReadsTheNewStatusPreferences() {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        defaults.set(0, forKey: sidebar.statusEntryLimit.userDefaultsKey)
+        defaults.set(false, forKey: sidebar.showProgramStatus.userDefaultsKey)
+
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+
+        #expect(settings.statusEntryLimit == 0)
+        #expect(!settings.showsProgramStatus)
+
+        let defaultKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false,
+            customColorHex: nil
+        )
+        let hiddenKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: settings,
+            showsAgentActivity: false,
+            customColorHex: nil
+        )
+        #expect(defaultKey != hiddenKey)
+    }
+
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,

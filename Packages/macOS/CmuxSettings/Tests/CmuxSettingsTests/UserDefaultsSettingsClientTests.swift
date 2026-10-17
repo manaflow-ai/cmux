@@ -24,6 +24,8 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
         #expect(client.value(for: catalog.sidebar.notificationMessageLineLimit) == 12)
+        #expect(client.value(for: catalog.sidebar.statusEntryLimit) == 3)
+        #expect(client.value(for: catalog.sidebar.showProgramStatus) == true)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
         #expect(client.value(for: catalog.sidebar.pathLastSegmentOnly) == false)
@@ -78,6 +80,14 @@ struct UserDefaultsSettingsClientTests {
         client.set(24, for: catalog.sidebar.notificationMessageLineLimit)
         #expect(defaults.object(forKey: "sidebarNotificationMessageLineLimit") as? Int == 24)
         #expect(client.value(for: catalog.sidebar.notificationMessageLineLimit) == 24)
+
+        client.set(0, for: catalog.sidebar.statusEntryLimit)
+        #expect(defaults.object(forKey: "sidebarStatusEntryLimit") as? Int == 0)
+        #expect(client.value(for: catalog.sidebar.statusEntryLimit) == 0)
+
+        client.set(false, for: catalog.sidebar.showProgramStatus)
+        #expect(defaults.object(forKey: "sidebarShowProgramStatus") as? Bool == false)
+        #expect(client.value(for: catalog.sidebar.showProgramStatus) == false)
     }
 
     @Test func resetRestoresDefault() throws {
