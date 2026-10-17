@@ -112,6 +112,41 @@ struct CEFBrowserPopupTests {
         #expect(cmuxEvents() == ["closed"])
     }
 
+    /// A tab Chromium opens from a WebUI page (chrome://extensions' "Chrome
+    /// Web Store" link) or by a modified click can load before Chromium
+    /// inserts it: its address, title and loading events reached no page,
+    /// so the adopted tab stayed "New tab" with a spinner. They are kept
+    /// for the tab and applied when it is handed over.
+    @MainActor @Test
+    func eventsBeforeAnUnplacedTabIsHandedOverAreKept() async throws {
+        let runtime = CEFRuntime(layout: nil)
+        let opener = CEFBrowser(
+            configuration: CEFBrowserConfiguration(profile: UUID(), initialURL: URL(string: "chrome://extensions/")),
+            runtime: runtime
+        )
+        runtime.register(opener, id: 7)
+        var opened: [CEFBrowser] = []
+        opener.onEvent = { event in
+            if case .newBrowser(let popup, _, _, _) = event { opened.append(popup) }
+        }
+        let store = "https://chromewebstore.google.com/category/extensions"
+
+        runtime.handle(.popup(browser: 7, url: store, disposition: 3, userGesture: true))
+        runtime.handle(.afterCreated(browser: 43, request: 0, window: 0,
+                                     created: CEFCreatedBy(opener: 7, disposition: .unknown, features: nil)))
+        runtime.handle(.loadingState(browser: 43, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.address(browser: 43, url: store))
+        runtime.handle(.title(browser: 43, title: "Chrome Web Store"))
+        runtime.handle(.loadingState(browser: 43, loading: false, canGoBack: false, canGoForward: false))
+        runtime.handle(.tab(.inserted, browser: 43, window: 9, value: 0))
+        await Task { @MainActor in }.value
+
+        let popup = try #require(opened.first)
+        #expect(popup.state.url?.absoluteString == store)
+        #expect(popup.state.title == "Chrome Web Store")
+        #expect(!popup.state.isLoading)
+    }
+
     @Test
     func afterCreatedEventCarriesThePopupTargetURL() throws {
         let event = CEFShimEvent(
