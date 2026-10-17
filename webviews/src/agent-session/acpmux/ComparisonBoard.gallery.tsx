@@ -4,6 +4,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
 import { EffortPicker } from "./EffortPicker";
+import { EffortTrack } from "./EffortTrack";
 import { SessionSidebar } from "./SessionSidebar";
 import type { SidebarPreviewVariant } from "./sidebarPreview";
 
@@ -119,6 +120,14 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 preview
                 previewVariant={preview}
               />
+              <div className={`cmux-comparison-preview-specimen acpmux-session-preview-${preview}`} aria-label={`Visible ${preview} sidebar preview specimen`}>
+                <div className="acpmux-session-preview-title">Review the sidebar polish</div>
+                <div className="acpmux-session-preview-copy">Card, quiet and outline treatments are ready to compare.</div>
+                <div className="acpmux-session-preview-meta">
+                  <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
+                  <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
+                </div>
+              </div>
               <div className="cmux-comparison-preview-toggle" role="group" aria-label="Sidebar treatment">
                 {(["card", "quiet", "outline"] as const).map((name) => (
                   <button
@@ -172,6 +181,19 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                     ↑
                   </button>
                 </div>
+              </div>
+              <div className="cmux-comparison-slider-specimen" aria-label={`Visible ${sliderStyle} reasoning slider specimen`}>
+                <div className="cmux-comparison-specimen-heading">
+                  <span>Reasoning slider</span>
+                  <strong>{sliderStyle === "accent" ? "Accent" : "Minimal"}</strong>
+                </div>
+                <EffortTrack
+                  efforts={efforts}
+                  current={effort}
+                  fallback="high"
+                  onPick={setEffort}
+                  sliderStyle={sliderStyle}
+                />
               </div>
               <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
                 <span>Reasoning treatment</span>
