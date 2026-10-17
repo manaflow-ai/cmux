@@ -16,11 +16,17 @@ export type TeamRunBoardProps = {
 type CreateState = {
   repository: string;
   commit: string;
-  attempts: number;
   provider: "freestyle" | "huge-blue";
+  variants: Array<{ id: string; label: string; instruction: string }>;
 };
 
-const initialCreate: CreateState = { repository: "", commit: "", attempts: 4, provider: "freestyle" };
+const defaultVariants = [
+  { id: "overview", label: "Overview + project cards", instruction: "Make the primary work visible immediately with clear project cards and a fast path back into the workspace." },
+  { id: "focus", label: "Quiet, focus-first canvas", instruction: "Reduce visual noise and make the next important action obvious without hiding useful context." },
+  { id: "keyboard", label: "Dense, keyboard-first list", instruction: "Optimize for fast keyboard navigation and high information density while preserving accessibility." },
+  { id: "activity", label: "Activity-led workspace", instruction: "Organize the surface around recent team activity, changes, and recoverable next steps." },
+];
+const initialCreate: CreateState = { repository: "", commit: "", provider: "freestyle", variants: defaultVariants };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -42,9 +48,10 @@ export function TeamRunBoard({ client = createRunApiClient(), onClose, onAttachT
       const input: RunCreateInput = {
         source: { repository: create.repository.trim(), commit: create.commit.trim() },
         recipe: "parallel-review",
-        desiredAttempts: create.attempts,
+        desiredAttempts: create.variants.length,
         provider: "cloud-vm",
         routing: { requestedProvider: create.provider },
+        variants: create.variants,
       };
       const created = await client.createRun(input, `cmux-run-board:${crypto.randomUUID()}`);
       setSnapshot(await new RunBoardApiSession(created.id, client).snapshotAndReplay());
@@ -105,7 +112,9 @@ export function TeamRunBoard({ client = createRunApiClient(), onClose, onAttachT
         <div className="run-board-create-row">
           <label>
             Attempts
-            <input type="number" min={1} max={32} value={create.attempts} onChange={(event) => setCreate((current) => ({ ...current, attempts: Number(event.currentTarget.value) }))} />
+            <select value={create.variants.length} onChange={(event) => setCreate((current) => ({ ...current, variants: Array.from({ length: Number(event.currentTarget.value) }, (_, index) => current.variants[index] ?? { id: `variant-${index + 1}`, label: `Variant ${String.fromCharCode(65 + index)}`, instruction: "Explore the shared intent independently and publish build, test, and artifact evidence." }) }))}>
+              {[1, 2, 3, 4, 5, 6, 8].map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
           </label>
           <label>
             Backend
@@ -115,7 +124,18 @@ export function TeamRunBoard({ client = createRunApiClient(), onClose, onAttachT
             </select>
           </label>
         </div>
-        <div className="run-board-create-note"><strong>Fan-out</strong> runs the same recipe independently. <strong>Thunderdome</strong> is the comparison policy layered on top: review artifacts and receipts, then promote one attempt.</div>
+        <fieldset className="run-board-variants">
+          <legend>Variant recipes</legend>
+          <p>Each recipe is immutable once the workers start. This is where Thunderdome gets meaningful variance without changing the execution contract.</p>
+          {create.variants.map((variant, index) => (
+            <div className="run-board-variant" key={variant.id}>
+              <strong>Attempt {String.fromCharCode(65 + index)}</strong>
+              <input aria-label={`Variant ${index + 1} label`} value={variant.label} onChange={(event) => setCreate((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.currentTarget.value } : item) }))} />
+              <textarea aria-label={`Variant ${index + 1} instruction`} rows={2} value={variant.instruction} onChange={(event) => setCreate((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, instruction: event.currentTarget.value } : item) }))} />
+            </div>
+          ))}
+        </fieldset>
+        <div className="run-board-create-note"><strong>Fan-out</strong> supplies the bounded workers. <strong>Thunderdome</strong> compares these explicit recipes and their evidence, then promotes one attempt. The original machine stays responsive because worker memory and CPU live on the admitted provider.</div>
         {error && <p className="run-board-api-error" role="alert">{error}</p>}
         <button className="run-board-create-submit" type="submit" disabled={pending}>{pending ? "Starting workers…" : "Create fan-out"}</button>
       </form>

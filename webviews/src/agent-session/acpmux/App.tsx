@@ -5243,10 +5243,14 @@ function AcpmuxPane() {
         onAttachTarget={async (target: RunAttachTarget) => {
           const route = target.route ?? target.endpoint?.route;
           if (!route) throw new Error("The attach response did not include a cmux remote route.");
-          // Reuse the existing native tab bridge. The route is a short-lived, one-use attach
-          // credential; it is never stored in the Run snapshot or event log.
-          const quoted = `'${route.replaceAll("'", "'\\''")}'`;
-          await callNative("tab.open", { kind: "terminal", text: `cmux remote connect ${quoted} --carrier`, run: true, keep: true });
+          await callNative("run.attach", {
+            runId: target.runId,
+            attemptId: target.attemptId,
+            route,
+            ...(target.token ?? target.endpoint?.token ? { token: target.token ?? target.endpoint?.token } : {}),
+            session: target.session ?? target.endpoint?.session ?? target.attemptId,
+            expiresAtUnix: target.expiresAtUnix ?? target.endpoint?.expiresAtUnix ?? Math.floor(Date.now() / 1000) + 120,
+          });
         }}
       />
     );

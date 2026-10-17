@@ -11,7 +11,7 @@ const run: RunApiSnapshot = {
     desiredAttempts: 1,
     status: "running",
   },
-  attempts: [{ id: "attempt-1", runId: "run-1", ordinal: 0, status: "running", providerVmId: "vm-1" }],
+  attempts: [{ id: "attempt-1", runId: "run-1", ordinal: 0, status: "running", providerVmId: "vm-1", variant: { id: "focus", label: "Focus", instruction: "Use a quiet canvas." } }],
   artifacts: [],
 };
 
@@ -50,6 +50,7 @@ describe("Run API client", () => {
     const snapshot = await new RunBoardApiSession("run-1", client).snapshotAndReplay();
     expect(calls).toEqual(["https://cmux.test/api/runs/run-1", "https://cmux.test/api/runs/run-1/events"]);
     expect(snapshot.attempts[0]?.state).toBe("running");
+    expect(snapshot.attempts[0]?.variant?.id).toBe("focus");
     expect(snapshot.attempts[0]?.rows.at(-1)?.items?.[0]?.tool?.output).toBe("checking the workspace");
     expect(snapshot.cursor).toBe("2");
   });
@@ -130,7 +131,10 @@ describe("Run API client", () => {
         return new Response(JSON.stringify({ id: "promotion", runId: "run-new", attemptId: "attempt-1", runtime: { id: "runtime-1" } }), { status: 200 });
       },
     });
-    await client.createRun({ source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) }, recipe: "parallel-review", desiredAttempts: 2 }, "create-key");
+    await client.createRun({ source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) }, recipe: "parallel-review", desiredAttempts: 2, variants: [
+      { id: "overview", label: "Overview", instruction: "Lead with project cards." },
+      { id: "focus", label: "Focus", instruction: "Lead with a quiet canvas." },
+    ] }, "create-key");
     await client.mintAttachTicket("run-new", "attempt-1");
     await client.redeemAttachTicket("run-new", "attempt-1", "ticket");
     await client.promoteAttempt("run-new", "attempt-1", "promote-key");

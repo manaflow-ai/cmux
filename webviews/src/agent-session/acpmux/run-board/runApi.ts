@@ -20,6 +20,7 @@ export type RunApiAttempt = {
   id: string;
   runId?: string;
   ordinal: number;
+  variant?: { id: string; label: string; instruction: string };
   status: string;
   providerVmId?: string | null;
   runtimeId?: string | null;
@@ -74,6 +75,7 @@ export type RunCreateInput = {
   desiredAttempts: number;
   provider?: "cloud-vm";
   routing?: { requestedProvider?: "freestyle" | "huge-blue" | "unknown" };
+  variants: Array<{ id: string; label: string; instruction: string }>;
 };
 
 export type RunCreateResponse = {
@@ -334,10 +336,12 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
   const placement = record(attempt.placement);
   const sessionId = stringValue(placement.sessionId) ?? stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id;
   const backendProvider = stringValue(placement.backendProvider);
+  const variant = attempt.variant ?? { id: `attempt-${attempt.ordinal + 1}`, label: `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`, instruction: "Explore the shared intent independently and publish build, test, and artifact evidence." };
   return {
     id: attempt.id,
     label: stringValue(resultValue(result, "label")) ?? `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`,
-    direction: stringValue(resultValue(result, "direction")) ?? `Independent review ${attempt.ordinal + 1}`,
+    direction: stringValue(resultValue(result, "direction")) ?? variant.label,
+    variant,
     worker: `${backendProvider ?? stringValue(resultValue(result, "provider")) ?? "cloud-vm"}${providerVmId ? ` · ${providerVmId}` : ""}`,
     sessionId,
     attachable: attempt.attachable,

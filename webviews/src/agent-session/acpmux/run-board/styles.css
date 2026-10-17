@@ -32,6 +32,7 @@
 .run-board-attempt[data-state="completed"] .run-board-status { color: var(--board-ok); }
 .run-board-attempt[data-state="failed"] .run-board-status { color: var(--board-bad); }
 .run-board-direction { margin-top: 9px; font-size: var(--text-body); color: var(--page-text-2); }
+.run-board-variant-instruction { display: -webkit-box; margin-top: 5px; overflow: hidden; color: var(--page-text-3); font-size: var(--text-caption); line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .run-board-worker { margin-top: 5px; color: var(--page-text-3); font-size: var(--text-caption); }
 .run-board-card-rule { height: 1px; background: var(--page-separator); margin: 13px 0 9px; }
 .run-board-card-row { display: flex; justify-content: space-between; gap: 6px; margin: 4px 0; font-size: var(--text-caption); color: var(--page-text-2); font-variant-numeric: tabular-nums; }
@@ -114,6 +115,13 @@
 .run-board-create label { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: var(--text-caption); color: var(--page-text-2); }
 .run-board-create input, .run-board-create select { min-height: 34px; border: 1px solid var(--page-separator); border-radius: 5px; background: var(--cmux-surface-background, Canvas); color: inherit; padding: 7px 9px; font: inherit; }
 .run-board-create-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
+.run-board-variants { margin: 22px 0 0; padding: 14px; border: 1px solid var(--page-separator); border-radius: 6px; }
+.run-board-variants legend { padding: 0 5px; font-size: var(--text-caption); color: var(--page-text-2); }
+.run-board-variants > p { margin: 0 0 12px; color: var(--page-text-3); font-size: var(--text-caption); line-height: 1.45; }
+.run-board-variant { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 7px 10px; margin-top: 13px; }
+.run-board-variant strong { grid-row: 1 / span 2; padding-top: 8px; color: var(--page-text-2); font-size: var(--text-caption); }
+.run-board-variant input, .run-board-variant textarea { min-width: 0; border: 1px solid var(--page-separator); border-radius: 4px; background: var(--cmux-surface-background, Canvas); color: inherit; padding: 7px 8px; font: inherit; font-size: var(--text-caption); }
+.run-board-variant textarea { resize: vertical; line-height: 1.4; }
 .run-board-create-note { margin-top: 20px; padding: 12px 14px; border-radius: 6px; background: var(--page-hover); color: var(--page-text-2); font-size: var(--text-caption); line-height: 1.5; }
 .run-board-create-submit { margin-top: 22px; border: 0; border-radius: 5px; background: var(--page-text); color: var(--cmux-surface-background, Canvas); padding: 9px 13px; font-size: var(--text-caption); font-weight: 550; }
 .run-board-create-submit:disabled { opacity: .55; }

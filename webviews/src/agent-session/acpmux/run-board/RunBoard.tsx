@@ -59,6 +59,7 @@ function AttemptCard({
         </span>
       </span>
       <span className="run-board-direction">{attempt.direction}</span>
+      {attempt.variant?.instruction && <span className="run-board-variant-instruction">{attempt.variant.instruction}</span>}
       <span className="run-board-worker">{attempt.worker}</span>
       <span className="run-board-card-rule" />
       <span className="run-board-card-row">
