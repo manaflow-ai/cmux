@@ -55,7 +55,7 @@ describe("pricing plans", () => {
     expect(TEAM_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
-  test("prices Max at $200/mo and remains monthly-only", () => {
+  test("prices Max at $200/mo or $1,920/yr", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
         billedAmount: 200,
@@ -63,8 +63,14 @@ describe("pricing plans", () => {
         discountPercent: 0,
         lookupKey: "cmux-max-monthly-200",
       },
+      year: {
+        billedAmount: 1_920,
+        monthlyEquivalent: 160,
+        discountPercent: 20,
+        lookupKey: "cmux-max-yearly-1920",
+      },
     });
-    expect(MAX_BILLING_INTERVALS).toEqual(["month"]);
+    expect(MAX_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
@@ -87,7 +93,6 @@ describe("pricing plans", () => {
       "cmux-team-monthly",
       "cmux-team-yearly-336",
       "cmux-team-yearly-576",
-      "cmux-max-yearly-1920",
     ]);
   });
 

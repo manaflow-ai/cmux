@@ -57,9 +57,6 @@ import {
 } from "../../../components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
   PricingView,
 } from "../../../components/pricing-checkout";
 import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
@@ -69,7 +66,6 @@ import {
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  billingInterval,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
@@ -130,11 +126,10 @@ export default async function PricingPage({
   searchParams?: Promise<PricingQuery>;
 }) {
   const { locale } = await params;
-  const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const fallback = {
     t,
-    query,
+    query: {},
     snapshot: unknownPlan,
     goPlanEnabled: false,
     pending: true,
@@ -149,20 +144,15 @@ export default async function PricingPage({
     </Suspense>
   );
   return (
-    <PricingView
-      surface="public_pricing"
-      interval={billingInterval(firstParam(query.interval))}
-    >
-      <PricingIntervalProvider initialInterval={billingInterval(firstParam(query.interval))}>
-        <PricingContent
-          {...fallback}
-          personalization={{
-            individual: personalize("individual"),
-            team: personalize("team"),
-            comparison: personalize("comparison"),
-          }}
-        />
-      </PricingIntervalProvider>
+    <PricingView surface="public_pricing">
+      <PricingContent
+        {...fallback}
+        personalization={{
+          individual: personalize("individual"),
+          team: personalize("team"),
+          comparison: personalize("comparison"),
+        }}
+      />
     </PricingView>
   );
 }
@@ -221,7 +211,10 @@ function PricingContent({
   const canManageBilling = snapshot.billingManagement === "stripe";
   // The current plan's one action: Resume while a cancellation is scheduled,
   // otherwise the billing portal.
-  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+  const currentPlanAction = (plan: string) => !canManageBilling ? (
+    // A granted plan has no billing to manage.
+    <DisabledButton>{t("currentPlan")}</DisabledButton>
+  ) : snapshot.cancelScheduled ? (
     <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
   ) : (
     <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
@@ -261,15 +254,13 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // A Pro subscriber is sent to the portal switch flow for Max, which remains
-  // a monthly-only plan.
-  const maxPortalSwitch = snapshot.authenticated && snapshot.isPro && !isMax;
-  const maxCheckoutHref = withCheckoutAttribution(
-    maxPortalSwitch
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or a switch
+  // of an existing subscription. Pro access alone does not mean a Stripe
+  // customer exists (an operator grant has none), so the CTA never links the
+  // portal switch directly.
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
+  // A failed payment is fixed in the portal before any plan switch.
+  const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
@@ -405,17 +396,18 @@ function PricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines on the monthly personal plan. */}
+      {/* Max: larger machines with the same 20% annual discount as Pro. */}
       <ProPlanCard
         name={t("max.name")}
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
-        monthlyOnly
+        monthlyOnly={false}
         initialInterval={query.interval === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),
+          year: withCheckoutInterval(maxCheckoutHref, "year"),
         }}
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("max.cta")}
@@ -424,7 +416,7 @@ function PricingContent({
         }
         action={appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">{currentPlanAction(t("max.name"))}</div>
-        ) : canManageBilling && !snapshot.isPro ? (
+        ) : canManageBilling && (!snapshot.isPro || maxNeedsPaymentFix) ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
           </SecondaryLink>
@@ -450,19 +442,9 @@ function PricingContent({
       prices={{
         free: t("free.price"),
         go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
-        pro: (
-          <PricingIntervalValue
-            monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
-            annual={`$${PRO_PRICING_USD.year.monthlyEquivalent} ${t("perMonthBilledYearly")}`}
-          />
-        ),
+        pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
         max: maxComparePrice,
-        team: (
-          <PricingIntervalValue
-            monthly={teamMonthlyComparePrice}
-            annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent} ${t("perUserMonthBilledYearly")}`}
-          />
-        ),
+        team: teamMonthlyComparePrice,
         enterprise: t("enterprise.price"),
       }}
       actions={{
@@ -479,8 +461,7 @@ function PricingContent({
           </SecondaryLink>
         ) : (
           <ProCtaLink
-            checkoutHrefs={proCheckoutHrefs}
-            interval={query.interval === "year" ? "year" : "month"}
+            checkoutHref={proCheckoutHref}
             requiresSignIn={!pending && !snapshot.authenticated}
             size="compact"
             location="pricing_compare_header"
@@ -507,8 +488,7 @@ function PricingContent({
         ),
         team: (
           <PricingCheckoutButton
-            hrefs={teamCheckoutHrefs}
-            interval={query.interval === "year" ? "year" : "month"}
+            href={teamCheckoutHrefs.month}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="pricing_compare_header"
             plan="team"
@@ -582,15 +562,6 @@ function PricingContent({
         <>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <PricingIntervalSelector
-            billingPeriodLabel={t("billingPeriod")}
-            monthlyLabel={t("monthly")}
-            annualLabel={t("annual")}
-            savingsLabel={t("saveAnnual", {
-              discount: PRO_PRICING_USD.year.discountPercent,
-            })}
-            surface="public_pricing"
-          />
           <PricingAudienceSelector
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
@@ -667,11 +638,6 @@ function PricingContent({
   );
 }
 
-function firstParam(value: string | string[] | undefined): string | null {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value ?? null;
-}
-
 type PlanSnapshot = {
   userId?: string;
   authenticated: boolean;
@@ -682,6 +648,8 @@ type PlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The Stripe subscription has a failed payment to fix before a switch. */
+  paymentPastDue?: boolean;
 };
 
 /**
@@ -730,5 +698,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    paymentPastDue: status.paymentPastDue ?? false,
   };
 }

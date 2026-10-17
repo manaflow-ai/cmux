@@ -107,21 +107,20 @@ describe("client config env validation", () => {
     }
   });
 
-  test("rejects retired annual price names while accepting current overrides", async () => {
+  test("rejects retired Pro annual price names while accepting current overrides", async () => {
     const retired = await importEnv({
       ...requiredEnv,
       STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
-      STRIPE_MAX_YEARLY_1920_PRICE_ID: "price_max_1920",
     });
     expectRejected(retired);
     expect(retired.stderr).toContain("STRIPE_PRO_YEARLY_480_PRICE_ID is retired; use STRIPE_PRO_YEARLY_550_PRICE_ID");
-    expect(retired.stderr).toContain("STRIPE_MAX_YEARLY_1920_PRICE_ID is retired; use STRIPE_MAX_MONTHLY_200_PRICE_ID");
 
     const current = await importEnv({
       ...requiredEnv,
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
       STRIPE_PRO_YEARLY_550_PRICE_ID: "price_pro_550",
       STRIPE_MAX_MONTHLY_200_PRICE_ID: "price_max_200",
+      STRIPE_MAX_YEARLY_1920_PRICE_ID: "price_max_1920",
       STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
       STRIPE_TEAM_YEARLY_660_PRICE_ID: "price_team_660",
     });

@@ -297,10 +297,7 @@ export const env = createEnv({
     ),
     STRIPE_PRO_YEARLY_550_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_MAX_YEARLY_1920_PRICE_ID: retiredEnvValue(
-      "STRIPE_MAX_YEARLY_1920_PRICE_ID",
-      "STRIPE_MAX_MONTHLY_200_PRICE_ID",
-    ),
+    STRIPE_MAX_YEARLY_1920_PRICE_ID: z.string().min(1).optional(),
     STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).

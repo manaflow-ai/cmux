@@ -60,8 +60,8 @@ export const TEAM_PRICING_USD = {
 
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 24, 32,
- * and 64 GB machine sizes (up to 32 vCPU) Pro cannot start. Max is monthly
- * only, so there is no annual Price or interval selector on its card.
+ * and 64 GB machine sizes (up to 32 vCPU) Pro cannot start. It follows the
+ * same annual discount as the current Pro catalog offer.
  */
 export const MAX_PRICING_USD = {
   month: {
@@ -70,17 +70,43 @@ export const MAX_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-max-monthly-200",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 1_920,
+    monthlyEquivalent: 160,
+    discountPercent: 20,
+    lookupKey: "cmux-max-yearly-1920",
+  },
+} as const satisfies MonthlyOrYearlyPlanPricing;
 
 /**
- * New checkouts default to monthly. Pro and Team also sell yearly Prices; Go
- * and Max stay monthly, and historical annual subscriptions remain valid.
+ * New checkouts default to monthly. Pro, Max, and Team also sell yearly
+ * Prices; Go stays monthly, and historical annual subscriptions remain valid.
  */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
 export const PRO_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
-export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 export const TEAM_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
+
+/**
+ * The prices the hosted plan-switch portal lists, so the only subscriptions
+ * it can switch (web/scripts/stripe/provision-catalog.sh provisions exactly
+ * these). Every listed price is also a choice any subscriber in that portal
+ * can pick. Yearly subscribers switch in the dashboard, which keeps their
+ * interval, so Pro yearly is not listed: it would only let a monthly
+ * subscriber move onto it. Neither a grandfathered price nor the
+ * release-gated Go plan is listed; a subscription on one switches in the
+ * dashboard instead, which prices any subscription.
+ */
+export const PORTAL_SWITCHABLE_LOOKUP_KEYS: readonly string[] = [
+  PRO_PRICING_USD.month.lookupKey,
+  MAX_PRICING_USD.month.lookupKey,
+  MAX_PRICING_USD.year.lookupKey,
+];
+
+export function isPortalSwitchableLookupKey(lookupKey: string | null | undefined): boolean {
+  return typeof lookupKey === "string" && PORTAL_SWITCHABLE_LOOKUP_KEYS.includes(lookupKey);
+}
 
 /**
  * Lookup keys that no new checkout may use. Each stays active in Stripe for
@@ -95,7 +121,6 @@ export const LEGACY_PRICE_LOOKUP_KEYS = [
   "cmux-team-monthly", // $35/user/mo
   "cmux-team-yearly-336", // $336/user/yr
   "cmux-team-yearly-576", // $576/user/yr; existing subscriptions only
-  "cmux-max-yearly-1920", // $1,920/yr; existing subscriptions only
 ] as const;
 
 export function billingInterval(value: string | null | undefined): BillingInterval {

@@ -41,11 +41,7 @@ import {
   type CompareRow,
   type FaqItem,
 } from "../components/pricing-shared";
-import {
-  PricingCheckoutButton,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "../components/pricing-checkout";
+import { PricingCheckoutButton } from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
@@ -105,12 +101,14 @@ export function AppPricingContent({
     manageBilling: (canManageBilling && !isGo) || isMax,
   });
   // A Pro subscriber keeps the Max checkout link; the server routes an active
-  // Pro subscription to the Stripe portal upgrade flow.
+  // Pro subscription to the plan switch. A failed payment is fixed in the
+  // portal first.
+  const maxNeedsPaymentFix = snapshot.isPro && !isMax && snapshot.paymentPastDue === true;
   const maxAction = personalPlanActionState({
     isCurrent: isMax,
     appStorePaymentGated,
     appStoreManaged,
-    manageBilling: canManageBilling && !snapshot.isPro,
+    manageBilling: canManageBilling && (!snapshot.isPro || maxNeedsPaymentFix),
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
   // While a cancellation is scheduled the current plan's action is Resume.
@@ -140,20 +138,13 @@ export function AppPricingContent({
     month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
     year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
   };
-  const maxPortalSwitch = snapshot.isPro && !isMax;
-  const maxCheckoutHref =
-    maxPortalSwitch
-      ? withExternalBrowserIntent(
-          `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
-        )
-      : appPricingCheckoutURL(
-          "max",
-          requestOrigin,
-          cmuxScheme,
-          "month",
-          attribution,
-        );
-  const maxCheckoutHrefs = { month: maxCheckoutHref };
+  // The checkout endpoint decides whether this is a new purchase or a switch
+  // of an existing subscription. Pro access alone does not mean a Stripe
+  // customer exists (an operator grant has none).
+  const maxCheckoutHrefs = {
+    month: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
@@ -294,13 +285,13 @@ export function AppPricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines on the monthly personal plan. */}
+      {/* Max: larger machines with the same 20% annual discount as Pro. */}
       <ProPlanCard
         name={pricing.max.name}
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
-        monthlyOnly
+        monthlyOnly={false}
         initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
@@ -314,11 +305,11 @@ export function AppPricingContent({
         }
         action={maxAction === "checkout" ? undefined : (
           <PersonalPlanAction
-            state={maxAction}
-            unavailableLabel={pending ? pricing.max.cta : undefined}
-            portalVisible={portalVisible}
-            resumeLabel={resumeLabel(pricing.max.name)}
-            checkout={null}
+          state={maxAction}
+          unavailableLabel={pending ? pricing.max.cta : undefined}
+          portalVisible={portalVisible}
+          resumeLabel={resumeLabel(pricing.max.name)}
+          checkout={null}
           />
         )}
       >
@@ -343,19 +334,9 @@ export function AppPricingContent({
       prices={{
         free: pricing.free.price,
         go: `$${GO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
-        pro: (
-          <PricingIntervalValue
-            monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}
-            annual={`$${PRO_PRICING_USD.year.monthlyEquivalent} ${pricing.perMonthBilledYearly}`}
-          />
-        ),
+        pro: `$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
         max: maxComparePrice,
-        team: (
-          <PricingIntervalValue
-            monthly={teamMonthlyComparePrice}
-            annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent} ${pricing.perUserMonthBilledYearly}`}
-          />
-        ),
+        team: teamMonthlyComparePrice,
         enterprise: pricing.enterprise.price,
       }}
     />
@@ -435,16 +416,6 @@ export function AppPricingContent({
               {pricing.title}
             </h1>
 
-            <PricingIntervalSelector
-              billingPeriodLabel={pricing.billingPeriod}
-              monthlyLabel={pricing.monthly}
-              annualLabel={pricing.annual}
-              savingsLabel={pricingMessage(pricing.saveAnnual, {
-                discount: PRO_PRICING_USD.year.discountPercent,
-              })}
-              surface="app_pricing"
-            />
-
             <PricingAudienceSelector
               individualLabel={pricing.audience.individual}
               teamLabel={pricing.audience.team}
@@ -492,6 +463,8 @@ export type AppPlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The Stripe subscription has a failed payment to fix before a switch. */
+  paymentPastDue?: boolean;
   email: string | null;
 };
 
