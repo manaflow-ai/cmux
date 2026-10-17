@@ -18019,7 +18019,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
                 !$0.isBrowserContentShortcut &&
-                matchConfiguredShortcut(event: event, action: $0)
+                // This is the menu-miss fallback: preserve the configured
+                // stroke forwarding behavior even when the action's content
+                // focus clause is unavailable in this window.
+                KeyboardShortcutSettings.shortcutBindings(for: $0).contains {
+                    matchConfiguredShortcut(event: event, shortcut: $0.shortcut)
+                }
         }
     }
 
