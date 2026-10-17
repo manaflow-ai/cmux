@@ -18,7 +18,7 @@ struct DaemonSideEventEnvelopeTests {
         store.apply(snapshot: DaemonTree(workspaces: []))
         _ = store.apply(batch: [.init(sequence: DaemonEventEnvelope.sequence(serial: 8, index: 1), event: demand, sourceID: UUID())])
         #expect(store.sideEvents.controlStamp == admitted)
-        _ = store.apply(.disconnected("fixture"))
+        _ = store.apply(.disconnected(reason: "fixture"))
         #expect(store.sideEvents.controlStamp == nil)
         _ = store.apply(batch: [connected])
         _ = store.apply(.connected(DaemonIdentity(generation: "unstamped"), generationChanged: true))
