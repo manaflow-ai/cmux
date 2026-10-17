@@ -790,6 +790,62 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// New Display opens its pane at the click, before the guest answers. In a
+    /// workspace bound to that Cloud machine the pane is a display reservation,
+    /// not a new Cloud browser: it must not start a daemon browser that
+    /// replaces the display's projection or shows "Cloud browsers are unavailable".
+    @Test("New Display reserves its pane without starting a Cloud browser")
+    func newDisplayReservedPaneIsNotACloudBrowser() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machineID = "new-display-\(UUID().uuidString)"
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machineID, isBase: false, remoteWorkspaceID: "ws-display")
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            guard command.contains("\"$path\" create --request-id ") else {
+                return .init(exitCode: 0, stdout: #"{"version":1,"canCreate":true,"displays":[]}"#, stderr: "")
+            }
+            started.resolve(true)
+            _ = await release.result
+            return .init(exitCode: 1, stdout: "", stderr: "released")
+        }
+        var summary = VMSummary(id: machineID, provider: "freestyle", status: "running",
+            image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        summary.addressIPv4 = "10.0.0.7"
+        let catalog = SurfaceCatalog.shared
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            displayCoordinator: coordinator
+        )
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
+        let before = Set(workspace.panels.keys)
+
+        let creation = Task {
+            try await catalog.createDisplay(on: provider.machine, into: .workspace(id: workspace.id, placement: .split))
+        }
+        Task {
+            _ = await creation.result
+            started.resolve(false)
+        }
+        try #require(await started.result == true, "creation must reach the guest helper")
+
+        let reservedID = try #require(workspace.panels.keys.first { !before.contains($0) })
+        let reserved = try #require(workspace.browserPanel(for: reservedID))
+        #expect(workspace.pendingCloudBrowserPanelIDs.isEmpty)
+        #expect(workspace.cloudBrowserCreationTasks.isEmpty)
+        #expect(reserved.cloudAccess.unavailable == nil)
+        #expect(reserved.cloudAccess.starting == String(localized: "cloud.display.starting", defaultValue: "Starting display…"))
+
+        release.resolve(true)
+        _ = await creation.result
+    }
+
     @Test("Cloud resource drop hands keyboard ownership to its first pane")
     func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() async throws {
         let harness = try Harness()

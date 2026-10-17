@@ -63,6 +63,30 @@ import Testing
         #expect(prompt.contains("`gh auth status`"))
     }
 
+    /// The Cloud computer-use loop verified on a desktop machine: `cua-driver call`
+    /// needs its daemon and the desktop environment, a screenshot is written to a
+    /// file and pulled here to be looked at, and the user watches the desktop.
+    @Test func teachesTheCloudComputerUseLoop() {
+        let prompt = ChiefSystemPrompt(context: context()).build()
+        for step in [
+            "cmux vm open <machine>:desktop", "capabilities.desktop",
+            ". /etc/cmux/desktop-env.sh", "export HOME=/home/cmux",
+            "setsid -f cua-driver serve", "cua-driver call <tool> '<json>'",
+            "\"screenshot_out_file\"", "cmux vm pull <machine> /home/cmux/.cache/chief/screen.png",
+            "list_windows", "launch_app", "cua-driver describe <tool>",
+            "cua-driver mcp",
+        ] {
+            #expect(prompt.contains(step), "missing \(step)")
+        }
+        #expect(!prompt.contains("From a machine terminal, run `cua-driver doctor`"))
+        // Typed text often has an apostrophe; the daemon may serve a machine agent; the
+        // agent's cua-driver tool is written at its first launch, so it is not probed.
+        #expect(prompt.contains("beyond your own shell's single quotes"))
+        #expect(prompt.contains("Leave the driver's daemon running"))
+        #expect(!prompt.contains("cua-driver stop"))
+        #expect(!prompt.contains("grep -q cua-driver"))
+    }
+
     @Test func emptyContextOmitsOptionalSections() {
         let prompt = ChiefSystemPrompt(context: ChiefPromptContext(date: Date(timeIntervalSince1970: 0),
                                                                         timeZone: TimeZone(identifier: "UTC") ?? .current)).build()
