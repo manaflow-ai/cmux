@@ -75,6 +75,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyPreviewFeatures()
             AgentPaneSuggestedTasks.shared.push(to: view)
             view.applyEditedFiles()
+            if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)

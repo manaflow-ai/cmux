@@ -6,15 +6,17 @@
 # shrinks.
 #
 # Rule: the sum of physical lines (newline-terminated or not, blank and comment
-# lines included) of every *.swift file under
-# Packages/macOS/CmuxNext/Sources/CmuxNextApp in the working tree. The cap is
-# the number in scripts/cmux-next/app-size-baseline.txt. More lines than the
-# cap fails; fewer passes and prints a hint to lower the cap.
+# lines included) of every *.swift file under Packages/macOS/CmuxNext/Sources/CmuxNextApp
+# in the working tree. The cap is the number in scripts/cmux-next/app-size-baseline.txt.
+# More lines than the cap fails; fewer passes and prints a hint to lower the cap.
+# For pull-request/push comparisons, source lines are also compared with the
+# base tree so merge-tree-only comment and blank-line noise cannot consume the
+# hard guard. Any real source-line growth still fails.
 #
 # Usage: scripts/cmux-next/check-app-size.sh [--update-baseline] [--base REF] [repo-root]
-#   --base REF         (pull requests) over the cap still passes when the count
-#                      is not above the count at REF, so a change that shrinks
-#                      or keeps the App size never fails.
+#   --base REF         (pull requests/pushes) compares source lines with REF;
+#                      comment/blank-only growth can pass the physical cap,
+#                      but real source growth fails.
 #   --update-baseline  writes the current count when it is at or below the cap.
 #                      It never raises the cap: a raise is a hand edit of the
 #                      baseline file with the chief's go.
@@ -61,12 +63,16 @@ if (( update )); then
   exit 0
 fi
 
-if (( lines > cap )) && [[ -n "$base" ]]; then
-  # git grep -c '' counts every line of a tracked file at REF, a last line
-  # with no newline too. An unknown REF falls through to the plain cap check.
-  if base_lines="$(git -C "$root" grep -c '' "$base" -- 'Packages/macOS/CmuxNext/Sources/CmuxNextApp/*.swift' | awk -F: '{ s += $NF } END { print s + 0 }')" \
-    && git -C "$root" rev-parse --verify --quiet "$base^{commit}" > /dev/null && (( lines <= base_lines )); then
-    echo "check-app-size: ok, CmuxNextApp has $lines lines, over the cap $cap but not above the base ($base_lines at $base)"
+if [[ -n "$base" ]] \
+  && git -C "$root" rev-parse --verify --quiet "$base^{commit}" > /dev/null \
+  && base_source_lines="$(python3 "$root/scripts/cmux-next/count-swift-code-lines.py" --git-ref "$base" "$root")" \
+  && source_lines="$(python3 "$root/scripts/cmux-next/count-swift-code-lines.py" "$root")"; then
+  if (( source_lines > base_source_lines )); then
+    echo "check-app-size: CmuxNextApp source grew ($source_lines source lines now, $base_source_lines at $base); real source growth is not allowed" >&2
+    exit 1
+  fi
+  if (( lines > cap )); then
+    echo "check-app-size: ok, CmuxNextApp has $lines physical lines, over the cap $cap but no source-line growth ($source_lines now, <= $base_source_lines at $base)"
     exit 0
   fi
 fi

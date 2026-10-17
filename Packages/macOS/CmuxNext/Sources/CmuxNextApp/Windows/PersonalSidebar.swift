@@ -1,7 +1,6 @@
 import CmuxNextDaemon
 
-/// Sidebar order and groups from the home session's personal state
-/// (plans/cmux-next/data-model.md 1.2c, 3.2): each qualified workspace has a
+/// Sidebar order and groups from the home session's personal state (plans/cmux-next/data-model.md 1.2c, 3.2): each qualified workspace has a
 /// personal position and group; groups belong to one room. Without personal
 /// state (an older home daemon) the daemon's shared groups and order are
 /// used, as before.
@@ -53,10 +52,8 @@ enum PersonalSidebar {
         return order(daemon.store.workspaces, rows: rows(of: session, personal)).map(\.id)
     }
 
-    /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui
-    /// `state/personal_order.rs`) over `workspaces` of `session`: walk every
-    /// personal row by position; before row i come the groups whose
-    /// `top_index` is i (in group order, members in personal order), then
+    /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui `state/personal_order.rs`) over `workspaces` of `session`: walk every
+    /// personal row by position; before row i come the groups whose `top_index` is i (in group order, members in personal order), then
     /// row i when it is loose. Workspaces without a personal row follow as
     /// loose rows, then the groups placed after every loose row (`top_index`
     /// nil or past the last row). Consecutive loose rows share one section.
@@ -117,14 +114,17 @@ enum PersonalSidebar {
     }
 
     /// Rowed workspaces by personal position, then the rest in daemon order.
-    /// One rank lookup per workspace, then an integer sort: the comparator
-    /// read each model's tracked `key` twice per comparison (O(n log n)
+    /// One rank lookup per workspace, then an integer sort: the comparator read each model's tracked `key` twice per comparison (O(n log n)
     /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
-    private static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
-        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, offset: $0, workspace: $1) }
+    static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
+        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, key: rowKey($1), offset: $0, workspace: $1) }
         return ranked.sorted { lhs, rhs in
             switch (lhs.rank, rhs.rank) {
-            case let (l?, r?): return l == r ? lhs.offset < rhs.offset : l < r
+            case let (l?, r?):
+                if l != r { return l < r }
+                // Snapshot/event handoffs can briefly duplicate a placement index.
+                // Stable workspace keys keep rapid creates deterministic during that window.
+                return lhs.key == rhs.key ? lhs.offset < rhs.offset : lhs.key < rhs.key
             case (_?, nil): return true
             case (nil, _?): return false
             case (nil, nil): return lhs.offset < rhs.offset
