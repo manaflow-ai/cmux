@@ -85,16 +85,16 @@ struct CmuxPhoneCommand {
     private static func runLineServer(driver: any PhoneDriver) async throws {
         let server = PhoneControlServer(driver: driver)
         var decoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
-        let input = FileHandle.standardInput.readDataToEndOfFile()
-        let messages = try decoder.append(input)
         let codec = PhoneWireCodec()
-        var output = Data()
-        for message in messages {
-            for response in await server.handle(message) {
-                output.append(try codec.encode(response))
+        let input = FileHandle.standardInput
+        while let chunk = try input.read(upToCount: PhoneProtocol.maxRequestLineBytes), !chunk.isEmpty {
+            let messages = try decoder.append(chunk)
+            for message in messages {
+                for response in await server.handle(message) {
+                    try FileHandle.standardOutput.write(contentsOf: codec.encode(response))
+                }
             }
         }
-        try FileHandle.standardOutput.write(contentsOf: output)
     }
 
     private static func parseURL(arguments: [String]) throws -> URL {
