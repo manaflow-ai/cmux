@@ -75,7 +75,7 @@ export default componentEntry<CompareRunBoardProps>({
     },
   },
   covers: ["agent-session/acpmux/run-board/variants/compare/CompareRunBoard.tsx#CompareRunBoard"],
-  styles: () => import("./styles.css"),
+  styles: () => import("./styles.gallery.css"),
   load: async () => (await import("./CompareRunBoard")).CompareRunBoard,
   variants: {
     matrix: {

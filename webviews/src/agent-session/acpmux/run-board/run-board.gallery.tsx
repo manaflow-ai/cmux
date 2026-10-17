@@ -24,7 +24,7 @@ export default componentEntry<RunBoardProps>({
   height: 1010,
   widths: { narrow: 560, normal: 1200, wide: 1480 },
   covers: ["agent-session/acpmux/run-board/RunBoard.tsx#RunBoard"],
-  styles: () => import("./styles.css"),
+  styles: () => import("./styles.gallery.css"),
   load: async () => (await import("./RunBoard")).RunBoard,
   variants: {
     working: {

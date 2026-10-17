@@ -50,7 +50,7 @@ export default componentEntry<TimelineRunBoardProps>({
   height: 1120,
   widths: { narrow: 560, normal: 1200, wide: 1480 },
   covers: ["agent-session/acpmux/run-board/variants/timeline/TimelineRunBoard.tsx#TimelineRunBoard"],
-  styles: () => import("./timeline.css"),
+  styles: () => import("./timeline.gallery.css"),
   load: async () => (await import("./TimelineRunBoard")).TimelineRunBoard,
   variants: {
     working: {

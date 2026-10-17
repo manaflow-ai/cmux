@@ -90,9 +90,9 @@ export default componentEntry<TournamentRunBoardProps>({
   },
   covers: ["agent-session/acpmux/run-board/variants/tournament/TournamentRunBoard.tsx#TournamentRunBoard"],
   styles: async () => {
-    await import("../compare/styles.css");
-    await import("../timeline/timeline.css");
-    await import("./styles.css");
+    await import("../compare/styles.gallery.css");
+    await import("../timeline/timeline.gallery.css");
+    await import("./styles.gallery.css");
   },
   load: async () => (await import("./TournamentRunBoard")).TournamentRunBoard,
   variants: {
