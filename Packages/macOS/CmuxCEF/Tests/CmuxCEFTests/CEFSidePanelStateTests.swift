@@ -49,7 +49,12 @@ struct CEFSidePanelStateTests {
         view.occlusionRects = [CGRect(x: 10, y: 10, width: 100, height: 30)]
 
         let holes = view.cmuxOcclusionRects().compactMap { ($0 as? NSValue)?.rectValue }
-        #expect(holes.contains(header))
+        // Holes come back merged into non-overlapping rects (the page's top
+        // separator strip takes the header's top row), so the header is cut
+        // out when the holes cover all of its area.
+        let covered = holes.map { $0.intersection(header) }.filter { !$0.isNull }
+            .reduce(CGFloat(0)) { $0 + $1.width * $1.height }
+        #expect(covered == header.width * header.height)
         #expect(holes.contains(CGRect(x: 10, y: 10, width: 100, height: 30)))
 
         view.sidePanelHeaderRect = nil

@@ -8,7 +8,8 @@ struct BrowserProtocolTelemetryRecorderTests {
     @Test("A request records its response and its end in one entry")
     func requestLifecycle() throws {
         var recorder = BrowserProtocolTelemetryRecorder()
-        #expect(recorder.ingest(#"{"method":"Network.requestWillBeSent","params":{"requestId":"r1","type":"Fetch","wallTime":1700000000.5,"timestamp":10.0,"request":{"url":"http://a.test/api","method":"POST","headers":{}}}}"#))
+        let accepted1 = recorder.ingest(#"{"method":"Network.requestWillBeSent","params":{"requestId":"r1","type":"Fetch","wallTime":1700000000.5,"timestamp":10.0,"request":{"url":"http://a.test/api","method":"POST","headers":{}}}}"#)
+        #expect(accepted1)
         #expect(recorder.networkRequests.first?.state == .pending)
         recorder.ingest(#"{"method":"Network.responseReceived","params":{"requestId":"r1","timestamp":10.1,"response":{"url":"http://a.test/api","status":201,"statusText":"Created","mimeType":"application/json","remoteIPAddress":"127.0.0.1","fromDiskCache":false}}}"#)
         recorder.ingest(#"{"method":"Network.loadingFinished","params":{"requestId":"r1","timestamp":10.25,"encodedDataLength":42}}"#)
@@ -111,10 +112,14 @@ struct BrowserProtocolTelemetryRecorderTests {
     @Test("Replies, unknown events and malformed messages are ignored")
     func ignoredMessages() {
         var recorder = BrowserProtocolTelemetryRecorder()
-        #expect(!recorder.ingest(#"{"id":1073741824,"result":{}}"#))
-        #expect(!recorder.ingest(#"{"method":"Network.dataReceived","params":{"requestId":"r1","dataLength":10}}"#))
-        #expect(!recorder.ingest(#"{"method":"Runtime.consoleAPICalled""#))
-        #expect(!recorder.ingest(""))
+        let accepted2 = recorder.ingest(#"{"id":1073741824,"result":{}}"#)
+        #expect(!accepted2)
+        let accepted3 = recorder.ingest(#"{"method":"Network.dataReceived","params":{"requestId":"r1","dataLength":10}}"#)
+        #expect(!accepted3)
+        let accepted4 = recorder.ingest(#"{"method":"Runtime.consoleAPICalled""#)
+        #expect(!accepted4)
+        let accepted5 = recorder.ingest("")
+        #expect(!accepted5)
         #expect(recorder.consoleEntries.isEmpty && recorder.networkRequests.isEmpty)
     }
 
