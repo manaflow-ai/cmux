@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2
+FROM docker.io/oven/bun:1.4.2
 
 WORKDIR /app
 

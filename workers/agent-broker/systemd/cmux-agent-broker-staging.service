@@ -1,0 +1,20 @@
+[Unit]
+Description=cmux agent broker worker (staging)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leo
+EnvironmentFile=/etc/cmux/agent-broker-staging.env
+ExecStart=/usr/bin/podman run --rm --name cmux-agent-broker-staging --env-file=/etc/cmux/agent-broker-staging.env localhost/cmux-agent-broker:staging
+ExecStop=/usr/bin/podman stop --time 10 cmux-agent-broker-staging
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

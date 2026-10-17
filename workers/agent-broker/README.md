@@ -27,6 +27,13 @@ Use `CMUX_BROKER_ONCE=1` for a one-job smoke run. `DATABASE_URL` is the normal
 PlanetScale connection; migrations remain owned by `web` and are not run by
 the worker.
 
+Big Red staging uses `scripts/build-big-red-staging.sh` and
+`systemd/cmux-agent-broker-staging.service`. The script builds the image on Big
+Red as `localhost/cmux-agent-broker:staging`, then installs the unit only when
+`CMUX_BROKER_INSTALL=1` is set. Write the staging branch URL and adapter module path into
+`/etc/cmux/agent-broker-staging.env`; keep that file root-readable only. The
+unit runs the container as `leo` and restarts it if the worker exits.
+
 The adapter module must export:
 
 ```ts
