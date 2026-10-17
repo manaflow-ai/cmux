@@ -1103,6 +1103,18 @@
       "streams": [
         "subscribe"
       ]
+    },
+    {
+      "name": "agent-inventory-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
     }
   ],
   "tui_actions": [
