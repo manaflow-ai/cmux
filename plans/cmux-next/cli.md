@@ -188,6 +188,12 @@ On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
   app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
   `mcp.enabled`.
 
+The curated CLI also offers `cmux machine list --json` and
+`cmux machine <selector> show --json` for the connected owner's machine catalog.
+Remote entries are read-only metadata from existing admitted app routes. These
+commands do not enroll, dial, open sessions or execute work; the full
+`cmux-tui machine ... session ...` plumbing remains outside the curated CLI.
+
 ## Numeric refs replacement
 
 The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the

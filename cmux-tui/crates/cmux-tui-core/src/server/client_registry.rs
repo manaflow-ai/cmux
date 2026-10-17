@@ -3,6 +3,11 @@
 //! surfaces and view leases) and the daemon handoff reservation. Attach and
 //! view-lease methods are in `client_registry_views`.
 
+#[cfg(unix)]
+pub(super) mod machine_catalog;
+mod record;
+pub(super) use record::ClientRecord;
+
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
@@ -272,35 +277,6 @@ impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
     }
 }
 
-pub(super) struct ClientRecord {
-    pub(super) transport: ClientTransport,
-    pub(super) connected_at: Instant,
-    pub(super) name: Option<String>,
-    pub(super) kind: Option<String>,
-    /// Shared-sizing identity from `set-client-info`. `user_id` is asserted
-    /// by the connection; this daemon has no Stack session to verify it.
-    pub(super) identity: ClientIdentityWire,
-    pub(super) capabilities: HashSet<String>,
-    pub(super) browser_pointer_owner: Option<BrowserPointerOwner>,
-    pub(super) attached: BTreeMap<SurfaceId, AttachedSurface>,
-    pub(super) view_leases: HashMap<String, (SurfaceId, u64)>,
-    pub(super) retired_view_leases: HashMap<String, SurfaceId>,
-    pub(super) retired_view_lease_order: VecDeque<String>,
-    pub(super) retired_surfaces: HashSet<SurfaceId>,
-    pub(super) retired_surface_order: VecDeque<SurfaceId>,
-    pub(super) resource_streams: HashMap<String, ResourceClientStream>,
-    pub(super) resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
-    pub(super) announced_attached: bool,
-    pub(super) writer: MessageWriter,
-    /// Hello role, peer and confirmations (request_origin.rs).
-    pub(super) origin: crate::request_origin::ConnectionOrigin,
-    /// A WebSocket connection that authenticated with a pairing-store
-    /// credential (a human-approved pairing or the verified app's
-    /// `page-credential`), not the static or file token: the person's own
-    /// client for the Cloud lease (`ws-cloud-conversations-v1`).
-    pub(super) person: bool,
-}
-
 #[derive(Clone)]
 pub(super) struct ResourceClientRecord {
     pub(super) client: u64,
@@ -464,6 +440,8 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                #[cfg(unix)]
+                machine_catalog: None,
             },
         );
         drop(state);
