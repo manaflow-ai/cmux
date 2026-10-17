@@ -138,6 +138,54 @@ struct CEFUnownedTabsTests {
         #expect(refused.map(\.absoluteString) == ["https://example.com/"])
     }
 
+    // MARK: Orphan tabs
+
+    private static func orphan(_ url: String, disposition: CEFDisposition = .newForegroundTab) -> CEFCreatedBy {
+        var created = CEFCreatedBy(opener: 0, disposition: disposition, features: nil)
+        created.url = url
+        return created
+    }
+
+    /// A tab Chromium created in no cmux page's window (the opener it
+    /// reported is gone, no extension popup window claimed it) was closed:
+    /// the anchor page now adopts it, with the events it sent meanwhile.
+    @Test
+    func anOrphanTabIsAdoptedByTheAnchorPage() throws {
+        let (runtime, _) = Self.runtime()
+        let anchor = Self.page(runtime, id: 7, profile: UUID())
+        runtime.unownedTabAnchor = { _ in anchor }
+        var adopted: [(CEFBrowser, CEFDisposition, Bool)] = []
+        anchor.onEvent = { event in
+            if case .newBrowser(let tab, let disposition, _, let gesture) = event { adopted.append((tab, disposition, gesture)) }
+        }
+
+        runtime.closeOrphan(42, created: Self.orphan("https://example.com/welcome"),
+                            early: [.title(browser: 42, title: "Welcome")])
+
+        let tab = try #require(adopted.first)
+        #expect(runtime.browser(id: 42) === tab.0)
+        #expect(tab.0.state.url?.absoluteString == "https://example.com/welcome")
+        #expect(tab.0.state.title == "Welcome")
+        #expect(tab.1 == .newForegroundTab)
+        #expect(!tab.2)
+    }
+
+    @Test
+    func withoutAnAnchorAnOrphanTabsURLOpensAsACmuxTab() async {
+        let (runtime, _) = Self.runtime()
+        runtime.unownedTabAnchor = { _ in nil }
+        var opened: [URL] = []
+        runtime.openUnownedURL = { url, _, _ in opened.append(url) }
+
+        runtime.closeOrphan(42, created: Self.orphan("https://example.com/welcome"))
+        // An incognito tab never spills into a normal one.
+        runtime.closeOrphan(43, created: Self.orphan("https://example.com/private", disposition: .offTheRecord))
+        await Task { @MainActor in }.value
+
+        #expect(opened.map(\.absoluteString) == ["https://example.com/welcome"])
+        #expect(runtime.browser(id: 42) == nil)
+    }
+
     // MARK: Downloads
 
     /// `chrome.downloads.download` in a background worker reports browser 0:
