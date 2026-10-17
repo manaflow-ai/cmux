@@ -270,6 +270,8 @@ export interface Env {
   readonly CHIEF_SPAWN_MODEL?: string
   /** Days a subagent's object keeps its storage after its report reached the parent (default 7); its run record then lives in the parent. */
   readonly CHIEF_SPAWN_KEEP_DAYS?: string
+  /** First compactor retry delay in ms (default 2 s; exponential backoff with full jitter, cap 5 min). Tests make it small. */
+  readonly CHIEF_BRAIN_COMPACT_RETRY_BASE_MS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
