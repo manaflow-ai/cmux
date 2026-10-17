@@ -16,6 +16,7 @@ let preview: Record<string, unknown>;
 /** The next renewal invoice at the new price (proration_behavior "none"). */
 let renewalPreview: Record<string, unknown>;
 let renewalLines: Record<string, unknown>[];
+let renewalLinePages: Array<{ data: Record<string, unknown>[]; has_more: boolean }> | null;
 let renewalLinesError: unknown;
 let updateError: unknown;
 const calls: { method: string; args: unknown[] }[] = [];
@@ -62,6 +63,12 @@ const deps: PlanChangeDependencies = {
       listLineItems: async (...args: unknown[]) => {
         calls.push({ method: "listLineItems", args });
         if (renewalLinesError) throw renewalLinesError;
+        if (renewalLinePages) {
+          const options = args[1] as { starting_after?: string } | undefined;
+          return options?.starting_after === "line_100"
+            ? renewalLinePages[1]
+            : renewalLinePages[0];
+        }
         return { data: renewalLines, has_more: false };
       },
     },
@@ -91,6 +98,7 @@ beforeEach(() => {
     lines: { data: [{ amount: 20_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: false } } }] },
   };
   renewalLines = [];
+  renewalLinePages = null;
   renewalLinesError = null;
   updateError = null;
   calls.length = 0;
@@ -306,6 +314,28 @@ describe("personal plan change", () => {
     const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     expect(result.nextInvoiceAmount).toBe(18_900);
     expect(calls.find((call) => call.method === "listLineItems")?.args).toEqual(["upcoming_1", { limit: 100 }]);
+  });
+
+  test("paginates renewal lines until it finds the subscription plan", async () => {
+    renewalPreview = { id: "upcoming_1", currency: "usd", amount_due: 11_500, lines: { data: [], has_more: true } };
+    renewalLinePages = [
+      {
+        data: [{ id: "line_100", amount: 1_500, parent: { subscription_item_details: { subscription_item: "si_usage", proration: false } } }],
+        has_more: true,
+      },
+      {
+        data: [{ id: "line_101", amount: 20_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: false } } }],
+        has_more: false,
+      },
+    ];
+
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+
+    expect(result.nextInvoiceAmount).toBe(20_000);
+    expect(calls.filter((call) => call.method === "listLineItems").map((call) => call.args)).toEqual([
+      ["upcoming_1", { limit: 100 }],
+      ["upcoming_1", { limit: 100, starting_after: "line_100" }],
+    ]);
   });
 
   test("refuses to quote when Stripe cannot provide the renewal plan line", async () => {
