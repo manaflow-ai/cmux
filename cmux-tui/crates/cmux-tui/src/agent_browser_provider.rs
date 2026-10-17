@@ -582,9 +582,22 @@ fn read_control_line(
     deadline: Instant,
     limit: usize,
 ) -> anyhow::Result<Vec<u8>> {
+    // The timeout is set once, before the loop (hq-f8). On macOS,
+    // setsockopt(SO_RCVTIMEO) fails with EINVAL after the peer closed, while
+    // the bytes it wrote before it closed are still buffered: a set on every
+    // turn lost them. EINVAL here means the peer closed; reads then never
+    // block (buffered bytes, then end of file), so keep reading.
+    let timeout = remaining_socket_timeout(deadline)?;
+    if let Err(error) = reader.get_ref().set_read_timeout(Some(timeout)) {
+        let peer_closed =
+            error.raw_os_error().is_some() && error.kind() == std::io::ErrorKind::InvalidInput;
+        if !peer_closed {
+            return Err(error.into());
+        }
+    }
     let mut line = Vec::new();
     loop {
-        reader.get_ref().set_read_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        remaining_resolution_time(deadline)?;
         let available = reader.fill_buf()?;
         anyhow::ensure!(!available.is_empty(), "cmux-tui closed its control socket");
         let consumed = available
