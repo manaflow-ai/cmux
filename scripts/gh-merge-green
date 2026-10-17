@@ -736,6 +736,10 @@ merged_head_checks() {
   tmp=$(mktemp -d)
   merged="$tmp/merged"
   git -C "$repo_dir" worktree add --quiet --detach "$merged" "$base_sha" >/dev/null 2>&1
+  # macOS exposes /var/folders through /private/var in Git worktree metadata.
+  # Canonicalize once so check-no-godfiles.sh can derive a relative package path
+  # instead of concatenating the base archive with an absolute merged path.
+  merged="$(cd "$merged" && pwd -P)"
   if ! git -C "$merged" -c user.name=gh-merge-green -c user.email=gh-merge-green@invalid \
       merge --quiet --no-ff --no-edit "$head_sha" >/dev/null 2>&1; then
     git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
@@ -745,9 +749,14 @@ merged_head_checks() {
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
   fi
   if [ "$swift_changed" -eq 1 ]; then
+    local swift_args=(--only swift --base "$base_sha")
+    while IFS= read -r path; do
+      [[ "$path" == Packages/macOS/CmuxNext/*.swift ]] || continue
+      swift_args+=(--file "$path")
+    done <<<"$changed"
     git -C "$repo_dir" show "$base_sha:scripts/cmux-next/check-no-godfiles.sh" > "$merged/scripts/cmux-next/check-no-godfiles.sh"
     git -C "$repo_dir" show "$base_sha:scripts/cmux-next/godfile-baseline.tsv" > "$merged/scripts/cmux-next/godfile-baseline.tsv"
-    if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" --only swift --base "$base_sha" \
+    if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" "${swift_args[@]}" \
         "$merged/Packages/macOS/CmuxNext" 2>&1); then
       status=1
       printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true

@@ -183,4 +183,27 @@ struct PaneZoomMotionTests {
         #expect(["p1", "p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 1 })
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
     }
+
+    @Test func anArrivingSplitPaneFadesItsContentWhileItsHostKeepsTheFinalSize() throws {
+        let paneAnimations = DesignSettings.shared.paneAnimations
+        DesignSettings.shared.paneAnimations = true
+        defer { DesignSettings.shared.paneAnimations = paneAnimations }
+        let screen = Screen(.leaf("p1"))
+        let split = SplitNode.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
+        screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))])
+        screen.root.syncWithModel()
+
+        let pane = try #require(screen.screen?.paneFrames["p2"])
+        #expect(pane.alpha.value == 0, "the arriving pane content popped in before its fade")
+        let final = try #require(screen.hostSize("p2"))
+        #expect(final.width > 0 && final.height > 0, "the arriving content did not get its final host size")
+
+        screen.step()
+        let first = try #require(screen.screen?.paneFrames["p2"]?.alpha.value)
+        #expect(first > 0 && first < 1, "the arriving pane fade did not advance independently")
+        #expect(screen.hostSize("p2") == final, "the arriving pane resized while its content faded")
+
+        for _ in 0..<120 { screen.step() }
+        #expect(screen.opacity("p2") == 1, "the arriving pane fade did not settle")
+    }
 }

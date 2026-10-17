@@ -2819,7 +2819,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() }}" in block
+    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
@@ -2874,7 +2874,7 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
-WEBVIEWS_BUN_JOBS = ("react-apps-check", "diff-sidecar-check")
+WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "diff-sidecar-check")
 
 
 def _setup_bun_versions(text: str) -> list[str]:
@@ -2906,6 +2906,13 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
     workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
     for job in WEBVIEWS_BUN_JOBS:
         assert _setup_bun_versions(workflow_job_block(job, WEB_WORKFLOW)) == [manager["version"]], job
+
+
+def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
+    block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
+    assert "needs: [web-subarea-scope, react-apps-check-shard]" in block
+    assert "react-apps-check-shard" in block
+    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:

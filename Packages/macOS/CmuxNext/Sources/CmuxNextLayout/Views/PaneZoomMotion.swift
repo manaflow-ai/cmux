@@ -25,18 +25,19 @@ struct PaneZoomMotion {
     private(set) var leaving: [PaneID: Leaving] = [:]
 
     /// A structural change: `pane` zooms in (`zooming`) or back, from `frames[pane]`; nil, nothing does.
-    mutating func begin(_ pane: PaneID?, zooming: Bool, frames: [PaneID: AnimatedFrame], to geometry: ScreenGeometry) {
+    mutating func begin(_ pane: PaneID?, zooming: Bool, frames: [PaneID: AnimatedFrame], to geometry: ScreenGeometry,
+                        variant: PaneMotionVariant = .standard) {
         guard let pane, let frame = frames[pane], let size = (zooming ? geometry.panes[pane] : frame.targetRect)?.size else {
             // Another change mid-flight: the zooming pane keeps its size and reveal until it lands.
             if let current = self.pane, geometry.panes[current] == nil { self.pane = nil }
             return
         }
-        (self.pane, token, self.size) = (pane, zooming ? .zoom : .move, size)
+        (self.pane, token, self.size) = (pane, zooming ? variant.expandSpring : variant.closeSpring, size)
         origin = CGPoint(x: frame.rect.midX, y: frame.rect.midY)
     }
 
     /// The spring `pane`'s frame runs on.
-    func spring(for pane: PaneID) -> MotionSpring { pane == self.pane ? token : .move }
+    func spring(for pane: PaneID, fallback: MotionSpring = .move) -> MotionSpring { pane == self.pane ? token : fallback }
 
     /// The zooming pane's host frame: full size, with the spring rect's leading edge and its bottom
     /// (where a terminal's prompt is); the rect clips it. Nil for other panes and once it lands.

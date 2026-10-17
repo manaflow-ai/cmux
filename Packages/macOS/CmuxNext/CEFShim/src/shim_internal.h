@@ -72,6 +72,8 @@ struct ForkApi {
   void (*set_popup_windows_enabled)(int) = nullptr;
   int (*popup_window_bounds)(int, int*, int*, int*, int*) = nullptr;
   int (*popup_window_attach)(int, void*, int, int) = nullptr;
+  // API version 24: DevTools device mode bounds.
+  int (*devtools_inspected_bounds)(int, int*) = nullptr;
   // API version 13: the side panel header for the host.
   void (*side_panel_watch)(int) = nullptr;
   char* (*side_panel_state)(int) = nullptr;

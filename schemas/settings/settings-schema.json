@@ -2250,7 +2250,7 @@
       "range" : {
         "max" : 200,
         "min" : 32,
-        "placeholder" : 96,
+        "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
@@ -2314,7 +2314,7 @@
       "range" : {
         "max" : 120,
         "min" : 16,
-        "placeholder" : 76,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -10303,7 +10303,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -10400,7 +10400,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c1ce3b0c50566737ac5a0162976f137cfeb0c83b8446d2e6bbcba49a0aa7c824",
+  "schema_hash" : "fd4f8f37b75939fc97aaa9a07d4afd9a289b89297f8f27023db93b9e1a04ee26",
   "sections" : [
     {
       "id" : "general",
