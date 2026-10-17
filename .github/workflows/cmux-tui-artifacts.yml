@@ -2835,9 +2835,10 @@ jobs:
   # cmux-tui-pin-* push) still starts their tree jobs.
   notify-unpublished-tree:
     name: report an unpublished cmux-tui tree to cmux-next
-    # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
-    # job, so a run re-run below finds this owner ended (cx-urd.26).
-    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree, macos-cross-shadow, macos-cross-runtime-x86_64]
+    # The publication jobs keep the run in progress; waiting for the optional
+    # cross-compile comparison jobs would make them dependents rather than
+    # compare-only shadows (cx-urd.26).
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
     if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5

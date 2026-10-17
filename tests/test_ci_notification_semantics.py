@@ -43,6 +43,10 @@ class NotificationSemanticsTests(unittest.TestCase):
             isolated = helpers / "run-swift-testing-suites.sh"
             isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
             isolated.chmod(0o755)
+            shutil.copy(ROOT / "scripts/ci/ensure-web-bundles.sh", helpers)
+            fake_bundles = root / "fake-web-bundles.sh"
+            fake_bundles.write_text("#!/bin/bash\nexit 0\n")
+            fake_bundles.chmod(0o755)
             bindir = root / "bin"
             bindir.mkdir()
             cargo = bindir / "cargo"
@@ -89,6 +93,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
                 CMUX_SWIFT_PACKAGE_BUILD_JOBS="3",
+                CMUX_WEB_BUNDLES_BUILD=str(fake_bundles),
             )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

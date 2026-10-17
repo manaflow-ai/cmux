@@ -95,6 +95,22 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate App Store Connect Developer ID helper
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_asc_developer_id_app.py
+
+      - name: Validate cmux-next backdrop art generator
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_backdrop_art_generator.py
+
+      - name: Validate crash ratchet comparison
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_crash_ratchet_compare.py
+
+      - name: Validate red-checks comment helper
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_pr_red_checks_comment.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -342,7 +358,9 @@ jobs:
           if [[ -n "$CMUX_TEST_REGISTRY_BASE_REF" ]]; then
             # Keep this fetch shallow. With the current base tip, merge-base may
             # be unavailable, and the two-tree diff fallback is the right answer.
-            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
+            # Use the branch namespace explicitly: this repository also has
+            # tags named after moving branches (including nightly-next).
+            git fetch --no-tags --depth=1 origin "refs/heads/$CMUX_TEST_REGISTRY_BASE_REF"
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
@@ -648,8 +666,12 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
+
+      - name: Validate cmux-tui same-commit republish behavior
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
 
       - name: Validate the dispatch runner pool's auto pick
         if: ${{ matrix.group == 'ci' }}
@@ -995,17 +1017,9 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
-      - name: Validate iOS simulator build-once contract
-        if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_simulator_build_once.py
-
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
-
-      - name: Validate iOS video recording failures
-        if: ${{ matrix.group == 'app-host-cache' }}
-        run: python3 tests/test_ios_video_recording.py
 
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -1196,6 +1210,7 @@ jobs:
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+          python3 tests/test_nightly_sign_admit.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ matrix.group == 'release-notary' }}

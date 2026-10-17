@@ -1052,6 +1052,10 @@ check_no_github_hosted_runners() {
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # pull_request_target with a write token (test_ci_fork_runner_routing).
     "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # These pull_request_target helpers read only the trusted base checkout and
+    # use GitHub's write-capable token; keep them on GitHub-hosted runners.
+    "intent-familiar-review.yml:    runs-on: ubuntu-24.04"
+    "pr-red-checks-comment.yml:    runs-on: ubuntu-24.04"
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
@@ -1232,6 +1236,18 @@ check_no_self_hosted_fleet_runners() {
       content="${content/"$next_repository_guard"/}"
     fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    # cmux-next's GUI placement has a trusted, owned-pool fallback when the
+    # placement API cannot provide an output. The fallback is guarded by the
+    # owned-pool switch and appears only in these three trusted workflows; the
+    # placement output remains the preferred route. Keep this narrow exception
+    # here so the general fleet-label prohibition still catches every other
+    # hard-coded label.
+    if [[ "$line" == *".github/workflows/cmux-next.yml:"* ||
+          "$line" == *".github/workflows/cmux-next-pr-autofix.yml:"* ||
+          "$line" == *".github/workflows/cmux-next-base-autofix.yml:"* ]] &&
+       [[ "$content_without_allowed" == *"vars.CI_PR_POOL_OWNED == '1'"* ]]; then
+      content_without_allowed="${content_without_allowed//\'glaeda-gui-std-xcode-26.6\'/}"
+    fi
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
     # (see selfhosted above).

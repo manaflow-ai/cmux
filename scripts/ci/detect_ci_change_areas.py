@@ -135,6 +135,10 @@ CI_PUBLISHING_ONLY = frozenset({
     # The local release script behind /release-local and /release-nightly. No
     # workflow runs it; its guards read it as text on Linux.
     "scripts/build-sign-upload.sh",
+    # This strips symbols from already-built release/nightly bundles; it is
+    # exercised by publishing workflows and their focused Linux guards, not
+    # by the pull-request Release compile.
+    "scripts/strip-release-bundle.sh",
 })
 
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({

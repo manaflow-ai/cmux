@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",
@@ -578,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
         "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "foundersBody": "你的 {plan} 訂閱將於 {date} 結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 訂閱將在本計費週期結束時結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "為什麼取消？（選填）",
         "otherPlaceholder": "告訴我們更多（選填）",
         "confirm": "取消方案",

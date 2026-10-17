@@ -25,6 +25,15 @@ admission = job("macos-compile-admission")
 consumer = job("cli-product-tests")
 restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
 
+acpmux_step = re.search(
+    r"(?ms)^      - name: Build in-tree acpmux for compile admission\n(.*?)(?=^      - name: |\Z)",
+    admission,
+)
+assert acpmux_step is not None, "compile admission must build acpmux before Xcode"
+assert 'scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"' in acpmux_step.group(1)
+assert 'echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"' in acpmux_step.group(1)
+assert admission.index(acpmux_step.group(0)) < admission.index("Compile app-host test product")
+
 # Admission drives the canonical-root recipes; the bare subcommands remain for
 # callers that already sit at a stable source root.
 assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission

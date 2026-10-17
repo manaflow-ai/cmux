@@ -277,6 +277,17 @@ jobs:
       CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
+      # This admission job only produces the app-host compile product. Runtime
+      # bundle jobs verify and install web bundles separately; do not make the
+      # compile-only product depend on a bundle stamp.
+      CMUX_WEB_BUNDLES_OPTIONAL: "1"
+      # Compile admission does not publish or consume the same-tree cmux-tui
+      # runtime. Pin mode lets the bundle phase warn and continue when no
+      # pinned client is cached, instead of requiring a tree artifact.
+      CMUX_NEXT_TUI_MODE: "pin"
+      # Do not let a reused mini's unrelated release client turn the
+      # compile-only warning path back into a Debug capability check.
+      CMUX_TUI_CLIENT_CACHE: "/nonexistent"
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -524,6 +535,14 @@ jobs:
             echo "- total reuse seconds: $(show "$REUSE_TOTAL_SECONDS")"
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build in-tree acpmux for compile admission
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: |
+          set -euo pipefail
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Capture Ghostty revision
         if: steps.reuse-products.outputs.hit != 'true'

@@ -769,4 +769,3 @@ Checked side by side with Google Chrome 155 by `scripts/cmux-next/devtools-devic
 - Device frames: Chrome 155 has none either (the frontend no longer ships them).
 - Agent mouse input under touch emulation (cx-3ny35): Chrome also times out `Input.dispatchMouseEvent` there; the driver should send `Input.dispatchTouchEvent`.
 - Fixed: every cmux emulation change waited 5 s, because Chromium answers `Emulation.setEmitTouchEventsForMouse` inside `ExecuteDevToolsMethod`, before a waiter existed (`CEFRuntime.devTools`).
-

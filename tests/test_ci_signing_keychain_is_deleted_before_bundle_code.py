@@ -63,6 +63,7 @@ DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"|scripts/ci/resume-stapled-app-notarization\.sh"
 )
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
@@ -94,9 +95,19 @@ STEP_LEVEL_ONLY = {
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
 }
+# Jobs whose notarization wrapper creates the signing keychain itself immediately
+# before the DMG signature. The wrapper's internal ordering is checked below.
+SCRIPT_MADE_KEYCHAINS = {
+    ("nightly.yml", "build-sign-notarize-nightly"): "scripts/ci/notarize-nightly-dmg.sh",
+    ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
+    ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
+    ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
+    ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
+}
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
     r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
 SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)")
 VARIABLE_RUNNER = re.compile(r"vars\.[A-Z0-9_]*RUNNER")
@@ -168,9 +179,12 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
-        # notarize-nightly-dmg.sh creates its stapled-app DMG keychain through
-        # scripts/ci/signing-keychain.sh create itself.
-        if "signing-keychain.sh create" not in text and "scripts/ci/notarize-nightly-dmg.sh" not in text:
+        # The notarization wrappers create their own short-lived keychain just
+        # before the DMG signature; their internal ordering is checked below.
+        script = SCRIPT_MADE_KEYCHAINS.get(tuple(name.split(" ", 1)))
+        if "signing-keychain.sh create" not in text and not (
+            script and script in text
+        ) and "scripts/ci/notarize-nightly-dmg.sh" not in text:
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
@@ -237,9 +251,25 @@ def check_scripts(failures: list[str]) -> None:
 
     resume = read_lines("scripts/ci/resume-helper-notarization.sh", failures)
     delete = index_of(resume, '"$SIGNING_KEYCHAIN_TOOL" delete')
-    continuation = index_of(resume, '"$RESUME_TOOL"')
+    continuation = index_of(resume, '"$STAPLED_TOOL"')
     if not (0 <= delete < continuation):
         failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
+
+    stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
+    # The package tool creates the keychain immediately before the second DMG
+    # signature and deletes it before the continuation runs bundle code.
+    first = index_of(stapled, '"$RESUME_TOOL" "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE"', last=True)
+    creates = index_of(stapled, "CMUX_PACKAGE_CREATES_KEYCHAIN=true")
+    package = index_of(stapled, '"$PACKAGE_TOOL"')
+    delete = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" delete', last=True)
+    continuation = index_of(stapled, 'continue_stapled "$OUTER_STATE"', last=True)
+    own_create = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" create')
+    if own_create >= 0 or not (0 <= first < creates < package < delete < continuation):
+        failures.append(
+            "scripts/ci/resume-stapled-app-notarization.sh: let the package tool make the signing keychain "
+            "after the first continuation, and delete it before the second continuation "
+            f"(first={first} creates={creates} package={package} delete={delete} continuation={continuation} own_create={own_create})"
+        )
 
     sign = "\n".join(read_lines("scripts/sign-cmux-bundle.sh", failures))
     if '"$SIGNING_KEYCHAIN_TOOL" is-present' not in sign or "SIDECAR_CHECK+=(--static-only)" not in sign:
