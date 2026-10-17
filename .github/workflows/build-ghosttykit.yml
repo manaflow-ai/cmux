@@ -207,6 +207,20 @@ jobs:
             -Dtest-filter="Page VT preserves a fully styled blank row" \
             --summary all
 
+      - name: Test Ghostty narrowed prompt redraw
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="narrowing a multi-line prompt" \
+            -Dtest-filter="PS2 line of input still starts" \
+            -Dtest-filter="no reflow preserves semantic prompt" \
+            -Dtest-filter="narrow then widen keeps the prompt start" \
+            --summary all
+
       - name: Test Ghostty layer display after teardown
         run: |
           set -euo pipefail

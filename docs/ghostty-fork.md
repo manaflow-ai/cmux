@@ -12,6 +12,36 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### A narrowed multi-line prompt redraws without leftovers
+
+- Branch: `fix-prompt-redraw-narrow-multiline`
+  ([manaflow-ai/ghostty#274](https://github.com/manaflow-ai/ghostty/pull/274)),
+  based on the cmux pin `cb1ef7091`.
+- Commits: `508380d` (regression tests), `17c040c` (fix).
+- Summary: with a two-line prompt whose first line is padded to the full
+  width (Powerlevel10k "lean, 2 lines"), each narrowing resize left a copy
+  of line 1 above the redrawn prompt (manaflow-ai/cmux#21341). Resize blanks
+  the prompt from its nearest prompt-start row, and three things put that
+  row too low. `Terminal.semanticPrompt` now treats a primary mark right
+  after prompt text on a prompt-continuation row as re-marking that prompt;
+  the zsh integration sends one (`133;P;k=i`) at zle-line-init when a theme
+  owns PS1. After input text, as on a zsh PS2 line, it still starts a new
+  prompt. `PageList` reflow marks the wrapped half of a prompt row as a
+  continuation, and rejoining it on widen keeps the start mark. After
+  clearing, `Screen.clearPromptForRedraw` moves the cursor up by the rows
+  reflow added between the prompt start and the cursor, since zsh moves up
+  only the rows the prompt had at the old width. It never moves down.
+- Coverage: the Terminal test replays the zsh/p10k sequence through a
+  narrowing resize; PageList and Terminal tests pin the reflow marks and the
+  PS2 case. `build-ghosttykit.yml` runs them.
+- Conflict notes: upstream Ghostty has the same `semanticPrompt`, reflow and
+  `clearPromptForRedraw` code. On an upstream merge, keep the
+  `continues_prompt` check, the `copyRowMetadata` guard and the
+  `prompt_continuation` mark on wrapped rows in `ReflowCursor`, and the
+  `prompt_rows` count taken before `pages.resize`. Line editors that
+  recompute the cursor row at the new width could redraw one row high; they
+  only overwrite rows that were already blanked.
+
 ### Minimum contrast uses the host-painted background
 
 - Branch: `cmux-min-contrast-host-bg`
