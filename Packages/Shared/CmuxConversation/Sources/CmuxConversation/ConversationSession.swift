@@ -14,6 +14,12 @@ public struct ConversationSession: Codable, Hashable, Sendable, Identifiable {
     public let directory: String
     /// Provider-native session identity used for resume, when available.
     public var providerSessionID: String?
+    /// Selected provider model for future turns.
+    public var model: String?
+    /// Selected reasoning/effort value for future turns.
+    public var effort: String?
+    /// Selected response speed value for future turns.
+    public var speed: String?
     /// Creation time.
     public let createdAt: Date
     /// Last metadata or event update time.
@@ -29,8 +35,8 @@ public struct ConversationSession: Codable, Hashable, Sendable, Identifiable {
 
     /// Creates session metadata.
     /// - Parameters: See stored properties. `generation` defaults to a newly generated opaque value.
-    public init(id: ConversationID, provider: ConversationProvider, title: String, workspaceID: String, directory: String, providerSessionID: String? = nil, createdAt: Date = Date(), updatedAt: Date = Date(), generation: ConversationGeneration = UUID().uuidString, state: ConversationSessionState = .starting, isPinned: Bool = false, isArchived: Bool = false) {
-        self.id = id; self.provider = provider; self.title = title; self.workspaceID = workspaceID; self.directory = directory; self.providerSessionID = providerSessionID; self.createdAt = createdAt; self.updatedAt = updatedAt; self.generation = generation; self.state = state; self.isPinned = isPinned; self.isArchived = isArchived
+    public init(id: ConversationID, provider: ConversationProvider, title: String, workspaceID: String, directory: String, providerSessionID: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil, createdAt: Date = Date(), updatedAt: Date = Date(), generation: ConversationGeneration = UUID().uuidString, state: ConversationSessionState = .starting, isPinned: Bool = false, isArchived: Bool = false) {
+        self.id = id; self.provider = provider; self.title = title; self.workspaceID = workspaceID; self.directory = directory; self.providerSessionID = providerSessionID; self.model = model; self.effort = effort; self.speed = speed; self.createdAt = createdAt; self.updatedAt = updatedAt; self.generation = generation; self.state = state; self.isPinned = isPinned; self.isArchived = isArchived
     }
 }
 

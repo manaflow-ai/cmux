@@ -37,6 +37,8 @@ public struct ConversationProviderEvent: Codable, Hashable, Sendable {
 public protocol ConversationProviderConnection: Sendable {
     /// Provider-native session identity, when the protocol exposes one.
     func providerSessionID() async -> String?
+    /// Runtime capability catalog learned from the native protocol, when available.
+    func capabilities() async -> ConversationCapabilities?
     /// Native events emitted by this connection.
     var events: AsyncThrowingStream<ConversationProviderEvent, any Error> { get }
     /// Sends a command using the provider's native protocol.
@@ -74,4 +76,6 @@ public enum ConversationProviderError: Error, Codable, Hashable, Sendable, Custo
 public extension ConversationProviderConnection {
     /// Providers without a resumable native identifier return nil.
     func providerSessionID() async -> String? { nil }
+    /// Providers without runtime capability negotiation return their static declaration.
+    func capabilities() async -> ConversationCapabilities? { nil }
 }

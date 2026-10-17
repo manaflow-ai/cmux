@@ -37,6 +37,8 @@ public struct ConversationEvent: Codable, Hashable, Sendable, Identifiable {
     public let timestamp: Date
     /// Normalized category.
     public let kind: ConversationEventKind
+    /// Owning turn, when known.
+    public let turnID: ConversationTurnID?
     /// Item payload when `kind` is item.
     public let item: ConversationItem?
     /// Request payload when `kind` is request.
@@ -54,5 +56,5 @@ public struct ConversationEvent: Codable, Hashable, Sendable, Identifiable {
     public var id: ConversationCursor { sequence }
 
     /// Creates an ordered event.
-    public init(sessionID: ConversationID, sequence: ConversationCursor, generation: ConversationGeneration, timestamp: Date = Date(), kind: ConversationEventKind, item: ConversationItem? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.sessionID = sessionID; self.sequence = sequence; self.generation = generation; self.timestamp = timestamp; self.kind = kind; self.item = item; self.request = request; self.queue = queue; self.receipt = receipt; self.state = state; self.rawPayload = rawPayload }
+    public init(sessionID: ConversationID, sequence: ConversationCursor, generation: ConversationGeneration, timestamp: Date = Date(), kind: ConversationEventKind, turnID: ConversationTurnID? = nil, item: ConversationItem? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.sessionID = sessionID; self.sequence = sequence; self.generation = generation; self.timestamp = timestamp; self.kind = kind; self.turnID = turnID; self.item = item; self.request = request; self.queue = queue; self.receipt = receipt; self.state = state; self.rawPayload = rawPayload }
 }
