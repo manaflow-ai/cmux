@@ -96,7 +96,7 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
           state: record.state,
           providerLeaseId: record.providerLeaseId,
           expiresAt: new Date(record.expiresAtMs),
-          metadata: record.metadata,
+          metadata: { ...record.metadata },
           updatedAt: new Date(normalized.nowMs),
         }).where(eq(cloudVmHostLeases.id, currentRow.id));
       } else {
@@ -109,13 +109,13 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
           state: record.state,
           providerLeaseId: record.providerLeaseId,
           expiresAt: new Date(record.expiresAtMs),
-          metadata: record.metadata,
+          metadata: { ...record.metadata },
           updatedAt: new Date(normalized.nowMs),
         });
       }
       await tx.update(cloudVmHostLeaseOperations).set({
         status: "complete",
-        receipt: record,
+        receipt: { ...record, metadata: { ...record.metadata } },
         updatedAt: new Date(normalized.nowMs),
       }).where(eq(cloudVmHostLeaseOperations.id, operation.id));
       return record;
