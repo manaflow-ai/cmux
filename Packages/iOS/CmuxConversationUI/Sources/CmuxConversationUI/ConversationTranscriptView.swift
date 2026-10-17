@@ -299,6 +299,13 @@ private struct ConversationQueuedRow: View {
                 .presentationDetents([.medium])
             }
         }
+        // The queue row is one actionable context-menu target. Without an
+        // explicit element boundary, SwiftUI copies the row identifier onto
+        // every text and image child, leaving UI automation with several
+        // indistinguishable matches on iPadOS.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.text)
+        .accessibilityHint(ConversationL10n.value("conversation.queued.hint", "Long press for queued message actions"))
         .accessibilityIdentifier("ConversationQueuedRow-\(item.position)")
     }
 }

@@ -156,11 +156,14 @@ final class NativeConversationUITests: XCTestCase {
         case .queueLifecycle:
             try openDetail(in: app)
             let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
-            let send = app.descendants(matching: .any)["ConversationSendButton"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
-            XCTAssertTrue(send.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("queued follow up")
+            // The queue fixture starts with a live turn, so an empty composer
+            // intentionally shows Stop. Typing the follow-up switches the
+            // control to Send before the queue lifecycle begins.
+            let send = app.descendants(matching: .any)["ConversationSendButton"]
+            XCTAssertTrue(send.waitForExistence(timeout: 5))
             send.tap()
             let row = app.descendants(matching: .any)["ConversationQueuedRow-0"]
             XCTAssertTrue(row.waitForExistence(timeout: 5))
@@ -396,7 +399,15 @@ final class NativeConversationUITests: XCTestCase {
         // a wrapped text field on some iPadOS releases. Assert the security
         // trait through the typed query while retaining the explicit view
         // identifier for any-host accessibility and automation queries.
-        XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 3))
+        let customAnswer = app.descendants(matching: .any)["ConversationQuestionCustomAnswer"]
+        XCTAssertTrue(customAnswer.waitForExistence(timeout: 3))
+        // iPadOS 26 exposes SwiftUI SecureField through a wrapped text-field
+        // node, while iPhone exposes the native secure-text-field query.
+        XCTAssertTrue(
+            app.secureTextFields.firstMatch.exists
+                || app.textFields["ConversationQuestionCustomAnswer"].exists,
+            "the custom answer control must retain a secure or wrapped text-field representation"
+        )
         capture(app, name: "native-secret-question")
     }
 
