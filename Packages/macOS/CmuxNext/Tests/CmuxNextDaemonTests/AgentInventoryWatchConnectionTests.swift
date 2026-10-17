@@ -62,7 +62,8 @@ struct AgentInventoryWatchConnectionTests {
             for (index, call) in calls.enumerated() {
                 #expect(call["expected_machine_id"] == .string(machine.rawValue))
                 #expect(call["enabled"] == .bool(index == 0))
-                let keys = Set(call.objectValue?.keys.map { $0 } ?? [])
+                guard case .object(let fields) = call else { Issue.record("watch request object"); continue }
+                let keys = Set(fields.keys)
                 var expectedKeys: Set<String> = ["id", "cmd", "enabled", "expected_machine_id"]
                 if index == 1 {
                     expectedKeys.insert("expected_watch_id")
