@@ -50,6 +50,17 @@ struct ChatSessionReconcilerTests {
         #expect(reducer.descriptor(for: "live")?.version == 5)
     }
 
+    @Test("Ended sessions remain visible below live sessions")
+    func endedSessionsRemainVisible() {
+        var reducer = ChatSessionReconciler()
+        reducer.replace(with: [
+            descriptor("ended", version: 2, state: .ended),
+            descriptor("live", version: 3, state: .idle),
+        ])
+
+        #expect(reducer.descriptors.map(\.id) == ["live", "ended"])
+    }
+
     @Test("Snapshot replacement retains a push applied after the request began")
     func snapshotRace() {
         var reducer = ChatSessionReconciler()
