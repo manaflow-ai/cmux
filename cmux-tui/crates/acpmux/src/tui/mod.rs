@@ -744,6 +744,9 @@ pub(super) mod interaction_tests {
         app.default_harness = Some("codex".into());
         app.harnesses = vec!["codex".into(), "claude".into()];
         app.open_draft();
+        // Client::connect performs initialization before the fixture returns;
+        // keep that setup request out of interaction assertions below.
+        let _ = requests.recv().await;
         (app, requests)
     }
     #[tokio::test]
