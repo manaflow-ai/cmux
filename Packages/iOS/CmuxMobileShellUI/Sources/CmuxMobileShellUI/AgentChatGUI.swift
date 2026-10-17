@@ -436,6 +436,7 @@ private struct AgentChatConversationView: View {
                             AgentChatMessageCell(
                                 message: message,
                                 selectedOptionIndices: model.selectedQuestionOptionIndices(for: message),
+                                isReplyInFlight: model.isQuestionReplyInFlight(for: message),
                                 answer: { index in
                                 Task { await model.answer(message: message, optionIndex: index) }
                                 },
@@ -832,6 +833,12 @@ private final class AgentChatConversationStore {
         return Set(question.options.indices.filter { selectedIDs.contains(question.options[$0].id) })
     }
 
+    func isQuestionReplyInFlight(for message: ChatMessage) -> Bool {
+        guard case .question(let question) = message.kind,
+              let requestID = question.requestID else { return false }
+        return questionRepliesInFlight.contains(requestID)
+    }
+
     private func questionSelectionKey(message: ChatMessage, question: ChatQuestion) -> String {
         question.questionID ?? message.id
     }
@@ -1013,6 +1020,7 @@ private struct AgentChatComposer: View {
 private struct AgentChatMessageCell: View {
     let message: ChatMessage
     let selectedOptionIndices: Set<Int>
+    let isReplyInFlight: Bool
     let answer: (Int) -> Void
     let toggle: (Int) -> Void
     let submit: () -> Void
@@ -1071,12 +1079,12 @@ private struct AgentChatMessageCell: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(selectedOptionIndices.contains(index) ? .accentColor : nil)
-                    .disabled(question.selectedOptionLabel != nil || (!supportsMultiSelect && !selectedOptionIndices.isEmpty))
+                    .disabled(isReplyInFlight || question.selectedOptionLabel != nil || (!supportsMultiSelect && !selectedOptionIndices.isEmpty))
                 }
                 if supportsMultiSelect, question.selectedOptionLabel == nil {
                     Button("Submit selection", action: submit)
                         .buttonStyle(.borderedProminent)
-                        .disabled(selectedOptionIndices.isEmpty)
+                        .disabled(isReplyInFlight || selectedOptionIndices.isEmpty)
                 }
             }
             .padding(14)
