@@ -30,16 +30,17 @@ use cmux_tui_machine_protocol::{
     ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
     CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
     EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
-    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
-    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
-    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
-    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
-    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
-    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
-    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
-    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
-    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
-    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MACHINE_METADATA_CLIENT_CAPABILITY,
+    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
+    MachineMutationResult, NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult,
+    NoticeDelivery, OpaqueId, OpenMachineParams, OpenMachineResult,
+    PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError, ProviderEvent,
+    ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams, RequestEnvelope,
+    ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams, SnapshotResult,
+    SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
+    WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
+    WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -708,14 +709,14 @@ impl ProviderClient {
     pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
         let mut snapshot =
             self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))?;
-        self.retain_negotiated_actions(&mut snapshot)?;
+        self.retain_negotiated_snapshot(&mut snapshot)?;
         Ok(snapshot)
     }
 
     pub(crate) fn select_scope(&self, scope_id: OpaqueId) -> ProviderResult<SelectScopeResult> {
         let mut result: SelectScopeResult =
             self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))?;
-        self.retain_negotiated_actions(&mut result.snapshot)?;
+        self.retain_negotiated_snapshot(&mut result.snapshot)?;
         Ok(result)
     }
 
@@ -1065,6 +1066,7 @@ impl ProviderClient {
         let requested = vec![
             PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
             CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+            MACHINE_METADATA_CLIENT_CAPABILITY.to_string(),
         ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
@@ -1084,7 +1086,7 @@ impl ProviderClient {
         Ok(())
     }
 
-    fn retain_negotiated_actions(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
+    fn retain_negotiated_snapshot(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
         let capabilities = self
             .inner
             .negotiated_client_capabilities
@@ -1551,13 +1553,13 @@ mod tests {
 
     static NEXT_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 
-    struct TestSocket {
-        path: PathBuf,
+    pub(super) struct TestSocket {
+        pub(super) path: PathBuf,
         listener: UnixListener,
     }
 
     impl TestSocket {
-        fn bind() -> Self {
+        pub(super) fn bind() -> Self {
             let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
                 .join(format!("cmux-machine-provider-client-{}-{id}.sock", std::process::id()));
@@ -1566,25 +1568,9 @@ mod tests {
             Self { path, listener }
         }
 
-        fn listener(&self) -> UnixListener {
+        pub(super) fn listener(&self) -> UnixListener {
             self.listener.try_clone().expect("clone fake provider listener")
         }
-    }
-
-    #[test]
-    fn a_full_snapshot_queue_coalesces_without_unsubscribing() {
-        let socket = TestSocket::bind();
-        let provider = ProviderClient::connect(&socket.path).expect("connect provider client");
-        let (sender, receiver) = mpsc::sync_channel(1);
-        provider.inner.snapshot_subscribers.lock().unwrap().push(sender);
-
-        provider.inner.publish_snapshot_revision(1);
-        provider.inner.publish_snapshot_revision(2);
-        assert_eq!(receiver.recv().unwrap(), 1);
-
-        provider.inner.publish_snapshot_revision(3);
-        assert_eq!(receiver.recv().unwrap(), 3);
-        assert_eq!(provider.inner.snapshot_subscribers.lock().unwrap().len(), 1);
     }
 
     impl Drop for TestSocket {
@@ -1593,11 +1579,11 @@ mod tests {
         }
     }
 
-    fn id(value: &str) -> OpaqueId {
+    pub(super) fn id(value: &str) -> OpaqueId {
         OpaqueId::new(value).expect("valid test id")
     }
 
-    fn token(value: &str) -> BearerToken {
+    pub(super) fn token(value: &str) -> BearerToken {
         BearerToken::new(value).expect("valid test token")
     }
 
@@ -1615,7 +1601,7 @@ mod tests {
         }
     }
 
-    fn client_descriptor() -> ClientDescriptor {
+    pub(super) fn client_descriptor() -> ClientDescriptor {
         ClientDescriptor {
             name: "cmux-test".to_string(),
             version: "0.1.0".to_string(),
@@ -1623,14 +1609,14 @@ mod tests {
         }
     }
 
-    fn read_test_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixStream>) -> T {
+    pub(super) fn read_test_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixStream>) -> T {
         let frame = read_bounded_frame(reader, MAX_CONTROL_FRAME_BYTES)
             .expect("read fake provider frame")
             .expect("fake provider peer disconnected");
         serde_json::from_slice(&frame).expect("decode fake provider frame")
     }
 
-    fn write_test_frame<T: Serialize>(stream: &mut UnixStream, frame: &T) {
+    pub(super) fn write_test_frame<T: Serialize>(stream: &mut UnixStream, frame: &T) {
         write_json_frame(stream, frame, MAX_CONTROL_FRAME_BYTES)
             .expect("write fake provider frame");
     }
@@ -1643,7 +1629,7 @@ mod tests {
         accept_hello_with_capabilities(stream, reader, expected_token, &[]);
     }
 
-    fn accept_hello_with_capabilities(
+    pub(super) fn accept_hello_with_capabilities(
         stream: &mut UnixStream,
         reader: &mut BufReader<UnixStream>,
         expected_token: &str,
@@ -2721,3 +2707,7 @@ mod tests {
         server.join().expect("join fake provider");
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "machine_provider_client_snapshot_tests.rs"]
+mod snapshot_tests;
