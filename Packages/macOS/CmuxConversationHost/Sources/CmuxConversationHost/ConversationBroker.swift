@@ -63,13 +63,18 @@ public actor ConversationBroker: ConversationClient {
         let title: String?
     }
 
+    private struct Subscriber {
+        let after: ConversationCursor
+        let continuation: AsyncThrowingStream<ConversationEvent, any Error>.Continuation
+    }
+
     private let directory: URL
     private let snapshotInterval: Int
     private let onChange: (@Sendable (ConversationID, ConversationCursor) -> Void)?
     private let adapters: [ConversationProvider: any ConversationProviderAdapter]
     private var sessions: [ConversationID: SessionState] = [:]
     private var creationReservations: [ConversationCommandID: CreationReservation] = [:]
-    private var subscribers: [ConversationID: [UUID: AsyncThrowingStream<ConversationEvent, any Error>.Continuation]] = [:]
+    private var subscribers: [ConversationID: [UUID: Subscriber]] = [:]
     private let encoder = JSONEncoder()
     private var isShutdown = false
     private var attachmentTasks: [ConversationID: Task<Void, any Error>] = [:]
@@ -186,9 +191,8 @@ public actor ConversationBroker: ConversationClient {
         let (stream, continuation) = AsyncThrowingStream<ConversationEvent, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1_024))
         guard sessions[sessionID] != nil else { continuation.finish(throwing: ConversationBrokerError.sessionNotFound(sessionID)); return stream }
         let id = UUID()
-        subscribers[sessionID, default: [:]][id] = continuation
+        subscribers[sessionID, default: [:]][id] = Subscriber(after: after, continuation: continuation)
         continuation.onTermination = { @Sendable [weak self] _ in Task { await self?.removeSubscriber(sessionID: sessionID, id: id) } }
-        _ = after
         return stream
     }
 
@@ -278,7 +282,7 @@ public actor ConversationBroker: ConversationClient {
         for task in attachmentTasks.values { task.cancel() }
         attachmentTasks.removeAll()
         for id in sessions.keys { await close(id: id) }
-        for values in subscribers.values { for continuation in values.values { continuation.finish() } }
+        for values in subscribers.values { for subscriber in values.values { subscriber.continuation.finish() } }
         subscribers.removeAll()
     }
 
@@ -597,9 +601,10 @@ public actor ConversationBroker: ConversationClient {
 
     private func broadcast(_ event: ConversationEvent) {
         guard var values = subscribers[event.sessionID] else { return }
-        for (id, continuation) in values {
-            let result = continuation.yield(event)
-            if case .dropped = result { continuation.finish(throwing: ConversationBrokerError.eventStreamOverflow); values.removeValue(forKey: id) }
+        for (id, subscriber) in values {
+            guard event.sequence > subscriber.after else { continue }
+            let result = subscriber.continuation.yield(event)
+            if case .dropped = result { subscriber.continuation.finish(throwing: ConversationBrokerError.eventStreamOverflow); values.removeValue(forKey: id) }
         }
         subscribers[event.sessionID] = values
     }
