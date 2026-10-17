@@ -67,6 +67,8 @@ extension BrowserPanel {
         // Its page window can take the keyboard from now on: shortcut routing
         // must recognize it (`NSWindow.chromiumActingWindow`).
         NSWindow.noteChromiumRuntimeLoaded()
+        // Divider bands and drags from the cmux window reach it over the page.
+        ChromiumPageMouseRouter.shared.install()
         pageOverlays.attach(contentView: contentView, target: target)
     }
 

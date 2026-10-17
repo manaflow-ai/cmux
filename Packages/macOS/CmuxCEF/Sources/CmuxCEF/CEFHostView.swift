@@ -90,12 +90,24 @@ public final class CEFHostView: NSView {
     }
 
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
-    /// on every geometry update.
+    /// on every geometry update, so window rects convert at the current
+    /// position.
     @objc public func cmuxOcclusionRects() -> NSArray {
+        allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+    }
+
+    /// The panel's holes, the separator row and the window's holes
+    /// (``CEFWindowOcclusion``: the command palette, a divider band under the
+    /// pointer) in this view's coordinates, as non-overlapping rects: the fork
+    /// masks with even-odd rules, so an overlap would show the page again.
+    var allOcclusionRects: [CGRect] {
         var rects = occlusionRects
         if let separator = Self.chromiumSeparatorRect(in: bounds) { rects.append(separator) }
-        return Self.outermost(rects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
-            .map { NSValue(rect: $0) } as NSArray
+        if let window, let registry = CEFWindowOcclusion.existing(for: window) {
+            rects += registry.rectsInWindow.map { convert($0, from: nil) }
+        }
+        let shown = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
+        return Self.disjointUnion(Self.outermost(shown))
     }
 
     /// Chromium's window draws a 1 pt contents separator above the web
@@ -111,10 +123,93 @@ public final class CEFHostView: NSView {
                       width: bounds.width, height: chromiumSeparatorHeight)
     }
 
-    /// Read by the fork (`-cmuxClipPath`) on every geometry update.
+    /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
+    /// owner's clip, or else the window's rounded corners where the page
+    /// reaches them, so no square page corner shows past the window's.
     @objc public func cmuxClipPath() -> NSBezierPath? {
-        guard let clipPath else { return nil }
-        return NSBezierPath(cgPath: clipPath)
+        guard let shape = clipPath ?? windowCornerClip else { return nil }
+        return NSBezierPath(cgPath: shape)
+    }
+
+    /// The window's rounded frame intersected with this view, nil when the
+    /// view reaches no window corner (or the window has square corners).
+    var windowCornerClip: CGPath? {
+        guard let window else { return nil }
+        let windowRect = convert(CGRect(origin: .zero, size: window.frame.size), from: nil)
+        return Self.cornerClip(bounds: bounds, windowRect: windowRect, radius: Self.cornerRadius(of: window))
+    }
+
+    /// `bounds` cut to `windowRect` rounded by `radius`, nil when no corner
+    /// square of the rounded rect overlaps `bounds`.
+    static func cornerClip(bounds: CGRect, windowRect: CGRect, radius: CGFloat) -> CGPath? {
+        let radius = min(radius, min(windowRect.width, windowRect.height) / 2)
+        guard radius > 0.01, !bounds.isEmpty else { return nil }
+        let r = windowRect
+        let corners = [
+            CGRect(x: r.minX, y: r.minY, width: radius, height: radius),
+            CGRect(x: r.maxX - radius, y: r.minY, width: radius, height: radius),
+            CGRect(x: r.minX, y: r.maxY - radius, width: radius, height: radius),
+            CGRect(x: r.maxX - radius, y: r.maxY - radius, width: radius, height: radius),
+        ]
+        let reachesCorner = corners.contains { corner in
+            let overlap = corner.intersection(bounds)
+            return !overlap.isNull && overlap.width > 0.01 && overlap.height > 0.01
+        }
+        guard reachesCorner else { return nil }
+        let rounded = CGPath(roundedRect: windowRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        return CGPath(rect: bounds, transform: nil).intersection(rounded)
+    }
+
+    /// The window's corner radius (AppKit's `_cornerRadius`); none in full
+    /// screen or for an untitled window.
+    static func cornerRadius(of window: NSWindow) -> CGFloat {
+        guard window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return 0 }
+        let selector = NSSelectorFromString("_cornerRadius")
+        guard window.responds(to: selector), let value = window.value(forKey: "_cornerRadius") as? NSNumber else {
+            return 0
+        }
+        return CGFloat(value.doubleValue)
+    }
+
+    /// The union of `rects` as non-overlapping rects: horizontal bands
+    /// between every distinct edge, each band's covered x-ranges merged, and
+    /// bands with the same ranges joined vertically (as CmuxBrowser's
+    /// `BrowserPageOcclusionPlan.disjointUnion`, which this package cannot import).
+    static func disjointUnion(_ rects: [CGRect]) -> [CGRect] {
+        let rects = rects.filter { !$0.isNull && !$0.isEmpty }
+        guard rects.count > 1 else { return rects }
+        guard rects.contains(where: { rect in rects.contains { $0 != rect && $0.intersects(rect) } }) else {
+            return rects
+        }
+        let edges = Set(rects.flatMap { [$0.minY, $0.maxY] }).sorted()
+        var result: [CGRect] = []
+        var open: [ClosedRange<CGFloat>: CGRect] = [:]
+        for (top, bottom) in zip(edges, edges.dropFirst()) {
+            let spans = rects
+                .filter { $0.minY < bottom && $0.maxY > top }
+                .map { $0.minX...$0.maxX }
+                .sorted { $0.lowerBound < $1.lowerBound }
+            var merged: [ClosedRange<CGFloat>] = []
+            for span in spans {
+                if let last = merged.last, span.lowerBound <= last.upperBound {
+                    merged[merged.count - 1] = last.lowerBound...max(last.upperBound, span.upperBound)
+                } else {
+                    merged.append(span)
+                }
+            }
+            var next: [ClosedRange<CGFloat>: CGRect] = [:]
+            for span in merged {
+                if let running = open.removeValue(forKey: span), running.maxY == top {
+                    next[span] = CGRect(x: running.minX, y: running.minY, width: running.width, height: bottom - running.minY)
+                } else {
+                    next[span] = CGRect(x: span.lowerBound, y: top, width: span.upperBound - span.lowerBound, height: bottom - top)
+                }
+            }
+            result.append(contentsOf: open.values)
+            open = next
+        }
+        result.append(contentsOf: open.values)
+        return result.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
     /// `rects` without those inside another (one of equal rects stays): a
@@ -127,9 +222,45 @@ public final class CEFHostView: NSView {
         }.map(\.element)
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, window !== newWindow {
+            CEFWindowOcclusion.existing(for: window)?.remove(self)
+            let center = NotificationCenter.default
+            center.removeObserver(self, name: CEFWindowOcclusion.didChangeNotification, object: window)
+            for name in Self.windowGeometryNotifications {
+                center.removeObserver(self, name: name, object: window)
+            }
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let window {
+            CEFWindowOcclusion.registry(for: window).add(self)
+            // Selector observers: NotificationCenter drops them with the view.
+            let center = NotificationCenter.default
+            center.addObserver(self, selector: #selector(windowGeometryDidChange(_:)),
+                               name: CEFWindowOcclusion.didChangeNotification, object: window)
+            for name in Self.windowGeometryNotifications {
+                center.addObserver(self, selector: #selector(windowGeometryDidChange(_:)), name: name, object: window)
+            }
+        }
         onPresentationChange?(self)
+    }
+
+    /// Window changes that move the page or change its holes or corner clip
+    /// without a frame change of this view (Next `requestPageUpdate`).
+    private static let windowGeometryNotifications: [Notification.Name] = [
+        NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+        NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
+        NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification,
+        NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
+    ]
+
+    @objc private func windowGeometryDidChange(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        postGeometryChange()
     }
 
     public override func viewDidHide() {

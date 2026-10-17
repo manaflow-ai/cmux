@@ -669,7 +669,9 @@
 		BFBEC1CD17A72ED91930A4E3 /* ChromiumEmbedLifecycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */; };
 		313A7A660132A1AE84F47B4E /* ChromiumHelperCrashWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */; };
 		02F97228812557C41BEEA1F7 /* ChromiumPageFailureOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */; };
+		47E9FFC426714B26271F0792 /* ChromiumPageMouseRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */; };
 		E87D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */; };
+		14EF8964333D71D46D8B6198 /* ChromiumWindowOverlayHole.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
@@ -5449,7 +5451,9 @@
 		D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumEmbedLifecycleUITests.swift; sourceTree = "<group>"; };
 		8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumHelperCrashWatch.swift; sourceTree = "<group>"; };
 		7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumPageFailureOverlay.swift; sourceTree = "<group>"; };
+		8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumPageMouseRouter.swift; sourceTree = "<group>"; };
 		E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/ChromiumPopupWindowController.swift"; sourceTree = "<group>"; };
+		C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumWindowOverlayHole.swift; sourceTree = "<group>"; };
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
@@ -12492,6 +12496,8 @@
 				99152F67A0EC50EFFA4A429F /* TerminalController+BrowserRawInputDevTools.swift */,
 				33708E49D5123CB940ED50AA /* BrowserPanel+ProtocolTelemetry.swift */,
 				212EB676288166B55ECA980D /* TerminalController+BrowserProtocolTelemetry.swift */,
+				C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */,
+				8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15357,7 +15363,9 @@
 				DFA22CFDEA096E4B98111796 /* ChromiumDebugWindowController.swift in Sources */,
 				313A7A660132A1AE84F47B4E /* ChromiumHelperCrashWatch.swift in Sources */,
 				02F97228812557C41BEEA1F7 /* ChromiumPageFailureOverlay.swift in Sources */,
+				47E9FFC426714B26271F0792 /* ChromiumPageMouseRouter.swift in Sources */,
 				E87D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift in Sources */,
+				14EF8964333D71D46D8B6198 /* ChromiumWindowOverlayHole.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
