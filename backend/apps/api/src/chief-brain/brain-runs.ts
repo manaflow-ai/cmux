@@ -48,7 +48,7 @@ export interface Run {
    * started_at: wake path vs. model time); continuation_at / continuation_first_token_at: the hands continuation;
    * step marks of the turn's start (brain-turn.ts): count_at, auth_at, paid_at, pi_at, submit_at.
    */
-  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly count_at?: number; readonly boot_at?: number; readonly life_at?: number; readonly reserved_at?: number; readonly upstream_at?: number; readonly headers_at?: number; readonly auth_at?: number; readonly paid_at?: number; readonly pi_at?: number; readonly submit_at?: number; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number; readonly continuation_at?: number; readonly continuation_first_token_at?: number }
+  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly count_at?: number; readonly boot_at?: number; readonly mux_at?: number; readonly life_at?: number; readonly reserved_at?: number; readonly upstream_at?: number; readonly headers_at?: number; readonly auth_at?: number; readonly paid_at?: number; readonly pi_at?: number; readonly submit_at?: number; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number; readonly continuation_at?: number; readonly continuation_first_token_at?: number }
 }
 
 /**
@@ -57,10 +57,10 @@ export interface Run {
  * opens, then stored with it (cb_timing2). With started_at, request_at and first_token_at they split
  * the time from a person's message to the first token.
  */
-export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settled" | "boot" | "life", at = Date.now()): void =>
-  void sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = ${mark === "wake" || mark === "boot" || mark === "life" ? "CASE WHEN cb_config.value = '' THEN excluded.value ELSE cb_config.value END" : "excluded.value"}`, `mark.${mark}`, String(at))
+export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settled" | "boot" | "life" | "mux", at = Date.now()): void =>
+  void sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = ${mark === "wake" || mark === "boot" || mark === "life" || mark === "mux" ? "CASE WHEN cb_config.value = '' THEN excluded.value ELSE cb_config.value END" : "excluded.value"}`, `mark.${mark}`, String(at))
 export const flushMarks = (sql: SqlStorage, turn: string): void => {
-  for (const m of ["boot", "life", "wake", "admitted", "settled"]) {
+  for (const m of ["mux", "boot", "life", "wake", "admitted", "settled"]) {
     const v = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `mark.${m}`).toArray()[0]?.value
     // A mark left by a wake that started no turn (skipped, nothing new) is older than this turn's wake path: dropped.
     if (v && Date.now() - Number(v) < 60_000) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))

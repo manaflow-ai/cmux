@@ -559,7 +559,7 @@
     "setting.ui.animationSpeed": "fast",
     "setting.ui.animations.bounce": "none",
     "setting.ui.animations.newTab": true,
-    "setting.ui.animations.newWorkspace": false,
+    "setting.ui.animations.newWorkspace": true,
     "setting.ui.paneAnimations": false,
     "setting.updates.checkAutomatically": true,
     "setting.updates.checkIntervalSeconds": 3600,
