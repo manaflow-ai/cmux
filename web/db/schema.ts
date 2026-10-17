@@ -1224,6 +1224,59 @@ export const cloudVmLeases = pgTable(
   ],
 );
 
+/** Current fenced lease state for a remote VM host. Provider adapters never write this table directly. */
+export const cloudVmHostLeases = pgTable(
+  "cloud_vm_host_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: text("provider").notNull(),
+    hostId: text("host_id").notNull(),
+    leaseId: text("lease_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    generation: integer("generation").notNull(),
+    state: text("state").notNull().default("active"),
+    providerLeaseId: text("provider_lease_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_host_leases_host_lease_unique").on(table.hostId, table.leaseId),
+    index("cloud_vm_host_leases_expiry_idx").on(table.expiresAt),
+    check("cloud_vm_host_leases_provider_check", sql`${table.provider} ~ '^[a-z][a-z0-9-]{1,63}$'`),
+    check("cloud_vm_host_leases_state_check", sql`${table.state} in ('active', 'released')`),
+    check("cloud_vm_host_leases_generation_check", sql`${table.generation} > 0`),
+  ],
+);
+
+/** Durable idempotency ledger for every host lease effect. */
+export const cloudVmHostLeaseOperations = pgTable(
+  "cloud_vm_host_lease_operations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: text("provider").notNull(),
+    hostId: text("host_id").notNull(),
+    leaseId: text("lease_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    effectKey: text("effect_key").notNull(),
+    operation: text("operation").notNull(),
+    generation: integer("generation").notNull(),
+    status: text("status").notNull().default("pending"),
+    receipt: jsonb("receipt").$type<Record<string, unknown> | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_host_lease_operations_effect_unique").on(table.hostId, table.leaseId, table.effectKey),
+    index("cloud_vm_host_lease_operations_pending_idx").on(table.status, table.updatedAt),
+    check("cloud_vm_host_lease_operations_provider_check", sql`${table.provider} ~ '^[a-z][a-z0-9-]{1,63}$'`),
+    check("cloud_vm_host_lease_operations_operation_check", sql`${table.operation} in ('acquire', 'renew', 'release')`),
+    check("cloud_vm_host_lease_operations_status_check", sql`${table.status} in ('pending', 'complete')`),
+    check("cloud_vm_host_lease_operations_generation_check", sql`${table.generation} > 0`),
+  ],
+);
+
 export const cloudVmSessions = pgTable(
   "cloud_vm_sessions",
   {
