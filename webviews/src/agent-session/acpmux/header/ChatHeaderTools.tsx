@@ -392,7 +392,7 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      {buttons ? <span className="acpmux-header-separator" role="separator" aria-orientation="vertical" /> : null}
+      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
       <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
         {sessionRail}
         {summary}
