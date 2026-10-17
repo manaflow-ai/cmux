@@ -140,6 +140,29 @@ struct WorkstreamPersistenceTests {
         #expect(loaded.isEmpty)
     }
 
+    @Test("bounded startup skips an unterminated oversized tail row")
+    func startupSkipsPartialTailRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-partial-tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let item = WorkstreamItem(
+            workstreamId: "valid",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var data = try encoder.encode(item)
+        data.append(0x0A)
+        data.append(Data(repeating: 0x78, count: 1024 * 1024))
+        try data.write(to: tmp)
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let snapshot = try await persistence.loadStartupSnapshot(limit: 10)
+        #expect(snapshot.items.map(\.workstreamId) == ["valid"])
+    }
+
     @Test("clear removes the backing file")
     func clearRemovesFile() async throws {
         let tmp = FileManager.default.temporaryDirectory

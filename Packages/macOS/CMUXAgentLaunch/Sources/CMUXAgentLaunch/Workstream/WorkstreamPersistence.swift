@@ -1,14 +1,25 @@
 import Foundation
 
-/// Append-only JSONL persistence for `WorkstreamItem`. One item per line,
-/// unbounded on disk. The in-memory ring buffer on `WorkstreamStore` is
-/// the only cap on working set size; this layer exists for restart
-/// recovery and long-term audit.
+/// JSONL persistence for `WorkstreamItem`. One item per line. Startup reads
+/// remain bounded even if an older build left an oversized append-only log.
 ///
 /// Writes are serialized through an actor so the store can fire them off
 /// without awaiting disk IO; reads happen on the caller's executor since
 /// load runs once per process at launch.
 public actor WorkstreamPersistence {
+    /// The startup state loaded without scanning the complete log.
+    public struct StartupSnapshot: Sendable {
+        public let items: [WorkstreamItem]
+        public let revision: Int
+        public let page: Page
+
+        public init(items: [WorkstreamItem], revision: Int, page: Page) {
+            self.items = items
+            self.revision = revision
+            self.page = page
+        }
+    }
+
     public struct Page: Sendable, Equatable {
         public let items: [WorkstreamItem]
         public let hasMoreBefore: Bool
@@ -65,27 +76,41 @@ public actor WorkstreamPersistence {
         try loadPage(endingBefore: nil, limit: limit).items
     }
 
-    /// Loads the newest durable version of each event. Mutations are written
-    /// as additional JSONL rows, so startup must collapse those rows before
-    /// publishing state or an old status could overwrite a reply/resolution.
+    /// Loads the newest durable versions found in a bounded recovery tail.
+    /// Mutations are written as additional JSONL rows, so startup collapses
+    /// duplicate IDs in that tail before publishing state. Very old rows
+    /// beyond the recovery bound are available through ``loadPage``.
     public func loadLatest(limit: Int) throws -> [WorkstreamItem] {
-        guard limit > 0,
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+        try loadBoundedLatest(limit: limit)
+    }
+
+    private func loadBoundedLatest(limit: Int) throws -> [WorkstreamItem] {
+        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
-        let data = try Data(contentsOf: fileURL)
+        let tail = try readTail(limit: limit)
         var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
-        for (sequence, line) in data.split(separator: 0x0A).enumerated() {
-            guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)) else {
-                continue
-            }
-            latestByID[item.id] = (sequence, item)
+        for (sequence, line) in tail.lines.enumerated().reversed() {
+            guard let item = try? decoder.decode(WorkstreamItem.self, from: line) else { continue }
+            if latestByID[item.id] == nil { latestByID[item.id] = (sequence, item) }
+            if latestByID.count >= limit { break }
         }
-        return latestByID.values
-            .sorted { $0.sequence < $1.sequence }
-            .map(\.item)
-            .suffix(limit)
-            .map { $0 }
+        return latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item)
+    }
+
+    /// Loads a bounded startup tail without decoding the complete append-only
+    /// log. The revision is the file-byte generation, which is cheap and
+    /// monotonic while the append-only file remains in place.
+    public func loadStartupSnapshot(limit: Int) throws -> StartupSnapshot {
+        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
+            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            return StartupSnapshot(items: [], revision: 0, page: empty)
+        }
+        let size = try fileSize()
+        let items = try loadBoundedLatest(limit: limit)
+        let page = try loadPage(limit: limit)
+        let revision = Int(min(size, UInt64(Int.max)))
+        return StartupSnapshot(items: items, revision: revision, page: page)
     }
 
     /// Returns a durable generation for the append-only log. The mobile Feed
@@ -94,15 +119,45 @@ public actor WorkstreamPersistence {
     /// resolution behind a stale `feed.changed` event.
     public func loadRevision() throws -> Int {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
-        let data = try Data(contentsOf: fileURL)
-        var revision = 0
-        for line in data.split(separator: 0x0A) {
-            guard (try? decoder.decode(WorkstreamItem.self, from: Data(line))) != nil else {
-                continue
-            }
-            revision += 1
+        return Int(min(try fileSize(), UInt64(Int.max)))
+    }
+
+    private struct Tail {
+        let lines: [Data]
+    }
+
+    private func readTail(limit: Int) throws -> Tail {
+        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
+            return Tail(lines: [])
         }
-        return revision
+        let fh = try FileHandle(forReadingFrom: fileURL)
+        defer { try? fh.close() }
+        let fileSize = try fh.seekToEnd()
+        guard fileSize > 0 else { return Tail(lines: []) }
+        let chunkSize = 64 * 1024
+        let maximumTailBytes = 8 * 1024 * 1024
+        var offset = fileSize
+        var chunks: [Data] = []
+        var totalBytes = 0
+        var newlineCount = 0
+        let maximumRows = 10_000
+        while offset > 0, newlineCount < maximumRows {
+            let readSize = min(chunkSize, min(Int(offset), maximumTailBytes - totalBytes))
+            guard readSize > 0 else { break }
+            offset -= UInt64(readSize)
+            try fh.seek(toOffset: offset)
+            guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else { break }
+            newlineCount += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
+            totalBytes += chunk.count
+            chunks.append(chunk)
+        }
+        var data = Data()
+        for chunk in chunks.reversed() { data.append(chunk) }
+        var lines = data.split(separator: 0x0A).map(Data.init)
+        if offset > 0, !lines.isEmpty {
+            lines.removeFirst()
+        }
+        return Tail(lines: lines)
     }
 
     /// Loads up to `limit` items ending before `endOffset`. Order in the
@@ -128,11 +183,14 @@ public actor WorkstreamPersistence {
         }
 
         let chunkSize = 64 * 1024
+        let maximumTailBytes = 8 * 1024 * 1024
         var offset = pageEnd
         var tail = Data()
         var lineRanges: [(range: Range<Int>, startOffset: UInt64)] = []
         while offset > 0 {
-            let readSize = min(chunkSize, Int(offset))
+            let remainingBudget = maximumTailBytes - tail.count
+            guard remainingBudget > 0 else { break }
+            let readSize = min(chunkSize, min(remainingBudget, Int(offset)))
             offset -= UInt64(readSize)
             try fh.seek(toOffset: offset)
             guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
@@ -147,6 +205,9 @@ public actor WorkstreamPersistence {
 
         if lineRanges.isEmpty {
             lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
+        }
+        if offset > 0, lineRanges.first?.startOffset == offset {
+            lineRanges.removeFirst()
         }
         let selectedRanges = lineRanges.suffix(limit)
         var out: [WorkstreamItem] = []
@@ -183,6 +244,12 @@ public actor WorkstreamPersistence {
             }
             throw error
         }
+    }
+
+    private func fileSize() throws -> UInt64 {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
+        let size = try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber
+        return size?.uint64Value ?? 0
     }
 
     private func handleForWriting() throws -> FileHandle {

@@ -52,6 +52,7 @@ public final class WorkstreamStore {
     /// App-owned migration hook for versioned workstream identities.
     let workstreamIDNormalizer: @Sendable (String, String) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
+    private var startTask: Task<Void, Never>?
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -95,20 +96,32 @@ public final class WorkstreamStore {
     }
 
     public func start() async {
-        if let persistence {
-            revision = (try? await persistence.loadRevision()) ?? 0
-            if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
-                items = loaded.map(normalizedWorkstreamItem)
-                if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                    hasMorePersistedItems = page.hasMoreBefore
-                    oldestLoadedPersistenceOffset = page.startOffset
-                } else {
-                    hasMorePersistedItems = false
-                    oldestLoadedPersistenceOffset = nil
-                }
-                rebuildContextIndex()
-                bumpRevision()
-            }
+        if let startTask {
+            await startTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStart()
+        }
+        startTask = task
+        await task.value
+    }
+
+    private func performStart() async {
+        if let persistence,
+           let snapshot = try? await persistence.loadStartupSnapshot(
+               limit: min(initialLoadLimit, ringCapacity)
+           ) {
+            revision = max(revision, snapshot.revision)
+            let restored = snapshot.items.map(normalizedWorkstreamItem)
+            let liveIDs = Set(items.map(\.id))
+            let restoredItems = restored.filter { !liveIDs.contains($0.id) }
+            items = (restoredItems + items).suffix(ringCapacity).map { $0 }
+            hasMorePersistedItems = snapshot.page.hasMoreBefore
+            oldestLoadedPersistenceOffset = snapshot.page.startOffset
+            rebuildContextIndex()
+            bumpRevision()
         }
         do {
             try await transport.subscribe { [weak self] event in
