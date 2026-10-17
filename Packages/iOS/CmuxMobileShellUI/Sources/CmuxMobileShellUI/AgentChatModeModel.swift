@@ -162,7 +162,7 @@ final class AgentChatModeModel {
             if let first = visibleSessions.first { select(first) }
             return
         }
-        guard visibleSessions.contains(where: { $0.id == selectedSessionID }) else {
+        if !visibleSessions.contains(where: { $0.id == selectedSessionID }) {
             if let first = visibleSessions.first {
                 select(first)
             } else {
