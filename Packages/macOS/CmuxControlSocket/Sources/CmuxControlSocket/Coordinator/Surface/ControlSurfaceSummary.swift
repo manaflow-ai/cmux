@@ -54,6 +54,10 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     public let simulatorDeviceState: String?
     /// The Dock container scope for Dock-hosted surfaces, else `nil`.
     public let dockScopeRawValue: String?
+    /// The local terminal's live controlling TTY, independent of shell integration.
+    public let controllingTTY: String?
+    /// The local terminal's live foreground process group leader, else `nil`.
+    public let foregroundProcessID: Int?
 
     /// Creates a surface summary.
     ///
@@ -72,6 +76,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - isTerminal: Whether this is a terminal surface.
     ///   - resumeBinding: For terminals, the resume binding.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
+    ///   - controllingTTY: The local terminal's controlling TTY device path.
+    ///   - foregroundProcessID: The local terminal's foreground process group leader.
     public init(
         surfaceID: UUID,
         typeRawValue: String,
@@ -92,7 +98,9 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         simulatorDeviceTypeIdentifier: String? = nil,
         simulatorDeviceName: String? = nil,
         simulatorDeviceState: String? = nil,
-        dockScopeRawValue: String? = nil
+        dockScopeRawValue: String? = nil,
+        controllingTTY: String? = nil,
+        foregroundProcessID: Int? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
@@ -114,5 +122,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.simulatorDeviceName = simulatorDeviceName
         self.simulatorDeviceState = simulatorDeviceState
         self.dockScopeRawValue = dockScopeRawValue
+        self.controllingTTY = controllingTTY
+        self.foregroundProcessID = foregroundProcessID
     }
 }
