@@ -75,15 +75,3 @@
   --cv-code-radius: 4px;
   --cv-code-padding: 0.5px 4px;
 }
-
-/* data-chat-composer="soft": the composer's outline at about half strength, lifted by a soft
-   shadow instead. No outline at all keeps working (appearance.borders = none). */
-:root[data-chat-composer="soft"]:not([data-borders="none"]) .acpmux-composer-box {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, 0.5px)
-    color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg, var(--acpmux-base)));
-}
-:root[data-chat-composer="soft"] .acpmux-composer-box {
-  box-shadow:
-    var(--acpmux-card-ring),
-    0 10px 28px -14px rgb(0 0 0 / 0.55);
-}

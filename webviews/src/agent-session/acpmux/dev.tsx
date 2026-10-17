@@ -49,7 +49,6 @@ if (params.has("sleek"))
     "data-chat-code": "slim",
     "data-chat-files": "quiet",
     "data-chat-inline-code": "soft",
-    "data-chat-composer": "soft",
   }))
     document.documentElement.setAttribute(name, value);
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
