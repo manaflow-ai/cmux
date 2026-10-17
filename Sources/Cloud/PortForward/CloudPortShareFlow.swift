@@ -73,8 +73,13 @@ enum CloudPortShareFlow {
             defer { endFlow(machineID: context.machineID, port: context.port) }
             do {
                 try await run(context, target: target, client: client)
+            } catch let error as CloudPortShareError {
+                showError(error.description)
             } catch {
-                showError(String(describing: error))
+                showError(String(
+                    localized: "cloudPort.share.changeFailed.detail",
+                    defaultValue: "The change could not be confirmed. Check the port's sharing and try again."
+                ))
             }
         }
     }

@@ -231,8 +231,10 @@ enum CloudSecretsSocketParams {
         ]
     }
 
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
     static func iso8601(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        iso8601Formatter.string(from: date)
     }
 }
 

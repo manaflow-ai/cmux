@@ -59,7 +59,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Closes every receiver workspace on the machine when this Mac has no delivery
-    /// of its own in flight (``SurfaceRemoteWorkspace/leakedInternalReceiverIDs(in:deliveriesInFlight:)``).
+    /// of its own in flight (``SurfaceRemoteWorkspace/leakedInternalReceiverIDs(in:deliveriesInFlight:clientID:)``).
     /// Best effort: a failure leaves the rest for the next connect.
     func sweepLeakedReceiverWorkspaces() async {
         guard receiverDeliveriesInFlight == 0, await refreshCurrentGraph(force: true) else { return }
@@ -67,7 +67,8 @@ extension CmuxTuiSurfaceProvider {
         // A delivery may have started while the graph was read.
         let leaked = SurfaceRemoteWorkspace.leakedInternalReceiverIDs(
             in: workspaces,
-            deliveriesInFlight: receiverDeliveriesInFlight
+            deliveriesInFlight: receiverDeliveriesInFlight,
+            clientID: receiverClientID
         )
         // A delivery that starts from here on creates a workspace not in `leaked`.
         for workspaceID in leaked {
