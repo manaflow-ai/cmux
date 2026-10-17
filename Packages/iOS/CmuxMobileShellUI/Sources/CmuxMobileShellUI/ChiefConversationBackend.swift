@@ -122,7 +122,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
                 var message = map(sent, clientMessageID: draft.clientMessageID)
                 message.clientMessageID = draft.clientMessageID
-                message.delivery = .sent
+                message.delivery = sendResult.queued ? .sending : .sent
                 return message
             }
         } catch {
@@ -140,7 +140,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             senderID: withState { $0.meID },
             sentAt: Date(),
             text: draft.text,
-            delivery: .sent
+            delivery: sendResult.queued ? .sending : .sent
         )
     }
 
