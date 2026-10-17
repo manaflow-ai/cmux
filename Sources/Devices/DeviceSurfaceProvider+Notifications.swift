@@ -52,8 +52,10 @@ extension DeviceSurfaceProvider {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let sync = self.notificationSync else { return }
-                sync.apply(rows: self.notificationFeed.rows)
+                guard let self,
+                      let sync = self.notificationSync,
+                      sync.hasPendingPlacementRetry else { return }
+                sync.apply(rows: sync.rows)
             }
         }
     }
