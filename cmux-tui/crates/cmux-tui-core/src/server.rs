@@ -93,6 +93,8 @@ mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const ATTACH_OUTPUT_COALESCE_WINDOW: Duration = Duration::from_micros(750);
+/// The longer window for output that stops right after a line erase.
+const ATTACH_OUTPUT_ERASED_LINE_WINDOW: Duration = Duration::from_millis(8);
 const ATTACH_OUTPUT_COALESCE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
@@ -14366,19 +14368,42 @@ fn stamped_build_commit() -> Option<&'static str> {
 /// Appends the output that follows `frame` within the coalesce window, counted
 /// from `start`, and returns the first frame that could not be merged.
 ///
-/// `recv` waits for the next frame until the given deadline.
+/// `recv` waits for the next frame until the given deadline. Output that ends
+/// in a line erase is the first write of a redraw, so it waits out the longer
+/// window rather than paint a blank line on its own.
 fn coalesce_attach_output(
     frame: &mut AttachFrame,
     start: Instant,
     mut recv: impl FnMut(Instant) -> Result<AttachFrame, std::sync::mpsc::RecvTimeoutError>,
 ) -> Option<AttachFrame> {
-    let deadline = start + ATTACH_OUTPUT_COALESCE_WINDOW;
-    while let Ok(next) = recv(deadline) {
-        if let Err(next) = try_merge_attach_output(frame, next) {
-            return Some(next);
+    let mut deadline = start + ATTACH_OUTPUT_COALESCE_WINDOW;
+    loop {
+        match recv(deadline) {
+            Ok(next) => {
+                if let Err(next) = try_merge_attach_output(frame, next) {
+                    return Some(next);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                if deadline < start + ATTACH_OUTPUT_ERASED_LINE_WINDOW
+                    && attach_output_ends_after_line_erase(frame) =>
+            {
+                deadline = start + ATTACH_OUTPUT_ERASED_LINE_WINDOW;
+            }
+            Err(_) => return None,
         }
     }
-    None
+}
+
+/// Whether output stops right after erasing to the end of the line. Bash's
+/// `bind -x` writes `\r\e[K\r` before running the command and redraws the
+/// prompt only afterwards, so a frame that ends there shows a blank line.
+fn attach_output_ends_after_line_erase(frame: &AttachFrame) -> bool {
+    let AttachFrame::Output(bytes) = frame else {
+        return false;
+    };
+    let end = bytes.iter().rposition(|&byte| byte != b'\r').map_or(0, |index| index + 1);
+    [b"\x1b[K".as_slice(), b"\x1b[0K", b"\x1b[2K"].iter().any(|erase| bytes[..end].ends_with(erase))
 }
 
 /// Merges a following PTY output chunk without crossing a state transition.
