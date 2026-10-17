@@ -213,6 +213,7 @@ private struct ConversationArtifactPreview: View {
             if let localURL {
                 ShareLink(item: localURL) { Label(ConversationL10n.value("conversation.share_artifact", "Share artifact"), systemImage: "square.and.arrow.up") }
                     .font(.subheadline)
+                    .accessibilityIdentifier("ConversationArtifactShare-\(artifact.artifactID)")
             } else {
                 Button {
                     isLoading = true

@@ -22,6 +22,8 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case artifact
         case asyncQuestion = "async-question"
         case running
+        case queue
+        case steer
         case disconnected
 
         public init(rawValue: String) {
@@ -38,6 +40,8 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             case "artifact": self = .artifact
             case "async-question": self = .asyncQuestion
             case "running": self = .running
+            case "queue": self = .queue
+            case "steer": self = .steer
             case "disconnected": self = .disconnected
             default: self = .all
             }
@@ -65,9 +69,12 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     public init(scenario: Scenario? = nil) {
         let environmentScenario = ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_SCENARIO"]
         self.scenario = scenario ?? Scenario(rawValue: environmentScenario ?? "all")
+        var fixtureFeatures = ["turn/start", "turn/steer", "turn/interrupt", "approval", "question", "queue", "diff", "artifact", "configure"]
+        if self.scenario == .queue { fixtureFeatures.removeAll { $0 == "turn/steer" } }
+        if self.scenario == .steer { fixtureFeatures.removeAll { $0 == "queue" } }
         self.capabilities = ConversationCapabilities(
             protocolVersion: "fixture/1",
-            features: ["turn/start", "turn/steer", "turn/interrupt", "approval", "question", "queue", "diff", "artifact", "configure"],
+            features: fixtureFeatures,
             models: ["fixture-model"],
             efforts: ["fast", "balanced", "thorough"],
             speeds: ["standard", "quick"],
@@ -171,7 +178,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case .queue(let text):
             let item = ConversationQueueItem(id: ConversationItemID(rawValue: "queue-\(UUID().uuidString)"), commandID: command.commandID, text: text, position: state.queued.count)
             state.queued.append(item)
-            receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
+            receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: scenario == .queue ? .accepted : .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .queue, queue: state.queued)
         case .editQueued(let itemID, let text):
             if let index = state.queued.firstIndex(where: { $0.id == itemID }) { state.queued[index].text = text }
@@ -201,12 +208,17 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
                 state.pendingRequests = [questionRequest(generation: state.session.generation, index: 1)]
             }
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
-            state = appendEvent(state, kind: .request, request: nil)
+            var resolvedRequest = answeredRequest
+            resolvedRequest?.state = .answered
+            state = appendEvent(state, kind: .request, request: resolvedRequest ?? state.pendingRequests.first)
         case .resolveApproval(let requestID, let decision):
+            let approvalRequest = state.pendingRequests.first(where: { $0.id == requestID })
             state.pendingRequests.removeAll { $0.id == requestID }
             state = appendItem(state, kind: .result, text: decision == .deny ? "Approval denied" : "Approved")
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
-            state = appendEvent(state, kind: .request, request: nil)
+            var resolvedRequest = approvalRequest
+            resolvedRequest?.state = decision == .deny ? .denied : .approved
+            state = appendEvent(state, kind: .request, request: resolvedRequest)
         case .rename(let title):
             state.session.title = title
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
@@ -266,12 +278,12 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case .asyncQuestion:
             state.pendingRequests = [ConversationRequest(id: ConversationRequestID(rawValue: "fixture-async-question"), generation: state.session.generation, kind: "input", question: ConversationQuestion(category: "Follow-up", prompt: "Add any context for this task", options: [], allowsCustomAnswer: true))]
         case .files, .emptyFiles, .empty, .emptyList, .noGit, .noLastTurn: break
-        case .artifact: 
+        case .artifact:
             let payload = Data("cmux fixture artifact\n".utf8)
             let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
             let artifact = ConversationArtifact(artifactID: "fixture-artifact", fileName: "report.txt", mediaType: "text/plain", byteCount: Int64(payload.count), sha256: hash)
             state = appendItem(state, kind: .artifact, text: nil, artifact: artifact)
-        case .running:
+        case .running, .queue, .steer:
             state.isRunning = true
             state = appendTool(state, name: "shell", input: .string("swift test"), output: nil, status: .running)
         case .disconnected:
