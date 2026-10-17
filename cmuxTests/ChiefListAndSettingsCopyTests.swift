@@ -116,8 +116,9 @@ import Testing
         #expect(!panel.introTitle.isHidden)
         #expect(panel.introLines.allSatisfy { !$0.isHidden && $0.frame.height > 0 })
         // Every line sits above the chips, in order, none under the compose field.
-        let tops = panel.introLines.map(\.frame.minY)
-        #expect(tops == tops.sorted())
+        // No line overlaps the title or the line before it.
+        let frames = [panel.introTitle.frame] + panel.introLines.map(\.frame)
+        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
         #expect(panel.introLines.allSatisfy { $0.frame.maxY <= panel.bounds.height - ChiefFirstRunRow.chipHeight })
     }
 
