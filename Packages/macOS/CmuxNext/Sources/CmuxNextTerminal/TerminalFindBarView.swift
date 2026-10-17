@@ -122,7 +122,11 @@ final class TerminalFindBarView: NSView {
         let focusRequest = find.focusRequest
 
         if field.stringValue != query { field.stringValue = query }
-        countLabel.stringValue = Self.text(for: count)
+        let text = Self.text(for: count)
+        if countLabel.stringValue != text {
+            countLabel.stringValue = text
+            superview?.needsLayout = true // the host frames the bar to its fitting width
+        }
         setPresented(presented)
         if presented, focusRequest != shownFocusRequest {
             shownFocusRequest = focusRequest

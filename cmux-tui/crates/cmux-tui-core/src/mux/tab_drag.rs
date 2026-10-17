@@ -474,7 +474,7 @@ impl Mux {
             let _ = runtime.persist_host_workspace(&target_key);
         }
         self.emit(MuxEvent::TreeChanged);
-        self.emit(MuxEvent::LayoutChanged(outcome.screen));
+        self.emit_layout_changed(outcome.screen, None);
         self.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
         Ok(outcome)
     }

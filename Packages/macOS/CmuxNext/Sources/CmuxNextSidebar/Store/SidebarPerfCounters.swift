@@ -11,6 +11,7 @@ import Foundation
 /// - `list_reloads`: full list layouts (`SidebarLayout.make` + apply).
 /// - `row_patches`: workspace rows updated in place.
 /// - `row_configures`: row views configured (any path).
+/// - `selection_patches`: selection changes drawn on the old and new rows only (no list layout).
 /// - `scroll_realizes`: realize passes after a scroll.
 /// - `ffi_calls`: calls into the Rust sidebar reducer (drag resolve, drop plan).
 /// - `band_updates`: top/footer band content recomputes.
@@ -23,6 +24,7 @@ nonisolated enum SidebarPerfCounters {
         case listReloads = "list_reloads"
         case rowPatches = "row_patches"
         case rowConfigures = "row_configures"
+        case selectionPatches = "selection_patches"
         case scrollRealizes = "scroll_realizes"
         case ffiCalls = "ffi_calls"
         case bandUpdates = "band_updates"

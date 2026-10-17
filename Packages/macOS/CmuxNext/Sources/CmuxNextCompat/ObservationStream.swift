@@ -27,8 +27,15 @@ internal import os
 /// 4. Cancellation of the iterating task resumes a waiting `next()`, which
 ///    then returns nil; a cancelled task always gets nil.
 ///
-/// Like the system type it does not drop equal values (use
-/// `assignIfChanged` in CmuxNextWakeups on the write side), and it never
+/// Unlike the system type, a stream whose `Element` is `Equatable` emits
+/// only values that differ from the last one it emitted (perf-speed-of-light.md
+/// I1): a re-evaluation that gives an equal value wakes no consumer. The
+/// check is made once per iterator (`Element.self is any Equatable.Type`),
+/// so it holds for every Equatable element, Optional and collections of
+/// Equatable values included, on both paths. A stream of a non-Equatable
+/// element (`Void`, tuples, classes) emits every re-evaluation: a consumer
+/// that needs a wakeup for a change its value does not show returns `Void`
+/// (`{ _ = model.a; _ = model.b }`), never an equal value. It never
 /// polls or uses a timer: the only wakeups are the will-set callback, the
 /// continuation resume and the main-actor hop, one each per change burst,
 /// the same as the system type. Neither path writes to the WakeupLedger, so
@@ -76,9 +83,19 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         // The system-iterator path (NativeIterator) traps at launch on macOS 27
         // (exit 133); every OS uses the withObservationTracking path until it is fixed.
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
-            return Iterator(native: NativeIterator(emit))
+            return Iterator(native: NativeIterator(emit), isEqual: Self.equality())
         }
-        return Iterator(legacy: LegacyIterator(emit: emit))
+        return Iterator(legacy: LegacyIterator(emit: emit), isEqual: Self.equality())
+    }
+
+    /// `==` for an `Equatable` element, nil for any other (no dedupe).
+    private static func equality() -> (@Sendable (Element, Element) -> Bool)? {
+        guard let type = Element.self as? any Equatable.Type else { return nil }
+        return equality(type)
+    }
+
+    private static func equality<E: Equatable>(_: E.Type) -> @Sendable (Element, Element) -> Bool {
+        { lhs, rhs in (lhs as? E) == (rhs as? E) }
     }
 
     public struct Iterator: AsyncIteratorProtocol {
@@ -88,17 +105,34 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// type that is newer than the deployment target).
         private let native: AnyObject?
         private var legacy: LegacyIterator?
+        /// `==` of an Equatable element; nil emits every value.
+        private let isEqual: (@Sendable (Element, Element) -> Bool)?
+        /// The last value emitted (Equatable elements only).
+        private var last: Element?
 
-        fileprivate init(native: AnyObject) {
+        fileprivate init(native: AnyObject, isEqual: (@Sendable (Element, Element) -> Bool)?) {
             self.native = native
+            self.isEqual = isEqual
         }
 
-        fileprivate init(legacy: LegacyIterator) {
+        fileprivate init(legacy: LegacyIterator, isEqual: (@Sendable (Element, Element) -> Bool)?) {
             native = nil
             self.legacy = legacy
+            self.isEqual = isEqual
         }
 
         public mutating func next(isolation iteratorIsolation: isolated (any Actor)? = #isolation) async -> Element? {
+            while let value = await nextEvaluation(isolation: iteratorIsolation) {
+                guard let isEqual else { return value }
+                // An equal re-evaluation wakes no consumer: wait for the next change.
+                if let last, isEqual(last, value) { continue }
+                last = value
+                return value
+            }
+            return nil
+        }
+
+        private mutating func nextEvaluation(isolation iteratorIsolation: isolated (any Actor)?) async -> Element? {
             if #available(macOS 26, *), let native = native as? NativeIterator {
                 return await native.next(isolation: iteratorIsolation)
             }
@@ -222,6 +256,19 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
             }
         }
     }
+}
+
+/// A stream value that is emitted on every re-evaluation, equal to the last
+/// one or not: the explicit trigger (I1) for a consumer that must run again
+/// when an input changed but the value did not (a remount on reinstall of
+/// the same version, a refresh after a daemon restart), or whose own apply
+/// path can move its view off the last emitted value (it then compares
+/// against what it applied, not against what the stream emitted last).
+///
+///     for await state in ObservationStream({ ObservationTrigger(model.state) }) { apply(state.value) }
+public struct ObservationTrigger<Value: Sendable>: Sendable {
+    public let value: Value
+    public init(_ value: Value) { self.value = value }
 }
 
 /// DEBUG opt-in to the system-iterator path (`CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS=1`), for its fix.

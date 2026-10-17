@@ -3734,6 +3734,8 @@ mod home_inbox;
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
+#[path = "cli/layout_delta.rs"]
+mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]

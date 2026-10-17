@@ -135,15 +135,18 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
-                    + windows.registry.members(of: state.id)
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
-            }) {
+            for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
             }
         }
+    }
+
+    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
+    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
+        _ = creationKey(state, cloud, machines)
+        _ = windows.registry.members(of: state.id)
+        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
     }
 
     /// Shows the requested workspace on whichever machine holds it. While
@@ -219,13 +222,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
         sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
-        // The workspace's theme first, so the chrome repaints once. The chrome (sidebar, titlebar)
-        // fades from what it shows now and the backdrop blends (appearance.colorTransition); the
-        // content swap itself never fades.
-        let before = themeScope.tokens
+        // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
+        // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
+        // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
-        if controller.themeScope.tokens != before, let window { ColorTransition.current.fade(window, regions: [root.sidebar, root.titlebar]) }
-        themeScope.show(controller.themeScope)
+        themeScope.show(controller.themeScope, animated: true)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil
@@ -237,7 +238,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
-        controller.sendTopology()
+        controller.didShow()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()

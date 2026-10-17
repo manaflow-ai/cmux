@@ -61,7 +61,7 @@ extension WorkspaceContentController {
             services.windows.recordSaver.stateDidChange(state)
         case .cancelGesture(let transaction):
             // No `.ended` will come for this gesture (its target went away).
-            gestureTransactions[transaction] = nil
+            if let value = gestureTransactions.removeValue(forKey: transaction) { daemon.store.layoutGestureTransaction(value, ended: true) }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):
@@ -142,7 +142,7 @@ extension WorkspaceContentController {
             gestureTransactions[id] = value
         }
         if phase == .ended { gestureTransactions[id] = nil }
-        return value
+        return daemon.store.layoutGestureTransaction(value, ended: phase == .ended) // its live echoes do no work (I3)
     }
 
     private func sendGesture(_ transaction: LayoutTransactionID, phase: LayoutGesturePhase, label: String,

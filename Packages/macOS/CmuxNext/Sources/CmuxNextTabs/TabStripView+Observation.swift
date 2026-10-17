@@ -8,18 +8,10 @@ extension TabStripView {
         guard observationTask == nil else { return }
         let model = model
         observationTask = Task { [weak self] in
-            let changes = ObservationStream {
-                ModelSnapshot(
-                    tabs: model.tabs,
-                    groups: model.groups,
-                    selectedID: model.selectedID,
-                    style: model.style,
-                    showsNewTabButton: model.showsNewTabButton
-                )
-            }
+            let changes = ObservationStream { ModelSnapshot(model) }
             for await _ in changes {
                 guard let self else { return }
-                self.sync(fromModel: true)
+                self.syncFromModel()
             }
         }
     }
