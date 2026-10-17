@@ -67,6 +67,9 @@ export function assertAgentBrokerEnvelope(value: AgentBrokerEnvelope): void {
   if (!value.payload || typeof value.payload !== "object" || Array.isArray(value.payload)) {
     throw new AgentBrokerInputError("payload must be a JSON object");
   }
+  if (value.requestDigest.toLowerCase() !== requestDigest(value.payload).toLowerCase()) {
+    throw new AgentBrokerInputError("requestDigest does not match payload");
+  }
   if (JSON.stringify(value.payload).length > 512_000) {
     throw new AgentBrokerInputError("payload is too large");
   }
