@@ -39,15 +39,22 @@ struct PinCommands {
     /// The id of the pin undo toast (one per window; a newer pin change replaces it).
     static let undoToastID = "pin-undo"
 
-    /// Shows the undo toast for a user's pin change in the active window;
-    /// its Undo button and Cmd-Z (TOAST-UNDO-KEY) run `inverse`, which shows
-    /// the next toast. One toast per window: a newer pin change replaces it.
-    /// (An NSUndoManager entry is not used: the terminal and the toast own
-    /// Cmd-Z, and an entry on the window would keep the toast from the key.)
-    func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
+    /// Shows the undo toast for a user's pin or sidebar change in the active
+    /// window and puts the same step on the window's undo stack. The toast
+    /// only hides after its time: Edit > Undo and Cmd-Z still undo the step
+    /// later, like any macOS undo. While the toast shows, its Undo button and
+    /// Cmd-Z (TOAST-UNDO-KEY, or the undo stack when it holds the step) run
+    /// `inverse` once; the other path then does nothing. `inverse` shows the
+    /// next toast (registered during an undo, its step becomes the redo). Nil `inverse`: a change sent, not answered yet
+    /// (`ToastUndoStep.pending`, cx-kpicb); the reply fills the step it returns.
+    @discardableResult func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: (@MainActor (PinCommands) -> Void)?) -> PinUndoStep? {
         let windows = context.services.windows
-        guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
+        guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return nil }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        handle.onAction = { inverse(self) }
+        guard let inverse else { return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: handle) }
+        return ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: handle) { inverse(self) }
     }
 }
+
+/// The pin and sidebar undo step (`ToastUndoStep`, in CmuxNextDesign with the toast it shares a step with).
+typealias PinUndoStep = ToastUndoStep

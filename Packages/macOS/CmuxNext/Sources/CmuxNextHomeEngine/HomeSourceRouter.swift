@@ -106,6 +106,10 @@ public nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
     }
 
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? {
+        try await source(for: conversation).resolveLink(conversation: conversation, message: message)
+    }
+
     /// Ops on a conversation go to its owner. Ops that create or invite name
     /// no conversation and only the cloud has them, except `createGroup` of
     /// local participants only (none, or the Chief and the local user): a

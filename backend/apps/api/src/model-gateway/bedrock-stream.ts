@@ -12,6 +12,16 @@
  */
 const BODY_KEYS = new Set(["max_tokens", "system", "messages", "tools", "tool_choice", "temperature", "top_p", "top_k", "stop_sequences", "thinking", "stream"])
 export const BEDROCK_VERSION = "bedrock-2023-05-31"
+/** Anthropic betas Bedrock's InvokeModel accepts in `anthropic_beta` (others are refused there, so they are dropped and logged). */
+export const BEDROCK_BETAS = new Set([
+  "interleaved-thinking-2025-05-14",
+  "fine-grained-tool-streaming-2025-05-14",
+  "token-efficient-tools-2025-02-19",
+  "context-1m-2025-08-07",
+  "computer-use-2025-01-24",
+  "computer-use-2025-11-24",
+  "tool-examples-2025-10-29"
+])
 
 type Block = { type: string; text?: string; cache_control?: unknown }
 type Msg = { role: string; content: string | Array<Block>; output_config?: unknown }
@@ -23,6 +33,10 @@ export interface BedrockBodyOptions {
   readonly modelId?: (name: string) => string
   /** Send the turn's effort (`output_config`) and `thinking.display`; else Bedrock's proven minimal body. */
   readonly effort?: boolean
+  /** The caller's Anthropic betas (the `anthropic-beta` header): the ones Bedrock takes go into the body's `anthropic_beta`. */
+  readonly betas?: ReadonlyArray<string>
+  /** Gets every field or beta the conversion drops (logged by the caller; never silent). */
+  readonly dropped?: (what: string) => void
   /** Prompt cache TTL for every cache mark (default "1h"; "5m" keeps Bedrock's default). */
   readonly ttl?: string
 }
@@ -46,6 +60,13 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
   try {
     const body = JSON.parse(raw) as Record<string, unknown>
     const out: Record<string, unknown> = { anthropic_version: BEDROCK_VERSION, ...Object.fromEntries(Object.entries(body).filter(([k]) => BODY_KEYS.has(k) || (opts.keepModel === true && k === "model"))) }
+    for (const k of Object.keys(body)) if (!BODY_KEYS.has(k) && k !== "model" && k !== "metadata" && k !== "output_config") opts.dropped?.(`field ${k}`)
+    // Anthropic betas travel in a header; Bedrock reads them from the body (`anthropic_beta`), and only the ones it knows.
+    const asked = [...(opts.betas ?? []), ...(Array.isArray(body.anthropic_beta) ? (body.anthropic_beta as Array<unknown>).filter((b): b is string => typeof b === "string") : [])]
+    const betas = [...new Set(asked.map((b) => b.trim()).filter(Boolean))]
+    for (const b of betas.filter((b) => !BEDROCK_BETAS.has(b))) opts.dropped?.(`beta ${b}`)
+    const kept = betas.filter((b) => BEDROCK_BETAS.has(b))
+    if (kept.length > 0) out.anthropic_beta = kept
     if (opts.keepModel === true && typeof out.model === "string" && opts.modelId) out.model = opts.modelId(out.model)
     const messages = Array.isArray(body.messages) ? (body.messages as Array<Msg>) : []
     const system: Array<Block> = typeof body.system === "string" ? [{ type: "text", text: body.system }] : Array.isArray(body.system) ? (body.system as Array<Block>) : []
@@ -82,10 +103,16 @@ const marksOf = (v: unknown): Array<Block> => {
 const markCache = (out: Record<string, unknown>, ttl: string): void => {
   const first = (out.messages as Array<Msg>).find((m) => m.role === "user")
   const blocks = Array.isArray(first?.content) ? first.content : []
-  // [stable view pieces..., view tail, new messages]: the mark goes on the last stable piece.
-  const prefix = blocks.length >= 3 ? blocks[blocks.length - 3] : undefined
+  // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a). Bedrock reads an entry
+  // only at a mark (measured on staging: no look-back), so the extra mark goes where the previous
+  // turn's request ended: its newest user block, the second to last user block of the delta. With
+  // no earlier user block (the turn after a re-render), it goes on the frozen view's end.
+  const end = blocks.findIndex((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
+  const users = end < 0 ? [] : blocks.slice(end + 1).filter((b) => b.type === "text" && /^\d+\+1\|user: /.test(b.text ?? ""))
+  const prefix = users.length >= 2 ? users[users.length - 2] : end >= 0 ? blocks[end] : undefined
   const marks = marksOf([out.system, out.tools, out.messages])
   if (prefix && prefix.type === "text" && prefix.cache_control === undefined && marks.length < MAX_MARKS) marks.push(Object.assign(prefix, { cache_control: { type: "ephemeral" } }))
+  else if (prefix && prefix.cache_control === undefined) console.warn(JSON.stringify({ msg: "bedrock_body.view_mark_skipped", marks: marks.length }))
   if (ttl === "5m") return
   for (const b of marks) b.cache_control = { ...(b.cache_control as object), type: "ephemeral", ttl }
 }

@@ -45,6 +45,12 @@ export interface GatewayHooks {
   readonly event?: (e: AssistantMessageEvent) => void
   /** A terminal turn message's usage, for its run. */
   readonly usage?: (run: string, u: GatewayUsage) => void
+  /** A turn call that ended in an error: the provider's message (no secret), for the run's error. */
+  readonly failed?: (run: string, message: string) => void
+  /** The upstream region that answered a turn call (the Claude route's x-bedrock-region), for its run. */
+  readonly region?: (run: string, region: string) => void
+  /** A step of a run's first turn call (first write per run wins, as request_at and first_token_at): reserved (credits held), upstream (request sent), headers (the route answered). */
+  readonly mark?: (run: string, name: "reserved" | "upstream" | "headers") => void
   /** Post the out-of-credits notice once in the conversation (the team was told only once). */
   readonly notice?: (conversation: string, text: string) => Promise<void>
 }
@@ -102,11 +108,19 @@ export class ModelGatewayLive {
             if (w.conversation) await this.noticeOnce(w.conversation)
             return this.finish(out, failed(model, text))
           }
+          if (w.run) this.hooks.mark?.(w.run, "reserved")
         }
         // Only the Claude route takes the payer team, chief and call id (its service key needs them); no other provider sees them.
         const routed = model.provider === CLAUDE_ROUTE_PROVIDER
         const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) } : options?.headers
-        const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}) })
+        const onResponse = (r: { headers?: Record<string, string> }, m: Model<Api>) => {
+          if (w.run) this.hooks.mark?.(w.run, "headers")
+          const region = r.headers?.["x-bedrock-region"]
+          if (region && w.run) this.hooks.region?.(w.run, region.slice(0, 32))
+          return (options as { onResponse?: (r: unknown, m: Model<Api>) => unknown } | undefined)?.onResponse?.(r, m)
+        }
+        if (w.run) this.hooks.mark?.(w.run, "upstream")
+        const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}), onResponse } as typeof options)
         sent = true
         // The terminal event goes out after the charge: pi-durable may retry as soon as it sees it.
         let terminal: AssistantMessageEvent | undefined
@@ -118,13 +132,16 @@ export class ModelGatewayLive {
           else out.push(e)
         }
         const final = await src.result()
+        if ((final.stopReason === "error" || terminal?.type === "error") && w.run) this.hooks.failed?.(w.run, String(final.errorMessage ?? "model error").replace(/\s+/g, " ").slice(0, 400))
         if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
         if (terminal) out.push(terminal)
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)
-        this.finish(out, failed(model, e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)))
+        const text = e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)
+        if (w.run) this.hooks.failed?.(w.run, text)
+        this.finish(out, failed(model, text))
       }
     })()
     return out

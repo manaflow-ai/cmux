@@ -4,7 +4,19 @@ extension SidebarModel {
     /// skipped), then the list's selectable rows in drawn order (the sidebar's
     /// own row layout, so collapsed sections and rows the filter hides are not
     /// stops). A collapsed group is one stop; an empty one is none.
+    ///
+    /// Made once per change of what it reads (`SidebarItemOrderInputs`), so
+    /// a Cmd-1…9 or Cmd-Ctrl-[ / ] press costs a key compare, not a layout
+    /// of every row. The selection is not an input: the order never depends on it.
     public var itemOrder: SidebarItemOrder {
+        let inputs = SidebarItemOrderInputs(self)
+        if let cached = itemOrderCache, cached.inputs == inputs { return cached.order }
+        let order = makeItemOrder()
+        itemOrderCache = (inputs, order)
+        return order
+    }
+
+    private func makeItemOrder() -> SidebarItemOrder {
         // An anchored client item (Channels after Home) is a stop at its place, placed among the shown items as
         // the band draws it (a hidden Home is no anchor); other client items are not stops.
         let hidden = Set(itemInfo.filter(\.value.isHidden).keys)
@@ -16,6 +28,11 @@ extension SidebarModel {
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
         options.groupsByFolder = groupsByFolder
+        // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
+        let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
+        let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })
+        for id in listed { options.blockHeights[id] = 1 }
+        options.collapsedDocSections = Set(collapsedLayoutSections.map(\.rawValue))
         let selectable = Set(selectableWorkspaces.map(\.id))
         var rows: [SidebarItem] = []
         var stops: [WorkspaceID: SidebarItem] = [:]
@@ -23,6 +40,10 @@ extension SidebarModel {
             switch row.key {
             case let .workspace(id) where selectable.contains(id):
                 rows.append(.workspace(id))
+            case let .item(id):
+                rows.append(.topItem(LayoutItemID(id))) // a link, tab or app row is a stop like a band item
+            case let .block(id) where !collapsedLayoutSections.contains(LayoutSectionID(id)):
+                rows += (inBlock[id] ?? []).map { .topItem($0.id) }
             case let .group(id):
                 guard let group = group(id), group.isCollapsed else { continue }
                 let members = group.workspaces.map(\.id).filter(selectable.contains)
@@ -33,6 +54,35 @@ extension SidebarModel {
                 continue
             }
         }
-        return SidebarItemOrder(topItems: top.map { .topItem($0.id) }, rows: rows, stops: stops)
+        let topItems = top.filter { item in !listed.contains(inBlock.first { $0.value.contains(item) }?.key ?? "") }
+        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops)
+    }
+}
+
+/// Everything `itemOrder` reads. Row content patches (status, title) keep
+/// `sectionsRevision`, and they move no row while no filter is set (with a
+/// filter a patch is a structural set), so the revision stands for the rows.
+/// Unchanged values compare by storage identity, so a hit is O(1).
+nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
+    var sectionsRevision: UInt64
+    var filterText: String
+    var layout: SidebarLayoutDocument
+    var itemInfo: [LayoutItemID: SidebarItemInfo]
+    var room: ProfileKey?
+    var suppressedApps: Set<String>
+    var transientTopItems: [SidebarTransientItem]
+    var groupsByFolder: Bool
+    var collapsedLayoutSections: Set<LayoutSectionID>
+
+    @MainActor init(_ model: SidebarModel) {
+        sectionsRevision = model.observedSectionsRevision
+        filterText = model.filterText
+        layout = model.layout
+        itemInfo = model.itemInfo
+        room = model.activeProfileID
+        suppressedApps = model.suppressedApps
+        transientTopItems = model.transientTopItems
+        groupsByFolder = model.groupsByFolder
+        collapsedLayoutSections = model.collapsedLayoutSections
     }
 }

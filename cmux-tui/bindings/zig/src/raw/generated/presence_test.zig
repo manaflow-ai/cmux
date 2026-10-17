@@ -30,6 +30,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "if_empty");
+    try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "report_closed_ids");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
@@ -104,6 +105,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "remaining");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "retry_exhausted");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "summary");
+    try expectExplicitNullRejected(protocol.LayoutChangedEvent, "active_pane");
+    try expectExplicitNullRejected(protocol.LayoutChangedEvent, "layout");
+    try expectExplicitNullRejected(protocol.LayoutChangedEvent, "transaction");
+    try expectExplicitNullRejected(protocol.LayoutChangedEvent, "workspace");
     try expectExplicitNullRejected(protocol.NotificationEvent, "desktop");
     try expectExplicitNullRejected(protocol.NotificationEvent, "reply");
     try expectExplicitNullRejected(protocol.NotificationEvent, "source");
@@ -245,4 +250,5 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Workspace, "key");
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
+    try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");
 }

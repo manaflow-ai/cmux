@@ -9,7 +9,7 @@ name: cmux-next
 # A pull request runs only the tiers its change can break
 # (scripts/ci/cmux_next_route.py, docs/ci/cmux-next-tiers.md):
 #   checks     always (Linux)
-#   generated  generated action contracts and the CI target graph are fresh;
+#   generated  generated action contracts, the CI target graph and the settings exports are fresh;
 #              a stale file gets a bot fix commit on a same-repository PR
 #   native     the Release compile, for Swift and app sources
 #   scheme     the Debug app scheme compile, for the app host, Xcode project,
@@ -89,6 +89,9 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/swiftpm_build_metrics.py
+      - scripts/ci/build_metrics.py
+      - tests/test_ci_swiftpm_build_metrics.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
@@ -96,6 +99,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
+      - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -114,6 +118,7 @@ on:
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
+      - scripts/cmux-next/release-derived-data-path.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -149,6 +154,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -169,6 +175,20 @@ on:
   push:
     branches: [main, feat-cmux-next]
     paths:
+      # A nightly repair must earn this exact commit's Release compile before
+      # promotion can carry it to nightly-next. Otherwise a workflow-only fix
+      # (such as #21144) waits for an unrelated app change to become eligible.
+      - .github/workflows/nightly.yml
+      - scripts/ci/*nightly*
+      - scripts/ci/publish-release-assets.py
+      - scripts/ci/finalize-release.py
+      - scripts/ci/upload-r2-object.py
+      - scripts/ci/update-release-tag.py
+      - scripts/ci/signing-keychain.sh
+      - scripts/ci/download-run-artifact.py
+      - scripts/import-apple-developer-id-intermediates.sh
+      - scripts/apple-developer-id-certs/**
+      - scripts/prune_nightly_release_assets.py
       - App/**
       - cmux.xcodeproj/**
       # Base pushes still run the full side workflow for every package input;
@@ -235,6 +255,9 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/swiftpm_build_metrics.py
+      - scripts/ci/build_metrics.py
+      - tests/test_ci_swiftpm_build_metrics.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
@@ -242,6 +265,7 @@ on:
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
+      - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -260,6 +284,7 @@ on:
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
+      - scripts/cmux-next/release-derived-data-path.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -295,6 +320,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -515,6 +541,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -540,10 +567,17 @@ jobs:
               echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
               exit 1
             }
-            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-              echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-              exit 1
-            }
+            if [[ -n "$SAME_TREE_SHA" ]]; then
+              [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+                echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+                exit 1
+              }
+            else
+              [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+                echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+                exit 1
+              }
+            fi
             {
               echo 'native=false'
               echo 'swift_canary=false'
@@ -1041,6 +1075,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
 
+      # The backdrop art list (ids, titles, image and thumbnail URLs, Shuffle Daily) exported
+      # from the CmuxNextDesign Swift to plans/cmux-next/backdrop-art.json for the GPUI app.
+      - name: Backdrop art export
+        id: backdrop-art
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/export-backdrop-art.py --check
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -1110,6 +1151,7 @@ jobs:
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
+          bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/swift-test-summary.test.sh
           bash scripts/cmux-next/tests/cef-license.test.sh
@@ -1158,6 +1200,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
@@ -1168,6 +1211,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
+          python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
 
       # The web bundle source key covers every file outside webviews/ that a bundle
@@ -1267,6 +1311,7 @@ jobs:
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
+            ${{ steps.backdrop-art.outcome }}|Backdrop art export
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
@@ -1463,15 +1508,15 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # Checkout clean removes package .build directories. Link a per-mini
-      # scratch directory so successive canaries reuse its SwiftPM artifacts.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
 
       - name: Type-check changed CmuxNext targets
         working-directory: Packages/macOS/CmuxNext
@@ -1555,13 +1600,15 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1665,6 +1712,13 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -1731,7 +1785,20 @@ jobs:
         id: build-tests
         if: env.SWIFT_TARGETS != ''
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-swift-test-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Compile string catalogs into the resource bundles
         if: env.SWIFT_TARGETS != ''
@@ -1898,6 +1965,13 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -1944,7 +2018,20 @@ jobs:
       - name: Build package and tests
         id: build-tests
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-daemon-test-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
@@ -2000,7 +2087,8 @@ jobs:
           retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
-  # (ActionSurfaceParityTests and its siblings) and the CI target graph. Its
+  # (ActionSurfaceParityTests and its siblings), the CI target graph, and the
+  # settings exports with their source stamp and the defaults snapshot. Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
   # is stale, the job regenerates it, uploads the regenerated files as the
@@ -2101,6 +2189,13 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -2146,7 +2241,20 @@ jobs:
 
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-generated-files-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Check generated action catalog, surfaces and inventory
         id: actions
@@ -2159,10 +2267,19 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/ci-target-graph.py --check
 
+      # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
+      # and the defaults snapshot: check-fresh recomputes the source stamp
+      # (schemas/settings-export) from the CmuxNextSettings sources, so a
+      # settings edit without a re-export fails here and is regenerated below.
+      - name: Check the settings exports and the defaults snapshot
+        id: settings
+        continue-on-error: true
+        run: python3 scripts/ci/defaults_guard.py check-fresh
+
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
         id: regenerate
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           set -euo pipefail
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
@@ -2171,13 +2288,25 @@ jobs:
           if [[ "${{ steps.graph.outcome }}" == failure ]]; then
             python3 scripts/cmux-next/ci-target-graph.py
           fi
+          # The Swift settings export only when the source stamp is stale (a
+          # stale snapshot alone needs only the snapshot below). It writes the
+          # files into the checkout, as the fleet export step does, and fails
+          # when the stamp still does not match afterwards.
+          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
+            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
+          fi
+          # The defaults snapshot reads the action and settings exports, so it
+          # follows whichever of them was regenerated.
+          python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
           # commit, whose context the head may not have.
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
-          git add -N -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
-          git diff --name-only -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json > "$RUNNER_TEMP/generated/paths.txt"
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
+            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+          git add -N -- "${generated[@]}"
+          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
           while IFS= read -r path; do
             mkdir -p "$out/$(dirname "$path")"
@@ -2198,13 +2327,14 @@ jobs:
           retention-days: 3
 
       - name: Fail on stale generated files
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           {
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
             [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -2281,7 +2411,9 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Release compile
-        run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
+        run: |
+          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          scripts/cmux-next/check-release-compile.sh "$derived_data"
 
       # On a mini, the CEF glue (CEF's C++ wrapper, the CEFShim dylib and the
       # helper binary) is also compiled against the pinned Chromium engine
@@ -2459,11 +2591,19 @@ jobs:
         if: inputs.dev_daily == true
         env:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
         run: |
-          [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-            echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-            exit 1
-          }
+          if [[ -n "$SAME_TREE_SHA" ]]; then
+            [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+              echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+              exit 1
+            }
+          else
+            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+              echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+              exit 1
+            }
+          fi
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2593,7 +2733,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -2601,10 +2741,10 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          DEV_DAILY_SHA: ${{ github.sha }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
-          release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"
+          release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
           scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"

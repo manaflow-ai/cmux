@@ -626,6 +626,7 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        crate::debug_spans::mark("effect.workspace_reserved");
         let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
@@ -633,6 +634,7 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )?;
+        crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
 
@@ -656,6 +658,7 @@ impl Mux {
             on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
+        crate::debug_spans::mark("effect.terminal_reserved");
         // The reservation's env is the creation's own (`env` field), so a
         // create into a fresh workspace gets it like one into a pane.
         let result = self.create_terminal_in_workspace_with_mutation_env(
@@ -671,6 +674,7 @@ impl Mux {
             on_exit,
             reservation.env.clone(),
         )?;
+        crate::debug_spans::mark("effect.terminal_created");
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
         if let Some(name) = created_screen_name {
@@ -977,7 +981,7 @@ impl Mux {
             }
         };
         self.emit_tree_delta(delta, false);
-        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        self.emit_layout_changed(changed_screen, None);
         self.reap_if_dead(&surface);
         Ok(created)
     }

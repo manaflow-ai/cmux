@@ -87,11 +87,11 @@ class SidebarRowView: NSView {
     var interactiveSubviews: [NSView] { [] }
 
     /// Frame of the title text in this row's coordinates, for inline rename.
-    var titleFrame: NSRect { .zero }
-    var titleFont: NSFont { SidebarStyle.titleFont }
-    func setTitleHidden(_ hidden: Bool) {}
+    @objc dynamic var titleFrame: NSRect { .zero }
+    @objc dynamic var titleFont: NSFont { SidebarStyle.titleFont }
+    @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
-    func hoverChanged() {
+    @objc dynamic func hoverChanged() {
         fadesNextFill = true
         fadesNextHover = true
         needsDisplay = true
@@ -124,6 +124,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The address of the favicon the row draws (a link row), for proofs.
+    var debugIconAddress: String? { nil }
 
     /// Counts the times this row started opening its slot (clipped): an
     /// earlier open's completion, run early when a later update reopens the
@@ -182,7 +184,7 @@ final class EmptySectionRowView: SidebarRowView {
         addSubview(label)
     }
 
-    func configure(pinned: Bool) {
+    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
         label.setFont(SidebarStyle.subtitleFont)
         needsLayout = true

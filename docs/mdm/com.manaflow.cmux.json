@@ -584,7 +584,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -766,6 +766,34 @@
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMaxWidth" : {
+      "description" : "Widest a tab gets when the strip has room.",
+      "maximum" : 320,
+      "minimum" : 120,
+      "title" : "Maximum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinActiveWidth" : {
+      "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+      "maximum" : 200,
+      "minimum" : 32,
+      "title" : "Minimum Selected Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinInactiveWidth" : {
+      "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+      "maximum" : 120,
+      "minimum" : 16,
+      "title" : "Minimum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabPinnedWidth" : {
+      "description" : "Width of a pinned tab.",
+      "maximum" : 120,
+      "minimum" : 24,
+      "title" : "Pinned Tab Width",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1248,6 +1276,12 @@
       "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
+    "browser.openLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+      "title" : "Open Links in cmux Browser",
+      "type" : "boolean"
+    },
     "browser.openTerminalLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links clicked in terminal output open in your default browser.",
@@ -1325,7 +1359,7 @@
       "default" : [
 
       ],
-      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "description" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
       "items" : {
         "type" : "string"
       },
@@ -1476,6 +1510,12 @@
         "full"
       ],
       "title" : "Copy Terminal Notifications to the Feed",
+      "type" : "string"
+    },
+    "files.textEditor" : {
+      "default" : "",
+      "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+      "title" : "Text Editor",
       "type" : "string"
     },
     "focus.inactiveTabStyle" : {
@@ -2895,6 +2935,16 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
+    "tabs.overflow" : {
+      "default" : "shrink",
+      "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+      "enum" : [
+        "shrink",
+        "scroll"
+      ],
+      "title" : "Tab Overflow",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2970,7 +3020,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"
@@ -2987,7 +3037,7 @@
       "type" : "string"
     },
     "ui.paneAnimations" : {
-      "default" : false,
+      "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"

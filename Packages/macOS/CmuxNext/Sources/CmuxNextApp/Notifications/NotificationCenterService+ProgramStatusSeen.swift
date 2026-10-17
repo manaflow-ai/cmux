@@ -19,9 +19,9 @@ extension NotificationCenterService {
         }
     }
 
-    /// What the seen rule follows for the viewed tabs: their OSC 7501 records.
-    func viewedRecords(_ store: DaemonStore) -> [[ProgramStatusRecord]] {
-        viewedTabs(store).map(\.programStatus)
+    /// What the seen rule follows for the viewed tabs: which tabs, and their OSC 7501 records.
+    func viewedRecords(_ store: DaemonStore) -> [ViewedProgramStatus] {
+        viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus) }
     }
 
     /// The tabs shown in a key window while cmux is active.

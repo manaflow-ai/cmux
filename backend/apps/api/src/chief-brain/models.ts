@@ -14,7 +14,7 @@ import { fakeStreams } from "./fake.ts"
 import { claudeRoute, compactorDefault, compactorModel, isClaude, isMetered, isOpenRouter, modelRefusal, OPENROUTER_PREFIX, openRouterUrl, OPUS, pickTurnModel, validModelName } from "../model-gateway/routes.ts"
 
 export { compactorDefault, compactorModel, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName }
-export { creditsCanStart, creditsNotice, gatewayOptions } from "./brain-gateway.ts"
+export { creditsCanStart, creditsNotice, gatewayOptions, turnFailedNotice } from "./brain-gateway.ts"
 
 /**
  * The Chief brain's models (routes and their configuration: model-routes.ts). A model name is

@@ -13,6 +13,13 @@ extension NotificationCenterService {
         desktop.onApprove = { [weak self] id, surface, allow in
             self?.answerApproval(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), allow: allow)
         }
+        // A Chief hand's waiting request: the same banner, posted and withdrawn by the hands service (cx-om025).
+        services.cloud.hands.texts = AgentApprovalBanners.handTexts
+        services.cloud.hands.onPending = { [weak self] approval, name in
+            self?.desktop.post(id: approval.key, title: AgentApprovalBanners.handTitle(name), body: approval.summary, surface: nil,
+                               workspace: nil, defaultSound: true, approval: true)
+        }
+        services.cloud.hands.onSettled = { [weak self] approval, _ in self?.desktop.withdraw([approval.key]) }
     }
 
     /// Runs `post` with the chat's pending permission when `notification` is an agent's ask (a
@@ -35,6 +42,13 @@ extension NotificationCenterService {
     /// Allow once or Deny on an approval banner of this launch. An answered prompt reads the tab;
     /// one that ended or changed opens it, where the chat shows what it waits on now.
     func answerApproval(banner: String, surface: SurfaceID?, allow: Bool) {
+        if banner.hasPrefix("hand-approval."), let hands = services?.cloud.hands {
+            // task-owner: NotificationCenterService.answerApproval: one hand answer per banner button.
+            Task { @MainActor [weak self] in
+                do { try await hands.answer(banner, allow: allow) } catch { self?.note("hand approval \(banner) failed: \(error)") }
+            }
+            return
+        }
         guard let entry = approvals.take(banner), let answerer = approvals.answerer else {
             return note("approval refused: \(banner) is not an approval banner of this launch")
         }

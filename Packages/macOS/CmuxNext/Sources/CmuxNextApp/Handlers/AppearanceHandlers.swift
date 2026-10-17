@@ -12,8 +12,7 @@ import CmuxNextSettings
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let uiScale = UIScaleSetting()
-        // Customize Appearance… opens Settings on Appearance (R82: the floating studio panel went
-        // with the Swift Settings UI; the page's sliders preview live in every window).
+        // Customize Appearance… opens Settings on Appearance (R82: the studio panel went with the Swift Settings UI).
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
@@ -42,6 +41,8 @@ enum AppearanceHandlers {
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
+        TabOverflowSetting.bindActions(into: registry, design: context.design, save: save)
+        LinkRouting.bindActions(into: registry, save: save)
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
         registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: uiScale.step, context) })

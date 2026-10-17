@@ -259,6 +259,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/tail",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/kill",
       "params": true,
       "result": true
@@ -318,7 +324,53 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mail/send",
+      "params": {
+        "$ref": "#/types/MailSendParams"
+      },
+      "result": {
+        "$ref": "#/types/MailSendResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/read",
+      "params": {
+        "$ref": "#/types/MailReadParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/wait",
+      "params": {
+        "$ref": "#/types/MailWaitParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mail/ack",
+      "params": {
+        "$ref": "#/types/MailAckParams"
+      },
+      "result": {
+        "$ref": "#/types/MailAckResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/complete",
       "params": true,
       "result": true
     },
@@ -945,6 +997,38 @@
       ],
       "type": "string"
     },
+    "DeliveryReceipt": {
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/DeliveryState"
+        },
+        "updatedAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messageId",
+        "recipient",
+        "state",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "DeliveryState": {
+      "enum": [
+        "queued",
+        "acknowledged"
+      ],
+      "type": "string"
+    },
     "Enforcement": {
       "description": "What limits the session's agent as far as acpmux can tell.",
       "properties": {
@@ -1098,6 +1182,234 @@
       },
       "required": [
         "endedAt"
+      ],
+      "type": "object"
+    },
+    "MailAckParams": {
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "messageId"
+      ],
+      "type": "object"
+    },
+    "MailAckResult": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        }
+      },
+      "required": [
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailMessage": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "sender",
+        "recipient",
+        "body",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "MailPageResult": {
+      "properties": {
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/types/MailRow"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cursor",
+        "messages"
+      ],
+      "type": "object"
+    },
+    "MailReadParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient"
+      ],
+      "type": "object"
+    },
+    "MailRow": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailSendParams": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sender",
+        "recipient",
+        "body"
+      ],
+      "type": "object"
+    },
+    "MailSendResult": {
+      "properties": {
+        "created": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "duplicate": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery",
+        "created",
+        "duplicate"
+      ],
+      "type": "object"
+    },
+    "MailWaitParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipient"
       ],
       "type": "object"
     },

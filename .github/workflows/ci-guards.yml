@@ -783,6 +783,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the signing keychain is deleted before bundle code runs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
@@ -1087,6 +1091,10 @@ jobs:
           python3 tests/test_nightly_signed_unnotarized_artifact.py
           python3 tests/test_nightly_notices_submodule.py
 
+      - name: Validate the cmux NEXT DEV daily dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
+
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_tag_permission_probe.sh
@@ -1121,7 +1129,10 @@ jobs:
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_universal_build.sh
+        run: |
+          bash ./tests/test_nightly_universal_build.sh
+          python3 tests/test_nightly_trusted_routing.py
+          python3 tests/test_nightly_build_state.py
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
@@ -1179,12 +1190,22 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Validate nightly signing admission and its shadow mode
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_sign_admit.py
+          python3 tests/test_nightly_sign_shadow_workflow.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+
+      - name: Validate unsigned nightly resume provenance and routing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_unsigned_resume.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}

@@ -97,6 +97,8 @@ enum DebugPages {
                                                            contextMenu: params["context_menu"]?.boolValue == true))]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
+        case "route":
+            page.open(route: params["route"]?.stringValue ?? "/"); return ["ok": true] // a hash route, as a hand-off opens it
         case "type":
             guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]

@@ -41,6 +41,22 @@ if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
 fi
+# CMUX_RUST_TEST_SHARD=i/n (cmux-ci run --shards N) runs the i-th of n nextest
+# partitions (--partition count:i/n) of the workspace tests; fmt, clippy and the
+# doc tests run only in shard 1, so the n steps together run each check once.
+shard="${CMUX_RUST_TEST_SHARD:-}"
+shard_i=1
+if [[ -n "$shard" ]]; then
+  if [[ ! "$shard" =~ ^([1-9][0-9]?)/([1-9][0-9]?)$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: CMUX_RUST_TEST_SHARD must be i/n with 1 <= i <= n <= 99" >&2
+    exit 2
+  fi
+  shard_i="${BASH_REMATCH[1]}"
+  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
+  [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
+  echo "gate-notice: shard $shard (nextest --partition count:$shard)"
+fi
 umask 022
 root="$(pwd -P)"
 # Public CI keeps the step-private target directory. HQ marks managed workers
@@ -530,6 +546,7 @@ workspace_tests() {
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
   local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
+  [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
@@ -579,6 +596,64 @@ doc_tests() {
   reap_leaked "before doc tests"
   env "$run_marker" cargo "${args[@]}"
 }
+# A warm target (a fleet warm slot, an rbx lane's /w/target) keeps every
+# artifact of every commit it built: cargo never deletes one. On aws-m4pro-9
+# (2026-10-17) debug/deps held 491,261 files (a fresh build: about 26,800), and
+# every test process spent about 14 s in SecCodeCopySelf (cmux_link's
+# own-code check), which scans the executable's folder: tests of 0.2 s took
+# 14-55 s and a shard ran 3569 s with 44 time-outs. prune_target keeps in
+# deps/ only the units this commit's build uses (cargo reports every artifact,
+# fresh or rebuilt, with --message-format=json) and deletes the rest. Build
+# again with the same flags, so cargo only reports: no unit is rebuilt.
+prune_target() {
+  local deps="$CARGO_TARGET_DIR/debug/deps" list
+  [[ -d "$deps" ]] || return 0
+  list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
+  if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
+    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
+    rm -f "$list"
+    echo "prune: skipped (cargo did not list the build's artifacts)"
+    return 0
+  fi
+  python3 - "$deps" "$list" <<'PY' || echo "prune: failed (the target is kept)"
+import json, os, shutil, sys
+deps, listing = sys.argv[1], sys.argv[2]
+def stem(name):
+    # libfoo-0123abcd.rlib, foo-0123abcd.d, foo-0123abcd (a test binary), foo-0123abcd.dSYM
+    name = name.split(".", 1)[0]
+    return name[3:] if name.startswith("lib") else name
+keep = set()
+for line in open(listing, encoding="utf-8", errors="replace"):
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") != "compiler-artifact":
+        continue
+    for f in (m.get("filenames") or []) + ([m["executable"]] if m.get("executable") else []):
+        if os.path.dirname(f) == deps:
+            keep.add(stem(os.path.basename(f)))
+names = os.listdir(deps)
+if len(keep) < 100:
+    print(f"prune: skipped ({len(keep)} units listed, {len(names)} files in deps)")
+    sys.exit(0)
+gone = 0
+for n in names:
+    if stem(n) in keep:
+        continue
+    p = os.path.join(deps, n)
+    if os.path.isdir(p) and not os.path.islink(p):
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+    gone += 1
+print(f"prune: debug/deps kept {len(names) - gone} files of {len(keep)} units, deleted {gone} stale files")
+PY
+  rm -f "$list"
+}
 crate_table() {
   [[ -f "$junit_full" ]] || { echo "(no JUnit file: per-crate table unavailable)"; return 0; }
   command -v python3 >/dev/null || { echo "(no python3: per-crate table unavailable)"; return 0; }
@@ -586,7 +661,7 @@ crate_table() {
 }
 finish() {
   echo
-  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
+  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}${shard:+, shard $shard}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
   printf '%-28s %-22s %s\n' step result seconds
   local row
   for row in "${step_rows[@]}"; do
@@ -649,20 +724,22 @@ if [[ "$mode" == rb-testhost ]]; then
   step "rb-testhost artifact" copy_testhost
   finish
 fi
-if [[ "$mode" == fmt || "$mode" == all ]]; then
+if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
-if [[ "$mode" == clippy || "$mode" == all ]]; then
+if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
   step "cargo-nextest" ensure_nextest
   step "workspace tests" workspace_tests
-  if [[ -z "$filter" ]]; then
+  if [[ -z "$filter" && "$shard_i" == 1 ]]; then
     step "doc tests" doc_tests
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
   reap_leaked "at the end of the step"
+  # Only after a build that cargo finished: a failed build lists no artifacts.
+  step "prune target" prune_target
 fi
 finish

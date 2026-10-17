@@ -33,6 +33,7 @@ export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
+import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -184,12 +185,14 @@ export default {
     // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
-    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env)
+    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
     if (chiefBrain && chiefBrain[2] !== "brain" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrain[2] === "brain" ? "brain" : "runs", chiefBrain[3])
+    const fault = url.pathname.match(FAULT_PATH)
+    if (fault) return handleFault(request, env, fault[1]!)
     const brainImpl = url.pathname.match(OPENCODE_IMPL_PATH)
     if (brainImpl) return handleBrainImpl(request, env, brainImpl[1]!)
     const opencodeHost = url.pathname.match(OPENCODE_HOST_PATH)
@@ -256,7 +259,10 @@ export default {
       if (compare.status === "rejected") throw compare.reason
       return
     }
-    const report = await sweepFeedText(sweepDeps(env))
-    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
+    const [report, hands] = await Promise.allSettled([sweepFeedText(sweepDeps(env)), (async () => (await import("./hand-sweep.ts")).sweepSandboxVms(env))()])
+    if (hands.status === "fulfilled") console.log(JSON.stringify({ msg: "hand.sandbox_sweep", ...hands.value }))
+    else console.error(JSON.stringify({ msg: "hand.sandbox_sweep.failed", error: String(hands.reason).slice(0, 200) }))
+    if (report.status === "rejected") throw report.reason
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
 } satisfies ExportedHandler<Env>

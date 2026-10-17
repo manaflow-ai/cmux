@@ -91,15 +91,19 @@ enum WorkspaceCreation {
         }
     }
 
+    /// Whether `spawn` opens on the New Tab page (or a first chat), not a terminal.
+    static func opensPage(_ spawn: WorkspaceSpawn, on daemon: DaemonService, tabs: AgentTabStore) -> Bool {
+        (spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil) && spawn.command == nil
+            && tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil || spawn.firstSession != nil)
+    }
+
     /// A person's new workspace on the New Tab page (`opensNewTabPage`),
     /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
     /// command, or `daemon` cannot host the page).
     @MainActor
     static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
-              tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil || spawn.firstSession != nil),
-              let connection = daemon.connection else { return nil }
+        guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
             if let session = spawn.firstSession {
                 // A session of this Mac never opens in a workspace of another machine (cx-k21v).

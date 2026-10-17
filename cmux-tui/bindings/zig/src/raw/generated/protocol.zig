@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16";
+pub const ir_sha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3009,6 +3009,8 @@ pub const Workspace = struct {
 
 pub const WorkspaceMutationResult = struct {
     changed: ?bool = null,
+    /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
+    closed_ids: ?[]const []const u8 = null,
     generation: []const u8,
     index: u64,
     key: []const u8,
@@ -3019,6 +3021,7 @@ pub const WorkspaceMutationResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "changed",
+        "closed_ids",
     };
 };
 
@@ -3869,11 +3872,14 @@ pub const CloseWorkspaceRequest = struct {
     origin: wire.Field([]const u8) = .absent,
     /// With end_terminals: the close is not recorded in the closed history (session_end).
     reason: wire.Field(CloseReason) = .absent,
+    /// With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field.
+    report_closed_ids: ?bool = null,
     workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
         "if_empty",
+        "report_closed_ids",
     };
 };
 
@@ -9990,8 +9996,20 @@ pub const KeybindingsChangedEvent = struct {
 };
 
 pub const LayoutChangedEvent = struct {
+    active_pane: ?Id = null,
     event: []const u8,
+    layout: ?Layout = null,
     screen: Id,
+    transaction: ?[]const u8 = null,
+    workspace: ?Id = null,
+    zoomed_pane: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "active_pane",
+        "layout",
+        "transaction",
+        "workspace",
+    };
 };
 
 pub const MachineUsageChangedEvent = struct {

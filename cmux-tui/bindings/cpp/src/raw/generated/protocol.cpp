@@ -13353,6 +13353,11 @@ Result<Json> Codec<WorkspaceMutationResult>::encode(const WorkspaceMutationResul
         if (!encoded) return std::move(encoded).error();
         object.emplace("changed", std::move(encoded).value());
     }
+    if (value.closed_ids) {
+        auto encoded = encode_value(*value.closed_ids);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("closed_ids", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -13386,6 +13391,12 @@ Result<WorkspaceMutationResult> Codec<WorkspaceMutationResult>::decode(const Jso
         auto decoded = decode_value<bool>(*field_changed);
         if (!decoded) return std::move(decoded).error();
         result.changed = std::move(decoded).value();
+    }
+    const Json* field_closed_ids = value.find("closed_ids");
+    if (field_closed_ids) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_closed_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.closed_ids = std::move(decoded).value();
     }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
@@ -15557,6 +15568,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("reason", std::move(encoded).value());
     }
+    if (value.report_closed_ids) {
+        auto encoded = encode_value(*value.report_closed_ids);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("report_closed_ids", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -15643,6 +15659,12 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.reason = Field<CloseReason>(std::move(decoded).value());
         }
+    }
+    const Json* field_report_closed_ids = value.find("report_closed_ids");
+    if (field_report_closed_ids) {
+        auto decoded = decode_value<bool>(*field_report_closed_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.report_closed_ids = std::move(decoded).value();
     }
     const Json* field_workspace = value.find("workspace");
     if (field_workspace) {
@@ -34677,9 +34699,34 @@ Result<Json> Codec<LayoutChangedEvent>::encode(const LayoutChangedEvent& value) 
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("layout-changed")));
+    if (value.active_pane) {
+        auto encoded = encode_value(*value.active_pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("active_pane", std::move(encoded).value());
+    }
+    if (value.layout) {
+        auto encoded = encode_value(*value.layout);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("layout", std::move(encoded).value());
+    }
     auto encoded_screen = encode_value(value.screen);
     if (!encoded_screen) return std::move(encoded_screen).error();
     object.emplace("screen", std::move(encoded_screen).value());
+    if (value.transaction) {
+        auto encoded = encode_value(*value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
+    if (value.workspace) {
+        auto encoded = encode_value(*value.workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace", std::move(encoded).value());
+    }
+    if (!value.zoomed_pane.is_absent()) {
+        auto encoded = encode_value(value.zoomed_pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("zoomed_pane", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -34687,6 +34734,18 @@ Result<LayoutChangedEvent> Codec<LayoutChangedEvent>::decode(const Json& value) 
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     LayoutChangedEvent result{};
+    const Json* field_active_pane = value.find("active_pane");
+    if (field_active_pane) {
+        auto decoded = decode_value<Id>(*field_active_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.active_pane = std::move(decoded).value();
+    }
+    const Json* field_layout = value.find("layout");
+    if (field_layout) {
+        auto decoded = decode_value<Layout>(*field_layout);
+        if (!decoded) return std::move(decoded).error();
+        result.layout = std::move(decoded).value();
+    }
     const Json* field_screen = value.find("screen");
     if (!field_screen) {
         return make_error(ErrorCode::decode, "missing required field 'screen'");
@@ -34695,6 +34754,28 @@ Result<LayoutChangedEvent> Codec<LayoutChangedEvent>::decode(const Json& value) 
         auto decoded = decode_value<Id>(*field_screen);
         if (!decoded) return std::move(decoded).error();
         result.screen = std::move(decoded).value();
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        auto decoded = decode_value<std::string>(*field_transaction);
+        if (!decoded) return std::move(decoded).error();
+        result.transaction = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (field_workspace) {
+        auto decoded = decode_value<Id>(*field_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.workspace = std::move(decoded).value();
+    }
+    const Json* field_zoomed_pane = value.find("zoomed_pane");
+    if (field_zoomed_pane) {
+        if (field_zoomed_pane->is_null()) {
+            result.zoomed_pane = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_zoomed_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.zoomed_pane = Field<Id>(std::move(decoded).value());
+        }
     }
     const Json* field_event = value.find("event");
     if (!field_event) {

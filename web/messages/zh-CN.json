@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "请先恢复套餐再进行更改。",
           "granted": "由 cmux 授予，没有可更改的内容。",
+          "grantedNoCancel": "由 cmux 授予，因此无需取消。",
+          "paymentFailed": "更改方案前，请先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "切换到 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
         "confirm": "切换到 {plan}",
         "keep": "保留当前套餐",
@@ -578,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",

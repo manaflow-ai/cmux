@@ -11,6 +11,7 @@ import { NumberEditor } from "./NumberEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
+import { TextEditor } from "./TextEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
 import { ToggleEditor } from "./ToggleEditor";
 import { SearchTemplateEditor } from "./SearchTemplateEditor";
@@ -40,6 +41,8 @@ export function Editor(props: EditorProps): ReactNode {
       return <DomainListEditor {...props} />;
     case "sound":
       return <SoundEditor {...props} />;
+    case "text":
+      return <TextEditor {...props} />;
     case "url":
       return row.validation === "domain:search_template" ? (
         <SearchTemplateEditor {...props} />

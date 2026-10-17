@@ -105,6 +105,7 @@ fn run_inner(
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
+        Some("remote-update-need") => run_update_need(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
@@ -198,6 +199,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
+        Some("remote-update-need") => catalog().remote.remote_update_need_help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
@@ -1989,6 +1991,61 @@ pub const PROBE_CAPABILITIES: &[&str] = &[
     cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
 ];
 
+/// `remote update-need --probe-json <file|->` (cx-3r9mt): whether the machine
+/// whose `remote-probe --json` this is runs an older, the same or a newer
+/// cmux-tui than this binary, by `cmux_remote::update_need`. Exit 0 for every
+/// answer; only bad input fails.
+fn run_update_need(args: &[String]) -> anyhow::Result<()> {
+    use cmux_remote::update_need::{BuildFacts, update_need};
+    let source = match args {
+        [flag, source] if flag == "--probe-json" => source.as_str(),
+        [single] if single.starts_with("--probe-json=") => &single["--probe-json=".len()..],
+        _ => return Err(anyhow!(catalog().remote.remote_update_need_help)),
+    };
+    let text = if source == "-" {
+        let mut text = String::new();
+        io::stdin().read_to_string(&mut text).context("read the probe JSON from stdin")?;
+        text
+    } else {
+        fs::read_to_string(source).with_context(|| format!("read {source}"))?
+    };
+    let probe: Value = serde_json::from_str(&text).context("the probe is not JSON")?;
+    let object = probe.as_object().ok_or_else(|| anyhow!("the probe is not a JSON object"))?;
+    let remote = BuildFacts {
+        commit: object.get("build_identity").and_then(Value::as_str).map(str::to_owned),
+        time: object.get("build_time").and_then(Value::as_u64).unwrap_or(0),
+        capabilities: object
+            .get("daemon_capabilities")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
+    };
+    let local = BuildFacts {
+        commit: Some(BUILD_IDENTITY.to_owned()),
+        time: cmux_build_identity::BUILD_TIME,
+        capabilities: Some(
+            cmux_tui_core::server::build_capabilities().into_iter().map(str::to_owned).collect(),
+        ),
+    };
+    let (need, reason) = update_need(&local, &remote);
+    let side = |facts: &BuildFacts| {
+        serde_json::json!({
+            "commit": facts.commit,
+            "time": facts.time,
+            "capabilities_count": facts.capabilities.as_ref().map(BTreeSet::len),
+        })
+    };
+    let mut answer = serde_json::json!({
+        "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
+    });
+    if reason == cmux_remote::update_need::Reason::Incomparable {
+        answer["warning"] = serde_json::json!(
+            "each build serves a capability the other lacks; neither replaces the other"
+        );
+    }
+    println!("{answer}");
+    Ok(())
+}
+
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "app": "cmux-tui",
@@ -1996,12 +2053,21 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "distribution_version": DISTRIBUTION_VERSION,
         "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
         "build_identity": BUILD_IDENTITY,
+        // cx-3r9mt: what `remote update-need` orders builds by.
+        "build_time": cmux_build_identity::BUILD_TIME,
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // Client-side transport capabilities a control plane can key routing on.
         "capabilities": PROBE_CAPABILITIES,
     });
+    // The capability list only on request: the SSH bootstrap of every client reads at most
+    // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
+    let mut value = value;
+    if args.iter().any(|argument| argument == "--build-facts") {
+        value["daemon_capabilities"] =
+            serde_json::json!(cmux_tui_core::server::build_capabilities());
+    }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
     } else {

@@ -5,18 +5,22 @@ import CmuxNextPages
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
 public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's: a tab of the card's fill on its top edge, sharing its rim.
+    /// Today's: in a chat, a tab of the card's fill on its top edge, sharing its rim; on the New
+    /// Tab, the folder and computer as plain text over the card (Cursor's home, Lucas #21133).
     case `default`
     /// A tab a few px above the card in its own closed hairline (#20789).
     case bump
     /// Plain muted text a few px above the card, no fill or rim, on the card's content edge.
     case plain
+    /// A filled tray tucked under the card's top edge, its text on the card's content edge.
+    case tray
 
     public var tunableTitle: String {
         switch self {
-        case .default: "Default (tab on the card)"
+        case .default: "Default (chat: tab on the card; New Tab: text above it)"
         case .bump: "Bump (tab a few px above, own hairline)"
         case .plain: "Plain (floating text, no chrome)"
+        case .tray: "Tray (filled, tucked under the card)"
         }
     }
 }
@@ -89,7 +93,7 @@ public nonisolated struct AgentPaneTunables {
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
         "agentPane.debug.topStripStyle", PageTunables.section, "Composer top strip style",
-        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, or plain text. New agent tabs.",
+        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, plain text, or a tray tucked under the card. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews

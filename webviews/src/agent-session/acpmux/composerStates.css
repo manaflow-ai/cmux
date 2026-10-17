@@ -51,6 +51,19 @@
 .acpmux-plan[aria-pressed="true"]:active {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
 }
+/* A press shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never
+   delays the tone under the button going down. */
+.acpmux-picker-button:active,
+.acpmux-plan:active,
+.acpmux-location-button:active {
+  transition-duration: 0s;
+}
+/* A menu takes focus when it opens so its keys work; a click on its chip never draws a ring around
+   it (WebKit draws one after typing, as keyboard focus). Its rows show the highlight instead. */
+.ui-popup.ui-menu:focus,
+.ui-popup.ui-menu:focus-visible {
+  outline: none;
+}
 
 /* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
 .acpmux-steer {

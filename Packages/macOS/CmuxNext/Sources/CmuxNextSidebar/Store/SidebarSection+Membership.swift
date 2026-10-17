@@ -16,7 +16,9 @@ nonisolated extension SidebarSection {
                 case var .group(group):
                     let wasEmpty = group.workspaces.isEmpty
                     group.workspaces.removeAll { !members.contains($0.id.rawValue) }
-                    return group.workspaces.isEmpty && !wasEmpty ? nil : .group(group)
+                    return group.workspaces.isEmpty && !wasEmpty && group.items.isEmpty ? nil : .group(group)
+                case .item:
+                    return node
                 }
             }
             return section
@@ -39,6 +41,8 @@ nonisolated extension SidebarSection {
                 case var .group(group):
                     group.workspaces.removeAll { pinned.contains($0.id.rawValue) }
                     return .group(group)
+                case .item:
+                    return node
                 }
             }
             return section
@@ -65,6 +69,53 @@ nonisolated extension SidebarSection {
                 case var .group(group):
                     group.workspaces.removeAll { hidden.contains($0.id.rawValue) }
                     return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
+        }
+    }
+
+    /// `sections` with every live row marked `.stale` (the daemon's launch
+    /// snapshot, before the live tree).
+    public static func stale(_ sections: [SidebarSection]) -> [SidebarSection] {
+        marking(sections) { $0.rowState = .stale }
+    }
+
+    /// `sections` without placeholder rows, which no daemon knows: a new
+    /// workspace's slot is resolved against the rows it will sit among.
+    public static func withoutPlaceholders(_ sections: [SidebarSection]) -> [SidebarSection] {
+        sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return workspace.rowState.isPending ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll(where: \.rowState.isPending)
+                    return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
+        }
+    }
+
+    private static func marking(_ sections: [SidebarSection], _ change: (inout SidebarWorkspace) -> Void) -> [SidebarSection] {
+        sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                switch node {
+                case var .workspace(ws):
+                    change(&ws)
+                    return .workspace(ws)
+                case var .group(group):
+                    for index in group.workspaces.indices { change(&group.workspaces[index]) }
+                    return .group(group)
+                case .item:
+                    return node
                 }
             }
             return section

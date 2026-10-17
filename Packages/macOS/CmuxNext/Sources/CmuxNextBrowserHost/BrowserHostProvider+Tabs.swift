@@ -102,6 +102,7 @@ extension BrowserHostProvider {
             "profile": .string(tab.profile), "url": .string(tab.url), "title": .string(tab.title), "visible": .bool(tab.visible),
         ]
         if tab.inputScale != 1 { fields["inputScale"] = .number(tab.inputScale) }
+        if tab.touch { fields["touch"] = .bool(true) }
         return .object(fields)
     }
 }

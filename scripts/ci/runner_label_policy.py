@@ -289,9 +289,9 @@ def drifted_runner_variables(
             reason = fast_lane_reason(value.strip())
         elif name == AWS_SIDE_VARIABLE:
             reason = aws_side_reason(value.strip())
-        elif name == TRUSTED_POOL_VARIABLE:
+        elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
-        elif name == NIGHTLY_RUNNER_VARIABLE:
+        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER"):
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue

@@ -499,3 +499,64 @@ fn an_evicted_archive_screen_republishes_its_closed_group() {
         json!(true)
     );
 }
+
+/// A workspace named `name`, created with its own key (two may share a name).
+fn named_workspace(mux: &Arc<Mux>, name: &str, key: &str) -> String {
+    let created =
+        mutate(mux, "workspace.create", json!({"name": name, "initial_content": "empty"}), key);
+    created["workspace_id"].as_str().unwrap().to_string()
+}
+
+/// `workspace.close` answers `closed_ids`, the closed groups it stored, so an
+/// Undo (GPUI's bulk close) reopens exactly what that close stored, even when
+/// the closed workspaces share a name.
+#[test]
+fn a_workspace_close_names_the_groups_it_stored_and_reopens_exactly_them() {
+    let mux = Mux::new_for_test("closed-ids-workspace", SurfaceOptions::default());
+    terminal_tabs(&mux, 1);
+    let first = named_workspace(&mux, "same", "create-same-1");
+    let second = named_workspace(&mux, "same", "create-same-2");
+    let third = named_workspace(&mux, "other", "create-other");
+    let ids = |mux: &Arc<Mux>| {
+        read(mux, "closed.list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].clone())
+            .collect::<Vec<_>>()
+    };
+
+    let report = |workspace: &str| json!({"workspace": workspace, "report_closed_ids": true});
+    let closed_first = mutate(&mux, "workspace.close", report(&first), "close-1");
+    let closed_second = mutate(&mux, "workspace.close", report(&second), "close-2");
+    // closed.list is newest first.
+    let listed = ids(&mux);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert_eq!(closed_first["closed_ids"], json!([listed[1]]), "{closed_first}");
+    assert_eq!(closed_second["closed_ids"], json!([listed[0]]), "{closed_second}");
+
+    let closed_third = mutate(&mux, "workspace.close", report(&third), "close-3");
+    let items = read(&mux, "closed.list", json!({}));
+    assert_eq!(items.as_array().unwrap().len(), 3, "{items}");
+    assert_eq!(closed_third["closed_ids"], json!([items[0]["id"]]), "{closed_third}");
+    assert_eq!(items[0]["members"][0]["kind"], "workspace");
+
+    for (index, closed) in [&closed_first, &closed_second].into_iter().enumerate() {
+        let id = closed["closed_ids"][0].clone();
+        let reopened =
+            mutate(&mux, "closed.reopen", json!({"closed": id}), &format!("reopen-{index}"));
+        assert_eq!(reopened["closed_id"], id, "{reopened}");
+        assert_eq!(reopened["workspace_ids"].as_array().map(Vec::len), Some(1), "{reopened}");
+    }
+    assert_eq!(ids(&mux), vec![closed_third["closed_ids"][0].clone()], "only the third stays");
+    let names = mux.with_state(|state| {
+        state.workspaces.iter().map(|workspace| workspace.name.clone()).collect::<Vec<_>>()
+    });
+    assert_eq!(names.iter().filter(|name| *name == "same").count(), 2, "{names:?}");
+    assert!(!names.iter().any(|name| name == "other"), "{names:?}");
+
+    // Without the flag the value stays empty (older SDKs decode it strictly).
+    let plain = named_workspace(&mux, "plain", "create-plain");
+    let closed_plain = mutate(&mux, "workspace.close", json!({"workspace": plain}), "close-4");
+    assert_eq!(closed_plain, json!({}), "{closed_plain}");
+}

@@ -27,7 +27,7 @@ struct SidebarStatusBlockTests {
                       WorkspaceStatus.Entry(key: "tests", text: "412 passed", color: "green")],
             progress: WorkspaceStatus.Progress(value: 0.4, label: "Linking"),
             logCount: 1, lastLog: WorkspaceStatus.LogLine(level: "warning", text: "2 warnings"))
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
 
         let sections = SidebarMapping.shared.sections(store.sidebarSections,
                                                       machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))

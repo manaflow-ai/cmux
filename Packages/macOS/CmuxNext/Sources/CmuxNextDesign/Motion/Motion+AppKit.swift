@@ -373,6 +373,15 @@ extension Motion {
         return transition
     }
 
+    /// A short in-place title replacement that enters from below. Callers set
+    /// the token duration before adding it to their layer.
+    public static var pushUpAction: CATransition {
+        let transition = CATransition()
+        transition.type = .push
+        transition.subtype = .fromBottom
+        return transition
+    }
+
     /// Under Reduce Motion, a change that would move things crossfades in place instead
     /// (motion.md rule 7): `layer` fades from what it showed to what it shows after this
     /// transaction. Nil when fades are off.

@@ -98,10 +98,12 @@ fn view_at_turn_equals_the_bytes_the_turn_sent_cached_layout() {
             "the system prompt is the constant text alone (spec 3.3)"
         );
     }
-    assert_ne!(
+    // Spec 5a: the view is frozen; the later entries went in the delta.
+    assert_eq!(
         starts[0]["view"]["hash"], starts[1]["view"]["hash"],
-        "the view moved between the turns"
+        "the second turn sends the first turn's view again"
     );
+    assert!(starts[1]["layout"]["delta"]["bytes"].as_u64().unwrap() > 9_000);
 }
 
 /// The blocks layout (no preset system prompt): view pieces, then the messages.

@@ -1,6 +1,1054 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.openingLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaranje linkova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbning af links"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura de enlaces"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouverture des liens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura dei link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបើកតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpning av lenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieranie linków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abertura de links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открытие ссылок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปิดลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları Açma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкриття посилань"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Links in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj linkove u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn links i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri i link nel browser di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを cmux ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저에서 링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne lenker i cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir links no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์ในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları cmux Tarayıcısında Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، تُفتح الروابط التي تنقر عليها في الطرفيات ومحادثات الوكلاء والصفحة الرئيسية وصفحات cmux في متصفحك الافتراضي. يفتح النقر مع Shift-Command الرابط في المتصفح الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, linkovi na koje kliknete u terminalima, chatovima s agentima, na Početnoj i na cmux stranicama otvaraju se u zadanom pregledniku. Shift-Command-klik otvara link u drugom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når det er slået fra, åbnes links, du klikker på i terminaler, agentchats, Hjem og cmux-sider, i din standardbrowser. Shift-Command-klik åbner et link i den anden browser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, öffnen sich Links, die du in Terminals, Agent-Chats, Home und cmux-Seiten anklickst, in deinem Standardbrowser. Shift-Command-Klick öffnet einen Link im jeweils anderen Browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si está desactivado, los enlaces en los que haces clic en terminales, chats de agentes, Inicio y páginas de cmux se abren en tu navegador predeterminado. Mayúsculas-Comando-clic abre un enlace en el otro navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, les liens sur lesquels vous cliquez dans les terminaux, les discussions d'agents, l'Accueil et les pages cmux s'ouvrent dans votre navigateur par défaut. Maj-Commande-clic ouvre un lien dans l'autre navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, i link su cui fai clic nei terminali, nelle chat degli agenti, nella Home e nelle pagine di cmux si aprono nel browser predefinito. Maiusc-Comando-clic apre un link nell'altro browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、ターミナル、エージェントチャット、ホーム、cmux ページでクリックしたリンクはデフォルトのブラウザで開きます。Shift-Command-クリックすると、もう一方のブラウザでリンクを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលបិទ តំណដែលអ្នកចុចក្នុងទែមីណាល់ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម និងទំព័រ cmux បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ Shift-Command-ចុច បើកតំណក្នុងកម្មវិធីរុករកផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 터미널, 에이전트 채팅, 홈 및 cmux 페이지에서 클릭한 링크가 기본 브라우저에서 열립니다. Shift-Command-클릭하면 다른 브라우저에서 링크를 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når dette er av, åpnes lenker du klikker i terminaler, agentchatter, Hjem og cmux-sider i standardnettleseren. Shift-Command-klikk åpner en lenke i den andre nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu linki klikane w terminalach, czatach z agentami, na stronie głównej i na stronach cmux otwierają się w domyślnej przeglądarce. Shift-Command-kliknięcie otwiera link w drugiej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, os links em que você clica em terminais, chats de agentes, Início e páginas do cmux abrem no navegador padrão. Shift-Command-clique abre um link no outro navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, ссылки, по которым вы щёлкаете в терминалах, чатах с агентами, на главной и на страницах cmux, открываются в браузере по умолчанию. Shift-Command-щелчок открывает ссылку в другом браузере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด ลิงก์ที่คุณคลิกในเทอร์มินัล แชทเอเจนต์ หน้าหลัก และหน้า cmux จะเปิดในเบราว์เซอร์เริ่มต้น การคลิกพร้อม Shift-Command จะเปิดลิงก์ในเบราว์เซอร์อีกตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken terminallerde, ajan sohbetlerinde, Ana Sayfa'da ve cmux sayfalarında tıkladığınız bağlantılar varsayılan tarayıcınızda açılır. Shift-Command ile tıklamak bağlantıyı diğer tarayıcıda açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, посилання, на які ви клацаєте в терміналах, чатах з агентами, на головній і на сторінках cmux, відкриваються в типовому браузері. Shift-Command-клацання відкриває посилання в іншому браузері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, các liên kết bạn nhấp trong terminal, trò chuyện với tác nhân, Trang chủ và các trang cmux sẽ mở trong trình duyệt mặc định. Shift-Command-nhấp mở liên kết trong trình duyệt còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭后，你在终端、代理聊天、主页和 cmux 页面中点击的链接会在默认浏览器中打开。按住 Shift-Command 点按会在另一个浏览器中打开链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉後，你在終端機、代理聊天、首頁和 cmux 頁面中點按的連結會在預設瀏覽器中開啟。按住 Shift-Command 點按會在另一個瀏覽器中開啟連結。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح الروابط المطابقة في متصفحك الافتراضي. يطابق النص أي جزء من عنوان URL، و* و? أحرف بدل، وre: تبدأ تعبيرًا نمطيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se podudaraju otvaraju se u zadanom pregledniku. Tekst se podudara bilo gdje u URL-u, * i ? su zamjenski znakovi, a re: započinje regularni izraz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der matcher, åbnes i din standardbrowser. Tekst matcher hvor som helst i URL'en, * og ? er jokertegn, og re: starter et regulært udtryk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passende Links öffnen sich in deinem Standardbrowser. Text passt an jeder Stelle der URL, * und ? sind Platzhalter, und re: beginnt einen regulären Ausdruck."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los enlaces que coinciden se abren en tu navegador predeterminado. El texto coincide en cualquier parte de la URL, * y ? son comodines, y re: inicia una expresión regular."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les liens correspondants s'ouvrent dans votre navigateur par défaut. Le texte correspond n'importe où dans l'URL, * et ? sont des jokers, et re: commence une expression régulière."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I link corrispondenti si aprono nel browser predefinito. Il testo corrisponde in qualsiasi punto dell'URL, * e ? sono caratteri jolly e re: inizia un'espressione regolare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致するリンクはデフォルトのブラウザで開きます。テキストは URL のどこにでも一致し、* と ? はワイルドカード、re: は正規表現の開始です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលត្រូវគ្នាបើកក្នុងកម្មវិធីរុករកលំនាំដើម។ អត្ថបទត្រូវគ្នានៅកន្លែងណាក៏បានក្នុង URL, * និង ? ជាតួអក្សរជំនួស ហើយ re: ចាប់ផ្ដើមកន្សោមធម្មតា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 링크는 기본 브라우저에서 열립니다. 텍스트는 URL의 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som samsvarer åpnes i standardnettleseren. Tekst samsvarer hvor som helst i URL-en, * og ? er jokertegn, og re: starter et regulært uttrykk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasujące linki otwierają się w domyślnej przeglądarce. Tekst pasuje w dowolnym miejscu adresu URL, * i ? to symbole wieloznaczne, a re: rozpoczyna wyrażenie regularne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links correspondentes abrem no navegador padrão. O texto corresponde a qualquer parte da URL, * e ? são curingas, e re: inicia uma expressão regular."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подходящие ссылки открываются в браузере по умолчанию. Текст совпадает в любом месте URL, * и ? — подстановочные знаки, а re: начинает регулярное выражение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่ตรงกันจะเปิดในเบราว์เซอร์เริ่มต้น ข้อความตรงกับส่วนใดก็ได้ของ URL, * และ ? เป็นไวลด์การ์ด และ re: เริ่มนิพจน์ทั่วไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen bağlantılar varsayılan tarayıcınızda açılır. Metin URL'nin herhangi bir yerinde eşleşir, * ve ? joker karakterdir, re: bir düzenli ifade başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідні посилання відкриваються в типовому браузері. Текст збігається будь-де в URL, * і ? — символи підстановки, а re: починає регулярний вираз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các liên kết khớp sẽ mở trong trình duyệt mặc định. Văn bản khớp ở bất kỳ đâu trong URL, * và ? là ký tự đại diện, còn re: bắt đầu một biểu thức chính quy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匹配的链接会在默认浏览器中打开。文本可匹配 URL 中的任意位置，* 和 ? 为通配符，re: 表示正则表达式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符合的連結會在預設瀏覽器中開啟。文字可符合 URL 中的任何位置，* 和 ? 為萬用字元，re: 表示正規表示式。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that open in your default browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روابط تُفتح في متصفحك الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se otvaraju u zadanom pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der åbnes i din standardbrowser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, die sich im Standardbrowser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces que se abren en tu navegador predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens qui s'ouvrent dans votre navigateur par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link che si aprono nel browser predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルトのブラウザで開くリンク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលបើកក្នុងកម្មវិធីរុករកលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 브라우저에서 열리는 링크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som åpnes i standardnettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki otwierane w domyślnej przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links que abrem no navegador padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки, открываемые в браузере по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่เปิดในเบราว์เซอร์เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan tarayıcıda açılan bağlantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання, що відкриваються в типовому браузері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết mở trong trình duyệt mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在默认浏览器中打开的链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在預設瀏覽器中開啟的連結"
+          }
+        }
+      }
+    },
+    "settings.group.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файлы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "檔案"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محرر النصوص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređivač teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teksteditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texteditor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Éditeur de texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor di testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストエディタ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីកែអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 편집기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekstredigerer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytor tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовый редактор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมแก้ไขข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовий редактор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình soạn thảo văn bản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文本编辑器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文字編輯器"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيق الذي يستخدمه «فتح في محرر النصوص» لمسار: اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم التطبيق الذي يفتح الشفرة المصدرية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija koju Otvori u uređivaču teksta koristi za putanju: naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju koja otvara izvorni kod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen, som Åbn i teksteditor bruger til en sti: et appnavn, et bundle-id eller stien til en app. Tom bruger den app, der åbner kildekode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App, die „Im Texteditor öffnen“ für einen Pfad verwendet: ein App-Name, eine Bundle-ID oder der Pfad einer App. Leer verwendet die App, die Quellcode öffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app que usa Abrir en el editor de texto para una ruta: un nombre de app, un ID de paquete o la ruta de una app. Vacío usa la app que abre código fuente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app qu'utilise Ouvrir dans l'éditeur de texte pour un chemin : un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app qui ouvre le code source."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app che Apri nell'editor di testo usa per un percorso: un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスの「テキストエディタで開く」に使うアプリ: アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែល «បើកក្នុងកម្មវិធីកែអត្ថបទ» ប្រើសម្រាប់ផ្លូវ៖ ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីដែលបើកកូដប្រភព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "경로의 텍스트 편집기에서 열기가 사용하는 앱: 앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen Åpne i tekstredigerer bruker for en bane: et appnavn, en pakke-ID eller banen til en app. Tom bruker appen som åpner kildekode."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja, której używa Otwórz w edytorze tekstu dla ścieżki: nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji otwierającej kod źródłowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app que Abrir no editor de texto usa para um caminho: um nome de app, um ID de pacote ou o caminho de um app. Vazio usa o app que abre código-fonte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение, которое «Открыть в текстовом редакторе» использует для пути: имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение, открывающее исходный код."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่ «เปิดในโปรแกรมแก้ไขข้อความ» ใช้กับพาธ: ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyicide Aç'ın bir yol için kullandığı uygulama: bir uygulama adı, paket kimliği veya bir uygulamanın yolu. Boş bırakılırsa kaynak kodu açan uygulama kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, яку «Відкрити в текстовому редакторі» використовує для шляху: назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма, що відкриває вихідний код."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng mà Mở trong trình soạn thảo văn bản dùng cho một đường dẫn: tên ứng dụng, ID gói hoặc đường dẫn của ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“在文本编辑器中打开”用于路径的 App：App 名称、Bundle ID 或 App 的路径。留空则使用打开源代码的 App。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「在文字編輯器中打開」用於路徑的 App：App 名稱、Bundle ID 或 App 的路徑。留空則使用開啟原始碼的 App。"
+          }
+        }
+      }
+    },
     "settings.group.freeModel": {
       "extractionState": "manual",
       "localizations": {
@@ -97718,7 +98766,1579 @@
         }
       }
     }
-  }
+  },
+    "settings.tabs.tabMaxWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの最大幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأقصى لعرض علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimalna širina kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimal fanebredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maximale Tabbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho máximo de pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur maximale des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza massima scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងអតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최대 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksimal fanebredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maksymalna szerokość karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura máxima da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Максимальная ширина вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บสูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En büyük sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Максимальна ширина вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页最大宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁最大寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMaxWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widest a tab gets when the strip has room."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーに余裕があるときのタブの最大幅です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقصى عرض تصل إليه علامة التبويب عندما يتوفر مكان في الشريط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najveća širina kartice kada traka ima mjesta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den største bredde en fane får, når der er plads i bjælken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "So breit wird ein Tab höchstens, wenn die Leiste Platz hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho máximo de una pestaña cuando la barra tiene espacio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur maximale d’un onglet quand la barre a de la place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza massima di una scheda quando la barra ha spazio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងធំបំផុតរបស់ផ្ទាំង នៅពេលរបារមានកន្លែង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바에 공간이 있을 때 탭이 넓어질 수 있는 최대 너비입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den største bredden en fane får når linjen har plass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Największa szerokość karty, gdy pasek ma miejsce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura máxima de uma aba quando a barra tem espaço."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наибольшая ширина вкладки, когда на панели есть место."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างสูงสุดของแท็บเมื่อแถบมีพื้นที่เหลือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şeritte yer olduğunda bir sekmenin alabileceği en büyük genişlik."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найбільша ширина вкладки, коли на панелі є місце."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng lớn nhất của một tab khi thanh còn chỗ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏有空间时标签页的最大宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列有空間時分頁的最大寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinActiveWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum Selected Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中タブの最小幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأدنى لعرض علامة التبويب المحددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna širina odabrane kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal bredde for valgt fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Breite des ausgewählten Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho mínimo de la pestaña seleccionada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale de l’onglet sélectionné"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza minima della scheda selezionata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងអប្បបរមានៃផ្ទាំងដែលបានជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택한 탭의 최소 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minste bredde for valgt fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna szerokość wybranej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura mínima da aba selecionada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальная ширина выбранной вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างต่ำสุดของแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçili sekmenin en küçük genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальна ширина вибраної вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tối thiểu của tab đang chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所选标签页最小宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所選分頁最小寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinActiveWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーが混み合うと、すべてのタブがこの幅まで均等に縮み、選択中のタブは少なくともこの幅を保ちます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يزدحم الشريط، تتقلص كل علامات التبويب بالتساوي إلى هذا العرض، وتبقى علامة التبويب المحددة بهذا العرض على الأقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je traka pretrpana, sve kartice se ravnomjerno sužavaju do ove širine, a odabrana kartica ostaje najmanje ovoliko široka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når bjælken er fuld, krymper alle faner ligeligt til denne bredde, og den valgte fane forbliver mindst så bred."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn die Leiste voll ist, schrumpfen alle Tabs gleichmäßig auf diese Breite, und der ausgewählte Tab bleibt mindestens so breit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando la barra está llena, todas las pestañas se reducen por igual hasta este ancho, y la pestaña seleccionada mantiene al menos este ancho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand la barre est pleine, tous les onglets rétrécissent de façon égale jusqu’à cette largeur, et l’onglet sélectionné garde au moins cette largeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando la barra è piena, tutte le schede si restringono in modo uniforme fino a questa larghezza e la scheda selezionata resta larga almeno così."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលរបារពេញ ផ្ទាំងទាំងអស់រួមតូចស្មើៗគ្នាដល់ទទឹងនេះ ហើយផ្ទាំងដែលបានជ្រើសនៅតែមានទទឹងយ៉ាងហោចណាស់ប៉ុណ្ណេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바가 꽉 차면 모든 탭이 이 너비까지 고르게 줄어들고, 선택한 탭은 최소 이 너비를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når linjen er full, krymper alle faner jevnt til denne bredden, og den valgte fanen beholder minst denne bredden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy pasek jest pełny, wszystkie karty zwężają się równo do tej szerokości, a wybrana karta pozostaje co najmniej tak szeroka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando a barra está cheia, todas as abas encolhem por igual até esta largura, e a aba selecionada mantém pelo menos esta largura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда панель заполнена, все вкладки равномерно сужаются до этой ширины, а выбранная вкладка остаётся не уже неё."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อแถบเต็ม แท็บทั้งหมดจะหดลงเท่ากันจนถึงความกว้างนี้ และแท็บที่เลือกจะกว้างอย่างน้อยเท่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit dolduğunda tüm sekmeler bu genişliğe kadar eşit olarak daralır ve seçili sekme en az bu genişlikte kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли панель заповнена, усі вкладки рівномірно звужуються до цієї ширини, а вибрана вкладка лишається не вужчою за неї."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi thanh đầy, mọi tab thu hẹp đều đến độ rộng này, và tab đang chọn luôn rộng ít nhất bằng chừng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏拥挤时，所有标签页均匀缩小到此宽度，所选标签页至少保持此宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列擁擠時，所有分頁平均縮小到此寬度，所選分頁至少保持此寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinInactiveWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimum Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの最小幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد الأدنى لعرض علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna širina kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal fanebredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Tabbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho mínimo de pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza minima scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងអប្បបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최소 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minste fanebredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalna szerokość karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura mínima da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальная ширина вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บต่ำสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En küçük sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальна ширина вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab tối thiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页最小宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁最小寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabMinInactiveWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーがスクロールする前に、ほかのタブが縮む最小の幅です。選択中タブの最小幅より広くはなりません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أضيق عرض تصل إليه علامات التبويب الأخرى قبل أن يتمرر الشريط. لا يزيد أبدًا عن الحد الأدنى لعلامة التبويب المحددة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najmanja širina ostalih kartica prije nego što se traka počne pomicati. Nikad šira od minimuma odabrane kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mindste bredde de andre faner får, før bjælken ruller. Aldrig bredere end den valgte fanes minimum."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "So schmal werden die anderen Tabs, bevor die Leiste scrollt. Nie breiter als das Minimum des ausgewählten Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho mínimo de las demás pestañas antes de que la barra se desplace. Nunca mayor que el mínimo de la pestaña seleccionada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur minimale des autres onglets avant que la barre ne défile. Jamais plus large que le minimum de l’onglet sélectionné."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza minima delle altre schede prima che la barra scorra. Mai più larga del minimo della scheda selezionata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងតូចបំផុតរបស់ផ្ទាំងផ្សេងទៀត មុនពេលរបាររមូរ។ មិនដែលធំជាងអប្បបរមានៃផ្ទាំងដែលបានជ្រើសទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 바가 스크롤되기 전에 다른 탭이 줄어드는 최소 너비입니다. 선택한 탭의 최소 너비보다 넓어지지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den minste bredden de andre fanene får før linjen ruller. Aldri bredere enn minstebredden til den valgte fanen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najmniejsza szerokość pozostałych kart, zanim pasek zacznie się przewijać. Nigdy większa niż minimum wybranej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura mínima das outras abas antes de a barra rolar. Nunca maior que o mínimo da aba selecionada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наименьшая ширина остальных вкладок, прежде чем панель начнёт прокручиваться. Не больше минимума выбранной вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างต่ำสุดของแท็บอื่นก่อนที่แถบจะเลื่อน ไม่เกินความกว้างต่ำสุดของแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit kaymaya başlamadan önce diğer sekmelerin alabileceği en küçük genişlik. Seçili sekmenin en küçük genişliğinden fazla olmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найменша ширина інших вкладок, перш ніж панель почне прокручуватися. Не більша за мінімум вибраної вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng nhỏ nhất của các tab khác trước khi thanh cuộn. Không bao giờ lớn hơn mức tối thiểu của tab đang chọn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏开始滚动前其他标签页的最小宽度。不会超过所选标签页的最小宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列開始捲動前其他分頁的最小寬度。不會超過所選分頁的最小寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabPinnedWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned Tab Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定タブの幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض علامة التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina zakačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde af fastgjort fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breite angehefteter Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho de pestaña fijada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur des onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza scheda fissata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정된 탭 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde på festet fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość przypiętej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura da aba fixada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закреплённой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş sekme genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закріпленої вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng tab đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "固定标签页宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "釘選分頁寬度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabPinnedWidth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Width of a pinned tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したタブの幅です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض علامة التبويب المثبتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina zakačene kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredden af en fastgjort fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breite eines angehefteten Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El ancho de una pestaña fijada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur d’un onglet épinglé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La larghezza di una scheda fissata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងរបស់ផ្ទាំងដែលបានខ្ទាស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정된 탭의 너비입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredden på en festet fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość przypiętej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A largura de uma aba fixada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закреплённой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างของแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş bir sekmenin genişliği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина закріпленої вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ rộng của một tab đã ghim."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "固定标签页的宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "釘選分頁的寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.overflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Overflow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجاوز علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preljev kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faneoverløb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab-Überlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desbordamiento de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Débordement des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overflow delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブのあふれ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការហៀរផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 넘침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faneoverflyt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadmiar kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excesso de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переполнение вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บล้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme Taşması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переповнення вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tràn thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页溢出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁溢出"
+          }
+        }
+      }
+    },
+    "settings.tabs.overflow.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقليص يضيّق كل علامات التبويب إلى الحد الأدنى للعرض قبل أن يتمرر الشريط. التمرير يبقي علامات التبويب عريضة ويتمرر أبكر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sužavanje sužava sve kartice do minimalne širine prije nego što se traka počne pomicati. Pomicanje drži kartice širokima i pomiče se ranije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formindsk gør alle faner smallere ned til minimumsbredden, før bjælken ruller. Rul holder fanerne brede og ruller tidligere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verkleinern macht alle Tabs bis zur Mindestbreite schmaler, bevor die Leiste scrollt. Scrollen hält Tabs breit und scrollt früher."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reducir estrecha todas las pestañas hasta el ancho mínimo antes de que la barra se desplace. Desplazar mantiene las pestañas anchas y se desplaza antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduire rétrécit chaque onglet jusqu’à la largeur minimale avant que la barre ne défile. Défiler garde les onglets larges et défile plus tôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restringi riduce ogni scheda fino alla larghezza minima prima che la barra scorra. Scorri mantiene le schede larghe e scorre prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「縮小」では、タブバーがスクロールする前にすべてのタブが最小幅まで縮みます。「スクロール」ではタブの幅を保ち、早めにスクロールします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្រួម ធ្វើឲ្យផ្ទាំងទាំងអស់តូចដល់ទទឹងអប្បបរមា មុនពេលរបាររមូរ។ រមូរ រក្សាផ្ទាំងឲ្យធំ ហើយរមូរលឿនជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "축소는 탭 바가 스크롤되기 전에 모든 탭을 최소 너비까지 줄입니다. 스크롤은 탭 너비를 유지하고 더 일찍 스크롤합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krymp gjør alle faner smalere ned til minstebredden før linjen ruller. Rull holder fanene brede og ruller tidligere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmniejszanie zwęża każdą kartę do minimalnej szerokości, zanim pasek zacznie się przewijać. Przewijanie zachowuje szerokie karty i przewija wcześniej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encolher estreita todas as abas até a largura mínima antes de a barra rolar. Rolar mantém as abas largas e rola mais cedo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатие сужает все вкладки до минимальной ширины, прежде чем панель начнёт прокручиваться. Прокрутка сохраняет вкладки широкими и прокручивает раньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อ จะทำให้ทุกแท็บแคบลงจนถึงความกว้างต่ำสุดก่อนแถบจะเลื่อน เลื่อน จะคงแท็บให้กว้างและเลื่อนเร็วขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daralt, şerit kaymadan önce her sekmeyi en küçük genişliğe kadar daraltır. Kaydır, sekmeleri geniş tutar ve daha erken kayar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стискання звужує всі вкладки до мінімальної ширини, перш ніж панель почне прокручуватися. Прокручування зберігає вкладки широкими й прокручує раніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu nhỏ làm mọi thẻ hẹp lại đến độ rộng tối thiểu trước khi thanh cuộn. Cuộn giữ thẻ rộng và cuộn sớm hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“缩小”会先把每个标签页缩到最小宽度，然后标签栏才滚动。“滚动”让标签页保持宽度，并更早开始滚动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「縮小」會先把每個分頁縮到最小寬度，然後分頁列才捲動。「捲動」讓分頁保持寬度，並更早開始捲動。"
+          }
+        }
+      }
+    },
+    "settings.choice.tabOverflowShrink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تقليص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suzi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formindsk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verkleinern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reducir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restringi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krymp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmniejszaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encolher"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжимать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daralt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стискати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu nhỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "缩小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "縮小"
+          }
+        }
+      }
+    },
+    "settings.choice.tabOverflowScroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomiči"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Défiler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រមូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewijaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

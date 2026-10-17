@@ -122,3 +122,10 @@ public final class ProgramStatusSeenStore {
         defaults.set(data, forKey: Self.defaultsKey)
     }
 }
+
+/// One viewed tab and its OSC 7501 records (NotificationCenterService `viewedRecords`).
+public struct ViewedProgramStatus: Equatable, Sendable {
+    public var tab: String
+    public var records: [ProgramStatusRecord]
+    public init(tab: String, records: [ProgramStatusRecord]) { (self.tab, self.records) = (tab, records) }
+}

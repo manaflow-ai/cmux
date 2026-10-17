@@ -35,6 +35,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private var isApplying = false
+    private var appliedTree = LayoutAppliedTree()
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -53,11 +54,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.keepsPanesWhenDetached = true
     }
 
-    /// Shows this parked content again (the window installs its view next).
+    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply.
     func unpark() {
         isParked = false
         layoutView.keepsPanesWhenDetached = false
-        applyCurrent()
+    }
+
+    /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
+    func didShow() {
+        sendTopology()
+        layoutView.syncWithModel()
     }
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
@@ -107,8 +113,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let workspace = workspace
         apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
-                self?.apply(result)
+            // A trigger: `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
+            for await result in ObservationStream({ ObservationTrigger(LayoutMapping.shared.map(workspace)) }) {
+                self?.apply(result.value)
             }
         }
         // An empty workspace loaded while disconnected, or drawn from the
@@ -125,7 +132,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // terminal that failed adds why (cx-tzlqb).
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { "\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
+            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
                 self?.updateEmptyState()
             }
         }
@@ -142,10 +149,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent() {
-        apply(LayoutMapping.shared.map(workspace))
+        apply(LayoutMapping.shared.map(workspace), force: true) // sends the topology again (unpark, expected focus)
     }
 
-    private func apply(_ result: LayoutMapping.Result) {
+    private func apply(_ result: LayoutMapping.Result, force: Bool = false) {
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else { return }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
         #endif
@@ -157,10 +165,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         for (id, controller) in panes {
             if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
         }
-        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
-        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
-        let rows = daemon.supports(DaemonCapabilities.shared.rows)
-        if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
+        if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
+        if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)

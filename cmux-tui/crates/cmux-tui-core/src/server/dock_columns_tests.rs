@@ -240,7 +240,7 @@ fn dock_column_emits_screen_change_and_layout_change() {
         "transaction": 5,
     }));
     let events = events.try_iter().collect::<Vec<_>>();
-    assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
+    assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(..))));
     let delta = events
         .iter()
         .find_map(|event| match event {

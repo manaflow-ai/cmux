@@ -10,6 +10,23 @@ public struct SidebarMapping {
     public static let shared = Self()
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
+
+    /// The daemon's allocation name is useful as an identity, but it is not
+    /// useful content for a sidebar row. Keep it hidden until a page title,
+    /// agent title, or user title replaces it so a new workspace reads as a
+    /// stable loading state instead of flashing `workspace-7`.
+    private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
+        if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
+        let title = workspace.displayName
+        guard !isDefaultWorkspaceName(title) else { return "" }
+        return title
+    }
+
+    static func isDefaultWorkspaceName(_ name: String) -> Bool {
+        guard name.hasPrefix("workspace-") else { return false }
+        let suffix = name.dropFirst("workspace-".count)
+        return !suffix.isEmpty && suffix.allSatisfy { $0.isASCII && $0.isNumber }
+    }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
 
@@ -110,7 +127,7 @@ public struct SidebarMapping {
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: page?.title ?? workspace.displayName,
+            title: Self.sidebarTitle(workspace, page: page),
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
