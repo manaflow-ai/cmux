@@ -9,7 +9,8 @@ import Testing
 
 @MainActor
 struct MachineCatalogRegistryTests {
-    @Test func blockedRoutesStillObservePolicyReadmission() throws {
+    @Test(arguments: [false, true])
+    func blockedRoutesStillObservePolicyReadmission(carrierEvent: Bool) throws {
         let local = DaemonService()
         let registry = MachineRegistry(local: local)
         let policy = CatalogTestPolicy()
@@ -21,12 +22,13 @@ struct MachineCatalogRegistryTests {
         registry.add(session)
         #expect(registry.catalogRecords().count == 1)
         session.daemon.policyBlock.set(true)
-        policy.blocked = true
+        policy.blocked = !carrierEvent
         let invalidated = Mutex(false)
         let blocked = withObservationTracking { registry.catalogRecords() } onChange: { invalidated.withLock { $0 = true } }
         #expect(blocked.isEmpty)
-        policy.blocked = false
-        #expect(invalidated.withLock { $0 }, "the blocked projection must subscribe to policy readmission")
+        if carrierEvent { session.daemon.store.markFailed("test retry event") }
+        else { policy.blocked = false }
+        #expect(invalidated.withLock { $0 }, "the blocked projection must subscribe to policy and carrier readmission")
         session.daemon.policyBlock.set(false)
         #expect(registry.catalogRecords().count == 1)
     }
