@@ -38,7 +38,16 @@
         "connectable": true,
         "deleted": false,
         "recoverable": false,
-        "os": "darwin"
+        "os": "darwin",
+        "platform": {
+          "os": "darwin",
+          "arch": "arm64"
+        },
+        "capabilities": [
+          "terminal",
+          "workspace",
+          "agent_session"
+        ]
       },
       {
         "id": "machine_srv01",
@@ -48,7 +57,17 @@
         "connectable": true,
         "deleted": false,
         "recoverable": false,
-        "os": "linux"
+        "os": "linux",
+        "platform": {
+          "os": "linux",
+          "arch": "x86_64"
+        },
+        "capabilities": [
+          "terminal",
+          "workspace",
+          "agent_session",
+          "persistent_home"
+        ]
       },
       {
         "id": "machine_vm01",
@@ -58,7 +77,16 @@
         "connectable": true,
         "deleted": false,
         "recoverable": false,
-        "os": "linux"
+        "os": "linux",
+        "platform": {
+          "os": "linux",
+          "arch": "x86_64"
+        },
+        "capabilities": [
+          "terminal",
+          "workspace",
+          "agent_session"
+        ]
       }
     ],
     "agent_cli.list": {
