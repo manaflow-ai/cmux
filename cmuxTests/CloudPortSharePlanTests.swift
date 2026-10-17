@@ -122,6 +122,59 @@ import Testing
         #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
     }
 
+    @Test func invalidationDuringAReloadSchedulesAFollowUpRead() async throws {
+        var listed = Self.refs([Self.publication("a", .team)])
+        var reads = 0
+        var releaseFirst: CheckedContinuation<Void, Never>?
+        let store = CloudPortSharingStore(now: { Date(timeIntervalSince1970: 1_000) }) {
+            reads += 1
+            if reads == 1 {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    releaseFirst = continuation
+                }
+            }
+            return listed
+        }
+
+        let reload = Task { try await store.reload() }
+        try await Self.waitUntil { reads == 1 }
+        // A CLI share commits while the share flow's reload is still reading.
+        listed = Self.refs([Self.publication("a", .public)])
+        store.invalidate()
+        #expect(reads == 1)
+        releaseFirst?.resume()
+        _ = try await reload.value
+
+        try await Self.waitUntil {
+            reads == 2 && store.sharing(machineID: "vm-1", port: 3000) == .public
+        }
+        #expect(reads == 2)
+    }
+
+    @Test func anOlderReadFinishingLastDoesNotReplaceANewerList() async throws {
+        var reads = 0
+        var releaseFirst: CheckedContinuation<Void, Never>?
+        let store = CloudPortSharingStore(now: { Date(timeIntervalSince1970: 1_000) }) {
+            reads += 1
+            if reads == 1 {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    releaseFirst = continuation
+                }
+                return Self.refs([Self.publication("a", .team)])
+            }
+            return Self.refs([Self.publication("a", .public)])
+        }
+
+        let older = Task { try await store.reload() }
+        try await Self.waitUntil { reads == 1 }
+        _ = try await store.reload()
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
+        releaseFirst?.resume()
+        _ = try await older.value
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
+        #expect(reads == 2)
+    }
+
     private static func waitUntil(
         timeout: Duration = .seconds(10),
         _ condition: @escaping @MainActor () -> Bool
