@@ -13,6 +13,7 @@ import SwiftUI
 @MainActor
 final class SidebarFooterMenuAnchor {
     fileprivate weak var view: NSView?
+    private var presentedMenu: NSMenu?
 
     /// Pops `menu` just above the button, left-aligned with it: the footer sits
     /// at the bottom edge of the window, so a menu hanging below would be
@@ -22,7 +23,35 @@ final class SidebarFooterMenuAnchor {
         let gap: CGFloat = 4
         let menuHeight = menu.size.height
         let y = view.isFlipped ? -(menuHeight + gap) : view.bounds.height + gap + menuHeight
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+        presentedMenu = menu
+        if let menu = menu as? SidebarFooterMenu {
+            menu.selectedHandler = nil
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+            let selectedHandler = menu.selectedHandler
+            menu.selectedHandler = nil
+            selectedHandler?()
+        } else {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
+        }
+    }
+}
+
+/// Records the selected action while AppKit tracks a footer menu. The anchor
+/// invokes it after `popUp` returns, once the nested tracking loop is closed.
+@MainActor
+final class SidebarFooterMenu: NSMenu {
+    var selectedHandler: (() -> Void)?
+
+    init(title: String) {
+        super.init(title: title)
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func record(_ handler: @escaping () -> Void) {
+        selectedHandler = handler
     }
 }
 
@@ -58,7 +87,14 @@ extension NSMenu {
         shortcut: StoredShortcut? = nil,
         handler: @escaping () -> Void
     ) -> NSMenuItem {
-        let item = SidebarRowClosureMenuItem(title: title, handler: handler)
+        nonisolated(unsafe) let handler = handler
+        let item = SidebarRowClosureMenuItem(title: title) { [weak self] in
+            guard let footerMenu = self as? SidebarFooterMenu else {
+                handler()
+                return
+            }
+            footerMenu.record(handler)
+        }
         item.identifier = NSUserInterfaceItemIdentifier(identifier)
         if let shortcut, let keyEquivalent = shortcut.menuItemKeyEquivalent {
             item.keyEquivalent = keyEquivalent
@@ -140,7 +176,7 @@ struct SidebarHelpMenuButton: View {
     }
 
     private func makeMenu() -> NSMenu {
-        let menu = NSMenu(title: helpTitle)
+        let menu = SidebarFooterMenu(title: helpTitle)
         menu.autoenablesItems = false
 
         menu.addSidebarFooterItem(
@@ -149,15 +185,12 @@ struct SidebarHelpMenuButton: View {
         ) {
             AppDelegate.shared?.openWelcomeWorkspace()
         }
+        let shortcutsPresented = $isShortcutsPopoverPresented
         menu.addSidebarFooterItem(
             String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
             identifier: "SidebarHelpMenuOptionKeyboardShortcuts"
         ) {
-            // Presented after the menu's tracking loop has fully unwound so
-            // the popover's first click is not eaten by the closing menu.
-            DispatchQueue.main.async {
-                isShortcutsPopoverPresented = true
-            }
+            shortcutsPresented.wrappedValue = true
         }
         addLink(to: menu, String(localized: "about.docs", defaultValue: "Docs"), url: Self.docsURL, identifier: "SidebarHelpMenuOptionDocs")
         addLink(to: menu, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: Self.changelogURL, identifier: "SidebarHelpMenuOptionChangelog")

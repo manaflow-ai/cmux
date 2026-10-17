@@ -65,8 +65,9 @@ struct SidebarAccountMenuButton: View {
             hasProfilePicture: identity?.avatarURL != nil
         )
         Button {
-            if let identity {
+            if let flow = accountFlow, let identity = flow.currentIdentity {
                 menuAnchor.popUp(makeMenu(
+                    flow: flow,
                     avatarURL: identity.avatarURL,
                     displayName: identity.displayName,
                     email: identity.email
@@ -98,9 +99,13 @@ struct SidebarAccountMenuButton: View {
 
     /// Who you are, then what you can do with the account, then Sign Out
     /// last and apart so it is never the item under a hurried click.
-    private func makeMenu(avatarURL: URL?, displayName: String, email: String) -> NSMenu {
-        let flow = accountFlow
-        let menu = NSMenu(title: title)
+    private func makeMenu(
+        flow: HostAccountFlow,
+        avatarURL: URL?,
+        displayName: String,
+        email: String
+    ) -> NSMenu {
+        let menu = SidebarFooterMenu(title: title)
         menu.autoenablesItems = false
 
         let header = NSMenuItem()
@@ -126,12 +131,12 @@ struct SidebarAccountMenuButton: View {
                 navigationTarget: .account
             )
         }
-        if flow?.isProUpgradeAvailable == true {
+        if let offer = flow.upgradeOffer {
             menu.addSidebarFooterItem(
-                String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                ProUpgradePresenter.upgradeMenuTitle(for: offer),
                 identifier: "SidebarAccountUpgradeButton"
             ) {
-                flow?.openProUpgrade(source: .sidebarAccountMenu)
+                flow.openProUpgrade(source: .sidebarAccountMenu)
             }
         }
 
@@ -140,7 +145,7 @@ struct SidebarAccountMenuButton: View {
             String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
             identifier: "SidebarAccountSignOutButton"
         ) {
-            Task { await flow?.signOut() }
+            Task { await flow.signOut() }
         }
         return menu
     }
