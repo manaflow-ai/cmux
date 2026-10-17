@@ -12986,11 +12986,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
+        var panePlacements: [String: String] = [:]
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                      let title = workspace.panelTitle(panelId: panelId) else {
+                    continue
+                }
+                panePlacements[title] = paneId.description
+            }
+        }
+        let placementSnapshot = panePlacements.keys.sorted().compactMap { title in
+            guard let paneId = panePlacements[title] else { return nil }
+            return "\(title)=\(paneId)"
+        }.joined(separator: "|")
+
         writeBonsplitTabDragUITestData([
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
             "trackedPaneSelectedTitle": selectedTitle,
+            "trackedPaneCount": String(workspace.bonsplitController.allPaneIds.count),
+            "trackedPanePlacements": placementSnapshot,
         ])
     }
 
