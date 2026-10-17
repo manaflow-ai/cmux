@@ -46,19 +46,22 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
         }
         await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, operation.id));
       }
-      const pending = (await tx.select({ id: cloudVmHostLeaseOperations.id }).from(cloudVmHostLeaseOperations).where(and(
+      const pendingRows = await tx.select().from(cloudVmHostLeaseOperations).where(and(
         eq(cloudVmHostLeaseOperations.hostId, normalized.hostId),
         eq(cloudVmHostLeaseOperations.leaseId, normalized.leaseId),
         eq(cloudVmHostLeaseOperations.status, "pending"),
-      )).limit(1))[0];
-      if (pending) return { kind: "pending", record: null };
+      ));
+      for (const pending of pendingRows) {
+        if (pending.updatedAt.getTime() + MAX_VM_HOST_LEASE_TTL_MS > normalized.nowMs) return { kind: "pending", record: null };
+        await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, pending.id));
+      }
       const currentRow = (await tx.select().from(cloudVmHostLeases).where(and(
         eq(cloudVmHostLeases.hostId, normalized.hostId),
         eq(cloudVmHostLeases.leaseId, normalized.leaseId),
       )).limit(1))[0];
       const current = currentRow ? recordFromRow(currentRow) : undefined;
       assertCanReserve(current, normalized, provider);
-      await tx.insert(cloudVmHostLeaseOperations).values({
+      const [inserted] = await tx.insert(cloudVmHostLeaseOperations).values({
         provider,
         hostId: normalized.hostId,
         leaseId: normalized.leaseId,
@@ -69,22 +72,22 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
         status: "pending",
         receipt: null,
         updatedAt: new Date(normalized.nowMs),
-      });
-      return { kind: "new", record: null };
+      }).returning({ id: cloudVmHostLeaseOperations.id });
+      if (!inserted) throw new VmHostLeaseError("store_error", "lease reservation was not persisted");
+      return { kind: "new", reservationToken: inserted.id, record: null };
     });
   }
 
-  async complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult): Promise<VmHostLeaseRecord> {
+  async complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord> {
     const normalized = validateVmHostLeaseInput(input);
     const record = recordFromResult(normalized, provider, result);
     return cloudDb().transaction(async (tx) => {
       await lockLeaseTuple(tx, normalized.hostId, normalized.leaseId);
-      const operation = (await tx.select().from(cloudVmHostLeaseOperations).where(and(
-        eq(cloudVmHostLeaseOperations.hostId, normalized.hostId),
-        eq(cloudVmHostLeaseOperations.leaseId, normalized.leaseId),
-        eq(cloudVmHostLeaseOperations.effectKey, normalized.effectKey),
-      )).limit(1))[0];
+      const operation = (await tx.select().from(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, reservationToken)).limit(1))[0];
       if (!operation) throw new VmHostLeaseError("store_error", "lease completion has no reservation");
+      if (operation.hostId !== normalized.hostId || operation.leaseId !== normalized.leaseId || operation.effectKey !== normalized.effectKey) {
+        throw new VmHostLeaseError("stale_generation", "lease completion token belongs to another operation");
+      }
       assertOperationIdentity(operation, normalized, provider);
       if (operation.status === "complete" && operation.receipt) return recordFromJson(operation.receipt, provider);
 

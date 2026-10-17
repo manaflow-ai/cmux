@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   FreestyleHostLeaseAdapter,
   createHugeBlueHostLeaseHttpClient,
+  createConfiguredHostLeaseAdapters,
   HugeBlueHostLeaseAdapter,
   MemoryVmHostLeaseStore,
   RegisteredHostLeaseAdapter,
@@ -182,6 +183,18 @@ describe("VM host lease transport", () => {
   test("fails closed when an adapter is absent", async () => {
     const transport = new VmHostLeaseTransport(new MemoryVmHostLeaseStore(), new Map());
     await expect(transport.acquire({ provider: "freestyle", leaseId: "lease-missing", hostId: "freestyle:host", ownerId: "worker", generation: 1, effectKey: "missing", ttlMs: 1_000, nowMs: 0 })).rejects.toMatchObject({ code: "provider_mismatch" });
+  });
+
+  test("builds only explicitly configured adapters and leaves future hosts open", () => {
+    const hugeBlueClient = fakeClient();
+    const freestyleClient = fakeClient();
+    const adapters = createConfiguredHostLeaseAdapters({
+      hugeBlue: { baseUrl: "https://huge-blue.example", token: () => "token", fetch: globalThis.fetch },
+      freestyle: { hostLeases: freestyleClient },
+      additional: [{ provider: "mac-mini", client: hugeBlueClient }],
+    });
+    expect([...adapters.keys()]).toEqual(["huge-blue", "freestyle", "mac-mini"]);
+    expect(createConfiguredHostLeaseAdapters({}).size).toBe(0);
   });
 
   test("validates lease input", async () => {
