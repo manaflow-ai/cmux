@@ -78,9 +78,14 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
     const frame = requestAnimationFrame(measure);
     const observer = new ResizeObserver(measure);
     observer.observe(shell);
+    const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
+    if (rail) observer.observe(rail);
+    const children = new MutationObserver(measure);
+    children.observe(shell, { childList: true });
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      children.disconnect();
     };
   }, [shell, blocked]);
   return room;
