@@ -96,7 +96,7 @@ enum WorkspaceCreation {
     /// command, or `daemon` cannot host the page).
     @MainActor
     /// Whether `spawn` opens on the New Tab page (or a first chat), not a terminal.
-    @MainActor static func opensPage(_ spawn: WorkspaceSpawn, on daemon: DaemonService, tabs: AgentTabStore) -> Bool {
+    static func opensPage(_ spawn: WorkspaceSpawn, on daemon: DaemonService, tabs: AgentTabStore) -> Bool {
         (spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil) && spawn.command == nil
             && tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil || spawn.firstSession != nil)
     }
