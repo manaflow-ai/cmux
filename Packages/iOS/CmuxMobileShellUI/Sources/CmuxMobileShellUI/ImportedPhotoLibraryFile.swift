@@ -2,6 +2,7 @@
 import CoreTransferable
 import Foundation
 import PhotosUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// A file-backed transfer for an item returned by the Photos picker.
