@@ -1,10 +1,8 @@
 import AppKit
 import CmuxNextDesign
 import Observation
-
 extension SidebarView {
     // MARK: Observation
-
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.
     struct RenderState: Hashable, Sendable {
@@ -51,17 +49,14 @@ extension SidebarView {
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
         }
     }
-
     func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
             for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
         }
     }
-
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
-
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
@@ -97,7 +92,6 @@ extension SidebarView {
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
-
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
