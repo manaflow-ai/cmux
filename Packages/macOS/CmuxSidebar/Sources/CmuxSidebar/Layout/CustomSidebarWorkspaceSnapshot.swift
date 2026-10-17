@@ -47,6 +47,11 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let id: UUID
     /// The display title (custom title falling back to the live title).
     public let title: String
+    /// The leading emoji in ``title``, when the title starts with one
+    /// (`workspaces[i].emoji`). This is omitted when the title has no leading
+    /// emoji so a sidebar can choose its own fallback without parsing title
+    /// text.
+    public let emoji: String?
     /// Whether this workspace is the selected one (`workspaces[i].selected`).
     public let isSelected: Bool
     /// Whether the workspace is pinned (`workspaces[i].pinned`).
@@ -121,12 +126,14 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         remote: Remote?,
         agents: [CustomSidebarAgentSnapshot] = [],
         groupId: UUID? = nil,
-        taskStatus: String
+        taskStatus: String,
+        emoji: String? = nil
     ) {
         self.taskStatus = taskStatus
         self.groupId = groupId
         self.id = id
         self.title = title
+        self.emoji = emoji
         self.isSelected = isSelected
         self.isPinned = isPinned
         self.index = index

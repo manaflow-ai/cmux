@@ -54,11 +54,36 @@ jobs:
             });
             // Publish: GitHub starts no workflow_run for a run that GITHUB_TOKEN
             // dispatched, so cmux-next-dev-daily.yml never fires for these runs
-            // by itself. Hand it the newest finished dev run, once per run.
-            const finishedDev = data.workflow_runs.find((run) =>
+            // by itself. Hand it the newest finished dev run that built the
+            // app, once per run. A newer run that failed before its app
+            // compile is passed over: the publisher would skip it ("no
+            // successful app-producing job"), and handing over only the newest
+            // run left an older built app unpublished (source run 38565180800
+            // behind failed run 38584136265 on 2026-10-14). The app-producing
+            // job names match cmux-next-dev-daily.yml SOURCE_APP_PRODUCER_JOBS.
+            const appProducers = new Set([
+              'cmux NEXT DEV Release compile',
+              'cmux app scheme compile (Debug)',
+              'cmux-next Release compile (Xcode 26)',
+            ]);
+            const finishedRuns = data.workflow_runs.filter((run) =>
               run.status === 'completed' && run.conclusion !== 'cancelled' &&
               (run.name === `cmux NEXT DEV daily · ${run.head_sha}` ||
                run.display_title === `cmux NEXT DEV daily · ${run.head_sha}`));
+            let finishedDev;
+            for (const run of finishedRuns.slice(0, 10)) {
+              const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                filter: 'latest',
+                per_page: 100,
+              });
+              if (jobs.jobs.some((job) => appProducers.has(job.name) && job.conclusion === 'success')) {
+                finishedDev = run;
+                break;
+              }
+            }
             if (finishedDev) {
               const publishTitle = `cmux NEXT DEV daily · publish ${finishedDev.id}`;
               const { data: published } = await github.rest.actions.listWorkflowRuns({
