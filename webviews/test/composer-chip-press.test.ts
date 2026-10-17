@@ -269,20 +269,25 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open highlights`, async () => {
       const page = await open(engine, PILL_STAGE, 400);
       const state = (name: string) =>
-        page.locator(chip(name)).first().evaluate((element) => {
-          const style = getComputedStyle(element);
-          const rect = element.getBoundingClientRect();
-          return {
-            background: style.backgroundColor,
-            boxShadow: style.boxShadow,
-            radius: parseFloat(style.borderTopLeftRadius),
-            height: rect.height,
-          };
-        });
+        page
+          .locator(chip(name))
+          .first()
+          .evaluate((element) => {
+            const style = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return {
+              background: style.backgroundColor,
+              boxShadow: style.boxShadow,
+              radius: parseFloat(style.borderTopLeftRadius),
+              height: rect.height,
+            };
+          });
       const idle = await Promise.all(PILL_STAGE.chips.map(state));
       for (const [index, value] of idle.entries()) {
         expect(value.background, `${PILL_STAGE.chips[index]} has a tonal idle fill`).not.toBe("rgba(0, 0, 0, 0)");
-        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(value.height / 2 - 0.5);
+        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(
+          value.height / 2 - 0.5,
+        );
         expect(value.height, `${PILL_STAGE.chips[index]} remains a usable target`).toBeGreaterThanOrEqual(24);
       }
 
