@@ -397,6 +397,25 @@ final class AgentChatSessionRegistry {
         }
     }
 
+    /// A transcript parser can observe an interactive question even when the
+    /// provider did not emit a hook event. Keep the live session projection in
+    /// sync with that durable fact so Codex `request_user_input` turns surface
+    /// as needing attention on the session list and header.
+    func notePendingQuestion(sessionID: String, at timestamp: Date) {
+        guard let record = records[sessionID], record.state != .ended else { return }
+        guard case .needsInput = record.state else {
+            update(sessionID: sessionID) { record in
+                record.state = .needsInput(since: timestamp)
+                if timestamp > record.lastActivityAt {
+                    record.lastActivityAt = timestamp
+                }
+            }
+            return
+        }
+        // Do not restamp an already-blocked session. The first observed
+        // question is the stable attention timestamp used by the UI.
+    }
+
     /// Seeds the registry from the on-disk hook stores so sessions started
     /// before app launch are listable. The whole-file JSON read+parse runs off
     /// the main actor; only the (cheap) record application touches main state.

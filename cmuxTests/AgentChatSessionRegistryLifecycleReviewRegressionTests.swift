@@ -187,6 +187,47 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
+    @Test func codexTranscriptQuestionProjectsNeedsInputState() async throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let transcriptURL = home.appendingPathComponent("rollout.jsonl")
+        let line = #"{"timestamp":"2026-07-24T00:00:00Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input","arguments":"{\"questions\":[{\"id\":\"q1\",\"question\":\"Which path?\",\"options\":[{\"label\":\"Source\"}]}]}","call_id":"call-question"}}"#
+        try line.appending("\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        defer { service.shutdown() }
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: transcriptURL.path,
+            cwd: home.path,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        #expect(page.messages.count == 1)
+        guard case .question = try #require(page.messages.first?.kind) else {
+            Issue.record("Expected a pending Codex question card")
+            return
+        }
+        let record = try #require(service.sessionRecord(sessionID: sessionID))
+        guard case .needsInput(let since) = record.state else {
+            Issue.record("Expected Codex question to project needs-input state")
+            return
+        }
+        #expect(since.timeIntervalSince1970 > 0)
+    }
+
+    @MainActor
     @Test func relaunchOnlyPlaceholderCannotBecomeResumeSessionIdentity() {
         #expect(!AgentChatTranscriptService.isValidResumeSessionID(""))
         #expect(!AgentChatTranscriptService.isValidResumeSessionID("  \n"))

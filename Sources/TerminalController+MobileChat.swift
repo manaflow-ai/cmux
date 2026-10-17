@@ -119,7 +119,18 @@ extension TerminalController {
             }
             #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
-                .filter { mobileChatBindingIsCurrentAgent($0) }
+                .filter { record in
+                    // A finished session is a historical conversation. Its
+                    // agent PID is expected to be dead, so the live binding
+                    // check would incorrectly hide it from Agent history.
+                    // Keep it listable when the transcript resolver says it
+                    // can still be opened read-only; live sessions still
+                    // require the terminal to be bound to the same agent.
+                    if record.state == .ended {
+                        return service.shouldListEndedSession(record)
+                    }
+                    return mobileChatBindingIsCurrentAgent(record)
+                }
                 .map(\.descriptor)
             let encoded = descriptors.compactMap { service.wirePayload($0) }
             #if DEBUG
@@ -277,6 +288,13 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
+        if let mutationError = mobileChatMutationError(sessionID: sessionID) {
+            return mutationError
+        }
+        return await v2MobileChatSendValidated(params: params, sessionID: sessionID)
+    }
+
+    private func v2MobileChatSendValidated(params: [String: Any], sessionID: String) async -> V2CallResult {
         let text = v2RawString(params, "text") ?? ""
         let attachments = params["attachments"] as? [[String: Any]] ?? []
         guard !text.isEmpty || !attachments.isEmpty else {
@@ -355,6 +373,9 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
+        if let mutationError = mobileChatMutationError(sessionID: sessionID) {
+            return mutationError
+        }
         let hard = (params["hard"] as? Bool) ?? false
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
@@ -382,6 +403,9 @@ extension TerminalController {
         let requestID = v2RawString(params, "request_id")
         let service = agentChatTranscriptService
         let record = service?.sessionRecord(sessionID: sessionID)
+        if let mutationError = mobileChatMutationError(sessionID: sessionID) {
+            return mutationError
+        }
         if let service,
            let requestID,
            (record?.agentKind == .claude || record?.agentKind == .other("opencode")),
@@ -399,6 +423,9 @@ extension TerminalController {
                     requestId: answer.requestID,
                     decision: decision
                 )
+            }
+            if let surfaceID = record?.surfaceID {
+                service?.noteExplicitInput(surfaceID: surfaceID)
             }
             return .ok(["answered": true, "option_index": optionIndex])
         }
@@ -424,6 +451,16 @@ extension TerminalController {
         case .sent, .queued:
             terminalTarget.forceRefresh(reason: "mobileHost.chatAnswer")
             _ = service?.resolvePermission(sessionID: sessionID, requestID: requestID, optionIndex: optionIndex)
+            if let requestID {
+                _ = service?.resolveQuestion(
+                    sessionID: sessionID,
+                    messageID: requestID,
+                    optionIndex: optionIndex
+                )
+            }
+            if let surfaceID = record?.surfaceID {
+                service?.noteExplicitInput(surfaceID: surfaceID)
+            }
             return .ok(["answered": true, "option_index": optionIndex])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             return .err(code: "surface_unavailable", message: String(
@@ -431,6 +468,29 @@ extension TerminalController {
                 defaultValue: "Answer key was not accepted"
             ), data: nil)
         }
+    }
+
+    /// Ended sessions remain available for read-only history, but never accept
+    /// new prompts or interactive decisions. Checking this before resolving a
+    /// terminal also prevents a stale binding (especially one with no PID)
+    /// from routing input into a reused surface.
+    private func mobileChatMutationError(sessionID: String) -> V2CallResult? {
+        guard let record = agentChatTranscriptService?.sessionRecord(sessionID: sessionID) else {
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                "session_id": sessionID
+            ])
+        }
+        guard record.state != .ended else {
+            return .err(
+                code: "session_ended",
+                message: String(
+                    localized: "mobile.chat.error.sessionEnded",
+                    defaultValue: "This agent session has ended and is read-only."
+                ),
+                data: ["session_id": sessionID]
+            )
+        }
+        return nil
     }
 
     /// Workspace/surface params for a chat session's bound terminal, in the

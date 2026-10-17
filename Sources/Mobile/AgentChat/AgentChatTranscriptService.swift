@@ -589,6 +589,7 @@ final class AgentChatTranscriptService {
         }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
+        notePendingQuestionIfPresent(page.messages, sessionID: sessionID)
         if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
@@ -685,6 +686,7 @@ final class AgentChatTranscriptService {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         if !batch.appended.isEmpty {
+            notePendingQuestionIfPresent(batch.appended, sessionID: sessionID)
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
             if let turnState = proseTurnStates[sessionID],
@@ -700,6 +702,15 @@ final class AgentChatTranscriptService {
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
         }
+    }
+
+    private func notePendingQuestionIfPresent(_ messages: [ChatMessage], sessionID: String) {
+        guard let question = messages.first(where: { message in
+            guard message.role == .agent,
+                  case .question(let question) = message.kind else { return false }
+            return question.selectedOptionLabel == nil
+        }) else { return }
+        registry.notePendingQuestion(sessionID: sessionID, at: question.timestamp)
     }
 
     private static func batchContainsAgentProse(_ messages: [ChatMessage], matching turnState: ProseTurnState) -> Bool {

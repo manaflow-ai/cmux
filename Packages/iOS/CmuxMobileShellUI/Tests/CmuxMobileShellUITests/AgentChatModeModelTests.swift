@@ -285,6 +285,59 @@ import Testing
         #expect(model.draft.isEmpty)
     }
 
+    @Test func endedSessionIsReadOnlyAndDoesNotForwardMutations() async {
+        let ended = ChatSessionDescriptor(
+            id: "ended",
+            agentKind: .codex,
+            title: "Finished task",
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 20),
+            version: 4
+        )
+        let source = FakeAgentChatSource(
+            sessions: [ended],
+            pages: ["ended": [page(message(id: "one", seq: 1, text: "done"))]]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.sessions.map(\.id) == ["ended"])
+        #expect(model.selectedSession?.state == .ended)
+
+        model.draft = "Do more work"
+        await model.sendDraft()
+        await model.answer(optionIndex: 0, requestID: "question")
+        await model.interrupt()
+
+        #expect(await source.sent.isEmpty)
+        #expect(await source.answers.isEmpty)
+        #expect(await source.interrupts.isEmpty)
+        #expect(model.draft == "Do more work")
+    }
+
+    @Test func steerDraftInterruptsCurrentTurnThenSendsImmediately() async {
+        let working = ChatSessionDescriptor(
+            id: "working",
+            agentKind: .codex,
+            title: "Active task",
+            state: .working(since: Date(timeIntervalSince1970: 10)),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 2
+        )
+        let source = FakeAgentChatSource(sessions: [working], pages: [:])
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        model.draft = "Use the smaller fixture"
+        await model.steerDraft()
+
+        #expect((await source.interrupts).map(\.0) == [false])
+        #expect((await source.sent).map(\.0) == ["Use the smaller fixture"])
+        #expect(model.draft.isEmpty)
+    }
+
     @Test func sessionRemovalSelectsTheNextSession() async {
         let source = FakeAgentChatSource(
             sessions: [

@@ -41,6 +41,12 @@ public protocol ChatEventSource: Sendable {
     ///   - sessionID: The destination session.
     func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws
 
+    /// Steers an active turn with a follow-up prompt. Sources that do not
+    /// expose a provider-native steer operation use a polite interrupt followed
+    /// by the same prompt injection path; this keeps the Queue/Steer choice
+    /// available without making older hosts implement a new RPC immediately.
+    func steer(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws
+
     /// Interrupts the session's agent.
     ///
     /// - Parameters:
@@ -125,6 +131,11 @@ public protocol ChatEventSource: Sendable {
 }
 
 public extension ChatEventSource {
+    func steer(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        try await interrupt(sessionID: sessionID, hard: false)
+        try await send(text: text, attachments: attachments, sessionID: sessionID)
+    }
+
     func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
         try await answer(optionIndex: optionIndex, sessionID: sessionID)
     }

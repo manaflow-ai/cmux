@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -36,6 +37,7 @@ struct AgentChatModeView: View {
             .navigationBarTitleDisplayMode(.inline)
         } detail: {
             AgentChatDetail(
+                store: store,
                 model: model,
                 isLoading: isLoading,
                 isConnected: store.connectionState == .connected
@@ -231,6 +233,7 @@ private struct AgentSidebarHeader: View {
 }
 
 private struct AgentChatDetail: View {
+    let store: CMUXMobileShellStore
     @Bindable var model: AgentChatModeModel
     @Environment(\.dismiss) private var dismiss
     let isLoading: Bool
@@ -255,7 +258,7 @@ private struct AgentChatDetail: View {
                             .padding(.horizontal, 12)
                             .padding(.top, 8)
                     }
-                    AgentChatTranscriptView(model: model)
+                    AgentChatTranscriptView(store: store, model: model)
                 }
             }
         }
@@ -519,6 +522,7 @@ private struct AgentStatusIndicator: View {
 }
 
 private struct AgentChatTranscriptView: View {
+    let store: CMUXMobileShellStore
     @Bindable var model: AgentChatModeModel
     @FocusState private var composerFocused: Bool
     @State private var suppressNextMessageAutoScroll = false
@@ -593,7 +597,7 @@ private struct AgentChatTranscriptView: View {
                 }
                 .refreshable { await model.refresh() }
             }
-            AgentChatComposer(model: model, focused: $composerFocused)
+            AgentChatComposer(store: store, model: model, focused: $composerFocused)
         }
         .background(Color(.systemBackground))
         .accessibilityIdentifier("MobileAgentConversation")
@@ -802,11 +806,36 @@ private struct AgentThoughtCard: View {
 
 private struct AgentToolCard: View {
     let tool: ChatToolUse
+    @State private var isInputExpanded = false
+    @State private var isOutputExpanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(tool.summary, systemImage: tool.status == .running ? "arrow.triangle.2.circlepath" : "wrench.and.screwdriver")
                 .font(.subheadline.weight(.semibold))
-            if let output = tool.output { Text(output).font(.caption.monospaced()).lineLimit(8) }
+            if let inputDetail = tool.inputDetail,
+               !inputDetail.isEmpty {
+                DisclosureGroup("Input", isExpanded: $isInputExpanded) {
+                    Text(inputDetail)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+                .font(.caption.weight(.medium))
+            }
+            if let paths = tool.referencedPaths, !paths.isEmpty {
+                Label(paths.joined(separator: ", "), systemImage: "folder")
+                    .font(.caption2.monospaced())
+                    .lineLimit(isInputExpanded ? nil : 2)
+                    .textSelection(.enabled)
+            }
+            if let output = tool.output {
+                DisclosureGroup("Output", isExpanded: $isOutputExpanded) {
+                    Text(output)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+                .font(.caption.weight(.medium))
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -832,6 +861,8 @@ private struct AgentTerminalCard: View {
 
 private struct AgentDiffCard: View {
     let edit: ChatFileEdit
+    @State private var isExpanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -842,7 +873,15 @@ private struct AgentDiffCard: View {
                 if let additions = edit.additions { Text("+\(additions)").foregroundStyle(.green) }
                 if let deletions = edit.deletions { Text("-\(deletions)").foregroundStyle(.red) }
             }
-            if let diff = edit.unifiedDiff { Text(diff).font(.caption2.monospaced()).lineLimit(12) }
+            if let diff = edit.unifiedDiff {
+                DisclosureGroup("View diff", isExpanded: $isExpanded) {
+                    Text(diff)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(isExpanded ? nil : 12)
+                }
+                .font(.caption.weight(.medium))
+            }
         }
         .font(.caption)
         .padding(12)
@@ -931,10 +970,29 @@ private struct AgentQuestionCard: View {
 }
 
 private struct AgentChatComposer: View {
+    let store: CMUXMobileShellStore
     @Bindable var model: AgentChatModeModel
     var focused: FocusState<Bool>.Binding
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isPhotoPickerPresented = false
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var dictation: ComposerDictationController
+
+    init(
+        store: CMUXMobileShellStore,
+        model: AgentChatModeModel,
+        focused: FocusState<Bool>.Binding
+    ) {
+        self.store = store
+        self._model = Bindable(model)
+        self.focused = focused
+        self._dictation = State(initialValue: ComposerDictationController { event in
+            event.recordAppDiagnostic(
+                correlationID: model.selectedSessionID ?? "agent-chat",
+                store: store
+            )
+        })
+    }
 
     private var isSessionEnded: Bool {
         model.selectedSession?.state == .ended
@@ -983,6 +1041,18 @@ private struct AgentChatComposer: View {
                 }
                 .accessibilityLabel("Add attachment")
                 .disabled(isSessionEnded || model.attachments.count >= 10)
+                Button {
+                    toggleDictation()
+                } label: {
+                    Image(systemName: dictation.state.isListening ? "mic.fill" : "mic")
+                }
+                .foregroundStyle(dictation.state.isListening ? .red : .secondary)
+                .symbolEffect(.pulse, isActive: dictation.state.isListening)
+                .disabled(isSessionEnded || !dictation.isAvailable)
+                .accessibilityLabel(
+                    dictation.state.isListening ? "Stop dictation" : "Start dictation"
+                )
+                .accessibilityIdentifier("MobileAgentComposerMic")
                 TextField(
                     isSessionEnded ? "Session ended" : "Message your agent",
                     text: $model.draft,
@@ -993,6 +1063,11 @@ private struct AgentChatComposer: View {
                     .textFieldStyle(.plain)
                     .padding(.vertical, 10)
                     .disabled(isSessionEnded)
+                    .disabled(dictation.locksComposerField)
+                    .onChange(of: focused.wrappedValue) { _, isFocused in
+                        guard !isFocused, !dictation.locksComposerField else { return }
+                        dictation.stop()
+                    }
                 if model.selectedSession?.isWorking == true {
                     Button { Task { await model.interrupt() } } label: {
                         Image(systemName: "stop.circle.fill")
@@ -1001,14 +1076,38 @@ private struct AgentChatComposer: View {
                     .accessibilityLabel("Stop agent")
                     .disabled(isSessionEnded)
                 }
-                Button { Task { await model.sendDraft() } } label: {
-                    Image(systemName: "arrow.up.circle.fill")
+                if model.selectedSession?.isWorking == true {
+                    Menu {
+                        Button {
+                            dictation.cancel()
+                            Task { await model.sendDraft() }
+                        } label: {
+                            Label("Queue for next turn", systemImage: "clock.arrow.circlepath")
+                        }
+                        Button {
+                            dictation.cancel()
+                            Task { await model.steerDraft() }
+                        } label: {
+                            Label("Steer current turn", systemImage: "arrow.uturn.forward")
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
+                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                    .disabled(!canSend)
+                    .accessibilityLabel("Send instruction")
+                    .accessibilityHint("Choose whether to queue the instruction or steer the current turn")
+                } else {
+                    Button {
+                        dictation.cancel()
+                        Task { await model.sendDraft() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
+                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                    .disabled(!canSend)
+                    .accessibilityLabel("Send")
                 }
-                .foregroundStyle(
-                    canSend ? Color.accentColor : Color.secondary
-                )
-                .disabled(!canSend)
-                .accessibilityLabel(model.selectedSession?.isWorking == true ? "Queue message" : "Send")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1031,6 +1130,28 @@ private struct AgentChatComposer: View {
                 await stagePhotos(items)
                 photoSelection = []
             }
+        }
+        .onChange(of: model.selectedSessionID) { _, _ in
+            // Session selection resets the draft and transcript source. Stop
+            // any in-flight recognizer before those state changes can route a
+            // late partial into the newly selected session.
+            dictation.cancel()
+        }
+        .onChange(of: isSessionEnded) { _, ended in
+            if ended {
+                dictation.cancel()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else {
+                // Speech recognition must not keep the microphone open while
+                // the app is backgrounded or inactive.
+                dictation.cancel()
+                return
+            }
+        }
+        .onDisappear {
+            dictation.cancel()
         }
     }
 
@@ -1064,6 +1185,12 @@ private struct AgentChatComposer: View {
             } catch is CancellationError {
                 return
             } catch { continue }
+        }
+    }
+
+    private func toggleDictation() {
+        dictation.toggle(existingText: model.draft) { merged in
+            model.draft = merged
         }
     }
 }

@@ -252,6 +252,7 @@ final class AgentChatModeModel {
     func sendDraft() async {
         guard let selectedSessionID,
               let source,
+              selectedSession?.state != .ended,
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
@@ -265,6 +266,34 @@ final class AgentChatModeModel {
             source: source,
             generation: sourceGeneration
         )
+    }
+
+    /// Sends a follow-up into the current turn after a polite interrupt. The
+    /// regular send action remains a safe queue operation while the agent is
+    /// working; this explicit path gives mobile users the provider-style
+    /// Steer choice without silently changing queue semantics.
+    func steerDraft() async {
+        guard let selectedSessionID,
+              let source,
+              selectedSession?.state != .ended,
+              selectedSession?.isWorking == true,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pendingAttachments = attachments
+        draft = ""
+        attachments = []
+        do {
+            try await source.steer(
+                text: text,
+                attachments: pendingAttachments.map(\.outbound),
+                sessionID: selectedSessionID
+            )
+        } catch {
+            guard !Task.isCancelled else { return }
+            draft = text
+            attachments = pendingAttachments
+            errorMessage = error.localizedDescription
+        }
     }
 
     func addAttachment(_ attachment: PendingAttachment) {
@@ -337,7 +366,7 @@ final class AgentChatModeModel {
     }
 
     func interrupt(hard: Bool = false) async {
-        guard let selectedSessionID, let source else { return }
+        guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         guard interruptingSessionIDs.insert(selectedSessionID).inserted else { return }
         defer { interruptingSessionIDs.remove(selectedSessionID) }
         do {
@@ -348,7 +377,7 @@ final class AgentChatModeModel {
     }
 
     func answer(optionIndex: Int, requestID: String? = nil) async {
-        guard let selectedSessionID, let source else { return }
+        guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         let requestKey = selectedSessionID + ":" + (requestID ?? "__default__")
         guard !answeringRequestKeys.contains(requestKey),
               !answeredRequestKeysBySession[selectedSessionID, default: []].contains(requestKey)
@@ -737,6 +766,13 @@ final class AgentChatModeModel {
 private extension ChatSessionEvent {
     var eventIsDescriptorChange: Bool {
         if case .descriptorChanged = self { return true }
+        return false
+    }
+}
+
+private extension ChatSessionDescriptor {
+    var isWorking: Bool {
+        if case .working = state { return true }
         return false
     }
 }
