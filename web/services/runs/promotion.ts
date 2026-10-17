@@ -279,9 +279,19 @@ export async function promoteRunAttempt(input: {
   }
   const handles = assertPromotable(source, input.now ?? Date.now());
   const reserved = await input.dependencies.store.reserve({ userId: input.userId, runId: input.runId, attemptId: input.attemptId, requestKey });
-  if (reserved.kind === "replay") return reserved.promotion;
+  if (reserved.kind === "replay") {
+    if (reserved.promotion.runId !== input.runId || reserved.promotion.attemptId !== input.attemptId) {
+      throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
+    }
+    return reserved.promotion;
+  }
   if (reserved.kind === "idempotency_conflict") throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
-  if (reserved.kind === "duplicate") throw new PromotionAlreadyExistsError("this attempt has already been promoted");
+  if (reserved.kind === "duplicate") {
+    if (reserved.promotion.runId !== input.runId || reserved.promotion.attemptId !== input.attemptId) {
+      throw new PromotionIdempotencyConflictError("the stored promotion belongs to a different run attempt");
+    }
+    throw new PromotionAlreadyExistsError("this attempt has already been promoted");
+  }
   if (reserved.kind === "in_progress") throw new PromotionInProgressError("promotion is already in progress");
   try {
     const runtime = await input.dependencies.runtime.promote({
