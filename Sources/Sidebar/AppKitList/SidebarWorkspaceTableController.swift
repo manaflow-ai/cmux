@@ -571,7 +571,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         contextMenuRowId = nil
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         pumpHeightOverrides.removeAll(keepingCapacity: true)
-        cancelSelectionIntent()
+        // Preserve a plain click queued just before presentation suspension.
+        // Long-lived remote tmux sessions make the terminal swap slow enough
+        // for the old cancellation to discard the user's workspace switch.
+        selectionCoalescer.flushNow()
+        deferredRowClick = nil
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if let containerView, !hasActiveWorkspaceDragPresentation {
             clearDropViewActions(in: containerView)
