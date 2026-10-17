@@ -311,6 +311,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         var reportedFailure = false
         var lastSeq: UInt64 = 0
         var eventSeq = 0
+        var publishedInfo: ConversationInfo?
+        var publishedMeID: String?
         while !Task.isCancelled && !isClosed {
             do {
                 let result = try await client.read(conversation: conversationID, limit: 200)
@@ -339,6 +341,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         meID: mappedInfo.meID,
                         lagged: false
                     ))
+                    publishedInfo = mappedInfo.info
+                    publishedMeID = mappedInfo.meID
                     continuation.yield(.readState(ConversationReadState(
                         lastReadSeq: safeInt(lastSeq),
                         unreadCount: 0,
@@ -356,7 +360,21 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                             meID: mappedInfo.meID,
                             lagged: true
                         ))
+                        publishedInfo = mappedInfo.info
+                        publishedMeID = mappedInfo.meID
                         connected = true
+                    } else if mappedInfo.meID != publishedMeID || mappedInfo.info != publishedInfo {
+                        // An empty/new conversation starts with the canonical
+                        // fallback "me". Once a human message arrives, publish
+                        // the authoritative participant so the generic store
+                        // reclassifies outgoing bubbles and unread markers.
+                        continuation.yield(.connected(
+                            info: mappedInfo.info,
+                            meID: mappedInfo.meID,
+                            lagged: false
+                        ))
+                        publishedInfo = mappedInfo.info
+                        publishedMeID = mappedInfo.meID
                     }
                     for message in result.messages {
                         let previous = withState { $0.previousMessagesByID[message.id] }
