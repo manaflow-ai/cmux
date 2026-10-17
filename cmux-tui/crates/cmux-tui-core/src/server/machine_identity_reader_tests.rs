@@ -29,10 +29,15 @@ struct LegacyIdentity {
     cli_path: Option<String>,
 }
 
-fn identify(reader: &Publisher, mux: &Arc<Mux>, options: Value) -> Value {
+fn identify(mux: &Arc<Mux>, options: Value) -> Value {
     let mut request = json!({"id":1,"cmd":"identify"});
     request.as_object_mut().unwrap().extend(options.as_object().unwrap().clone());
-    reader.frame(mux, request)
+    // identify is scheduled by the outer connection reader, unlike catalog
+    // publication. Exercise the same command decoder and actual handler here.
+    match super::super::run(mux, request) {
+        Ok(data) => json!({"ok":true,"data":data}),
+        Err(error) => json!({"ok":false,"error":error.to_string()}),
+    }
 }
 
 fn assert_legacy(reply: &Value) {
@@ -68,8 +73,7 @@ fn cmux_next_machine_identity_reader_frozen_old_command_accepts_an_explicit_flag
 #[test]
 fn cmux_next_machine_identity_reader_frozen_reply_decoder_control() {
     let mux = mux();
-    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
-    let mut reply = identify(&reader, &mux, json!({}));
+    let mut reply = identify(&mux, json!({}));
     for key in ["machine_id", "machine_platform", "machine_capabilities"] {
         reply["data"].as_object_mut().unwrap().remove(key);
     }
@@ -79,15 +83,13 @@ fn cmux_next_machine_identity_reader_frozen_reply_decoder_control() {
 #[test]
 fn cmux_next_machine_identity_reader_default_preserves_the_frozen_reply_shape() {
     let mux = mux();
-    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
-    assert_legacy(&identify(&reader, &mux, json!({})));
+    assert_legacy(&identify(&mux, json!({})));
 }
 
 #[test]
 fn cmux_next_machine_identity_reader_explicit_metadata_matches_the_owner_catalog() {
     let mux = mux();
-    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
-    let reply = identify(&reader, &mux, json!({"machine_metadata":true}));
+    let reply = identify(&mux, json!({"machine_metadata":true}));
     assert_eq!(reply["ok"], true, "{reply}");
     let owner = &dispatch(&mux, ResourceOperation::MachineList, None).unwrap()[0];
     assert_eq!(reply["data"]["machine_id"], owner["id"]);
@@ -101,18 +103,16 @@ fn cmux_next_machine_identity_reader_explicit_metadata_matches_the_owner_catalog
 #[test]
 fn cmux_next_machine_identity_reader_metadata_is_per_request_and_false_is_legacy() {
     let mux = mux();
-    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
-    assert_eq!(identify(&reader, &mux, json!({"machine_metadata":true}))["ok"], true);
-    assert_legacy(&identify(&reader, &mux, json!({"machine_metadata":false})));
-    assert_legacy(&identify(&reader, &mux, json!({})));
+    assert_eq!(identify(&mux, json!({"machine_metadata":true}))["ok"], true);
+    assert_legacy(&identify(&mux, json!({"machine_metadata":false})));
+    assert_legacy(&identify(&mux, json!({})));
 }
 
 #[test]
 fn cmux_next_machine_identity_reader_malformed_metadata_options_are_refused() {
     let mux = mux();
-    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
     for flag in [json!("true"), json!(1), Value::Null] {
-        let reply = identify(&reader, &mux, json!({"machine_metadata":flag}));
+        let reply = identify(&mux, json!({"machine_metadata":flag}));
         assert_eq!(reply["ok"], false, "a malformed option must be refused: {reply}");
     }
 }
