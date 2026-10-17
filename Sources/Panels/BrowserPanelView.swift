@@ -958,6 +958,7 @@ struct BrowserPanelView: View {
         } else {
             pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.endSuppressWebViewFocusForAddressBar()
+            panel.omniboxKeywordSession.end()
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
                 suppressNextFocusLostRevert = false
@@ -2711,6 +2712,14 @@ struct BrowserPanelView: View {
         case .commitSelectedSuggestion:
             commitSelectedSuggestion()
         case .navigate(let text):
+            // An extension's keyword session takes Return (chrome.omnibox
+            // onInputEntered); nothing loads and the address bar goes back
+            // to the page's URL. Chromium panels only.
+            if panel.omniboxKeywordSession.enter(text: text, provider: panel.omniboxKeywordProvider) {
+                hideSuggestions()
+                setAddressBarFocused(false, reason: "omnibar.submit.extensionKeyword")
+                return
+            }
             if text != omnibarState.buffer {
                 // Reconcile the reducer with the live field before navigating so
                 // blur and URL-change handling see the text that was submitted.
@@ -2746,6 +2755,15 @@ struct BrowserPanelView: View {
                     on: BrowserActionTarget(host: host, panelId: panelId)
                 )
             }
+        case .extensionKeyword(let extensionID, _, _, let content, _):
+            // The extension handles the chosen row (onInputEntered); the
+            // address bar goes back to the page's URL.
+            _ = panel.omniboxKeywordSession.enter(extensionID: extensionID, content: content,
+                                                  provider: panel.omniboxKeywordProvider)
+            hideSuggestions()
+            inlineCompletion = nil
+            setAddressBarFocused(false, reason: "suggestion.commit.extensionKeyword")
+            return
         default:
             panel.navigateSmart(suggestion.completion)
         }
@@ -2941,6 +2959,8 @@ struct BrowserPanelView: View {
             return
         }
 
+        if await refreshOmniboxKeywordSuggestions() { return }
+
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let fetchedHistoryEntries: [BrowserHistoryStore.Entry]
         if query.isEmpty {
@@ -3072,6 +3092,35 @@ struct BrowserPanelView: View {
 #endif
             }
         }
+    }
+
+    /// A Chromium panel's address bar in an extension's keyword session
+    /// (chrome.omnibox): the rows are the extension's, nothing goes to the
+    /// search engine. Returns false (and ends any session) when the text is
+    /// no keyword session; always false in a WebKit panel.
+    private func refreshOmniboxKeywordSuggestions() async -> Bool {
+        let buffer = omnibarState.buffer
+        guard let provider = panel.omniboxKeywordProvider,
+              let match = panel.omniboxKeywordSession.update(text: buffer, provider: provider) else {
+            panel.omniboxKeywordSession.end()
+            return false
+        }
+        let keyword = match.keyword, rest = match.rest
+        func show(_ suggestions: [BrowserOmniboxKeywordSuggestion]) {
+            let items = keyword.rows(text: rest, suggestions: suggestions).prefix(8).map {
+                OmnibarSuggestion(kind: .extensionKeyword(extensionID: $0.extensionID, keyword: keyword.keyword,
+                                                          name: keyword.name, content: $0.content,
+                                                          description: $0.description))
+            }
+            let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(Array(items)))
+            applyOmnibarEffects(effects)
+            inlineCompletion = nil
+        }
+        show([])
+        let suggestions = await provider.omniboxKeywordSuggestions(keyword.extensionID, text: rest)
+        guard !Task.isCancelled, addressBarFocused, omnibarState.buffer == buffer else { return true }
+        show(suggestions)
+        return true
     }
 
     private func staleRemoteSuggestionsForDisplay(
@@ -4124,6 +4173,9 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             title: String?
         )
         case remote(query: String)
+        /// A row of an extension's chrome.omnibox keyword session (Chromium
+        /// panels only): `content` goes to the extension when chosen.
+        case extensionKeyword(extensionID: String, keyword: String, name: String, content: String, description: String)
     }
 
     let kind: Kind
@@ -4141,6 +4193,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             return "switch-tab|\(host.identityKey)|\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
         case .remote(let query):
             return "remote|\(query.lowercased())"
+        case .extensionKeyword(let extensionID, _, _, let content, _):
+            return "extension-keyword|\(extensionID)|\(content)"
         }
     }
 
@@ -4151,6 +4205,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case .history(let url, _): return url
         case .switchToTab(_, _, _, let url, _): return url
         case .remote(let q): return q
+        case .extensionKeyword(_, let keyword, _, let content, _): return "\(keyword) \(content)"
         }
     }
 
@@ -4168,6 +4223,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
                 ? Self.singleLineText(title) : Self.displayURLText(for: url)
         case .remote(let q):
             return q
+        case .extensionKeyword(_, _, _, _, let description):
+            return Self.singleLineText(description)
         }
     }
 
@@ -4206,6 +4263,9 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         switch kind {
         case .switchToTab:
             return String(localized: "browser.switchToTab", defaultValue: "Switch to tab")
+        case .extensionKeyword(_, _, let name, _, _):
+            // The extension answering the keyword, as Chrome names it.
+            return name
         default:
             return nil
         }
@@ -5573,6 +5633,8 @@ struct OmnibarSuggestionsView: View {
                         return "switchToTab"
                     case .remote:
                         return "remote"
+                    case .extensionKeyword:
+                        return "extensionKeyword"
                     }
                 }()
                 cmuxDebugLog("browser.suggestionClick index=\(idx) kind=\(suggestionKind) textBytes=\(item.listText.utf8.count)")

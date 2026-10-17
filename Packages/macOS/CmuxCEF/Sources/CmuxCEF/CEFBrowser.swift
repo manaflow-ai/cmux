@@ -105,7 +105,8 @@ public final class CEFBrowser {
     /// that must apply to the first document.
     public var onWindowCreated: (@MainActor (Int32) -> Void)?
 
-    unowned let runtime: CEFRuntime
+    /// The runtime this page runs in.
+    public unowned let runtime: CEFRuntime
     private var pendingURL: URL?
     var pendingRestore: String?
     private var pendingFocus = false

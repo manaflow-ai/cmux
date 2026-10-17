@@ -2161,6 +2161,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Keeps the panel's overlays (find bar, prompts, recovery pages) above a
     /// child-window (Chromium) page; does nothing for a WebKit page.
     let pageOverlays = BrowserPageOverlayCoordinator()
+    /// The address bar's chrome.omnibox keyword session; only a Chromium
+    /// page's extensions open one (`BrowserPanel+OmniboxKeywords`).
+    let omniboxKeywordSession = ChromiumOmniboxKeywordSession()
     /// Answers a non-WebKit page's requests (new pages, permissions,
     /// dialogs, downloads); the page holds it weakly.
     let enginePageDelegate = BrowserPanelEnginePageDelegate()

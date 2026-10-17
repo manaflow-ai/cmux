@@ -80,6 +80,8 @@ public final class CEFRuntime {
     var popupWindowsEnabled = false
     /// The page shown last: the one an extension popup window opens over.
     weak var lastShownBrowser: CEFBrowser?
+    /// chrome.omnibox keyword sessions (fork API 12).
+    public private(set) lazy var omniboxKeywords = CEFOmniboxKeywords(runtime: self)
     /// Tabs created without an opener while popup windows are on, waiting
     /// one turn to learn whether they belong to a popup window.
     var deferredOrphans: Set<Int32> = []
@@ -352,6 +354,7 @@ public final class CEFRuntime {
 
     func handle(_ event: CEFShimEvent) {
         for observer in observers.values { observer(event) }
+        if case .tab(.extensionsChanged, _, _, _) = event { omniboxKeywords.invalidate() }
         switch event {
         case .afterCreated(let browser, let request, _, let created):
             browserCreated(browser, request: request, created: created)
@@ -367,6 +370,8 @@ public final class CEFRuntime {
             popupWindowCreated(window: window, browser: browser)
         case .tab(.popupWindowBounds, _, let window, _):
             popupWindowBoundsChanged(window: window)
+        case .omniboxSuggestions(let requestID, _, let json):
+            omniboxKeywords.suggestionsArrived(requestID: requestID, json: json)
         default:
             if let id = event.browserID, let browser = browsers[id] { browser.handle(event) }
         }

@@ -561,6 +561,7 @@
 		F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */; };
 		F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */; };
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
+		E8106C0C4D6AF1DCA4BD1849 /* BrowserPanel+OmniboxKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9106C0C4D6AF1DCA4BD1849 /* BrowserPanel+OmniboxKeywords.swift */; };
 		9245FEB672C794F67A8F84BC /* BrowserPanel+PageProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6155BD91F9D24A48C685FC1 /* BrowserPanel+PageProcess.swift */; };
 		F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */; };
 		C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */; };
@@ -667,6 +668,7 @@
 		DFA22CFDEA096E4B98111796 /* ChromiumDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */; };
 		BFBEC1CD17A72ED91930A4E3 /* ChromiumEmbedLifecycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */; };
 		313A7A660132A1AE84F47B4E /* ChromiumHelperCrashWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */; };
+		E31D83F435747C196164822B /* ChromiumOmniboxKeywordSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D3191661347DB47061F4D86 /* ChromiumOmniboxKeywordSessionTests.swift */; };
 		02F97228812557C41BEEA1F7 /* ChromiumPageFailureOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */; };
 		E87D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
@@ -5340,6 +5342,7 @@
 		F11000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserDialogs.swift"; sourceTree = "<group>"; };
 		F11000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MobileBrowserStreaming.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		E9106C0C4D6AF1DCA4BD1849 /* BrowserPanel+OmniboxKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+OmniboxKeywords.swift"; sourceTree = "<group>"; };
 		B6155BD91F9D24A48C685FC1 /* BrowserPanel+PageProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageProcess.swift"; sourceTree = "<group>"; };
 		F15069A000000000000000B2 /* BrowserPanel+PageRestoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PageRestoration.swift"; sourceTree = "<group>"; };
 		C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PDFDocumentActions.swift"; sourceTree = "<group>"; };
@@ -5445,6 +5448,7 @@
 		D61AC8D19D80CAE823569C43 /* ChromiumDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumDebugWindowController.swift; sourceTree = "<group>"; };
 		D3CA964E8CF2DD471358B6F9 /* ChromiumEmbedLifecycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumEmbedLifecycleUITests.swift; sourceTree = "<group>"; };
 		8E9367F765EC011170028F94 /* ChromiumHelperCrashWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumHelperCrashWatch.swift; sourceTree = "<group>"; };
+		8D3191661347DB47061F4D86 /* ChromiumOmniboxKeywordSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChromiumOmniboxKeywordSessionTests.swift"; sourceTree = "<group>"; };
 		7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumPageFailureOverlay.swift; sourceTree = "<group>"; };
 		E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/ChromiumPopupWindowController.swift"; sourceTree = "<group>"; };
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
@@ -11690,6 +11694,7 @@
 				E9D98998BC3F23A21C78FA30 /* BrowserEnginePageHost.swift */,
 				E9DE19E655ED82852F3AA6E5 /* BrowserPanel+EnginePage.swift */,
 				E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */,
+				E9106C0C4D6AF1DCA4BD1849 /* BrowserPanel+OmniboxKeywords.swift */,
 				E9C7E33EA7CEE20C58390742 /* BrowserPanel+ChromiumChrome.swift */,
 				B32A59C8E4300F90231D8519 /* BrowserPanel+EnginePageMemorySaver.swift */,
 				D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */,
@@ -14072,6 +14077,7 @@
 				1E73F4814DAA10FBC0B59D6B /* BrowserPanelAgentURLPolicyTests.swift */,
 				0F4C0A9DCF4269EE386F12F1 /* BrowserPanelChromiumHangRecoveryTests.swift */,
 				C48BFE1FB203113F934C3E74 /* BrowserRawInputDevToolsTests.swift */,
+				8D3191661347DB47061F4D86 /* ChromiumOmniboxKeywordSessionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15281,6 +15287,7 @@
 				F21000000000000000000011 /* BrowserPanel+MobileBrowserDialogs.swift in Sources */,
 				F21000000000000000000001 /* BrowserPanel+MobileBrowserStreaming.swift in Sources */,
 				D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */,
+				E8106C0C4D6AF1DCA4BD1849 /* BrowserPanel+OmniboxKeywords.swift in Sources */,
 				9245FEB672C794F67A8F84BC /* BrowserPanel+PageProcess.swift in Sources */,
 				F15069A000000000000000B1 /* BrowserPanel+PageRestoration.swift in Sources */,
 				C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */,
@@ -18223,6 +18230,7 @@
 				0A0F00580000000000000003 /* CampfireSupportTestSupport.swift in Sources */,
 				852600010000000000000002 /* CanvasPaneContentMountTests.swift in Sources */,
 				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
+				E31D83F435747C196164822B /* ChromiumOmniboxKeywordSessionTests.swift in Sources */,
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
