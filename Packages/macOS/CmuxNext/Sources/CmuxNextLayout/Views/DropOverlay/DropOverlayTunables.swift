@@ -129,6 +129,11 @@ public nonisolated enum LayoutTunables {
         "layout.prototype.model", .panes, "Layout model prototype",
         help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
         default: .off, code: "LayoutTunables.prototypeModel")
+    /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
+    public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
+        "motion.pane.variant", .springs, "Pane close and expand",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps its final size; Reduce Motion still snaps.",
+        default: .standard, code: "LayoutTunables.paneMotionVariant")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -144,7 +149,8 @@ public nonisolated enum LayoutTunables {
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
+         paneMotionVariant.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

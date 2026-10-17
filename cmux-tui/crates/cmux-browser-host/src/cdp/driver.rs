@@ -67,6 +67,8 @@ pub(super) struct Inner {
     /// View points per CSS px that the app's emulation applies to this
     /// page-rooted tab (`set_input_scale`, cx-mogig); 1.0 otherwise.
     input_scale: Mutex<f64>,
+    /// The app's emulation turned touch on for this tab (`set_touch_emulation`, cx-3ny35).
+    pub(super) touch_emulation: std::sync::atomic::AtomicBool,
 }
 
 /// A popup appeared: (popup target, opener target). It runs on a setup
@@ -153,6 +155,7 @@ impl Inner {
             intercept_all: std::sync::atomic::AtomicBool::new(true),
             popup_hook: Mutex::default(),
             input_scale: Mutex::new(1.0),
+            touch_emulation: std::sync::atomic::AtomicBool::new(false),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -294,6 +297,14 @@ impl CdpDriver {
     pub fn set_input_scale(&self, scale: f64) {
         let scale = if scale.is_finite() && scale > 0.0 && scale < 1.0 { scale } else { 1.0 };
         *self.inner.input_scale.lock().unwrap_or_else(PoisonError::into_inner) = scale;
+    }
+
+    /// The app's emulation has touch on for this tab (a phone or tablet
+    /// preset; the provider's `touch`). Chromium, like Chrome's device mode,
+    /// never answers `Input.dispatchMouseEvent` then, so pointer input goes
+    /// as `Input.dispatchTouchEvent` (cx-3ny35).
+    pub fn set_touch_emulation(&self, on: bool) {
+        self.inner.touch_emulation.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

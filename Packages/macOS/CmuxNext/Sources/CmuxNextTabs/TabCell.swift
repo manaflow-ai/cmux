@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
-
 /// One tab, drawn entirely with CALayers inside the strip's single view (no
 /// NSView per tab). The strip owns all mouse handling and sets `frame` every
 /// animation frame; `layoutLayers()` repositions the sublayers synchronously
@@ -12,7 +11,6 @@ final class TabCell {
     let layer = CALayer()
     /// VoiceOver and automation element for this tab.
     let accessibility = TabAccessibilityElement()
-
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -66,7 +64,6 @@ final class TabCell {
             layoutLayers()
         }
     }
-
     var frame: CGRect {
         get { layer.frame }
         set {
@@ -91,6 +88,7 @@ final class TabCell {
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
+    var isSpinnerExiting = false
     var badgeLayer: CALayer?
     var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
@@ -319,7 +317,7 @@ final class TabCell {
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
-            spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            if !isSpinnerExiting { spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0 }
             if spinnerBadgesMark {
                 let side = pixel(iconFrame.width * 0.55)
                 spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
