@@ -29,17 +29,10 @@
 .cmux-comparison-avatar, .cmux-comparison-agent-mark { display: grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: var(--ui-row-radius); background: var(--agent-control); color: var(--agent-muted); font-size: var(--text-detail); }
 .cmux-comparison-agent-mark { background: color-mix(in srgb, var(--comparison-accent) 18%, transparent); color: var(--comparison-accent); }
 .cmux-comparison-meta { display: block; margin-top: 7px; color: var(--agent-muted); font-size: var(--text-detail); }
-.cmux-comparison-composer { margin: 0 18px 12px; padding: 12px; border: 1px solid var(--acpmux-composer-edge, var(--agent-border)); border-radius: var(--ui-popup-radius); background: var(--acpmux-composer-surface, var(--agent-surface-elevated)); box-shadow: var(--acpmux-composer-shadow, none); }
-.cmux-comparison-composer-copy { min-height: 40px; color: var(--agent-muted); font-size: var(--text-control); }
-.cmux-comparison-composer-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.cmux-comparison-compose-icon { flex: none; color: var(--agent-muted); font-size: var(--text-title); }
-.cmux-comparison-compose-hint { min-width: 0; overflow: hidden; color: var(--agent-muted); font-size: var(--text-detail); text-overflow: ellipsis; white-space: nowrap; }
-.cmux-comparison-composer-row .acpmux-chips { min-width: 0; }
-.cmux-comparison-send { display: grid; flex: none; place-items: center; width: 29px; height: 29px; padding: 0; border: 0; border-radius: 50%; background: var(--agent-accent); color: var(--agent-accent-text, var(--agent-page-bg)); font-size: var(--text-title); cursor: pointer; }
 .cmux-comparison-slider-specimen { margin: 0 18px 8px; padding: 10px 13px 7px; border: 1px solid var(--agent-border); border-radius: var(--ui-row-radius); background: var(--agent-control); }
 .cmux-comparison-specimen-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: .04em; text-transform: uppercase; }
 .cmux-comparison-specimen-heading strong { color: var(--agent-text); font-size: var(--text-caption); font-weight: 600; }
 .cmux-comparison-slider-specimen .acpmux-effort-track { margin-top: 9px; }
-:root[data-borders="none"] .cmux-comparison-body, :root[data-borders="none"] .cmux-comparison-tabs, :root[data-borders="none"] .cmux-comparison-preview-toggle, :root[data-borders="none"] .cmux-comparison-composer, :root[data-borders="none"] .cmux-comparison-slider-specimen { border-color: transparent; }
+:root[data-borders="none"] .cmux-comparison-body, :root[data-borders="none"] .cmux-comparison-tabs, :root[data-borders="none"] .cmux-comparison-preview-toggle, :root[data-borders="none"] .cmux-comparison-slider-specimen { border-color: transparent; }
 :root[data-borders="none"] .cmux-comparison-body { box-shadow: none; }
 @media (max-width: 720px) { .cmux-comparison-board { padding: 12px; } .cmux-comparison-toolbar { align-items: start; flex-direction: column; } .cmux-comparison-body { grid-template-columns: 1fr; } .cmux-comparison-sidebar { min-height: 270px; border-right: 0; border-bottom: 1px solid var(--agent-border); } }

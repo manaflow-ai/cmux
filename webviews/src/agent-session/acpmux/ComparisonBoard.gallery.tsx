@@ -344,12 +344,12 @@ export default componentEntry<Props>({
       props: { sliderStyle: "minimal", previewVariant: "outline" },
     },
     "slider-accent-open": {
-      note: "Accent slider treatment mounted in the simulated composer.",
+      note: "Accent slider treatment mounted in the shipped Composer.",
       props: { sliderStyle: "accent", previewVariant: "card", defaultSection: "slider" },
       play: openSlider,
     },
     "slider-minimal-open": {
-      note: "Minimal slider treatment mounted in the simulated composer.",
+      note: "Minimal slider treatment mounted in the shipped Composer.",
       props: { sliderStyle: "minimal", previewVariant: "card", defaultSection: "slider" },
       play: openSlider,
     },
