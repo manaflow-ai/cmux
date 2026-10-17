@@ -53,7 +53,19 @@ the common models, then translates normalized coordinates to device points.
 WDA is a developer adapter: the device must be paired and trusted, Developer
 Mode must be enabled, a runner must be signed for the current team, and the
 Developer Disk Image must be mounted. Keep its HTTP and MJPEG ports on
-loopback; do not expose them on a LAN.
+loopback; do not expose them on a LAN. Start the signed runner with the
+project's normal XCTest device workflow, forward its HTTP port to
+`127.0.0.1:8100`, then use:
+
+```sh
+swift run cmux-phone tcp-server --port 0 \
+  --source wda --url http://127.0.0.1:8100
+```
+
+The printed TCP port is the agent-facing endpoint. A client should call
+`device.list`, `session.open`, and `screen.snapshot` before sending an
+action; the response's `screen_seq` becomes the action's `screen_seq`
+precondition.
 
 Apple's public iOS capture APIs (ReplayKit and the newer ScreenCaptureKit
 picker) require an explicit user choice and capture consent. They do not inject

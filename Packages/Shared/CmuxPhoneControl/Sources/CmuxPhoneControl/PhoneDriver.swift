@@ -31,7 +31,7 @@ public actor MockPhoneDriver: PhoneDriver {
         let geometry = PhoneDisplayGeometry(width: width, height: height, scale: 3)
         let capabilities = PhoneCapabilities(
             screenSnapshot: true,
-            screenStream: true,
+            screenStream: false,
             accessibilityTree: true,
             tap: true,
             swipe: true,
