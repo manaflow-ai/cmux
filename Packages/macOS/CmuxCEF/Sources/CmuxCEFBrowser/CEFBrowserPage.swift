@@ -62,6 +62,18 @@ public final class CEFBrowserPage: BrowserPage {
         .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads,
     ]
 
+    /// An extension asked to move or resize this page's popup window
+    /// (`chrome.windows.update` on a `chrome.windows.create` popup): the
+    /// frame in screen points from the primary display's top-left. The
+    /// window showing the page follows.
+    public var onPopupWindowBoundsRequest: (@MainActor (CGRect) -> Void)?
+
+    /// cmux's header over the page window's side panel (`chrome.sidePanel`).
+    public private(set) lazy var sidePanel = CEFSidePanelController(browser: browser, shim: shimProvider)
+
+    /// The tab of an extension's popup window (`chrome.windows.create`).
+    public var isExtensionPopupWindow: Bool { browser.popupWindow != nil }
+
     /// The page's extension side (toolbar actions, extension calls); nil
     /// when the engine was created without extension support.
     public let extensionSupport: CEFExtensionPageSupport?
@@ -481,6 +493,8 @@ public final class CEFBrowserPage: BrowserPage {
             handleNewBrowser(popup, disposition: disposition, features: features, userGesture: userGesture)
         case .closeRequested:
             emit(.closeRequested)
+        case .popupWindowBoundsRequested(let bounds):
+            onPopupWindowBoundsRequest?(bounds)
         case .closed:
             // The runtime routes Chromium's before-close to the browser, not as a shim event.
             features.tearDown()
@@ -505,6 +519,8 @@ public final class CEFBrowserPage: BrowserPage {
                                    defaultText: defaultText, isReload: isReload)
         case .jsDialogDismissed(_, let token):
             pendingDialogs.removeValue(forKey: token)?.cancel()
+        case .tab(.sidePanelChanged, _, _, _):
+            sidePanel.scheduleRefresh()
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
