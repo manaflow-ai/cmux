@@ -177,7 +177,10 @@ extension TerminalController {
                 } else {
                     let page = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
                     messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
-                    hasMore = false
+                    // `snapshot` returns the newest tail. A first sequence
+                    // greater than one means the phone can request an older
+                    // page with `before_seq`.
+                    hasMore = page.messages.first.map { $0.seq > 1 } ?? false
                 }
                 let working = await owner.isWorking(id)
                 return .ok(["conversation": id.rawValue, "working": working,
