@@ -117,8 +117,11 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     echo = None
     if frames and "revision" in frames[0]:
         changes = [i for i in range(1, len(frames)) if frames[i]["revision"] != frames[i - 1]["revision"] and (release is None or i >= release)]
-        kinks, pops = [], []
+        kinks, pops, coarse = [], [], 0
         for i in changes:
+            # A change sampled more than 2 frames apart on either side: a one-frame snap there reads smaller per frame.
+            if i >= 2 and max(frames[i]["t"] - frames[i - 1]["t"], frames[i - 1]["t"] - frames[i - 2]["t"]) * 1000 > 2 * FRAME_MS:
+                coarse += 1
             card = frames[i]["lift"] or frames[i - 1]["lift"]
             for key, fb in frames[i]["views"].items():
                 if key in dragged:
@@ -131,19 +134,30 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                     continue
                 f0 = frames[i - 2]["views"].get(key) if i >= 2 else None
                 if f0 is not None:
-                    kink = max(abs((fb[j] - fa[j]) - (fa[j] - f0[j])) for j in (0, 3))
+                    # The kink is the change of velocity per 120 Hz frame, in pt per frame per frame (as a jump is a step per frame): a late
+                    # sample (a Debug build under 1,000 rows: 90-130 ms between samples) of a spring that settles is
+                    # not a kink, a change the echo makes in one frame is (cx-8quut).
+                    n1 = max(1.0, (frames[i - 1]["t"] - frames[i - 2]["t"]) * 1000 / FRAME_MS)
+                    n2 = max(1.0, (frames[i]["t"] - frames[i - 1]["t"]) * 1000 / FRAME_MS)
+
+                    # Velocity change per frame between the two intervals' midpoints ((n1 + n2) / 2 frames apart): a
+                    # second difference per frame squared, the same for a smooth spring at any sampling.
+                    def bend(d0, d1):
+                        return abs(d1 / n2 - d0 / n1) / max(1.0, (n1 + n2) / 2)
+                    kink = max(bend(fa[j] - f0[j], fb[j] - fa[j]) for j in (0, 3))
                     # The vertical kink in the list or on screen (minus `scroll`), the smaller: an anchored shift is no kink.
                     s0, s1, s2 = scroll_of(frames, i - 2), scroll_of(frames, i - 1), scroll_of(frames, i)
                     sl = scroll_of(frames, i - 3)
-                    kink = max(kink, min(abs((fb[1] - fa[1]) - (fa[1] - f0[1])),
-                                         abs(((fb[1] - s2) - (fa[1] - s1)) - ((fa[1] - s1) - (f0[1] - s0))),
-                                         abs(((fb[1] - s1) - (fa[1] - s0)) - ((fa[1] - s0) - (f0[1] - sl)))))
+                    kink = max(kink, min(bend(fa[1] - f0[1], fb[1] - fa[1]),
+                                         bend((fa[1] - s1) - (f0[1] - s0), (fb[1] - s2) - (fa[1] - s1)),
+                                         bend((fa[1] - s0) - (f0[1] - sl), (fb[1] - s1) - (fa[1] - s0))))
                     if kink > 1:
                         kinks.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kink": round(kink, 1)})
             for key, fa in frames[i - 1]["views"].items():
                 if key not in frames[i]["views"] and key not in dragged and (fa[4] if len(fa) > 4 else 1) > 0.02 and not covered(fa, card):
                     pops.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kind": "vanishes"})
-        echo = {"revision_changes": len(changes), "kinks": kinks[:10], "pops": pops[:10], "ok": not kinks and not pops}
+        echo = {"revision_changes": len(changes), "coarse_changes": coarse, "kinks": kinks[:10], "pops": pops[:10],
+                "ok": not kinks and not pops}
     result = {"frames": len(frames), "cadence_ms": round(cadence, 2), "max_step_pt": round(worst, 1), "raw_max_step_pt": round(raw_worst, 1), "max_step_at": worst_at, "jumps": jumps[:20],
               "jump_count": len(jumps), "block_height_max_step_pt": round(block_worst, 1),
               "scroll_max_step_outside_drag_pt": round(scroll_worst, 1), "drag_work_p95_ms": round(p95, 2),

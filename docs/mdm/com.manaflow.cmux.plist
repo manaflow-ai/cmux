@@ -1853,7 +1853,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>default</string>
+			<string>flat-sidebar-line</string>
 			<key>pfm_description</key>
 			<string>The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.</string>
 			<key>pfm_name</key>
