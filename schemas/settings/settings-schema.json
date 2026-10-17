@@ -2250,7 +2250,7 @@
       "range" : {
         "max" : 200,
         "min" : 32,
-        "placeholder" : 96,
+        "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
@@ -2314,7 +2314,7 @@
       "range" : {
         "max" : 120,
         "min" : 16,
-        "placeholder" : 76,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "7f1e65dbec8eddce6851f98d5372e2d002e69846dc5ab408ac78935796260379",
+  "schema_hash" : "eaf6368ac6e7fd3f8b9f84ed2fedad4a63806fc16a489192fd88366a028ebbf0",
   "sections" : [
     {
       "id" : "general",
