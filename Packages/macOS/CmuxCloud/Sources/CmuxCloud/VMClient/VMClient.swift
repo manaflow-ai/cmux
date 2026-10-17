@@ -2120,9 +2120,10 @@ public actor VMClient {
             let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/scp-endpoint", jsonBody: ["publicKey": publicKey])
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
+            let port = try decodePort(obj["port"])
             guard let host = obj["host"] as? String, IPNetworkPrefix.isPrivateAddress(host),
-                  let port = obj["port"] as? Int, port == 22,
-                  let username = obj["username"] as? String, username == "cmux",
+                  let username = obj["username"] as? String,
+                  !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let hostPublicKey = obj["hostPublicKey"] as? String,
                   let expiresAtUnix = obj["expiresAtUnix"] as? Int else {
                 throw VMClientError.malformedResponse("Cloud SCP response was missing its private route or host key.")

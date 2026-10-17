@@ -17,6 +17,27 @@ struct CloudPrivateRouteSelectionTests {
             deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker
         ))
         #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
+        #expect(CloudMachineLinkManager.canPrepareFirstAttachRoute(
+            deviceFingerprint: nil,
+            privateAddresses: ["10.0.0.7"]
+        ))
+        #expect(!CloudMachineLinkManager.canPrepareFirstAttachRoute(
+            deviceFingerprint: nil,
+            privateAddresses: []
+        ))
+        #expect(!CloudMachineLinkManager.canPrepareFirstAttachRoute(
+            deviceFingerprint: "stored-device",
+            privateAddresses: ["10.0.0.7"]
+        ))
+    }
+
+    @Test("A legacy create receipt seeds its fallback route after trust admission")
+    func legacyCreateReceiptSeedsRouteAfterTrustAdmission() async {
+        let links = manager()
+        await links.setPrivateAddresses(["10.0.0.7"], for: "vm-test")
+        await links.markTrustedCarrier(machineID: "vm-test")
+
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.0.0.7:1337/v1/link")
     }
 
     private final class RefreshState: @unchecked Sendable {
@@ -94,20 +115,44 @@ struct CloudPrivateRouteSelectionTests {
         let route = try await manager().resolvedPrivateRoute(
             machineID: "vm-test",
             through: CloudWireGuardHub.Ready(socketPath: "/unused", routes: ["fd00::/8"]),
-            fallbackRoute: "ws://10.16.0.2:1337/v1/link",
+            fallbackRoute: "ws://10.16.0.2:8080/v1/link",
             addresses: ["fd00::2"]
         )
-        #expect(route == "ws://[fd00::2]:1337/v1/link")
+        #expect(route == "ws://[fd00::2]:8080/v1/link")
     }
 
     @Test func soleAddressInsideTheEnrolledRoutesWinsAfterFiltering() async throws {
         let route = try await manager().resolvedPrivateRoute(
             machineID: "vm-test",
             through: CloudWireGuardHub.Ready(socketPath: "/unused", routes: ["fd00::/8"]),
-            fallbackRoute: "ws://10.16.0.2:1337/v1/link",
+            fallbackRoute: "ws://10.16.0.2:8080/v1/link",
             addresses: ["10.16.0.2", "fd00::2"]
         )
-        #expect(route == "ws://[fd00::2]:1337/v1/link")
+        #expect(route == "ws://[fd00::2]:8080/v1/link")
+    }
+
+    @Test("A persisted attach route supplies the daemon port after relaunch")
+    func persistedRouteIsUsedWhenAddressesAreRefreshed() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        let paths = CloudTuiClientPaths(home: home)
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/v1/link",
+            for: "vm-test"
+        )
+        let links = CloudMachineLinkManager(
+            paths: paths,
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        await links.setPrivateAddresses(["10.16.0.3"], for: "vm-test")
+
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8080/v1/link")
+        let route = try await links.resolvedPrivateRoute(
+            machineID: "vm-test",
+            through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(route == "ws://10.16.0.3:8080/v1/link")
     }
 
     @Test func legacyCallerWithoutAddressCandidatesKeepsItsRoute() async throws {
@@ -117,6 +162,77 @@ struct CloudPrivateRouteSelectionTests {
             fallbackRoute: "ws://10.16.0.2:1337/v1/link"
         )
         #expect(route == "ws://10.16.0.2:1337/v1/link")
+    }
+
+    @Test("Discovery reuses one snapshot for saved routes and legacy enrollments")
+    func discoverySnapshotSeedsRoutesWithoutRereadingStore() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/custom/link", for: "saved"
+        )
+        paths.saveDeviceFingerprint("legacy-device", for: "legacy")
+        let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        let snapshot = await links.persistedDeviceRecords()
+        try FileManager.default.removeItem(at: paths.devicesStoreURL)
+        // A record written after this batch began must not cause a per-machine
+        // read, including when that machine was absent from the snapshot.
+        paths.saveDeviceFingerprint("later-device", for: "later")
+
+        for id in ["saved", "legacy", "later"] {
+            await links.setPrivateAddresses(
+                [" 10.16.0.3 ", "10.16.0.3", ""], for: id, persistedDevice: snapshot[id]
+            )
+            #expect(await links.privateAddresses(for: id) == ["10.16.0.3"])
+        }
+        #expect(await links.privateRoute(for: "saved") == "ws://10.16.0.2:8080/custom/link")
+        #expect(await links.privateRoute(for: "legacy") == "ws://10.16.0.3:1337/v1/link")
+        #expect(await links.privateRoute(for: "later") == nil)
+    }
+
+    @Test("A new batch sees CLI updates and an old snapshot cannot replace a live route")
+    func discoverySnapshotsRefreshSharedStateAndPreserveLiveRoutes() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.1:7070/old/link", for: "vm-test"
+        )
+        let oldSnapshot = await links.persistedDeviceRecords()
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/custom/link", for: "vm-test"
+        )
+        let freshSnapshot = await links.persistedDeviceRecords()
+        await links.setPrivateAddresses(
+            ["10.16.0.3"], for: "vm-test", persistedDevice: oldSnapshot["vm-test"]
+        )
+        // A CLI update after the snapshot is reconciled before a real dial.
+        let route = try await links.resolvedPrivateRoute(
+            machineID: "vm-test", through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(route == "ws://10.16.0.3:8080/custom/link")
+        paths.saveAttachState(route: "ws://10.16.0.2:8181/custom/link", for: "vm-test")
+        let nextSnapshot = await links.persistedDeviceRecords()
+        await links.setPrivateAddresses(
+            ["10.16.0.3"], for: "vm-test", persistedDevice: nextSnapshot["vm-test"]
+        )
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8181/custom/link")
+
+        await links.setPrivateRoute("ws://10.16.0.3:9090/new/link", for: "vm-test")
+        await links.setPrivateAddresses(
+            ["10.16.0.4"], for: "vm-test", persistedDevice: freshSnapshot["vm-test"]
+        )
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.3:9090/new/link")
+        paths.saveAttachState(route: "ws://10.16.0.2:8080/cli/link", for: "vm-test")
+        let liveRoute = try await links.resolvedPrivateRoute(
+            machineID: "vm-test", through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(liveRoute == "ws://10.16.0.4:9090/new/link")
     }
 
     @Test("Partial attach addresses retain the other discovered family", arguments: [false, true])

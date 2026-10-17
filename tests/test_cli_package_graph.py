@@ -84,6 +84,23 @@ def remote_dependencies(package: Path) -> list[str]:
 
 
 class CLIPackageGraphTest(unittest.TestCase):
+    def test_cli_does_not_pull_in_terminal_rendering(self):
+        for product_id in sorted(cli_product_dependency_ids()):
+            name, package = package_directory(product_id)
+            stack = [(package, [name])] if package else []
+            seen = set()
+            while stack:
+                current, chain = stack.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                self.assertNotIn(
+                    current.name,
+                    {"CmuxTerminal"},
+                    "CLI state sharing must not link terminal rendering: " + " -> ".join(chain),
+                )
+                stack.extend((dep, chain + [dep.name]) for dep in local_dependencies(current))
+
     def test_cli_links_no_package_that_depends_on_swift_syntax(self):
         offenders = []
         for product_id in sorted(cli_product_dependency_ids()):

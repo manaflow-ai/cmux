@@ -24,6 +24,11 @@ extension CloudMachineLinkManager {
         timeout: Duration? = nil
     ) async throws -> String {
         try Task.checkCancellation()
+        // Discovery can suspend after taking its batch snapshot. Reconcile the
+        // current shared record at the actual dial, then keep one route across
+        // any address-family probe suspension.
+        if fallbackRoute == nil { _ = refreshPersistedRoute(for: machineID) }
+        let selectedRoute = fallbackRoute ?? privateRoute(for: machineID)
         let deadline = timeout.map { ContinuousClock.now + $0 }
         let freshAddresses = freshAddresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -52,7 +57,7 @@ extension CloudMachineLinkManager {
         }
         guard let primary = addresses.first else {
             guard candidates.isEmpty,
-                  let route = fallbackRoute ?? privateRoute(for: machineID),
+                  let route = selectedRoute,
                   let host = IPNetworkPrefix.routeHost(route),
                   CloudWireGuardHub.routesHost(host, enrolledRoutes: hub.routes) else {
                 throw ManagerError.privateRouteRequired(machineID)
@@ -62,8 +67,7 @@ extension CloudMachineLinkManager {
         // Fresh discovery or the enrolled routes can leave a single candidate.
         // Use it directly rather than returning an older address-family route.
         guard addresses.count > 1 else {
-            let host = primary.contains(":") ? "[\(primary)]" : primary
-            return "ws://\(host):1337/v1/link"
+            return Self.route(host: primary, port: Self.routePort(selectedRoute), template: selectedRoute)
         }
         var connector = privateRouteConnector
         if let deadline { connector.timeout = Self.remaining(until: deadline) }
@@ -71,7 +75,11 @@ extension CloudMachineLinkManager {
         do {
             connected = try await connector.connect(
                 endpoint: .unix(path: hub.socketPath),
-                target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
+                target: CloudPortForwardTarget(
+                    host: primary,
+                    port: Self.routePort(selectedRoute),
+                    fallbackHosts: Array(addresses.dropFirst())
+                ),
                 queue: DispatchQueue.global(qos: .userInitiated)
             )
         } catch let error as CloudPortForwardRelay.RelayError where refreshIfNeeded {
@@ -89,7 +97,10 @@ extension CloudMachineLinkManager {
             )
         }
         connected.connection.cancel()
-        let host = connected.host.contains(":") ? "[\(connected.host)]" : connected.host
-        return "ws://\(host):1337/v1/link"
+        return Self.route(
+            host: connected.host,
+            port: Self.routePort(selectedRoute),
+            template: selectedRoute
+        )
     }
 }

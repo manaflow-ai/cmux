@@ -657,6 +657,10 @@ extension TerminalController {
                         deviceFingerprint: deviceFingerprint,
                         clientCapabilities: clientCapabilities
                     )
+                    // Keep the server-advertised route beside the device
+                    // identity so a later app or CLI process does not rebuild
+                    // a provider-specific port from the machine address.
+                    await registry.links.setPrivateRoute(endpoint.route, for: vmId)
                     payload = [
                         "transport": "cmux-remote",
                         "route": endpoint.route,

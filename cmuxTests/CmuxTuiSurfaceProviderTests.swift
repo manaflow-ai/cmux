@@ -1294,9 +1294,12 @@ import Testing
         #expect(paths.deviceFingerprint(for: "vivid-newt") == nil)
         paths.saveDeviceFingerprint("fp-1", for: "vivid-newt")
         #expect(paths.deviceFingerprint(for: "vivid-newt") == "fp-1")
+        paths.saveAttachState(route: "ws://10.0.0.7:8080/v1/link", for: "vivid-newt")
+        #expect(paths.route(for: "vivid-newt") == "ws://10.0.0.7:8080/v1/link")
         // Same JSON shape the CLI's `saveVMTuiDevice` writes.
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: paths.devicesStoreURL)) as? [String: [String: Any]]
         #expect(raw?["vivid-newt"]?["deviceFingerprint"] as? String == "fp-1")
+        #expect(raw?["vivid-newt"]?["route"] as? String == "ws://10.0.0.7:8080/v1/link")
         #expect(raw?["vivid-newt"]?["updatedAtUnix"] != nil)
         #expect(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
     }
