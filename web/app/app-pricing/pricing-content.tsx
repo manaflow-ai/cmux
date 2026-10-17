@@ -41,7 +41,11 @@ import {
   type CompareRow,
   type FaqItem,
 } from "../components/pricing-shared";
-import { PricingCheckoutButton } from "../components/pricing-checkout";
+import {
+  PricingCheckoutButton,
+  PricingIntervalSelector,
+  PricingIntervalValue,
+} from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
@@ -131,13 +135,10 @@ export function AppPricingContent({
     monthly: pricing.monthly,
     perMonth: pricing.perMonth,
   };
-  const teamCheckoutHref = appPricingCheckoutURL(
-    "team",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
-  );
+  const teamCheckoutHrefs = {
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
+  };
   const maxPortalSwitch = snapshot.isPro && !isMax;
   const maxCheckoutHref =
     maxPortalSwitch
@@ -151,10 +152,7 @@ export function AppPricingContent({
           "month",
           attribution,
         );
-  const maxCheckoutHrefs = {
-    month: maxCheckoutHref,
-    year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
-  };
+  const maxCheckoutHrefs = { month: maxCheckoutHref };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
@@ -295,13 +293,13 @@ export function AppPricingContent({
         <FeatureList items={proFeatures} />
       </ProPlanCard>
 
-      {/* Max: larger machines with the same 20% annual discount as Pro. */}
+      {/* Max: larger machines on the monthly personal plan. */}
       <ProPlanCard
         name={pricing.max.name}
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
-        monthlyOnly={maxPortalSwitch}
+        monthlyOnly
         initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
@@ -315,11 +313,11 @@ export function AppPricingContent({
         }
         action={maxAction === "checkout" ? undefined : (
           <PersonalPlanAction
-          state={maxAction}
-          unavailableLabel={pending ? pricing.max.cta : undefined}
-          portalVisible={portalVisible}
-          resumeLabel={resumeLabel(pricing.max.name)}
-          checkout={null}
+            state={maxAction}
+            unavailableLabel={pending ? pricing.max.cta : undefined}
+            portalVisible={portalVisible}
+            resumeLabel={resumeLabel(pricing.max.name)}
+            checkout={null}
           />
         )}
       >
@@ -344,9 +342,19 @@ export function AppPricingContent({
       prices={{
         free: pricing.free.price,
         go: `$${GO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
-        pro: `$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
+        pro: (
+          <PricingIntervalValue
+            monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}
+            annual={`$${PRO_PRICING_USD.year.monthlyEquivalent} ${pricing.perMonthBilledYearly}`}
+          />
+        ),
         max: maxComparePrice,
-        team: teamMonthlyComparePrice,
+        team: (
+          <PricingIntervalValue
+            monthly={teamMonthlyComparePrice}
+            annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent} ${pricing.perUserMonthBilledYearly}`}
+          />
+        ),
         enterprise: pricing.enterprise.price,
       }}
     />
@@ -359,26 +367,28 @@ export function AppPricingContent({
       description={pricing.categories.business.description}
       columns="two"
     >
-      <PlanCard
+      <ProPlanCard
         name={pricing.team.name}
-        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={pricing.perUserMonth}
-      >
-        {appStorePaymentGated ? (
+        plan="team"
+        pricing={TEAM_PRICING_USD}
+        surface="app_pricing"
+        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        labels={{
+          ...proAnnualLabelSet,
+          monthlyPeriod: pricing.perUserMonth,
+          annualPeriod: pricing.perUserMonthBilledYearly,
+        }}
+        checkoutHrefs={teamCheckoutHrefs}
+        location="app_pricing"
+        requiresSignIn={!pending && !snapshot.authenticated}
+        ctaLabel={pricing.team.cta}
+        action={appStorePaymentGated ? (
           <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
-        ) : (
-          <PricingCheckoutButton
-            href={teamCheckoutHref}
-            requiresSignIn={!pending && !snapshot.authenticated}
-            location="app_pricing"
-            plan="team"
-          >
-            {pricing.team.cta}
-          </PricingCheckoutButton>
-        )}
+        ) : undefined}
+      >
         <p className="mt-5 text-sm font-medium">{pricing.team.featuresLead}</p>
         <FeatureList items={pricing.team.features} />
-      </PlanCard>
+      </ProPlanCard>
 
       <PlanCard name={pricing.enterprise.name} price={pricing.enterprise.price}>
         {appStorePaymentGated ? (
@@ -423,6 +433,16 @@ export function AppPricingContent({
             <h1 className="text-2xl font-medium tracking-tight">
               {pricing.title}
             </h1>
+
+            <PricingIntervalSelector
+              billingPeriodLabel={pricing.billingPeriod}
+              monthlyLabel={pricing.monthly}
+              annualLabel={pricing.annual}
+              savingsLabel={pricingMessage(pricing.saveAnnual, {
+                discount: PRO_PRICING_USD.year.discountPercent,
+              })}
+              surface="app_pricing"
+            />
 
             <PricingAudienceSelector
               individualLabel={pricing.audience.individual}

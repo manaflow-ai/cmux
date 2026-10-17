@@ -68,7 +68,7 @@ const resolveProPrice = mock(async (interval: unknown) =>
 const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
-const resolveMaxPrice = mock(async (interval: unknown) => interval === "year" ? "price_max_year" : "price_max_month");
+const resolveMaxPrice = mock(async () => "price_max_month");
 const resolveGoPrice = mock(async () => "price_go_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
@@ -172,7 +172,7 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test.each(["go", "max"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
     stripeConfigured = true;
     const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
@@ -696,7 +696,7 @@ describe("billing checkout route", () => {
     );
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(resolveMaxPrice).toHaveBeenCalledWith("month");
+    expect(resolveMaxPrice).toHaveBeenCalledWith();
     expect(resolveProPrice).not.toHaveBeenCalled();
     expect(createdStripeSessions[0]).toMatchObject({
       mode: "subscription",
@@ -706,22 +706,6 @@ describe("billing checkout route", () => {
     });
   });
 
-  test("creates a yearly Max checkout at the annual price", async () => {
-    stripeConfigured = true;
-    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
-
-    const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout?plan=max&interval=year"),
-    );
-
-    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(resolveMaxPrice).toHaveBeenCalledWith("year");
-    expect(createdStripeSessions[0]).toMatchObject({
-      line_items: [{ price: "price_max_year", quantity: 1 }],
-      metadata: expect.objectContaining({ plan: "max", billingInterval: "year" }),
-      subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
-    });
-  });
 
   test("a dashboard checkout records a validated returnTo and cancels back to it", async () => {
     stripeConfigured = true;
@@ -957,6 +941,25 @@ describe("billing checkout route", () => {
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
       signedIn: true,
       existingStripeCustomer: false,
+    });
+  });
+
+  test("creates a yearly Team checkout at the annual price", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(resolveTeamPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_team_year", quantity: 2 }],
+      metadata: expect.objectContaining({ plan: "team", billingInterval: "year" }),
+      subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
 

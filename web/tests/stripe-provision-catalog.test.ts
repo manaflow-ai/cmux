@@ -47,14 +47,14 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
-  test("offers current monthly and yearly prices in the plan-switch portal", async () => {
+  test("offers current monthly prices in the plan-switch portal", async () => {
     const result = await runProvision("test", "portal-switch-exists");
     expect(result.exitCode).toBe(0);
     const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
     expect(update).toBeDefined();
     expect(update!.args.join("\n")).toContain("price_pro_month_50");
     expect(update!.args.join("\n")).toContain("price_max_month_200");
-    expect(update!.args.join("\n")).toContain("price_max_year_1920");
+    expect(update!.args.join("\n")).not.toContain("price_max_year_1920");
   });
 
   test("sends credentials through stdin instead of process arguments", async () => {
@@ -88,8 +88,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-pro-yearly-480") &&
-          call.args.includes("unit_amount=48000"),
+          call.args.includes("lookup_key=cmux-pro-yearly-550") &&
+          call.args.includes("unit_amount=55000"),
       ),
     ).toBe(true);
     expect(
@@ -97,8 +97,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-team-yearly-576") &&
-          call.args.includes("unit_amount=57600"),
+          call.args.includes("lookup_key=cmux-team-yearly-660") &&
+          call.args.includes("unit_amount=66000"),
       ),
     ).toBe(true);
   });
@@ -115,7 +115,7 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
-  test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
+  test("provisions annual Pro and Team prices with a monthly-only Max portal", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -126,6 +126,8 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-pro-yearly-550")))).toBe(true);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-team-yearly-660")))).toBe(true);
     expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-max-yearly-1920")))).toBe(true);
     const portalCreate = result.calls.find(
       (call) =>
@@ -141,7 +143,7 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
-    expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
+    expect(portalArgs).not.toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
@@ -397,6 +399,12 @@ const prices = {
     interval: "year",
     product: "pro",
   },
+  "cmux-pro-yearly-550": {
+    id: "price_pro_year_550",
+    unit_amount: 55000,
+    interval: "year",
+    product: "pro",
+  },
   "cmux-max-monthly-200": {
     id: "price_max_month_200",
     unit_amount: 20000,
@@ -413,6 +421,12 @@ const prices = {
     id: "price_team_month_60",
     unit_amount: 6000,
     interval: "month",
+    product: "team",
+  },
+  "cmux-team-yearly-660": {
+    id: "price_team_year_660",
+    unit_amount: 66000,
+    interval: "year",
     product: "team",
   },
   "cmux-team-yearly-576": {
@@ -461,7 +475,8 @@ if (url.endsWith("/prices") && !isPost) {
       (
         lookupKey?.startsWith("cmux-pro") ||
         lookupKey === "cmux-team-yearly-336" ||
-        lookupKey === "cmux-team-yearly-576"
+        lookupKey === "cmux-team-yearly-576" ||
+        lookupKey === "cmux-team-yearly-660"
       )
     ) ||
     (

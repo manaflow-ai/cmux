@@ -394,7 +394,7 @@ async function stripePersonalCheckout(
       line_items: [
         {
           price: plan === MAX_PLAN_ID
-            ? await resolveMaxPrice(interval)
+            ? await resolveMaxPrice()
             : plan === GO_PLAN_ID
               ? await resolveGoPrice()
               : await resolveProPrice(interval),
@@ -760,14 +760,14 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   return null;
 }
 
-/** Pro and Max sell yearly Prices; Go and Team remain monthly-only. */
+/** Pro and Team sell yearly Prices; Go and Max remain monthly-only. */
 function unavailableIntervalResponse(
   request: NextRequest,
   plan: ReturnType<typeof checkoutPlan>,
 ): NextResponse | null {
   const raw = request.nextUrl.searchParams.get("interval");
   if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
-  if (raw === "year" && (plan === "pro" || plan === "max")) return null;
+  if (raw === "year" && (plan === "pro" || plan === "team")) return null;
   const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
   return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
 }
@@ -776,7 +776,7 @@ function checkoutInterval(
   request: NextRequest,
   plan: ReturnType<typeof checkoutPlan>,
 ): BillingInterval {
-  return (plan === "pro" || plan === "max") && request.nextUrl.searchParams.get("interval") === "year"
+  return (plan === "pro" || plan === "team") && request.nextUrl.searchParams.get("interval") === "year"
     ? "year"
     : CHECKOUT_BILLING_INTERVAL;
 }

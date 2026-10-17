@@ -5,25 +5,33 @@ import { posthog } from "../lib/posthog-client";
 import {
   MAX_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_PRICING_USD,
   type PlanPrice,
   type BillingInterval,
 } from "../../services/billing/plans";
 import { ProCtaLink } from "../[locale]/components/pro-cta-link";
+import { usePricingIntervalContext } from "./pricing-checkout";
 
 export type ProAnnualLabels = {
   billingPeriod: string;
   yearly: string;
   monthly: string;
   perMonth: string;
+  monthlyPeriod?: string;
+  annualPeriod?: string;
+};
+
+type CardPricing = {
+  month: PlanPrice;
+  year?: PlanPrice;
 };
 
 /**
- * The recurring personal-plan pricing card. Pro and Max are sold yearly, so
+ * The recurring pricing card. Pro and Team are sold yearly, so
  * the card owns the billing period: its price, checkout link, and CTA
  * analytics always agree.
- * Yearly is the default. The period toggle sits in the header row and the
- * yearly note sits under the button, so the price block and the button line
- * up with the Free and Max cards in either period.
+ * When a page supplies a shared billing-period selector, the card follows it;
+ * standalone cards retain their local period toggle.
  */
 export function ProPlanCard({
   name,
@@ -45,7 +53,7 @@ export function ProPlanCard({
   badge?: ReactNode;
   labels: ProAnnualLabels;
   /** One checkout link per billing period, built by the page. */
-  checkoutHrefs: Record<BillingInterval, string>;
+  checkoutHrefs: Partial<Record<BillingInterval, string>>;
   location?: string;
   surface: string;
   requiresSignIn: boolean;
@@ -59,32 +67,41 @@ export function ProPlanCard({
   monthlyOnly?: boolean;
   /** A link back from checkout (`?interval=month`) keeps the buyer's period. */
   initialInterval?: BillingInterval;
-  plan?: "pro" | "max";
-  pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
+  plan?: "pro" | "max" | "team";
+  pricing?: Readonly<CardPricing>;
   children: ReactNode;
 }) {
-  const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
+  const planPricing: Readonly<CardPricing> = pricing ?? (
+    plan === "max" ? MAX_PRICING_USD : plan === "team" ? TEAM_PRICING_USD : PRO_PRICING_USD
+  );
+  const hasAnnualPrice = Boolean(planPricing.year);
+  const sharedInterval = usePricingIntervalContext();
   const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
-  const interval = monthlyOnly ? "month" : chosen;
+  const interval = monthlyOnly || !hasAnnualPrice
+    ? "month"
+    : sharedInterval?.interval ?? chosen;
   const radioName = useId();
   const select = (next: BillingInterval) => {
+    const nextPrice = planPricing[next];
+    if (!nextPrice) return;
+    sharedInterval?.setInterval(next);
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
       surface,
       plan,
       interval: next,
-      billed_amount_usd: planPricing[next].billedAmount,
-      discount_percent: planPricing[next].discountPercent,
+      billed_amount_usd: nextPrice.billedAmount,
+      discount_percent: nextPrice.discountPercent,
     });
   };
   // A subscriber sees their own plan, whose period the card does not know,
   // so the monthly price stays the reference there.
-  const price = planPricing[action ? "month" : interval];
+  const price = planPricing[action ? "month" : interval] ?? planPricing.month;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
-      {action || monthlyOnly ? (
+      {action || monthlyOnly || !hasAnnualPrice || sharedInterval ? (
         <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
       ) : (
         <div className="flex items-center justify-between gap-3">
@@ -123,14 +140,16 @@ export function ProPlanCard({
             {`$${price.monthlyEquivalent}`}
           </span>
           <span className="max-w-44 text-sm leading-snug text-muted">
-            {labels.perMonth}
+            {interval === "year"
+              ? labels.annualPeriod ?? labels.perMonth
+              : labels.monthlyPeriod ?? labels.perMonth}
           </span>
         </div>
       </div>
       <div className="mt-3">
         {action ?? (
           <ProCtaLink
-            checkoutHref={checkoutHrefs[interval]}
+            checkoutHref={checkoutHrefs[interval] ?? checkoutHrefs.month}
             requiresSignIn={requiresSignIn}
             interval={interval}
             location={location}
