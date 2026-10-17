@@ -231,6 +231,8 @@ jobs:
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
             scripts/lib/stop-cmux-tui-owners.sh
+            scripts/cmux-next/bench_workspace_switch.py
+            scripts/cmux-next/workspace_switch_receipt.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -281,18 +283,32 @@ jobs:
         run: python3 scripts/ci/frame-pacing/golden.py judge "$RUNNER_TEMP/frame-pacing/out/golden" >> "$GITHUB_STEP_SUMMARY"
 
       # bench.sh and golden.sh tear both down on exit; this covers a step killed by its timeout.
+      - name: Workspace switch cache journeys
+        if: steps.gui.outputs.taken == 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
+          HARNESS_SHA: ${{ github.workflow_sha }}
+          WORKSPACE_RUNS: ${{ inputs.workspace_runs || '3' }}
+        run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/workspace-switch.sh "$RUNNER_TEMP/frame-pacing" "$SOURCE_SHA" "$HARNESS_SHA" "$WORKSPACE_RUNS"
+
       - name: Remove the virtual display and the app
         if: always() && steps.gui.outputs.taken == 'true'
         continue-on-error: true
         run: scripts/ci/frame-pacing/console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
 
       - name: Summary
-        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
+        if: always() && steps.gui.outputs.taken == 'true'
         run: |
           python3 scripts/ci/frame-pacing/summarize.py \
             "$RUNNER_TEMP/frame-pacing/out" \
             --receipt "$RUNNER_TEMP/frame-pacing/out/summary.json" \
             >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Workspace switch summary
+        if: always()
+        run: python3 scripts/cmux-next/workspace_switch_receipt.py --summary "$RUNNER_TEMP/frame-pacing/out/workspace-switch.json" --strict-invariants >> "$GITHUB_STEP_SUMMARY"
 
       - name: Receipt for a skipped bench
         if: always() && steps.gui.outputs.taken != 'true'
