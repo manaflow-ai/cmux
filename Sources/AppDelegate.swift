@@ -14764,7 +14764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             guard !action.isBrowserContentShortcut else { return false }
-            return KeyboardShortcutSettings.shortcut(for: action).hasChord
+            return KeyboardShortcutSettings.shortcutBindings(for: action).contains { $0.shortcut.hasChord }
         }
     }
 
@@ -15329,7 +15329,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
-                guard KeyboardShortcutSettings.shortcut(for: action).hasChord, matchConfiguredShortcut(event: event, action: action) else { continue }
+                guard KeyboardShortcutSettings.shortcutBindings(for: action).contains(where: { $0.shortcut.hasChord }),
+                      matchConfiguredShortcut(event: event, action: action) else { continue }
                 NotificationCenter.default.post(name: .commandPaletteMoveSelection, object: paletteWindow, userInfo: ["delta": delta])
                 return true
             }
@@ -15453,7 +15454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let globalSearchShortcut = globalSearchShortcutForRouting()
+        let globalSearchShortcuts = globalSearchShortcutsForRouting().map(\.shortcut)
         let matchesGlobalSearchShortcut = matchGlobalSearchShortcut(
             event: event,
             normalizedFlags: normalizedFlags
@@ -15481,7 +15482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if globalSearchUnarmedChordPrefixMatches,
            commandPaletteCanRouteUnarmedGlobalSearch {
             if globalSearchShortcutWhenClauseAllows(event: event),
-               armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) { return true }
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: globalSearchShortcuts) { return true }
         }
         if commandPaletteConsumesShortcut { return true }
         if commandPaletteEffectiveInTargetWindow,
@@ -15667,9 +15668,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           globalSearchShortcut.hasChord,
+           globalSearchShortcuts.contains(where: \.hasChord),
            globalSearchShortcutWhenClauseAllows(event: event),
-           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: globalSearchShortcuts) {
             return true
         }
         if matchesGlobalSearchShortcut {
@@ -17532,10 +17533,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
         guard event.type == .keyDown else { return nil }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+        if matchConfiguredShortcut(event: event, action: .toggleBrowserDeveloperTools) {
             return "toggle.configured"
         }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+        if matchConfiguredShortcut(event: event, action: .showBrowserJavaScriptConsole) {
             return "console.configured"
         }
 
@@ -17970,8 +17971,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+        KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+            guard binding.whenClause.evaluate(
+                shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+            ) else {
+                return false
+            }
+            return matchConfiguredShortcut(event: event, shortcut: binding.shortcut)
+        }
     }
 
     /// `shortcuts.when` gates opening Search; visible Search owns its toggle so
@@ -17986,8 +17993,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
     /// handlers that previously ignored context (issue #5189).
     func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
-        return clause.evaluate(shortcutWhenClauseContext(for: action, clause: clause, event: event))
+        KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+            binding.whenClause.evaluate(
+                shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+            )
+        }
     }
 
     /// Resolves a right-sidebar mode shortcut after applying the action's
@@ -17998,8 +18008,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
-        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
-            shortcutWhenClauseAllows(action: action, event: event)
+        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] entry in
+            entry.whenClause.evaluate(
+                shortcutWhenClauseContext(for: entry.action, clause: entry.whenClause, event: event)
+            )
         }
     }
 
@@ -18007,7 +18019,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
                 !$0.isBrowserContentShortcut &&
-                matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
+                // This is the menu-miss fallback: preserve the configured
+                // stroke forwarding behavior even when the action's content
+                // focus clause is unavailable in this window.
+                KeyboardShortcutSettings.shortcutBindings(for: $0).contains {
+                    matchConfiguredShortcut(event: event, shortcut: $0.shortcut)
+                }
         }
     }
 
@@ -18015,15 +18032,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return nil
+        for binding in KeyboardShortcutSettings.shortcutBindings(for: action) {
+            guard binding.whenClause.evaluate(
+                shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+            ) else { continue }
+            let shortcut = binding.shortcut
+            if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+                guard let secondStroke = shortcut.secondStroke,
+                      shortcut.firstStroke == prefix else {
+                    continue
+                }
+                if let digit = shortcutMatcher.numberedDigit(event: event, stroke: secondStroke) {
+                    return digit
+                }
+            } else if let digit = shortcutMatcher.numberedDigit(event: event, shortcut: shortcut) {
+                return digit
             }
-            return shortcutMatcher.numberedDigit(event: event, stroke: secondStroke)
         }
-        return shortcutMatcher.numberedDigit(event: event, shortcut: shortcut)
+        return nil
     }
 
     func routableNumberedConfiguredShortcutDigit(
@@ -18044,29 +18070,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
-        guard shortcutWhenClauseAllows(action: action, event: event) else {
-            return false
-        }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
+        return KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+            guard binding.whenClause.evaluate(
+                shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+            ) else { return false }
+            let shortcut = binding.shortcut
+            if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+                guard let secondStroke = shortcut.secondStroke,
+                      shortcut.firstStroke == prefix else { return false }
+                return shortcutMatcher.matchesDirectional(
+                    event: event,
+                    stroke: secondStroke,
+                    arrowGlyph: arrowGlyph,
+                    arrowKeyCode: arrowKeyCode
+                )
             }
             return shortcutMatcher.matchesDirectional(
                 event: event,
-                stroke: secondStroke,
+                shortcut: shortcut,
                 arrowGlyph: arrowGlyph,
                 arrowKeyCode: arrowKeyCode
             )
         }
-        return shortcutMatcher.matchesDirectional(
-            event: event,
-            shortcut: shortcut,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
-        )
     }
 
     func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
@@ -18085,10 +18110,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = actions.map {
-            KeyboardShortcutSettings.shortcut(for: $0)
+        let configuredBindings = actions.flatMap { action in
+            KeyboardShortcutSettings.shortcutBindings(for: action).compactMap { binding -> StoredShortcut? in
+                guard binding.whenClause.evaluate(
+                    shortcutWhenClauseContext(for: action, clause: binding.whenClause, event: event)
+                ) else { return nil }
+                return binding.shortcut
+            }
         } + shortcuts
-        for shortcut in configuredShortcuts {
+        for shortcut in configuredBindings {
             guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
@@ -18498,11 +18528,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
-        let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
         if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
+            return numberedConfiguredShortcutDigit(event: event, action: action) != nil
         }
-        return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
+        return matchConfiguredShortcut(event: event, action: action)
     }
 
     private func preferredMatchingShortcutAction(
@@ -20243,6 +20272,31 @@ private extension NSWindow {
             )
             return true
         }
+
+        // A browser menu equivalent with no browser owner still belongs to the
+        // focused terminal. Route this fallback before stale menu suppression,
+        // whose generic terminal replay would bypass Ghostty's menu-miss path.
+        if let firstResponderGhosttyView,
+           AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
+           KeyboardShortcutSettings.Action.allCases.contains(where: { action in
+               action.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
+                   !action.isBrowserContentShortcut &&
+                   KeyboardShortcutSettings.shortcutBindings(for: action).contains {
+                       $0.shortcut.matches(event: event)
+                   }
+           }) {
+            if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderGhosttyView,
+                reason: "browser surface shortcut to terminal without browser owner"
+            ) {
+                return true
+            }
+        }
+
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: self) == true {
 #if DEBUG
