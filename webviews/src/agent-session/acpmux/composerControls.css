@@ -30,6 +30,7 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-effort-bolt { color: var(--agent-accent); font-size: 14px; line-height: 1; }
 .acpmux-effort-item .ui-menu-check {
   grid-column: 1;
   display: inline-flex;

@@ -121,6 +121,7 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+          <span className="acpmux-effort-bolt" aria-hidden="true">⚡</span>
           <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
           {chevron}
         </MenuButton>
