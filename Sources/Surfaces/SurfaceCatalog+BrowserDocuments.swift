@@ -40,6 +40,21 @@ extension SurfaceCatalog {
         notifyChange(for: resource.machine)
     }
 
+    /// The page a dropped Cloud browser row opens as a new daemon browser. A machine
+    /// cannot place one tab twice, so a second view in a workspace mirrored to the
+    /// same machine would be retired by reconciliation; the drop copies it instead.
+    func cloudBrowserCopyURL(for group: SurfaceResourceGroup, intoWorkspaceOn machine: SurfaceMachineID?) -> URL? {
+        guard let machine, machine.cloudMachineID != nil,
+              group.placements.count == 1, let id = group.placements.first?.resource,
+              id.machine == machine, id.kind == .browser, !id.isForwardedPort,
+              let resource = resources[id], resource.remoteViews?.isEmpty == false else { return nil }
+        let url = resourceWithCloudBrowserDocument(resource).url.flatMap { URL(string: $0) }
+        guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return SurfacePaneFactory.blankURL
+        }
+        return url
+    }
+
     func resourceWithCloudBrowserDocument(_ resource: SurfaceResource) -> SurfaceResource {
         guard resource.lifecycle != .unavailable,
               let documents = cloudBrowserDocuments[resource.id],
