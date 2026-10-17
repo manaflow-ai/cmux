@@ -42,6 +42,20 @@ struct MachineCatalogOwnerReadTests {
         }
     }
 
+    @Test func explicitUnsupportedSelectorStillGetsNativeRefusal() async throws {
+        try await withOwner { h in
+            let client = ResourceRelayClient(connection: h.connection)
+            do {
+                _ = try await client.send(operation: "machine.list", params: ["session": .string("current")], idempotencyKey: nil)
+                Issue.record("an unsupported session selector was silently discarded")
+            } catch let DaemonError.command(_, _, code, _, _) {
+                #expect(code == "validation.invalid")
+            }
+            let listed = try await client.send(operation: "machine.list", params: [:], idempotencyKey: nil)
+            #expect(listed.arrayValue?.count == 1)
+        }
+    }
+
     private func withOwner(_ body: (BranchDaemonHarness) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cnd-catalog-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -26,6 +27,24 @@ struct MachineCatalogResourceEncodingTests {
     @Test func unsupportedExplicitSelectorsReachNativeValidation() throws {
         let params: [String: JSONValue] = ["machine": .string("unexpected"), "session": .string("unexpected")]
         #expect(try wireParams("machine.list", params) == params)
+    }
+
+    @Test(arguments: ["machine.list", "machine.get", "session.list", "workspace.list", "workspace.rename"])
+    func confirmationDigestMatchesEncodedParams(_ operation: String) throws {
+        let params: [String: JSONValue] = operation == "workspace.rename"
+            ? ["workspace": .string("chosen"), "name": .string("A / 日本語")]
+            : [:]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(wireParams(operation, params))
+        let actualWireDigest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        #expect(try ResourceRelayClient.paramsDigest(params, operation: operation) == actualWireDigest)
+    }
+
+    @Test func legacyDigestPreservesSessionScopedConfirmations() throws {
+        let params: [String: JSONValue] = ["workspace": .string("chosen"), "name": .string("renamed")]
+        #expect(try ResourceRelayClient.paramsDigest(params) == ResourceRelayClient.paramsDigest(params, operation: "workspace.rename"))
+        #expect(try ResourceRelayClient.paramsDigest([:], operation: "machine.list") != ResourceRelayClient.paramsDigest([:]))
     }
 
     private func wireParams(_ operation: String, _ params: [String: JSONValue]) throws -> [String: JSONValue] {
