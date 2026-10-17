@@ -1,5 +1,13 @@
 public import Foundation
 
+/// Compact updates keep streaming journal and replay size proportional to new content.
+public enum ConversationItemUpdateMode: String, Codable, Hashable, Sendable {
+    /// Append `item.text` (and plan text when present) to the existing item.
+    case appendText
+    /// Append the string in `item.tool.output` to the existing tool output.
+    case appendToolOutput
+}
+
 /// The normalized lifecycle category for a journal event.
 public enum ConversationEventKind: Hashable, Sendable, Codable {
     /// An item was added or updated.
@@ -41,6 +49,8 @@ public struct ConversationEvent: Codable, Hashable, Sendable, Identifiable {
     public let turnID: ConversationTurnID?
     /// Item payload when `kind` is item.
     public let item: ConversationItem?
+    /// Nil replaces an item; a mode applies a compact delta to the prior item.
+    public let itemUpdate: ConversationItemUpdateMode?
     /// Request payload when `kind` is request.
     public let request: ConversationRequest?
     /// Queue payload when `kind` is queue.
@@ -56,5 +66,5 @@ public struct ConversationEvent: Codable, Hashable, Sendable, Identifiable {
     public var id: ConversationCursor { sequence }
 
     /// Creates an ordered event.
-    public init(sessionID: ConversationID, sequence: ConversationCursor, generation: ConversationGeneration, timestamp: Date = Date(), kind: ConversationEventKind, turnID: ConversationTurnID? = nil, item: ConversationItem? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.sessionID = sessionID; self.sequence = sequence; self.generation = generation; self.timestamp = timestamp; self.kind = kind; self.turnID = turnID; self.item = item; self.request = request; self.queue = queue; self.receipt = receipt; self.state = state; self.rawPayload = rawPayload }
+    public init(sessionID: ConversationID, sequence: ConversationCursor, generation: ConversationGeneration, timestamp: Date = Date(), kind: ConversationEventKind, turnID: ConversationTurnID? = nil, item: ConversationItem? = nil, itemUpdate: ConversationItemUpdateMode? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.sessionID = sessionID; self.sequence = sequence; self.generation = generation; self.timestamp = timestamp; self.kind = kind; self.turnID = turnID; self.item = item; self.itemUpdate = itemUpdate; self.request = request; self.queue = queue; self.receipt = receipt; self.state = state; self.rawPayload = rawPayload }
 }

@@ -145,3 +145,31 @@ public struct ConversationItem: Codable, Hashable, Sendable, Identifiable {
         self.id = id; self.sequence = sequence; self.turnID = turnID; self.kind = kind; self.role = role; self.text = text; self.tool = tool; self.plan = plan; self.diff = diff; self.artifact = artifact; self.usage = usage; self.rawPayload = rawPayload
     }
 }
+
+public extension ConversationItem {
+    /// Reduces the same compact event on the host, in durable replay, and on iOS.
+    /// Full completion events replace partial content instead of appending twice.
+    func applying(to previous: ConversationItem?, mode: ConversationItemUpdateMode?) -> ConversationItem {
+        guard let mode, let previous, previous.id == id else { return self }
+        var result = self
+        result.role = role ?? previous.role
+        switch mode {
+        case .appendText:
+            result.text = (previous.text ?? "") + (text ?? "")
+            if var plan {
+                plan.text = (previous.plan?.text ?? "") + plan.text
+                result.plan = plan
+            }
+        case .appendToolOutput:
+            if var tool {
+                let prefix: String
+                if case .string(let value)? = previous.tool?.output { prefix = value } else { prefix = "" }
+                if case .string(let delta)? = tool.output { tool.output = .string(prefix + delta) }
+                tool.input = tool.input ?? previous.tool?.input
+                tool.parentToolID = tool.parentToolID ?? previous.tool?.parentToolID
+                result.tool = tool
+            }
+        }
+        return result
+    }
+}
