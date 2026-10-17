@@ -361,6 +361,7 @@ def hitches(trace, pid):
     except Exception:  # noqa: BLE001 (an older trace without the table)
         pass
     return {"hitches": rows, "p50_ms": percentile(durations, 50), "p95_ms": percentile(durations, 95),
+            "p99_ms": percentile(durations, 99),
             "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1),
             "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
             "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}

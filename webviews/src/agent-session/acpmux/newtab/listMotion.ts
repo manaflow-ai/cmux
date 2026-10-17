@@ -47,23 +47,16 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-<<<<<<< HEAD
   const keysRef = useRef(keys);
   keysRef.current = keys;
   const signature = JSON.stringify(keys);
   const keyList = useMemo(() => keysRef.current, [signature]);
-  const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-=======
-  const signature = keys.join("\n");
-  const keyList = useMemo(() => (signature === "" ? [] : signature.split("\n")), [signature]);
   const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
   const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
->>>>>>> 8d303450436b5 (fix(cmux-next): preserve New Tab motion without redundant layout reads)
   useLayoutEffect(
     () => () => {
       observed.current?.observer.disconnect();
       observed.current = null;
-<<<<<<< HEAD
     },
     [],
   );
@@ -71,12 +64,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   // from their snapshots and may allocate a fresh array on every render; depending on that array
   // would put the measurement work back on every render. ResizeObserver remains responsible for
   // layout-only changes such as a grid column switch.
-=======
-      sampled.current = null;
-    },
-    [],
-  );
->>>>>>> 8d303450436b5 (fix(cmux-next): preserve New Tab motion without redundant layout reads)
   useLayoutEffect(() => {
     const currentKeys = keysRef.current;
     const root = list.current;
@@ -103,8 +90,8 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       running.current = [];
       places.current = new Map();
       shown.current = "";
-<<<<<<< HEAD
       shownKeys.current = [];
+      sampled.current = null;
       return;
     }
     if (isAgentMotionOff()) {
@@ -113,9 +100,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       places.current = measure(root, elements, currentKeys);
       shown.current = signature;
       shownKeys.current = currentKeys;
-=======
-      sampled.current = null;
->>>>>>> 8d303450436b5 (fix(cmux-next): preserve New Tab motion without redundant layout reads)
+      sampled.current = { root, rows, signature };
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
@@ -161,10 +146,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-<<<<<<< HEAD
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `keys` is represented by its value signature.
   }, [list, rows, signature]);
-=======
-  });
->>>>>>> 8d303450436b5 (fix(cmux-next): preserve New Tab motion without redundant layout reads)
 }
