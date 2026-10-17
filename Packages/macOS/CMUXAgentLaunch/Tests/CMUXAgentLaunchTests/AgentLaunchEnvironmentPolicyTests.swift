@@ -295,4 +295,48 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
+    private static let openCodeRoots = [
+        "OPENCODE_CONFIG": "/Users/me/dotfiles/opencode/extra.jsonc",
+        "OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode",
+        "OPENCODE_DB": "/Volumes/work/opencode.db",
+        "XDG_CONFIG_HOME": "/Users/me/dotfiles/config",
+        "XDG_DATA_HOME": "/Volumes/work/share",
+        "XDG_STATE_HOME": "/Volumes/work/state",
+    ]
+
+    @Test("OpenCode resumes keep their config, data and state roots", arguments: ["opencode", "omo", "OpenCode"])
+    func openCodeResumesKeepTheirRoots(kind: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: Self.openCodeRoots.merging(["OPENAI_API_KEY": "secret"]) { current, _ in current },
+            kind: kind
+        )
+        #expect(selected == Self.openCodeRoots)
+    }
+
+    @Test("XDG roots and OpenCode paths stay out of other agents' resumes", arguments: ["claude", "codex", "muse", "pi", ""])
+    func otherAgentsDoNotReplayOpenCodeRoots(kind: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: Self.openCodeRoots, kind: kind)
+        #expect(selected == ["OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode"])
+        #expect(AgentLaunchEnvironmentPolicy().selectedEnvironment(from: Self.openCodeRoots, kind: nil)
+            == ["OPENCODE_CONFIG_DIR": "/Users/me/dotfiles/opencode"])
+    }
+
+    @Test("A relative OpenCode root is not replayed", arguments: ["config", "./share", "~/state", "opencode.db", ""])
+    func relativeOpenCodeRootIsNotReplayed(value: String) {
+        let relative = [
+            "OPENCODE_CONFIG": value,
+            "OPENCODE_DB": value,
+            "XDG_CONFIG_HOME": value,
+            "XDG_DATA_HOME": value,
+            "XDG_STATE_HOME": value,
+        ]
+        #expect(AgentLaunchEnvironmentPolicy().selectedEnvironment(from: relative, kind: "opencode").isEmpty)
+    }
+
+    @Test("Hook producers capture the OpenCode roots")
+    func hookProducersCaptureTheOpenCodeRoots() {
+        let keys = Set(AgentLaunchEnvironmentPolicy().inputEnvironmentKeys)
+        #expect(keys.isSuperset(of: Self.openCodeRoots.keys))
+    }
 }
