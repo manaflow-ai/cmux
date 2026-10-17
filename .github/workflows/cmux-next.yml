@@ -1391,7 +1391,6 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
-          lookup-only: true
 
       - name: Build the web bundles for this source key
         if: steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -1581,6 +1580,10 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          # A reused mini keeps ignored SwiftPM/Cargo/Zig outputs warm. The
+          # default clean=true walks and deletes those trees before checkout;
+          # clean untracked source explicitly below while preserving caches.
+          clean: false
           fetch-depth: 2
 
       # As in swift test: a partial clone left in this reused workspace fetches
@@ -1595,10 +1598,14 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          clean: false
           fetch-depth: 2
 
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh
+      - name: Reuse the ghostty-next checkout (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh --reuse ghostty-next
+
+      - name: Remove stale untracked source (keep ignored build caches)
+        run: git clean -ffd
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -2552,7 +2559,7 @@ jobs:
     needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && !((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && !(contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')))) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme')))) }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
