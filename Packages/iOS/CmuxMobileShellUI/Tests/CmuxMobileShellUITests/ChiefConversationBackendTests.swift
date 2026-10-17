@@ -62,7 +62,7 @@ struct ChiefConversationBackendTests {
     }
 
     @Test
-    func multiItemQuestionDoesNotInventHiddenSelections() {
+    func multiItemQuestionUsesComposerEntryPoint() {
         let question = MobileChiefQuestion(
             id: "question-2",
             source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
@@ -91,11 +91,13 @@ struct ChiefConversationBackendTests {
             partPayloads: [MobileChiefPart(kind: "question", question: question)]
         )
 
-        #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
+        let poll = ChiefConversationBackend.pendingPoll(from: message)
+        #expect(poll?.question == "Which region?")
+        #expect(poll?.options.map(\.id) == [ChiefConversationBackend.questionComposerOptionID])
     }
 
     @Test
-    func multiSelectQuestionDoesNotCollapseToOneChoice() {
+    func multiSelectQuestionUsesComposerEntryPoint() {
         let question = MobileChiefQuestion(
             id: "question-3",
             source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
@@ -123,7 +125,9 @@ struct ChiefConversationBackendTests {
             partPayloads: [MobileChiefPart(kind: "question", question: question)]
         )
 
-        #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
+        let poll = ChiefConversationBackend.pendingPoll(from: message)
+        #expect(poll?.question == "Which features?")
+        #expect(poll?.options.map(\.id) == [ChiefConversationBackend.questionComposerOptionID])
     }
 
     @Test

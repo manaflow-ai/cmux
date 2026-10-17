@@ -382,6 +382,23 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
                 _ = try? await client.stop(conversation: conversation.id)
             }
         }
+        controller.onPollTapped = { [weak controller, weak backend] messageID, optionID in
+            guard optionID == ChiefConversationBackend.questionComposerOptionID,
+                  let controller,
+                  let backend,
+                  let question = backend.question(for: messageID) else { return false }
+            let sheet = ChiefQuestionSheet(question: question) { choices, text in
+                _ = try await backend.answerQuestion(messageID: messageID, choices: choices, text: text)
+            }
+            let host = UIHostingController(rootView: sheet)
+            host.modalPresentationStyle = .pageSheet
+            if let presentation = host.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+                presentation.prefersGrabberVisible = true
+            }
+            controller.present(host, animated: true)
+            return true
+        }
         store.start()
         return controller
     }
@@ -405,6 +422,193 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
         init(client: MobileChiefClient, conversationID: String) {
             self.client = client
             self.conversationID = conversationID
+        }
+    }
+}
+
+private struct ChiefQuestionSheet: View {
+    let question: MobileChiefQuestion
+    let submit: ([String], String?) async throws -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var selections: [String: Set<String>]
+    @State private var otherText = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    init(
+        question: MobileChiefQuestion,
+        submit: @escaping ([String], String?) async throws -> Void
+    ) {
+        self.question = question
+        self.submit = submit
+        var initial: [String: Set<String>] = [:]
+        for item in question.items {
+            // Match Chief on macOS: the first option is the recommendation for
+            // single-select items; multi-select items begin empty.
+            if !item.multiSelect, let first = item.options.first {
+                initial[item.id] = [first.id]
+            } else {
+                initial[item.id] = []
+            }
+        }
+        _selections = State(initialValue: initial)
+    }
+
+    private var otherItem: MobileChiefQuestion.Item? {
+        question.items.first(where: \.allowsOther)
+    }
+
+    private var canSubmit: Bool {
+        question.items.allSatisfy { item in
+            let chosen = selections[item.id] ?? []
+            let hasOther = item.id == otherItem?.id && !otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !chosen.isEmpty || hasOther
+        }
+    }
+
+    private var choices: [String] {
+        question.items.flatMap { item in
+            item.options.compactMap { option in
+                selections[item.id]?.contains(option.id) == true ? option.id : nil
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Chief needs your input", systemImage: "sparkles")
+                            .font(.headline)
+                        Text("Choose an answer for each question before sending it back to your Mac.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(question.items) { item in
+                        itemView(item)
+                    }
+
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("MobileChiefQuestionError")
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Answer Chief")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(question.submitLabel ?? "Send") {
+                        Task { await submitAnswer() }
+                    }
+                    .disabled(!canSubmit || isSubmitting)
+                }
+            }
+            .interactiveDismissDisabled(isSubmitting)
+        }
+        .accessibilityIdentifier("MobileChiefQuestionSheet")
+    }
+
+    @ViewBuilder
+    private func itemView(_ item: MobileChiefQuestion.Item) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let header = item.header, !header.isEmpty {
+                Text(header)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(item.prompt)
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            if item.multiSelect {
+                Text("Select all that apply")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(item.options.enumerated()), id: \.element.id) { index, option in
+                    Button {
+                        toggle(option.id, in: item)
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: isSelected(option.id, in: item)
+                                ? (item.multiSelect ? "checkmark.square.fill" : "checkmark.circle.fill")
+                                : (item.multiSelect ? "square" : "circle"))
+                                .foregroundStyle(isSelected(option.id, in: item) ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.label)
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if let detail = option.detail, !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("MobileChiefQuestionOption-\(item.id)-\(option.id)")
+                    if index < item.options.count - 1 {
+                        Divider().padding(.leading, 32)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            if item.id == otherItem?.id {
+                TextField("Other answer (optional)", text: $otherText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: otherText) { _, value in
+                        if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !item.multiSelect {
+                            selections[item.id] = []
+                        }
+                    }
+                    .accessibilityIdentifier("MobileChiefQuestionOther-\(item.id)")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileChiefQuestionItem-\(item.id)")
+    }
+
+    private func isSelected(_ optionID: String, in item: MobileChiefQuestion.Item) -> Bool {
+        selections[item.id]?.contains(optionID) == true
+    }
+
+    private func toggle(_ optionID: String, in item: MobileChiefQuestion.Item) {
+        var chosen = selections[item.id] ?? []
+        if item.multiSelect {
+            if chosen.contains(optionID) { chosen.remove(optionID) } else { chosen.insert(optionID) }
+        } else {
+            chosen = [optionID]
+            if item.id == otherItem?.id { otherText = "" }
+        }
+        selections[item.id] = chosen
+    }
+
+    private func submitAnswer() async {
+        guard canSubmit else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            let text = otherText.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await submit(choices, text.isEmpty ? nil : text)
+            dismiss()
+        } catch {
+            errorMessage = String(describing: error)
         }
     }
 }
