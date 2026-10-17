@@ -1,15 +1,16 @@
 import { useSyncExternalStore } from "react";
 
 /// Codex-style tool runs in a running turn (cx-ncc.108; conversation/turns.ts `codexRuns`): a
-/// Debug toggle (`agentPane.debug.codexToolRuns`, CmuxNextAgentPane AgentPaneTunables), off by
-/// default, which the app pushes with the theme (`theme.codexToolRuns`, AgentPaneTheme.swift) and
-/// again when it changes, as it does the chat width (chatWidth.ts).
-let current = false;
+/// The Codex-style grouping is the normal transcript presentation. The host may still explicitly
+/// disable it with the existing Debug tunable (`agentPane.debug.codexToolRuns`), which the app
+/// pushes with the theme (`theme.codexToolRuns`, AgentPaneTheme.swift) and again when it changes.
+let current = true;
 const listeners = new Set<() => void>();
 
 /// The host pushed the theme: the transcript follows at once.
 export function configureCodexToolRuns(value: unknown): void {
-  const next = value === true;
+  // Missing theme data keeps the feature on for older hosts; only an explicit false opts out.
+  const next = value !== false;
   if (next === current) return;
   current = next;
   for (const listener of listeners) listener();

@@ -265,6 +265,7 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
+  sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -575,10 +576,13 @@ const MessageRow = memo(
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
-  function ToolActivityRow({ row }: RowProps) {
-    return <ToolRows row={row} />;
+  function ToolActivityRow({ row, sessionId }: RowProps) {
+    return <ToolRows row={row} sessionId={sessionId} />;
   },
-  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
+  (previous, next) =>
+    previous.row.id === next.row.id &&
+    previous.row.version === next.row.version &&
+    previous.sessionId === next.sessionId,
 );
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
@@ -2082,6 +2086,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
+                        sessionId={sessionId}
                         onToggleActivity={onToggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
