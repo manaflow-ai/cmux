@@ -172,6 +172,10 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// The window's side panel was shown, hidden, resized or changed
     /// (fork API 13); value = 1 when visible.
     case sidePanelChanged = 12
+    /// The tab's DevTools turned device mode on (value 1) or off (0), or
+    /// moved the device's screen area (fork API 24,
+    /// `cmux_devtools_inspected_bounds`).
+    case devToolsDeviceMode = 13
     case unknown = -1
 }
 

@@ -228,6 +228,8 @@ extension CEFRuntime {
             }
         case .devToolsDockSide:
             tabsByBrowser[browser]?.devToolsController.dockSideChosen(value)
+        case .devToolsDeviceMode:
+            tabsByBrowser[browser]?.devToolsController.deviceModeChanged(on: value != 0)
         case .foreignBrowserBlocked:
             logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
         case .popupWindowCreated:
