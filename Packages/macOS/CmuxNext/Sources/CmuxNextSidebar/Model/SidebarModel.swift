@@ -133,6 +133,9 @@ public final class SidebarModel {
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
+    /// Whether actionable workspace states are projected ahead of idle rows.
+    /// Manual order is retained for rows with the same priority.
+    public var priorityOrdering = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -203,6 +206,10 @@ public final class SidebarModel {
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
+    /// The compact high-signal projection for an Agent Priority view.
+    /// Consumers should render these rows through the normal sidebar layout;
+    /// updates therefore retain the existing RowMotion bounce behavior.
+    public var priorityItems: [SidebarPriorityItem] { SidebarPriority().items(allWorkspaces) }
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
     /// select first/last, arrow keys) may land on: every row but
     /// placeholders, which are no workspace yet.

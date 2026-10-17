@@ -27,6 +27,98 @@ const cwd = "/Users/dev/project/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
 
+type OrchestrationStrategy = {
+  id: string;
+  label: string;
+  description: string;
+  task: string;
+  status: string;
+  sender: string;
+  recipient: string;
+  transport: string;
+  repo: string;
+  worktree: string;
+  branch: string;
+  head: string;
+  queue: string;
+  lease: string;
+  health: string;
+  guidance: string;
+  evidence: string;
+  artifacts: string;
+  gap: string;
+  nextAction: string;
+};
+
+const orchestrationStrategies: OrchestrationStrategy[] = [
+  {
+    id: "local-queue",
+    label: "Local queue",
+    description: "Fast feedback for short, interactive work.",
+    task: "orch-local-01",
+    status: "running",
+    sender: "cmux-chat",
+    recipient: "local-supervisor",
+    transport: "loopback",
+    repo: "cmux",
+    worktree: "agent-chat",
+    branch: "feat-cmux-next",
+    head: "4ce7c9c1…",
+    queue: "2 queued · 1/4 active",
+    lease: "09:42 remaining",
+    health: "healthy",
+    guidance: "sha256:7d2a…",
+    evidence: "receipt.json",
+    artifacts: "gallery.js",
+    gap: "none",
+    nextAction: "Run next bounded task",
+  },
+  {
+    id: "huge-blue",
+    label: "Huge Blue lease",
+    description: "Reserved Linux capacity for heavier verification.",
+    task: "orch-huge-blue-07",
+    status: "reserved",
+    sender: "cmux-chat",
+    recipient: "huge-blue-supervisor",
+    transport: "ssh · enrolled host",
+    repo: "cmux",
+    worktree: "/home/leo/…/cmux",
+    branch: "feat-cmux-next",
+    head: "ce704bfb…",
+    queue: "5 queued · 0/8 active",
+    lease: "17:30 remaining",
+    health: "degraded",
+    guidance: "sha256:14b8…",
+    evidence: "rust-green-receipt.json",
+    artifacts: "acpmux binary",
+    gap: "dogfood gate held",
+    nextAction: "Reconcile controller cleanup",
+  },
+  {
+    id: "cloud-fair-share",
+    label: "Cloud fair-share",
+    description: "Shared capacity with fairness and retry budgets.",
+    task: "orch-cloud-12",
+    status: "queued",
+    sender: "cmux-chat",
+    recipient: "cloud-router",
+    transport: "durable lease",
+    repo: "cmux",
+    worktree: "managed-worktree",
+    branch: "main",
+    head: "a81f6de2…",
+    queue: "12 queued · 0/32 active",
+    lease: "starts on admission",
+    health: "unknown",
+    guidance: "sha256:91c4…",
+    evidence: "admission receipt",
+    artifacts: "pending",
+    gap: "capacity unavailable",
+    nextAction: "Wait for fair-share slot",
+  },
+];
+
 function setOption(options: SessionOption[], id: string, value: OptionValue): SessionOption[] {
   return options.map((o) => o.id === id ? { ...o, value } : o);
 }
@@ -37,6 +129,49 @@ function Section({ id, title, children }: { id: string; title: string; children:
       <h2>{title}</h2>
       <div className="gallery-section-body">{children}</div>
     </section>
+  );
+}
+
+function OrchestrationLab() {
+  const [selectedId, setSelectedId] = useState(orchestrationStrategies[0].id);
+  return (
+    <div className="gallery-stack orchestration-lab">
+      <div className="gallery-label">Fixture-only comparison surface. Values are redacted examples; no task is dispatched.</div>
+      <div className="orchestration-grid" role="list" aria-label="Orchestration strategies">
+        {orchestrationStrategies.map((strategy) => {
+          const selected = strategy.id === selectedId;
+          return (
+            <article className={`orchestration-card${selected ? " selected" : ""}`} key={strategy.id} role="listitem">
+              <button
+                className="orchestration-card-select"
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSelectedId(strategy.id)}
+              >
+                <span className="orchestration-card-heading">
+                  <span className="orchestration-card-title">{strategy.label}</span>
+                  <span className={`orchestration-status orchestration-status-${strategy.status}`}>{strategy.status}</span>
+                </span>
+                <span className="orchestration-card-description">{strategy.description}</span>
+              </button>
+              <dl className="orchestration-fields">
+                <div><dt>Task</dt><dd>{strategy.task}</dd></div>
+                <div><dt>Sender → recipient</dt><dd>{strategy.sender} → {strategy.recipient}</dd></div>
+                <div><dt>Transport</dt><dd>{strategy.transport}</dd></div>
+                <div><dt>Repo / worktree / branch / head</dt><dd>{strategy.repo} / {strategy.worktree} / {strategy.branch} / {strategy.head}</dd></div>
+                <div><dt>Queue</dt><dd>{strategy.queue}</dd></div>
+                <div><dt>Lease TTL</dt><dd>{strategy.lease}</dd></div>
+                <div><dt>Route health</dt><dd>{strategy.health}</dd></div>
+                <div><dt>Guidance</dt><dd>{strategy.guidance}</dd></div>
+                <div><dt>Evidence / artifacts</dt><dd>{strategy.evidence} / {strategy.artifacts}</dd></div>
+                <div><dt>Gap</dt><dd>{strategy.gap}</dd></div>
+                <div><dt>Next action</dt><dd>{strategy.nextAction}</dd></div>
+              </dl>
+            </article>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -205,6 +340,7 @@ export function GalleryApp() {
   useOverlayScrollbars();
   const [viewport, setViewport] = useState("1120px");
   const toc = useMemo(() => [
+    ["orchestration-lab", "Orchestration lab"],
     ["status-row", "Status row"],
     ["composer", "Composer"],
     ["picker", "Unified picker"],
@@ -239,6 +375,9 @@ export function GalleryApp() {
         </header>
 
         <div className="gallery-viewport-frame" style={{ maxWidth: viewport }}>
+        <Section id="orchestration-lab" title="Orchestration lab">
+          <OrchestrationLab />
+        </Section>
         <Section id="status-row" title="Status row">
           <div className="gallery-stack">
             {galleryProviders.map((provider) => (

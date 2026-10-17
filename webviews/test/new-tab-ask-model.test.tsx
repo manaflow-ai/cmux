@@ -133,3 +133,55 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
     await act(async () => root.unmount());
   }
 });
+
+test("a New Tab does not show chat-only placeholder controls while its harness starts", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
+  const root: Root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <NewTabScreen
+            snapshot={noChat([], { summary: { sessionId: "", turnCount: 0, harness: "claude", model: "default" } as never })}
+            lastAgent="claude"
+            cwd="/Users/you/src/app"
+            chips={NewTabComposerChips}
+            onAsk={noop}
+            onOpen={noop}
+            onSearch={noop}
+            onShell={noop}
+            onJump={noop}
+            onOpenSession={noop}
+            onShowAll={noop}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    expect(host.querySelector(".acpmux-model-name")).not.toBeNull();
+    expect(host.querySelectorAll(".acpmux-chip-skeleton")).toHaveLength(0);
+    expect(host.querySelector(".acpmux-context-ring")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a New Tab can start a chat without a project", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => void calls.push({ method, params }),
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "hello", "/Users/you/src/app", "claude-sonnet-5", true);
+  expect(calls.find((call) => call.method === "chat.new")?.params).toEqual({
+    harness: "claude",
+    noProject: true,
+    model: "claude-sonnet-5",
+  });
+});
