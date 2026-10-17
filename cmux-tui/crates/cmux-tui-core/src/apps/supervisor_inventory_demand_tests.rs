@@ -179,7 +179,7 @@ fn cmux_next_agent_inventory_demand_revocation_and_readmission_need_a_fresh_subs
     let key = HostKey { app: "cmux/demo".into(), preview: false };
     let old_generation = f.supervisor.inner.lock().unwrap().hosts[&key].generation;
     f.set("revoke-inventory", "cmux/demo", Origin::User, |o| {
-        o.grant = Some(("agent_cli:read".into(), false))
+        o.grant = Some(("agent_cli:read".into(), false));
     })
     .unwrap();
     let revoked = demand(&rx, false);
@@ -192,7 +192,7 @@ fn cmux_next_agent_inventory_demand_revocation_and_readmission_need_a_fresh_subs
     subscribe(&f, 42);
     no_demand(&rx);
     f.set("grant-inventory", "cmux/demo", Origin::User, |o| {
-        o.grant = Some(("agent_cli:read".into(), true))
+        o.grant = Some(("agent_cli:read".into(), true));
     })
     .unwrap();
     f.wait("granted replacement", |e| e["event"] == "apps-scene" && e["reset"] == true);

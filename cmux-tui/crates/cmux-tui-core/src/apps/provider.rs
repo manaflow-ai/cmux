@@ -6,9 +6,17 @@
 //! stamped actor (`app:<id>`) and origin and enforces its own owner rules.
 //!
 //! Wire (local connections only):
-//! - `apps-provider-register {families}` -> `{families}`; one provider per
-//!   family, a later registration replaces an earlier one; it ends with the
-//!   connection.
+//! - `apps-provider-register {families, inventory_watch?}` -> `{families}`;
+//!   one live provider per family, ending with its connection. Opting into
+//!   inventory watch requires `agent_cli` and returns `inventory_demand`
+//!   `{sequence, enabled}` alongside the families (legacy replies stay exact).
+//! - targeted `apps-agent-inventory-demand {sequence, enabled}` follows
+//!   current readable subscriptions. Sequence is UInt64, scoped to the
+//!   supervisor boot and provider connection; discard older snapshots/events.
+//! - `apps-agent-inventory-changed {demand_sequence}` accepts only the
+//!   current verified non-agent Unix provider and current enabled demand.
+//!   It queues empty `agent_cli.changed` invalidations, never caller rows,
+//!   commands or selectors (`subscriptions.rs`).
 //! - event `apps-provider-request {request_id, app, actor, origin, op,
 //!   params, idempotency_key?, deadline_ms}` to the provider only;
 //! - `apps-provider-result {request_id, ok, body}` (ABI bodies) -> `{}`;
