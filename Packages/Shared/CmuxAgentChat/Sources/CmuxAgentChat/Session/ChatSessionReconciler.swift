@@ -93,7 +93,7 @@ public struct ChatSessionReconciler: Sendable, Equatable {
             removedVersionByID[sessionID] = version
             let removed = descriptorsByID.removeValue(forKey: sessionID) != nil
             recordMutation(for: sessionID)
-            return removed || version > previousRemoval
+            return removed
         case .reset, .appended, .updated, .terminalBlocks, .streamingProse, .unknown:
             return false
         }

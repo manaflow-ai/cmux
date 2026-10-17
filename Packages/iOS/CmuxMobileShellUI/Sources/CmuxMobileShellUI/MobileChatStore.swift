@@ -289,7 +289,11 @@ final class MobileChatStore {
                 terminalBlocks = []
                 streamingProse = nil
             }
-            await eventPump.value
+            await withTaskCancellationHandler {
+                await eventPump.value
+            } onCancel: {
+                eventPump.cancel()
+            }
             guard generation == operationGeneration else { return }
             isConnected = false
         } catch is CancellationError {
