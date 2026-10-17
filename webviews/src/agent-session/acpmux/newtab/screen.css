@@ -34,6 +34,17 @@
 .nt-chats-retry:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:8px}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
+@container (max-width:520px){
+  /* Keep the narrow pane calm: give the result detail and Return affordance room without
+     letting the suggestion rows or the composer chrome push past the viewport. */
+  .nt-input{padding-inline:14px}
+  .nt-pickers{padding-inline:8px}
+  .nt-row{gap:8px;padding-inline:8px}
+  .nt-row-title{max-width:48%}
+  .nt-row-detail{font-size:11.5px}
+  .nt-row-action{gap:4px;font-size:11px}
+  .nt-row-action kbd{padding-inline:4px}
+}
 .nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;min-height:84px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left;cursor:pointer}
 .nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
 .nt-card-meta{display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:11.5px}

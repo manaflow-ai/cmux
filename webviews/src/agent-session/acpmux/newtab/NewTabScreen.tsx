@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, FolderIcon, LaptopIcon, type NewTabHost } from "../NewTabPage";
@@ -169,9 +169,16 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  // Keep the input's controlled value on the urgent lane. Suggestion derivation also mounts the
+  // popup and its rows; deferring that work prevents a large omnibar result set from blocking the
+  // keystroke that produced it (the semantic row wait in gallery plays still observes the result).
+  const deferredText = useDeferredValue(text);
   const rows = useMemo(
-    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, dismissed, omnibar, home, ask],
+    () =>
+      touched && !shell && deferredText !== dismissed
+        ? screenRows(deferredText, { omnibar, home, ...(ask ? { ask } : {}) })
+        : [],
+    [touched, shell, deferredText, dismissed, omnibar, home, ask],
   );
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
@@ -281,7 +288,15 @@ export function NewTabScreen(props: Props) {
     setNoAgent(false);
   };
   const submit = () => {
-    const row = rows[current];
+    // If Return wins the race with the deferred suggestion render, resolve the current input once
+    // for the action. The field stays responsive without making a fast Return act on stale rows.
+    const actionRows = deferredText === text
+      ? rows
+      : touched && !shell && text !== dismissed
+        ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) })
+        : [];
+    const actionCurrent = selected === undefined ? defaultSelection(actionRows) : selected < actionRows.length ? selected : -1;
+    const row = actionRows[actionCurrent];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
