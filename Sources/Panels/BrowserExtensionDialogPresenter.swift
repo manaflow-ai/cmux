@@ -38,7 +38,10 @@ struct BrowserExtensionDialogPresenter {
                 ) { _ in
                     MainActor.assumeIsolated { dialog.answer(false) }
                 }
+                // Debug-build automation lists and answers it (`debug.browser.extension_prompts`).
+                let listed = BrowserExtensionOpenDialogs.app.open(content) { dialog.answer($0) }
                 dialog.onAnswer = { accepted in
+                    BrowserExtensionOpenDialogs.app.close(listed)
                     NotificationCenter.default.removeObserver(closeObserver)
                     dialog.dismiss(from: window)
                     continuation.resume(returning: accepted)

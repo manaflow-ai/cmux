@@ -18,6 +18,16 @@ public final class CEFHostView: NSView {
         }
     }
 
+    /// Where cmux draws the side panel header over Chromium's (this view's
+    /// coordinates), nil without an open side panel. A hole like
+    /// `occlusionRects`, kept apart so the owner's rects never drop it.
+    public var sidePanelHeaderRect: CGRect? {
+        didSet {
+            guard sidePanelHeaderRect != oldValue else { return }
+            postGeometryChange()
+        }
+    }
+
     /// A clip for the page in this view's coordinates (rounded corners), or
     /// nil for the plain rect.
     public var clipPath: CGPath? {
@@ -93,6 +103,7 @@ public final class CEFHostView: NSView {
     /// on every geometry update.
     @objc public func cmuxOcclusionRects() -> NSArray {
         var rects = occlusionRects
+        if let sidePanelHeaderRect { rects.append(sidePanelHeaderRect) }
         if let separator = Self.chromiumSeparatorRect(in: bounds) { rects.append(separator) }
         return Self.outermost(rects.map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty })
             .map { NSValue(rect: $0) } as NSArray

@@ -35,7 +35,9 @@ extension CEFRuntime {
     private func unownedWindowRequest(kind: Int32, disposition: Int32, source: Int32, url: String,
                                       profilePath: String) -> Int32? {
         if let page = browsers[source], !page.isClosed { return nil }
-        guard kind != 3 else { return nil }
+        // Incognito opens nothing; an extension's popup window keeps its own
+        // window while popup windows are on (CEFRuntime+PopupWindows).
+        guard kind != 3, !(kind == 2 && popupWindowsEnabled) else { return nil }
         let profile = storage.profile(forPath: profilePath)
         if let anchor = unownedTabAnchor?(profile), let id = anchor.browserID,
            Self.canTakeUnownedTab(anchor, registered: browsers[id], profilePath: profilePath) {

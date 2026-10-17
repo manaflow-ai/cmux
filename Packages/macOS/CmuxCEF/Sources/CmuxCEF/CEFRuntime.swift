@@ -89,12 +89,32 @@ public final class CEFRuntime {
     var browsers: [Int32: CEFBrowser] = [:]
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFBrowser] = [:]
+    /// Extension popup windows stay Chromium windows of their own that cmux
+    /// attaches to a popup panel (`CEFRuntime+PopupWindows`, fork API 13).
+    var popupWindowsEnabled = false
+    /// The page shown last: the one an extension popup window opens over.
+    weak var lastShownBrowser: CEFBrowser?
+    /// chrome.omnibox keyword sessions (fork API 12).
+    public private(set) lazy var omniboxKeywords = CEFOmniboxKeywords(runtime: self)
+    /// Tabs created without an opener while popup windows are on, waiting
+    /// one turn to learn whether they belong to a popup window.
+    var deferredOrphans: Set<Int32> = []
+    /// Popup windows the fork keeps for cmux (CMUX_POPUP_WINDOW_CREATED),
+    /// and browsers that closed before cmux registered them.
+    var keptPopupWindows: Set<Int32> = []
+    var closedUnregistered: Set<Int32> = []
+    /// The latest popup window events, for diagnostics (`popupWindowLog`).
+    var popupWindowEvents: [String] = []
     /// Tabs pages asked Chromium to open, for tabs the shim did not match.
     var popupLedger = CEFPopupLedger()
     /// Tabs Chromium created for a page before it put them in a window
     /// (AFTER_CREATED window 0: a sized `window.open`), by browser id. They
     /// are handed over once inserted (`adoptPlacedPopup`).
     var unplacedPopups: [Int32: CEFCreatedBy] = [:]
+    /// What such a tab reported before it was handed over (it can load
+    /// first: a WebUI page's link, a modified click), replayed at adoption.
+    var unplacedEvents: [Int32: [CEFShimEvent]] = [:]
+    static let unplacedEventLimit = 64
     private var nextRequest: Int32 = 1
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
     private var observers: [UUID: @MainActor (CEFShimEvent) -> Void] = [:]
@@ -103,7 +123,7 @@ public final class CEFRuntime {
     private var shutdownSequence: CEFShutdownSequence?
     private var shutdownWaiter: CheckedContinuation<Void, Never>?
     private var shutdownDeadline: Task<Void, Never>?
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
 
     init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
          storage: CEFProfileStorage = .forApplication(bundleIdentifier: Bundle.main.bundleIdentifier),
@@ -311,6 +331,10 @@ public final class CEFRuntime {
             environment: ProcessInfo.processInfo.environment
         )
         shim.setExtensionDeveloperMode(switchSet.loadExtensions.isEmpty ? 0 : 1)
+        // Extension popup windows keep their window id (CEFPopupWindows);
+        // the fork reads this before CefInitialize.
+        popupWindowsEnabled = CEFPopupWindows.isEnabled(forkAPIVersion: shim.forkAPIVersion())
+        if popupWindowsEnabled { shim.setPopupWindowsEnabled(1) }
         shim.setBackgroundColor(backgroundColorARGB)
         newTabPageURL.withCString { shim.setNewTabPageURL($0) }
         // Extensions such as 1Password and Bitwarden often register their
@@ -358,6 +382,7 @@ public final class CEFRuntime {
 
     func handle(_ event: CEFShimEvent) {
         for observer in observers.values { observer(event) }
+        if case .tab(.extensionsChanged, _, _, _) = event { omniboxKeywords.invalidate() }
         switch event {
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
@@ -379,8 +404,19 @@ public final class CEFRuntime {
         case .download(_, let browser, let token, _, _, _, _)
             where browsers[browser] == nil || unownedDownloads.route(for: token) != nil:
             routeUnownedDownload(event, token: token)
+        case .tab(.popupWindowCreated, let browser, let window, let type):
+            popupWindowCreated(window: window, browser: browser, type: type)
+        case .tab(.popupWindowBounds, _, let window, _):
+            popupWindowBoundsChanged(window: window)
+        case .omniboxSuggestions(let requestID, _, let json):
+            omniboxKeywords.suggestionsArrived(requestID: requestID, json: json)
         default:
-            if let id = event.browserID, let browser = browsers[id] { browser.handle(event) }
+            guard let id = event.browserID else { return }
+            if let browser = browsers[id] {
+                browser.handle(event)
+            } else if unplacedPopups[id] != nil, unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
+                unplacedEvents[id, default: []].append(event)
+            }
         }
     }
 
@@ -400,6 +436,12 @@ public final class CEFRuntime {
         // reported none, and moving it into a window of its own fails until then.
         if window == 0 {
             unplacedPopups[id] = reported
+            // Chromium may have inserted it already (its insertion event came
+            // before AFTER_CREATED): hand it over on the next turn then.
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.shim?.tabWindowID(id), window != 0 else { return }
+                self.adoptPlacedPopup(id, window: window)
+            }
             return
         }
         adoptPopup(id, window: window, reported: reported)
@@ -407,12 +449,13 @@ public final class CEFRuntime {
 
     private func adoptPlacedPopup(_ id: Int32, window: Int32) {
         guard let reported = unplacedPopups.removeValue(forKey: id), browsers[id] == nil else { return }
-        adoptPopup(id, window: window, reported: reported)
+        let early = unplacedEvents.removeValue(forKey: id) ?? []
+        adoptPopup(id, window: window, reported: reported, early: early)
     }
 
     /// A tab Chromium created for a page becomes a browser of its own that
     /// the opener's owner places (`.newBrowser`).
-    private func adoptPopup(_ id: Int32, window: Int32, reported: CEFCreatedBy) {
+    private func adoptPopup(_ id: Int32, window: Int32, reported: CEFCreatedBy, early: [CEFShimEvent] = []) {
         // Chromium reports no opener for a modified click's tab: it belongs
         // to the page whose window holds it. The shim's match may also miss
         // the request (CEFPopupLedger).
@@ -420,20 +463,30 @@ public final class CEFRuntime {
             ? reported.opener : windowOwner(window) ?? reported.opener
         let created = popupLedger.resolve(reported, opener: openerID, now: ProcessInfo.processInfo.systemUptime)
         let opener = created.opener == 0 ? nil : browsers[created.opener]
-        guard let opener else {
-            logger.notice("CEF browser \(id) created without a known opener; closing it")
-            if let url = created.url.flatMap(URL.init(string:)) { openURLWithoutOpener?(url, created.disposition) }
-            shim?.close(id)
-            return
+        logger.notice("CEF tab \(id) window=\(window) opener=\(reported.opener)->\(created.opener) disposition=\(created.disposition.rawValue) gesture=\(created.userGesture) url=\(created.url != nil) early=\(early.count)")
+        if opener == nil, popupWindowsEnabled {
+            // Maybe the tab of an extension's popup window: decide on the
+            // next turn, once its window is known (CEFRuntime+PopupWindows).
+            return deferOrphan(id, created: created)
         }
+        guard let opener else { return closeOrphan(id, created: created) }
         let targetURL = created.url.flatMap(URL.init(string:))
         let adopted = CEFBrowser(adopting: id, from: opener, runtime: self, targetURL: targetURL)
         register(adopted, id: id)
+        for event in early { adopted.handle(event) }
         // Chromium made the popup its window's active tab: show the opener
         // again on the next turn (this runs inside Chromium's tab insertion).
         Task { @MainActor [weak opener] in opener?.reactivate() }
         opener.emit(.newBrowser(adopted, disposition: created.disposition, features: created.features,
                                 userGesture: created.userGesture))
+    }
+
+    /// A tab Chromium created with no page of cmux's as its opener: its URL
+    /// opens elsewhere (`openURLWithoutOpener`) and the tab closes.
+    func closeOrphan(_ id: Int32, created: CEFCreatedBy) {
+        logger.notice("CEF browser \(id) created without a known opener; closing it")
+        if let url = created.url.flatMap(URL.init(string:)) { openURLWithoutOpener?(url, created.disposition) }
+        shim?.close(id)
     }
 
     func register(_ browser: CEFBrowser, id: Int32) {
@@ -455,7 +508,10 @@ public final class CEFRuntime {
     private func browserClosed(_ id: Int32) {
         popupLedger.forget(opener: id)
         unplacedPopups[id] = nil
+        unplacedEvents[id] = nil
         let browser = browsers.removeValue(forKey: id)
+        if browser == nil, popupWindowsEnabled { closedUnregistered.insert(id) }
+        deferredOrphans.remove(id)
         browser?.browserDidClose()
         devToolsCalls.failAll(where: { $0.browser == id }, with: CEFError.browserClosed)
         shutdownSequence?.browserClosed(remaining: browsers.count)
@@ -470,6 +526,9 @@ public final class CEFRuntime {
     /// A popup's bounds (`window.open` features) are recorded for the tab
     /// Chromium creates next for `source` (CEFPopupLedger).
     func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String, bounds: CGRect? = nil) -> Int32 {
+        if popupWindowsEnabled {
+            notePopupWindow("request kind=\(kind) disposition=\(disposition) source=\(source)")
+        }
         if kind != 3, source != 0, browsers[source] != nil, browsers[source]?.isClosed == false {
             if let bounds, bounds.width > 0, bounds.height > 0 {
                 popupLedger.recordWindowBounds(source: source, bounds: bounds, at: ProcessInfo.processInfo.systemUptime)

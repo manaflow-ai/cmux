@@ -22,6 +22,9 @@ python3 tests/test_ci_reusable_workflow_permissions.py
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxCLITests --tests-dir cmuxCLITestSupport
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxTests --tests-dir cmuxCLITestSupport
 ./scripts/lint-pbxproj-test-wiring.sh --target cmuxUITests --tests-dir cmuxUITests
+# A CLI/ file missing from the cmux-cli target compiles nowhere, so the code
+# that calls into it fails to build only after the next merge touches it.
+./scripts/lint-pbxproj-test-wiring.sh --target cmux-cli --tests-dir CLI
 ./tests/test_ci_pbxproj_app_sources_wiring.sh
 python3 tests/test_strings_output_encoding.py
 python3 tests/test_cmux_tui_release_profile.py
