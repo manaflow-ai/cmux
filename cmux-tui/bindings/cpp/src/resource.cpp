@@ -2248,10 +2248,6 @@ SidebarView Client::sidebar_view(SidebarViewId id) const {
     return sidebar_view(Selector<SidebarViewId>::by_id(std::move(id)));
 }
 
-Result<std::vector<MachineSnapshot>> Client::machines() const {
-    return detail::ResourceReadResult(read(Operation::machine_list));
-}
-
 Result<std::vector<SessionSnapshot>> Client::sessions(
     std::optional<Selector<MachineId>> machine_selector) const {
     Json::Object params;
@@ -2277,22 +2273,6 @@ Result<std::vector<AgentSnapshot>> Client::agents(Json::Object params) const {
 Result<std::vector<PairingRequestSnapshot>> Client::pairing_requests(Json::Object params) const {
     return detail::ResourceReadResult(
         read(Operation::pairing_request_list, std::move(params)));
-}
-
-Result<MachineSnapshot> Machine::refresh() const {
-    return read(Operation::machine_get);
-}
-
-Result<std::vector<SessionSnapshot>> Machine::sessions() const {
-    return read(Operation::session_list);
-}
-
-Session Machine::session(Selector<SessionId> selector) const {
-    return Session(state_, std::move(selector), "session", route_);
-}
-
-Session Machine::session(SessionId id) const {
-    return session(Selector<SessionId>::by_id(std::move(id)));
 }
 
 Result<SessionSnapshot> Session::refresh() const {

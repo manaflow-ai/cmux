@@ -121,6 +121,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_inventory;
+#[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
@@ -663,7 +665,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
@@ -2749,6 +2754,13 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_watch_tests.rs"]
+mod agent_inventory_watch_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
