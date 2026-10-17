@@ -71,6 +71,52 @@ struct AgentRestoreRecoveryRegressionTests {
         #expect(restored.surfaceResumeBinding(panelId: restoredPanelID)?.checkpointId == sessionID)
     }
 
+    @Test("A pending admission keeps a persisted failure until it reaches an outcome")
+    func pendingAdmissionPreservesPersistedFailure() throws {
+        let defaultsName = "cmux-21150-pending-failure-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let sessionID = UUID().uuidString.lowercased()
+        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelID))
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "cmux restore codex \(sessionID)",
+            cwd: "/tmp",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "exec",
+            updatedAt: 1_800_000_000
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        workspace.deferredAgentResumeRestoresByPanelId[panelID] = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            workingDirectory: "/tmp",
+            resumeWorkingDirectory: "/tmp"
+        )
+        terminal.restoreRecovery.state = .failed(
+            reason: "startup-admission-rejected",
+            recoveryInput: " cmux restore codex \(sessionID)\n"
+        )
+
+        workspace.resolveDeferredAgentResumeRestores(using: .unavailable)
+
+        #expect(workspace.deferredAgentResumeRestoresByPanelId[panelID] != nil)
+        let persisted = workspace.sessionSnapshot(includeScrollback: false)
+            .panels.first { $0.id == panelID }?.terminal?.restoreRecovery
+        #expect(persisted?.reason == "startup-admission-rejected")
+        #expect(persisted?.recoveryInput?.contains(sessionID) == true)
+    }
+
     private func verifyCodexRestore(index: RestorableAgentSessionIndex) throws {
         let defaultsName = "cmux-13880-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
