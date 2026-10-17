@@ -34,6 +34,7 @@ struct ConversationComposerArea: View {
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 13)
                                     .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
                             }
                         }
                         .accessibilityIdentifier("ConversationComposerTextEditor")
@@ -194,11 +195,13 @@ struct ConversationQuestionCard: View {
                     SecureField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("ConversationQuestionCustomAnswer")
+                        .accessibilityElement(children: .ignore)
                 } else {
                     TextField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer, axis: .vertical)
                         .lineLimit(1...4)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("ConversationQuestionCustomAnswer")
+                        .accessibilityElement(children: .ignore)
                 }
             }
             if question?.allowsCustomAnswer == true {

@@ -46,10 +46,14 @@ struct ConversationTaskListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: onNewTask) {
                     Image(systemName: "plus")
+                        .accessibilityHidden(true)
                 }
-                .accessibilityElement(children: .ignore)
                 .accessibilityLabel(ConversationL10n.value("conversation.new_task", "New task"))
                 .accessibilityIdentifier("ConversationNewTaskButton")
+                // Toolbar buttons on iPadOS add an intermediate wrapper. Make
+                // the button itself the only accessibility target so the
+                // identifier cannot be duplicated on that wrapper and label.
+                .accessibilityElement(children: .ignore)
             }
         }
         .refreshable { model.refreshSessions() }
