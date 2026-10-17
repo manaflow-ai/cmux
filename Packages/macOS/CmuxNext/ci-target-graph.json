@@ -282,6 +282,15 @@
       ],
       "packages": []
     },
+    "CmuxNextAppsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests",
+      "targets": [
+        "CmuxNextApps"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextBookmarks": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks",

@@ -519,6 +519,11 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextAppsTests",
+            dependencies: ["CmuxNextApps"],
+            swiftSettings: uiSwiftSettings
+        ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
         // tiers, sandbox profiles, grants and the pure policy, plus the consent
         // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
