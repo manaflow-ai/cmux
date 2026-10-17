@@ -40,6 +40,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let checkForUpdatesItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionCheckForUpdates", title: "Check for Updates"),
@@ -66,6 +67,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let sendFeedbackItem = requireElement(
             candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionSendFeedback", title: "Send Feedback"),
@@ -154,6 +156,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
             description: "sidebar help button"
         )
         helpButton.click()
+        XCTAssertEqual(app.popovers.count, 0, "Help should use a native menu instead of a popover")
 
         let settingsItem = requireElement(
             candidates: helpMenuItemCandidates(
@@ -173,10 +176,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 2.0) {
-                !app.buttons["SidebarHelpMenuOptionSettings"].exists
-                    && !app.buttons["Settings…"].exists
+                !app.menuItems["SidebarHelpMenuOptionSettings"].exists
             },
-            "Expected the Help popover to dismiss after opening Settings"
+            "Expected the Help menu to close after opening Settings"
         )
         XCTAssertEqual(app.windows.count, 2, "Expected one main window and one Settings window")
 
@@ -243,9 +245,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         identifier: String,
         title: String
     ) -> [XCUIElement] {
+        // The sidebar Help button opens a native NSMenu.
         [
-            app.buttons[identifier],
-            app.buttons[title],
+            app.menuItems[identifier],
+            app.menuItems[title],
         ]
     }
 
