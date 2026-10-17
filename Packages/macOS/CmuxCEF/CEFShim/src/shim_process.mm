@@ -95,6 +95,17 @@ class ContextHandler : public CefRequestContextHandler {
     WatchBookmarks(cache_path_);
   }
 
+  // The Chrome Web Store headers (shim_webstore.mm) for a request no page
+  // client sees: a tab Chromium opens itself (a WebUI page's link, such as
+  // chrome://extensions' "Chrome Web Store") starts its first load before
+  // its browser exists, and without the headers the store stays on its
+  // spinner. CEF asks this handler only when the page's client returned none.
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+                                                                 CefRefPtr<CefRequest> request, bool, bool,
+                                                                 const CefString&, bool&) override {
+    return WebStoreRequestHandler(request->GetURL().ToString());
+  }
+
  private:
   std::string cache_path_;
   IMPLEMENT_REFCOUNTING(ContextHandler);

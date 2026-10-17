@@ -81,6 +81,10 @@ public final class CEFRuntime {
     /// (AFTER_CREATED window 0: a sized `window.open`), by browser id. They
     /// are handed over once inserted (`adoptPlacedPopup`).
     var unplacedPopups: [Int32: CEFCreatedBy] = [:]
+    /// What such a tab reported before it was handed over (it can load
+    /// first: a WebUI page's link, a modified click), replayed at adoption.
+    var unplacedEvents: [Int32: [CEFShimEvent]] = [:]
+    static let unplacedEventLimit = 64
     private var nextRequest: Int32 = 1
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
     private var observers: [UUID: @MainActor (CEFShimEvent) -> Void] = [:]
@@ -363,7 +367,12 @@ public final class CEFRuntime {
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
         default:
-            if let id = event.browserID, let browser = browsers[id] { browser.handle(event) }
+            guard let id = event.browserID else { return }
+            if let browser = browsers[id] {
+                browser.handle(event)
+            } else if unplacedPopups[id] != nil, unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
+                unplacedEvents[id, default: []].append(event)
+            }
         }
     }
 
@@ -383,6 +392,12 @@ public final class CEFRuntime {
         // reported none, and moving it into a window of its own fails until then.
         if window == 0 {
             unplacedPopups[id] = reported
+            // Chromium may have inserted it already (its insertion event came
+            // before AFTER_CREATED): hand it over on the next turn then.
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.shim?.tabWindowID(id), window != 0 else { return }
+                self.adoptPlacedPopup(id, window: window)
+            }
             return
         }
         adoptPopup(id, window: window, reported: reported)
@@ -390,12 +405,13 @@ public final class CEFRuntime {
 
     private func adoptPlacedPopup(_ id: Int32, window: Int32) {
         guard let reported = unplacedPopups.removeValue(forKey: id), browsers[id] == nil else { return }
-        adoptPopup(id, window: window, reported: reported)
+        let early = unplacedEvents.removeValue(forKey: id) ?? []
+        adoptPopup(id, window: window, reported: reported, early: early)
     }
 
     /// A tab Chromium created for a page becomes a browser of its own that
     /// the opener's owner places (`.newBrowser`).
-    private func adoptPopup(_ id: Int32, window: Int32, reported: CEFCreatedBy) {
+    private func adoptPopup(_ id: Int32, window: Int32, reported: CEFCreatedBy, early: [CEFShimEvent] = []) {
         // Chromium reports no opener for a modified click's tab: it belongs
         // to the page whose window holds it. The shim's match may also miss
         // the request (CEFPopupLedger).
@@ -403,6 +419,7 @@ public final class CEFRuntime {
             ? reported.opener : windowOwner(window) ?? reported.opener
         let created = popupLedger.resolve(reported, opener: openerID, now: ProcessInfo.processInfo.systemUptime)
         let opener = created.opener == 0 ? nil : browsers[created.opener]
+        logger.notice("CEF tab \(id) window=\(window) opener=\(reported.opener)->\(created.opener) disposition=\(created.disposition.rawValue) gesture=\(created.userGesture) url=\(created.url != nil) early=\(early.count)")
         guard let opener else {
             logger.notice("CEF browser \(id) created without a known opener; closing it")
             if let url = created.url.flatMap(URL.init(string:)) { openURLWithoutOpener?(url, created.disposition) }
@@ -412,6 +429,7 @@ public final class CEFRuntime {
         let targetURL = created.url.flatMap(URL.init(string:))
         let adopted = CEFBrowser(adopting: id, from: opener, runtime: self, targetURL: targetURL)
         register(adopted, id: id)
+        for event in early { adopted.handle(event) }
         // Chromium made the popup its window's active tab: show the opener
         // again on the next turn (this runs inside Chromium's tab insertion).
         Task { @MainActor [weak opener] in opener?.reactivate() }
@@ -438,6 +456,7 @@ public final class CEFRuntime {
     private func browserClosed(_ id: Int32) {
         popupLedger.forget(opener: id)
         unplacedPopups[id] = nil
+        unplacedEvents[id] = nil
         let browser = browsers.removeValue(forKey: id)
         browser?.browserDidClose()
         devToolsCalls.failAll(where: { $0.browser == id }, with: CEFError.browserClosed)
