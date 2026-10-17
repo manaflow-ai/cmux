@@ -78,6 +78,10 @@ final class AgentChatModeModel {
     /// separate from transcript sequence cursors.
     private var latestVersionBySession: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
+    /// The prompt currently crossing the RPC boundary. Keep it visible until
+    /// the authoritative transcript appends the corresponding user message so
+    /// a slow host cannot make a successful send look lost.
+    private var inFlightSendsBySession: [String: QueuedSend] = [:]
     /// Last prompt that began a turn. The host does not need a provider-
     /// specific retry RPC: retrying resends this exact prompt through the
     /// ordinary send path, preserving the existing terminal binding.
@@ -162,6 +166,27 @@ final class AgentChatModeModel {
         return pendingSendsBySession[selectedSessionID]?.count ?? 0
     }
 
+    /// Prompts accepted locally but not yet present in the authoritative
+    /// transcript. The first item is crossing the transport; later items wait
+    /// behind it in the client queue.
+    var selectedPendingPrompts: [String] {
+        guard let selectedSessionID else { return [] }
+        var prompts: [String] = []
+        if let inFlight = inFlightSendsBySession[selectedSessionID] {
+            prompts.append(inFlight.text)
+        }
+        prompts.append(contentsOf: pendingSendsBySession[selectedSessionID, default: []].map(\.text))
+        return prompts
+    }
+
+    /// Whether an answer RPC for a visible actionable card is still in flight.
+    /// The host republishes the resolved card asynchronously, so the view needs
+    /// a local pending state to disable duplicate taps and show progress.
+    func isAnswering(requestID: String) -> Bool {
+        guard let selectedSessionID else { return false }
+        return answeringRequestKeys.contains("\(selectedSessionID):\(requestID)")
+    }
+
     var canRetrySelectedTurn: Bool {
         guard let selectedSession,
               case .failed = selectedSession.state,
@@ -197,6 +222,7 @@ final class AgentChatModeModel {
         historyResetTokens = [:]
         latestVersionBySession = [:]
         pendingSendsBySession = [:]
+        inFlightSendsBySession = [:]
         lastTurnBySession = [:]
         answeringRequestKeys = []
         answeredRequestKeysBySession = [:]
@@ -315,6 +341,7 @@ final class AgentChatModeModel {
             text: text,
             attachments: pendingAttachments
         )
+        inFlightSendsBySession[selectedSessionID] = lastTurnBySession[selectedSessionID]
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
@@ -326,6 +353,7 @@ final class AgentChatModeModel {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
         } catch {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
+            inFlightSendsBySession[selectedSessionID] = nil
             draft = text
             attachments = pendingAttachments
             errorMessage = error.localizedDescription
@@ -352,6 +380,18 @@ final class AgentChatModeModel {
 
     func removeAttachment(id: UUID) {
         attachments.removeAll { $0.id == id }
+    }
+
+    /// Loads a previously sent user prompt back into the composer so it can be
+    /// edited and submitted as a new turn. The host transcript remains
+    /// immutable; this mirrors the ChatGPT/Codex mobile affordance where
+    /// editing a message creates a fresh draft rather than rewriting history.
+    func editPrompt(_ message: ChatMessage) {
+        guard selectedSession?.state != .ended,
+              message.role == .user,
+              case .prose(let prose) = message.kind else { return }
+        draft = prose.text
+        attachments = []
     }
 
     /// Stages image content from the system pasteboard. File and text
@@ -441,6 +481,7 @@ final class AgentChatModeModel {
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
+            inFlightSendsBySession[selectedSessionID] = queued
             try await source.send(
                 text: queued.text,
                 attachments: queued.attachments.map(\.outbound),
@@ -449,6 +490,7 @@ final class AgentChatModeModel {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
         } catch {
             guard generation == sourceGeneration, !Task.isCancelled else { return }
+            inFlightSendsBySession[selectedSessionID] = nil
             errorMessage = error.localizedDescription
         }
     }
@@ -646,6 +688,7 @@ final class AgentChatModeModel {
                         )
                     }
                 }
+                reconcilePendingPrompts(sessionID: sessionID)
                 seedRetryPromptIfNeeded(sessionID: sessionID)
                 historyCursors[sessionID] = page.messages.first?.seq
                 // The host can report that older transcript lines exist on
@@ -725,6 +768,7 @@ final class AgentChatModeModel {
                 latestVersionBySession[sessionID] ?? Int.min
             )
             pendingSendsBySession[sessionID] = nil
+            inFlightSendsBySession[sessionID] = nil
             lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
@@ -761,6 +805,7 @@ final class AgentChatModeModel {
             // discarded; the replacement history will seed the latest user
             // prompt again when it arrives.
             pendingSendsBySession[sessionID] = nil
+            inFlightSendsBySession[sessionID] = nil
             sendingSessionIDs.remove(sessionID)
             lastTurnBySession[sessionID] = nil
             if selectedSessionID == sessionID, let source {
@@ -788,6 +833,7 @@ final class AgentChatModeModel {
         current = byID.values.sorted { $0.seq < $1.seq }
         messagesBySession[sessionID] = current
         streamingBySession[sessionID] = nil
+        reconcilePendingPrompts(sessionID: sessionID)
         seedRetryPromptIfNeeded(sessionID: sessionID)
     }
 
@@ -803,6 +849,18 @@ final class AgentChatModeModel {
                   })
                   .first else { return }
         lastTurnBySession[sessionID] = QueuedSend(text: latestPrompt, attachments: [])
+    }
+
+    private func reconcilePendingPrompts(sessionID: String) {
+        let userPrompts = Set((messagesBySession[sessionID] ?? []).compactMap { message -> String? in
+            guard message.role == .user,
+                  case .prose(let prose) = message.kind else { return nil }
+            return prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        })
+        if let inFlight = inFlightSendsBySession[sessionID],
+           userPrompts.contains(inFlight.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            inFlightSendsBySession[sessionID] = nil
+        }
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {
@@ -892,6 +950,7 @@ final class AgentChatModeModel {
             // a later prompt that was still waiting behind it.
             lastTurnBySession[sessionID] = queued
             do {
+                inFlightSendsBySession[sessionID] = queued
                 try await source.send(
                     text: queued.text,
                     attachments: queued.attachments.map(\.outbound),
@@ -899,6 +958,7 @@ final class AgentChatModeModel {
                 )
             } catch {
                 guard generation == sourceGeneration, !Task.isCancelled else { return }
+                inFlightSendsBySession[sessionID] = nil
                 pendingSendsBySession[sessionID, default: []].insert(queued, at: 0)
                 if selectedSessionID == sessionID,
                    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

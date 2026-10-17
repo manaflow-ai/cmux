@@ -20,6 +20,7 @@ struct AgentChatModeView: View {
     @State private var searchText = ""
     @State private var isLoading = true
     @State private var isShowingNewSessionComposer = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -49,6 +50,16 @@ struct AgentChatModeView: View {
         .navigationSplitViewStyle(.balanced)
         .task {
             await updateSourceAndRefresh()
+        }
+        .onChange(of: searchText, initial: true) { _, value in
+            model.sessionSearchQuery = value
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // A suspended iOS process can miss the host's best-effort event
+            // burst. Reconcile the authoritative list and selected transcript
+            // as soon as the mode returns to the foreground.
+            guard phase == .active else { return }
+            Task { await refresh() }
         }
         .onDisappear {
             // The host and selected-session streams are long-lived. Tear them
@@ -470,7 +481,9 @@ private struct AgentChatSessionRow: View {
         .buttonStyle(.plain)
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.agentKind.displayName), \(session.title ?? "Untitled session")")
+        .accessibilityLabel(
+            "\(session.agentKind.displayName), \(session.title ?? "Untitled session"), \(accessibilityStateLabel)"
+        )
     }
 
     private var iconName: String {
@@ -488,6 +501,16 @@ private struct AgentChatSessionRow: View {
         case "codex": return .green
         case "opencode": return .purple
         default: return .accentColor
+        }
+    }
+
+    private var accessibilityStateLabel: String {
+        switch session.state {
+        case .working: return "Working"
+        case .needsInput: return "Needs input"
+        case .failed: return "Turn failed; retry available"
+        case .idle: return "Idle"
+        case .ended: return "Ended"
         }
     }
 }
@@ -564,7 +587,8 @@ private struct AgentChatTranscriptView: View {
                         }
                         if model.selectedMessages.isEmpty,
                            model.selectedTerminalBlocks.isEmpty,
-                           model.selectedStreamingMessage == nil {
+                           model.selectedStreamingMessage == nil,
+                           model.selectedPendingPrompts.isEmpty {
                             ContentUnavailableView("Start a task", systemImage: "sparkles", description: Text("Ask your coding agent to inspect, change, or explain your project."))
                                 .padding(.top, 80)
                         } else {
@@ -574,11 +598,34 @@ private struct AgentChatTranscriptView: View {
                                         .id("terminal-\(block.id)")
                                 }
                             }
+                            let latestEditablePromptID = model.selectedMessages.last {
+                                $0.role == .user && {
+                                    if case .prose = $0.kind { return true }
+                                    return false
+                                }()
+                            }?.id
                             ForEach(model.selectedMessages) { message in
-                                AgentChatMessageView(message: message, answer: { index, requestID in
-                                    Task { await model.answer(optionIndex: index, requestID: requestID) }
-                                })
+                                AgentChatMessageView(
+                                    message: message,
+                                    answer: { index, requestID in
+                                        Task { await model.answer(optionIndex: index, requestID: requestID) }
+                                    },
+                                    isAnswering: { model.isAnswering(requestID: $0) },
+                                    edit: message.id == latestEditablePromptID
+                                        ? {
+                                            model.editPrompt(message)
+                                            composerFocused = true
+                                        }
+                                        : nil
+                                )
                                 .id(message.id)
+                            }
+                            ForEach(Array(model.selectedPendingPrompts.enumerated()), id: \.offset) { index, prompt in
+                                AgentPendingPromptBubble(
+                                    text: prompt,
+                                    isQueued: index > 0
+                                )
+                                .id("pending-\(index)-\(prompt)")
                             }
                             if let streaming = model.selectedStreamingMessage {
                                 AgentChatMessageView(message: streaming, isStreaming: true)
@@ -607,6 +654,34 @@ private struct AgentChatTranscriptView: View {
         }
         .background(Color(.systemBackground))
         .accessibilityIdentifier("MobileAgentConversation")
+    }
+}
+
+private struct AgentPendingPromptBubble: View {
+    let text: String
+    let isQueued: Bool
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 36)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(text.isEmpty ? "Attachment" : text)
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .textSelection(.enabled)
+                Label(
+                    isQueued ? "Queued for the next turn" : "Sending…",
+                    systemImage: isQueued ? "clock.arrow.circlepath" : "arrow.up.circle"
+                )
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.78))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(Color.accentColor.opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(isQueued ? "Queued" : "Sending"): \(text.isEmpty ? "Attachment" : text)")
     }
 }
 
@@ -740,6 +815,8 @@ private struct AgentChatMessageView: View {
     let message: ChatMessage
     var isStreaming = false
     var answer: ((Int, String) -> Void)?
+    var isAnswering: ((String) -> Bool)?
+    var edit: (() -> Void)?
 
     var body: some View {
         Group {
@@ -755,9 +832,17 @@ private struct AgentChatMessageView: View {
             case .fileEdit(let edit):
                 AgentDiffCard(edit: edit)
             case .permissionRequest(let request):
-                AgentPermissionCard(request: request, answer: { index in answer?(index, message.id) })
+                AgentPermissionCard(
+                    request: request,
+                    isSubmitting: isAnswering?(message.id) == true,
+                    answer: { index in answer?(index, message.id) }
+                )
             case .question(let question):
-                AgentQuestionCard(question: question, answer: { index in answer?(index, message.id) })
+                AgentQuestionCard(
+                    question: question,
+                    isSubmitting: isAnswering?(message.id) == true,
+                    answer: { index in answer?(index, message.id) }
+                )
             case .status(let status):
                 Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                     .font(.caption)
@@ -774,7 +859,7 @@ private struct AgentChatMessageView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .agentMessageActions(copying: copyText)
+        .agentMessageActions(copying: copyText, editing: edit)
     }
 
     /// ChatGPT's long-press message menu is useful for agent output too: it
@@ -817,12 +902,18 @@ private struct AgentChatMessageView: View {
 
 private struct AgentMessageActions: ViewModifier {
     let copyText: String?
+    let edit: (() -> Void)?
 
     func body(content: Content) -> some View {
         guard let copyText, !copyText.isEmpty else { return AnyView(content) }
         return AnyView(
             content
                 .contextMenu {
+                    if let edit {
+                        Button(action: edit) {
+                            Label("Edit prompt", systemImage: "pencil")
+                        }
+                    }
                     Button {
                         UIPasteboard.general.string = copyText
                     } label: {
@@ -840,8 +931,8 @@ private struct AgentMessageActions: ViewModifier {
 }
 
 private extension View {
-    func agentMessageActions(copying text: String?) -> some View {
-        modifier(AgentMessageActions(copyText: text))
+    func agentMessageActions(copying text: String?, editing edit: (() -> Void)? = nil) -> some View {
+        modifier(AgentMessageActions(copyText: text, edit: edit))
     }
 }
 
@@ -944,8 +1035,15 @@ private struct AgentToolCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Label(tool.summary, systemImage: tool.status == .running ? "arrow.triangle.2.circlepath" : "wrench.and.screwdriver")
-                .font(.subheadline.weight(.semibold))
+            HStack(spacing: 8) {
+                Label(tool.summary, systemImage: iconName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(statusColor)
+                Spacer(minLength: 4)
+                Text(statusLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(statusColor)
+            }
             if let inputDetail = tool.inputDetail,
                !inputDetail.isEmpty {
                 DisclosureGroup("Input", isExpanded: $isInputExpanded) {
@@ -974,6 +1072,30 @@ private struct AgentToolCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
+
+    private var iconName: String {
+        switch tool.status {
+        case .running: return "arrow.triangle.2.circlepath"
+        case .succeeded: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        }
+    }
+
+    private var statusLabel: String {
+        switch tool.status {
+        case .running: return "Running"
+        case .succeeded: return "Done"
+        case .failed: return "Failed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch tool.status {
+        case .running: return .accentColor
+        case .succeeded: return .green
+        case .failed: return .red
+        }
+    }
 }
 
 private struct AgentTerminalCard: View {
@@ -999,10 +1121,13 @@ private struct AgentDiffCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Label(edit.filePath, systemImage: "doc.text")
+                Label(edit.filePath, systemImage: operationIcon)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
+                Text(operationLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(operationColor)
                 if let additions = edit.additions { Text("+\(additions)").foregroundStyle(.green) }
                 if let deletions = edit.deletions { Text("-\(deletions)").foregroundStyle(.red) }
             }
@@ -1021,15 +1146,41 @@ private struct AgentDiffCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
+
+    private var operationLabel: String {
+        switch edit.operation {
+        case .edit: return "Edited"
+        case .write: return "Created"
+        case .delete: return "Deleted"
+        }
+    }
+
+    private var operationIcon: String {
+        switch edit.operation {
+        case .edit: return "doc.text"
+        case .write: return "doc.badge.plus"
+        case .delete: return "doc.badge.minus"
+        }
+    }
+
+    private var operationColor: Color {
+        edit.operation == .delete ? .red : .secondary
+    }
 }
 
 private struct AgentPermissionCard: View {
     let request: ChatPermissionRequest
+    let isSubmitting: Bool
     let answer: ((Int) -> Void)?
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(request.title, systemImage: "hand.raised.fill")
                 .font(.headline)
+            if isSubmitting {
+                Label("Sending decision…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Text(request.subject).font(.caption.monospaced()).textSelection(.enabled)
             if let scope = request.scope, !scope.isEmpty {
                 Label("Scope: \(scope)", systemImage: "scope")
@@ -1069,11 +1220,13 @@ private struct AgentPermissionCard: View {
                 permissionButtonLabel(option)
             }
             .buttonStyle(.bordered)
+            .disabled(isSubmitting)
         } else {
             Button(action: { answer?(index) }) {
                 permissionButtonLabel(option)
             }
             .buttonStyle(.borderedProminent)
+            .disabled(isSubmitting)
         }
     }
 
@@ -1090,6 +1243,7 @@ private struct AgentPermissionCard: View {
 
 private struct AgentQuestionCard: View {
     let question: ChatQuestion
+    let isSubmitting: Bool
     let answer: ((Int) -> Void)?
 
     private var isPlanReview: Bool {
@@ -1103,6 +1257,11 @@ private struct AgentQuestionCard: View {
             if isPlanReview {
                 Label("Plan ready for review", systemImage: "checklist")
                     .font(.headline)
+            }
+            if isSubmitting {
+                Label("Sending answer…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Text(question.prompt).font(isPlanReview ? .body : .headline)
             if let selected = question.selectedOptionLabel {
@@ -1136,11 +1295,11 @@ private struct AgentQuestionCard: View {
         if index == 0 && isPlanReview {
             button
                 .buttonStyle(.borderedProminent)
-                .disabled(question.selectedOptionLabel != nil)
+                .disabled(question.selectedOptionLabel != nil || isSubmitting)
         } else {
             button
                 .buttonStyle(.bordered)
-                .disabled(question.selectedOptionLabel != nil)
+                    .disabled(question.selectedOptionLabel != nil || isSubmitting)
         }
     }
 }
@@ -1152,6 +1311,8 @@ private struct AgentChatComposer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isPhotoPickerPresented = false
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var isStagingAttachments = false
+    @State private var attachmentErrorMessage: String?
     @State private var dictation: ComposerDictationController
 
     init(
@@ -1176,6 +1337,50 @@ private struct AgentChatComposer: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            if isStagingAttachments {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("Preparing attachment…")
+                    Spacer(minLength: 0)
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .combine)
+            }
+            if let attachmentErrorMessage {
+                HStack(alignment: .top, spacing: 7) {
+                    Label(attachmentErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Spacer(minLength: 0)
+                    if !photoSelection.isEmpty {
+                        Button("Retry") {
+                            Task { await stagePhotos(photoSelection) }
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                }
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .combine)
+            }
+            if dictation.state != .idle {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: dictation.state == .unavailable
+                        ? "mic.slash.fill"
+                        : (dictation.state.isListening ? "mic.fill" : "mic"))
+                        .foregroundStyle(dictation.state == .unavailable ? .red : .secondary)
+                    Text(dictationStatusText)
+                        .font(.caption)
+                    Spacer(minLength: 0)
+                    if dictation.state == .unavailable {
+                        Button("Settings") { openDictationSettings() }
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .combine)
+            }
             if model.queuedSendCount > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.arrow.circlepath")
@@ -1245,12 +1450,28 @@ private struct AgentChatComposer: View {
                         dictation.stop()
                     }
                 if model.selectedSession?.isWorking == true {
-                    Button { Task { await model.interrupt() } } label: {
-                        Image(systemName: "stop.circle.fill")
+                    Menu {
+                        Button {
+                            Task { await model.interrupt() }
+                        } label: {
+                            Label("Stop turn", systemImage: "stop.circle")
+                        }
+                        Button(role: .destructive) {
+                            Task { await model.interrupt(hard: true) }
+                        } label: {
+                            Label("Force stop", systemImage: "exclamationmark.octagon")
+                        }
+                    } label: {
+                        if model.interruptingSessionIDs.contains(model.selectedSessionID ?? "") {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "stop.circle.fill")
+                        }
                     }
                     .foregroundStyle(.red)
                     .accessibilityLabel("Stop agent")
-                    .disabled(isSessionEnded)
+                    .accessibilityHint("Choose a polite or forceful interruption")
+                    .disabled(isSessionEnded || model.interruptingSessionIDs.contains(model.selectedSessionID ?? ""))
                 }
                 if model.selectedSession?.isWorking == true {
                     Menu {
@@ -1304,7 +1525,6 @@ private struct AgentChatComposer: View {
             guard !items.isEmpty else { return }
             Task {
                 await stagePhotos(items)
-                photoSelection = []
             }
         }
         .onChange(of: model.selectedSessionID) { _, _ in
@@ -1340,6 +1560,10 @@ private struct AgentChatComposer: View {
     private func stagePhotos(_ items: [PhotosPickerItem]) async {
         let remaining = max(0, 10 - model.attachments.count)
         guard remaining > 0 else { return }
+        isStagingAttachments = true
+        defer { isStagingAttachments = false }
+        attachmentErrorMessage = nil
+        var failures = 0
         for item in items.prefix(remaining) {
             guard !Task.isCancelled else { return }
             do {
@@ -1347,6 +1571,7 @@ private struct AgentChatComposer: View {
                 defer { try? FileManager.default.removeItem(at: imported.url) }
                 guard imported.kind == .image,
                       let prepared = await MobileImageAttachmentPreparer().prepare(url: imported.url) else {
+                    failures += 1
                     continue
                 }
                 let format: ChatOutboundAttachment.Format =
@@ -1360,7 +1585,16 @@ private struct AgentChatComposer: View {
                 ))
             } catch is CancellationError {
                 return
-            } catch { continue }
+            } catch {
+                failures += 1
+            }
+        }
+        if failures > 0 {
+            attachmentErrorMessage = failures == 1
+                ? "That image could not be prepared."
+                : "Some images could not be prepared."
+        } else {
+            photoSelection = []
         }
     }
 
@@ -1368,6 +1602,26 @@ private struct AgentChatComposer: View {
         dictation.toggle(existingText: model.draft) { merged in
             model.draft = merged
         }
+    }
+
+    private var dictationStatusText: String {
+        switch dictation.state {
+        case .requestingPermission:
+            return "Allow microphone and speech recognition to dictate."
+        case .listening:
+            return "Listening… speak your next instruction."
+        case .stopping:
+            return "Finishing dictation…"
+        case .unavailable:
+            return "Dictation is unavailable. Enable microphone and speech access in Settings."
+        case .idle:
+            return ""
+        }
+    }
+
+    private func openDictationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }
 

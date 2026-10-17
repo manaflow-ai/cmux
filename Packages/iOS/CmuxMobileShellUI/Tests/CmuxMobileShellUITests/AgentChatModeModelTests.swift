@@ -58,6 +58,25 @@ import Testing
         #expect(model.visibleSessions.map(\.id) == ["codex-build"])
     }
 
+    @Test func editPromptLoadsLatestUserProseIntoComposer() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: ["session": [page(userMessage(id: "prompt", seq: 1, text: "Inspect this diff"))]]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        guard let message = model.selectedMessages.first else {
+            Issue.record("Expected the user prompt to load")
+            return
+        }
+        model.editPrompt(message)
+
+        #expect(model.draft == "Inspect this diff")
+        #expect(model.attachments.isEmpty)
+    }
+
     @Test func hostStreamFinishingExposesReconnectingState() async {
         let reconnectGate = TestAsyncGate()
         let source = FakeAgentChatSource(
