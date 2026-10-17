@@ -58,17 +58,18 @@ export function SummaryCard({
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const panel = useRef<HTMLElement>(null);
   const popover = shown && !card.column;
+  const close = card.close;
   useEffect(() => {
     if (!popover) return;
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
       if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
-      card.close();
+      close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
-  }, [card.close, popover]);
+  }, [close, popover]);
   useEscapeCloses(popover && !gallery, () => {
     const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
     card.close();
