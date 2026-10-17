@@ -41,26 +41,26 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
-        AsyncStream<ConversationBackendEvent> { continuation in
-            let task = Task { [weak self] in
-                await self?.poll(continuation: continuation)
-            }
-            let previous = withState { state -> (
-                Task<Void, Never>?,
-                AsyncStream<ConversationBackendEvent>.Continuation?
-            ) in
-                guard !state.closed else {
-                    continuation.finish()
-                    return (task, nil)
-                }
-                let previous = (state.pollTask, state.continuation)
-                state.continuation = continuation
-                state.pollTask = task
-                return previous
-            }
-            previous.0?.cancel()
-            previous.1?.finish()
+        let (stream, continuation) = AsyncStream<ConversationBackendEvent>.makeStream()
+        let task = Task { [weak self] in
+            await self?.poll(continuation: continuation)
         }
+        let previous = withState { state -> (
+            Task<Void, Never>?,
+            AsyncStream<ConversationBackendEvent>.Continuation?
+        ) in
+            guard !state.closed else {
+                continuation.finish()
+                return (task, nil)
+            }
+            let previous = (state.pollTask, state.continuation)
+            state.continuation = continuation
+            state.pollTask = task
+            return previous
+        }
+        previous.0?.cancel()
+        previous.1?.finish()
+        return stream
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
