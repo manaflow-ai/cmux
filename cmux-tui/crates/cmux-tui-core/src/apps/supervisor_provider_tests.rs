@@ -213,6 +213,8 @@ fn the_idle_stop_waits_for_a_provider_call_in_flight() {
 #[test]
 fn only_the_cmux_app_and_never_an_agent_may_provide() {
     let f = fixture();
+    f.supervisor.register_provider(PROVIDER, APP, vec!["agent_cli".into()]).unwrap();
+    f.supervisor.disconnect(PROVIDER);
     let agent = super::super::provider::ProviderClaim { agent: true, verified_app: true };
     let unverified = super::super::provider::ProviderClaim { agent: false, verified_app: false };
     for claim in [agent, unverified] {
