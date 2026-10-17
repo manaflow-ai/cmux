@@ -141,14 +141,15 @@ describe("owner-fenced inventory refresh", () => {
     expect(version(host, "")).toBe("1.0.0")
   })
 
-  test("a watch update wins over an inventory read already in flight", async () => {
+  test("an invalidation re-read wins over an inventory read already in flight", async () => {
     const host = create()
     await mount(host)
     const older = deferred<ReturnType<typeof inventory>>()
     host.handlers["agent_cli.list"] = () => older.promise
     const oldRead = read(host)
     await host.settle()
-    host.emit("agent_cli.watch", { machine: "server", cli: "codex", entry: entry("2.0.0") })
+    host.handlers["agent_cli.list"] = ({ machine }) => inventory(machine, "2.0.0")
+    host.emit("agent_cli.changed", {})
     await host.settle()
     older.resolve(inventory("server", "0.1.0"))
     await oldRead
@@ -156,11 +157,15 @@ describe("owner-fenced inventory refresh", () => {
     expect(snapshot(host).inventories.server.loading).toBe(false)
   })
 
-  test("watch cannot populate unknown owners or replace a different CLI", async () => {
+  test("unimplemented payload streams and invalidation payloads cannot supply observations", async () => {
     const host = create()
     await mount(host)
     host.emit("agent_cli.watch", { machine: "unknown", cli: "codex", entry: entry("9.9.9") })
     host.emit("agent_cli.watch", { machine: "server", cli: "codex", entry: { ...entry("9.9.9"), cli: "claude" } })
+    host.emit("agent_cli.watch", { machine: "server", cli: "codex", entry: entry("9.9.9") })
+    await host.settle()
+    expect(version(host)).toBe("1.0.0")
+    host.emit("agent_cli.changed", { machine: "unknown", cli: "codex", entry: entry("9.9.9") })
     await host.settle()
     expect(snapshot(host).inventories.unknown).toBeUndefined()
     expect(version(host)).toBe("1.0.0")
@@ -251,6 +256,40 @@ describe("owner-fenced inventory refresh", () => {
     expect(count()).toBe(before + 2)
     expect(version(host)).toBe("3.0.0")
     expect(host.timers.size).toBe(0)
+  })
+
+
+  test("an invalidation discovery refusal clears admission without local fallback", async () => {
+    for (const code of ["scope.missing", "permission.denied", "transport.unavailable"]) {
+      const host = create()
+      await mount(host)
+      const before = host.calls.filter((c) => c.name === "agent_cli.list").length
+      host.handlers["machine.list"] = () => refused(code)
+      host.emit("agent_cli.changed", {})
+      await host.settle()
+      expect(snapshot(host).machines).toEqual([])
+      expect(snapshot(host).inventories).toEqual({})
+      expect(host.calls.filter((c) => c.name === "agent_cli.list").length).toBe(before)
+      expect(host.timers.size).toBe(0)
+    }
+  })
+
+  test("an invalidation withdraws an owner before its older read completes", async () => {
+    const host = create()
+    await mount(host)
+    const pending = deferred<ReturnType<typeof inventory>>()
+    host.handlers["agent_cli.list"] = ({ machine }) => machine === "server" ? pending.promise : inventory(machine, "1.0.0")
+    const oldRead = read(host)
+    await host.settle()
+    host.handlers["machine.list"] = () => ok([local])
+    host.emit("agent_cli.changed", {})
+    await host.settle()
+    expect(snapshot(host).machines.map((m: { id: string }) => m.id)).toEqual(["local"])
+    expect(snapshot(host).inventories.server).toBeUndefined()
+    pending.resolve(inventory("server", "9.9.9"))
+    await oldRead
+    await host.settle()
+    expect(snapshot(host).inventories.server).toBeUndefined()
   })
 
 })

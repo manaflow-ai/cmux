@@ -1,8 +1,8 @@
 // App-wide state shared by the section and every pane in this VM: machines,
-// the CLIs on each, and host-run jobs. No polling: the agent_cli.watch stream
-// pushes changes; Refresh asks the owner to check latest versions again.
+// the CLIs on each, and proposed host-run jobs. Cache invalidations re-read
+// admitted owners; they carry no observations or job completion authority.
 
-import { applyWatch, sanitizeMachine, type CliEntry, type Machine, type WatchEvent, withMissing } from "./model/entries.ts"
+import { sanitizeMachine, type CliEntry, type Machine, withMissing } from "./model/entries.ts"
 import { type Job, type JobEvent, jobKey, reduceJob } from "./model/jobs.ts"
 import { call, type OpError } from "./ops.ts"
 import { t } from "./l10n.ts"
@@ -41,12 +41,14 @@ export const localMachine = () => machines().find((m) => m.origin === "local") ?
 let started = false
 let discovery = 0
 const reads = new Map<string, object>()
+let invalidated = false
+let invalidationTask: Promise<void> | null = null
 
 export function start(): void {
   if (started) return
   started = true
+  cmux.events.on("agent_cli.changed", () => invalidate())
   void load(false)
-  cmux.events.on("agent_cli.watch", (p) => onWatch(p as WatchEvent & { job?: { job: string; ok: boolean; exit_code?: number | null; error?: string | null } }))
 }
 
 export async function load(checkLatest: boolean): Promise<void> {
@@ -83,7 +85,7 @@ export async function loadMachine(machine: string, checkLatest: boolean): Promis
   const params: Record<string, unknown> = machine ? { machine } : {}
   if (checkLatest) params.check_latest = true
   const r = await call<{ machine?: string; clis: CliEntry[]; complete?: boolean }>("agent_cli.list", params)
-  // A refresh, route removal or newer observation retires this particular read.
+  // A refresh, route removal or invalidation re-read retires this particular read.
   if (generation !== discovery || owner !== machineById(machine) || reads.get(machine) !== token) return
   reads.delete(machine)
   // Never redirect an answer to another known machine. Legacy anonymous reads
@@ -113,16 +115,24 @@ export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
   })
 }
 
-function onWatch(ev: (WatchEvent & { job?: { job: string; ok: boolean; exit_code?: number | null; error?: string | null } }) | null): void {
-  if (!ev || typeof ev.cli !== "string" || typeof ev.machine !== "string" || !machineById(ev.machine)) return
-  if (ev.entry && ev.entry.cli !== ev.cli) return
-  const machine = ev.machine
-  if (ev.job) dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error })
-  if (ev.entry || ev.removed === true) {
-    reads.delete(machine)
-    setByMachine((all) => {
-      const cur = all[machine] ?? { entries: [], complete: false, error: null, loading: false }
-      return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete), error: null, loading: false } }
-    })
+/** Invalidations never supply rows, selectors or job results. */
+function invalidate(): void {
+  invalidated = true
+  if (invalidationTask) return
+  invalidationTask = drainInvalidations()
+}
+
+/** At most one invalidation batch runs; changes during it retain one follow-up. */
+async function drainInvalidations(): Promise<void> {
+  try {
+    while (invalidated) {
+      invalidated = false
+      await load(false)
+    }
+  } finally {
+    invalidationTask = null
+    // A notification between the loop's last check and promise settlement
+    // must not be lost. This is event-driven, with no timers or idle work.
+    if (invalidated) invalidate()
   }
 }

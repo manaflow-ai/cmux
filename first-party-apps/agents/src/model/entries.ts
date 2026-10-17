@@ -143,7 +143,7 @@ export function safeLabel(label: string | null | undefined): string {
     .trim()
 }
 
-/** agent_cli.watch payload: one CLI changed (installed, updated, removed, signed in or out). */
+/** Proposed owner-observation delta; the current store re-reads and never trusts event rows. */
 export type WatchEvent = { machine: string; cli: string; entry?: CliEntry | null; removed?: boolean }
 
 export function applyWatch(list: readonly CliEntry[], ev: WatchEvent, complete = false): CliEntry[] {

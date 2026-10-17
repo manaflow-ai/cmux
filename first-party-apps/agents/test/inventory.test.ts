@@ -101,9 +101,11 @@ describe("inventory views", () => {
     })
   }
 
-  test("a partial watch removal preserves the unknown inventory state", async () => {
-    const host = await mount("byMachine", { local: { clis: [observed()], complete: false } })
-    host.emit("agent_cli.watch", { machine: "local", cli: "codex", removed: true })
+  test("an invalidated partial empty cache preserves the unknown inventory state", async () => {
+    const inventories = { local: { clis: [observed()], complete: false } }
+    const host = await mount("byMachine", inventories)
+    inventories.local = { clis: [], complete: false }
+    host.emit("agent_cli.changed", {})
     await host.settle()
     expect(shown(host)).toContain("Inventory not fully checked")
     expect(shown(host)).not.toContain("Not installed")

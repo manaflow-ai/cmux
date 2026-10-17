@@ -1,6 +1,7 @@
 // A host-run job (update, install, sign-in) for one CLI on one machine.
 // The app asks; the owner opens a visible terminal and runs the command with
-// origin user; the agent_cli.watch stream reports the job's end. States:
+// origin user. Completion needs a future owner job receipt; cache invalidations
+// never complete a job. These execution operations remain unimplemented. States:
 //   idle -> requested (op sent) -> running (terminal open) -> succeeded | failed
 //   requested -> refused (op error, e.g. scope.missing) ; failed/refused -> requested (retry)
 // A finished job is cleared when the next list for that CLI arrives.

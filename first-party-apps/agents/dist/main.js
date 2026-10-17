@@ -271,14 +271,6 @@
   function safeLabel(label) {
     return String(label ?? "").replace(EMAIL, (m) => `${m[0]}…@…`).replace(TOKENISH, "…").trim();
   }
-  function applyWatch(list, ev, complete = false) {
-    if (ev.removed)
-      return withMissing(list.filter((e) => e.cli !== ev.cli), complete);
-    if (!ev.entry)
-      return [...list];
-    const next = list.some((e) => e.cli === ev.cli) ? list.map((e) => e.cli === ev.cli ? ev.entry : e) : [...list, ev.entry];
-    return sortEntries(next);
-  }
   function summarize(lists) {
     let updates = 0, missingSignIns = 0, installed = 0, unknown = 0;
     for (const list of lists)
@@ -486,12 +478,14 @@
   var started = false;
   var discovery = 0;
   var reads = new Map;
+  var invalidated = false;
+  var invalidationTask = null;
   function start() {
     if (started)
       return;
     started = true;
+    cmux.events.on("agent_cli.changed", () => invalidate());
     load(false);
-    cmux.events.on("agent_cli.watch", (p) => onWatch(p));
   }
   async function load(checkLatest) {
     const generation = ++discovery;
@@ -560,20 +554,22 @@
       return copy;
     });
   }
-  function onWatch(ev) {
-    if (!ev || typeof ev.cli !== "string" || typeof ev.machine !== "string" || !machineById(ev.machine))
+  function invalidate() {
+    invalidated = true;
+    if (invalidationTask)
       return;
-    if (ev.entry && ev.entry.cli !== ev.cli)
-      return;
-    const machine = ev.machine;
-    if (ev.job)
-      dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error });
-    if (ev.entry || ev.removed === true) {
-      reads.delete(machine);
-      setByMachine((all) => {
-        const cur = all[machine] ?? { entries: [], complete: false, error: null, loading: false };
-        return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete), error: null, loading: false } };
-      });
+    invalidationTask = drainInvalidations();
+  }
+  async function drainInvalidations() {
+    try {
+      while (invalidated) {
+        invalidated = false;
+        await load(false);
+      }
+    } finally {
+      invalidationTask = null;
+      if (invalidated)
+        invalidate();
     }
   }
   async function run(kind, machine, cli, op, params, token) {
