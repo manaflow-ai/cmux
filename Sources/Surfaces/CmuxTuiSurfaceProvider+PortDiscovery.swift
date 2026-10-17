@@ -24,16 +24,32 @@ extension CmuxTuiSurfaceProvider {
         update(summary: next)
     }
 
-    /// Refreshes once a cached port scan expires. Later cache hits join the
-    /// pending rescan, and the rescan itself scans, so this never repeats alone.
-    func scheduleTrailingPortRescan(after delay: TimeInterval, lifecycle: UInt64) {
-        guard trailingPortRescan == nil else { return }
-        trailingPortRescan = Task { [weak self, attachmentClock] in
-            do { try await attachmentClock.sleep(for: .seconds(delay)) } catch { return }
-            guard let self else { return }
-            self.trailingPortRescan = nil
-            guard self.isCurrentLifecycleGeneration(lifecycle), self.isRegisteredInCatalog() else { return }
-            self.scheduleRefresh()
+    /// Runs one port-only rescan once the scan cache expires. A request made
+    /// while one is pending or running runs once more after it, so a burst
+    /// costs at most one scan per cache lifetime and stops when requests do.
+    /// `followUp` also owes that one more scan, for a change that can come
+    /// before the server it started is listening.
+    func schedulePortRescan(followUp: Bool = false) {
+        guard portDiscovery.mayScan else { return }
+        guard portRescan == nil else {
+            portRescanOwed = true
+            return
+        }
+        portRescanOwed = followUp
+        let lifecycle = currentLifecycleGeneration
+        let delay = portDiscovery.rescanDelay(at: Date.now) ?? 0
+        portRescan = Task { [weak self, attachmentClock] in
+            if delay > 0 {
+                do { try await attachmentClock.sleep(for: .seconds(delay)) } catch { return }
+            }
+            guard let self, self.isCurrentLifecycleGeneration(lifecycle) else { return }
+            await self.rescanPorts()
+            guard self.isCurrentLifecycleGeneration(lifecycle) else { return }
+            self.portRescan = nil
+            if self.portRescanOwed {
+                self.portRescanOwed = false
+                self.schedulePortRescan()
+            }
         }
     }
 }

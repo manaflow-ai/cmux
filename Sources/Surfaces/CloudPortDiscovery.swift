@@ -42,8 +42,10 @@ struct CloudPortDiscovery: Sendable {
     @discardableResult
     mutating func request() -> UInt64 {
         wasRequested = true
-        // A repeated request keeps the settled inventory visible, as a rescan does.
-        if blocker == nil, scan == nil { state = .loading }
+        // A repeated request keeps listed services visible, as a rescan does.
+        // An empty or stale result still shows progress, so Refresh visibly runs.
+        let listsServices = state == .available || state == .loopbackOnly
+        if blocker == nil, !listsServices { state = .loading }
         return requestID
     }
 
