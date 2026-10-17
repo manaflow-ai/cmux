@@ -311,10 +311,13 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         sessionID: String
     ) async throws -> ChatSessionControls {
         var params: [String: Any] = ["session_id": sessionID]
-        if let value = controls.modelID { params["model_id"] = value }
-        if let value = controls.reasoningEffortID { params["reasoning_effort_id"] = value }
-        if let value = controls.permissionMode { params["permission_mode"] = value }
-        if let value = controls.sandboxMode { params["sandbox_mode"] = value }
+        // Send explicit nulls for cleared optional controls. Omitting a key is
+        // a partial update and must preserve the host's current value; null is
+        // the wire-level clear operation.
+        params["model_id"] = controls.modelID ?? NSNull()
+        params["reasoning_effort_id"] = controls.reasoningEffortID ?? NSNull()
+        params["permission_mode"] = controls.permissionMode ?? NSNull()
+        params["sandbox_mode"] = controls.sandboxMode ?? NSNull()
         params["plan_mode"] = controls.planMode
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.chat.controls.update",
@@ -327,11 +330,16 @@ public actor MobileChatEventSource: AgentChatSessionSource {
     }
 
     private static func controlsPayload(_ controls: ChatSessionControls) -> [String: Any] {
-        var payload: [String: Any] = ["plan_mode": controls.planMode]
-        if let value = controls.modelID { payload["model_id"] = value }
-        if let value = controls.reasoningEffortID { payload["reasoning_effort_id"] = value }
-        if let value = controls.permissionMode { payload["permission_mode"] = value }
-        if let value = controls.sandboxMode { payload["sandbox_mode"] = value }
+        // Keep the cached send payload semantically identical to an explicit
+        // controls update. A nil value is an intentional clear; omitting it
+        // would make a later send reapply stale host state.
+        var payload: [String: Any] = [
+            "model_id": controls.modelID ?? NSNull(),
+            "reasoning_effort_id": controls.reasoningEffortID ?? NSNull(),
+            "permission_mode": controls.permissionMode ?? NSNull(),
+            "sandbox_mode": controls.sandboxMode ?? NSNull(),
+            "plan_mode": controls.planMode,
+        ]
         return payload
     }
 

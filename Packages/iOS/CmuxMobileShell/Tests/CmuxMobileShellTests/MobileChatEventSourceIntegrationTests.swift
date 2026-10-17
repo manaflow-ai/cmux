@@ -79,6 +79,13 @@ struct MobileChatEventSourceIntegrationTests {
         #expect(requests.filter { $0.method == "mobile.chat.answer" }.allSatisfy { $0.optionIndex == 1 })
         #expect(requests.filter { $0.method == "mobile.chat.controls" }.count == sessions.count)
         #expect(requests.filter { $0.method == "mobile.chat.controls.update" }.count == sessions.count)
+        // A nil control is an explicit clear on the wire. The same clear
+        // semantics must survive the cached controls attached to the next
+        // send, otherwise a stale host value can be resurrected.
+        #expect(requests.filter { $0.method == "mobile.chat.controls.update" }
+            .allSatisfy { $0.reasoningEffortWasNull })
+        #expect(requests.filter { $0.method == "mobile.chat.send" }
+            .allSatisfy { $0.cachedReasoningEffortWasNull })
         #expect(requests.filter { $0.method == "mobile.chat.review" }.map(\.sessionID) == sessions.map(\.id))
         #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.action == "comment" })
         #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.lineNumber == 12 })
@@ -260,6 +267,8 @@ private struct CapturedChatRequest: Sendable, Equatable {
     let hard: Bool?
     let action: String?
     let lineNumber: Int?
+    let reasoningEffortWasNull: Bool
+    let cachedReasoningEffortWasNull: Bool
 }
 
 private actor MobileChatRPCTransport: CmxByteTransport {
@@ -326,7 +335,9 @@ private actor MobileChatRPCTransport: CmxByteTransport {
             optionIndex: params["option_index"] as? Int,
             hard: params["hard"] as? Bool,
             action: params["action"] as? String,
-            lineNumber: params["line_number"] as? Int
+            lineNumber: params["line_number"] as? Int,
+            reasoningEffortWasNull: params["reasoning_effort_id"] is NSNull,
+            cachedReasoningEffortWasNull: ((params["controls"] as? [String: Any])?["reasoning_effort_id"] is NSNull)
         ))
 
         let result: Any
