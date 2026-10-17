@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+inline constexpr std::string_view kProtocolIrSha256 = "09340095057e13a293f364ecfe981a8b4d8f2a9d3df8576dfbc9f3a243cbbd55";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3073,6 +3073,7 @@ struct IdentifyResult {
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
+    std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::uint32_t pid{};
     std::uint32_t protocol{};

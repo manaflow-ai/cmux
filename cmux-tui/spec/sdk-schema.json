@@ -1942,6 +1942,15 @@
      "nullable": false,
      "since": 12
     },
+    "machine_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "machine_name": {
      "type": {
       "kind": "scalar",
