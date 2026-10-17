@@ -93,6 +93,14 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
+// Panels as tabs on the right (agentChat.panelTabs): a panel is open beside the chat, so the header
+// keeps only the summary and "...".
+const panelTabsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitBrowserRight"], sideTabs: true, panelTabs: true });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-header-tool"));
+};
+
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -292,6 +300,11 @@ export default componentEntry<HeaderToolsProps>({
         onPreview: () => undefined,
       },
       play: panelsOpen,
+    },
+    "panel-tabs": {
+      note: "Debug Settings agentChat.panelTabs: with a panel beside the chat its tab strip takes new tabs, so the header keeps only the summary and the chat menu, which lists Terminal and Browser first.",
+      props: { ...base, sideTabs: true },
+      play: panelTabsOpen,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",

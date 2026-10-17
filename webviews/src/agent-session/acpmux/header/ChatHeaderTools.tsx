@@ -159,7 +159,10 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
-  const { lit, pullRequest } = useHeaderState();
+  const { lit, pullRequest, panelTabs } = useHeaderState();
+  // Panels as tabs on the right (`agentChat.panelTabs`): with panes beside the chat its tab strip is
+  // where new tabs go, so the header keeps only the summary and "...", which lists the quick actions.
+  const quiet = panelTabs && sideTabs;
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
@@ -170,6 +173,7 @@ export function ChatHeaderTools({
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
   const live = useRef({
+    quiet,
     actions,
     tabTools,
     sideTabs,
@@ -180,8 +184,11 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
+    onBrowser,
   });
   live.current = {
+    quiet,
     actions,
     tabTools,
     sideTabs,
@@ -192,9 +199,12 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
+    onBrowser,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
+      quiet,
       actions,
       tabTools,
       sideTabs,
@@ -205,11 +215,30 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
+      onTerminal,
+      onBrowser,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
-    const shownIds = new Set(actions.map((action) => action.id));
+    const shownIds = new Set(quiet ? [] : actions.map((action) => action.id));
     const folded: ChatMenuItem[] = [];
+    // Terminal and Browser always have a button, except in the quiet header.
+    if (quiet) {
+      folded.push({
+        key: "quick-terminal",
+        label: t("header.terminal"),
+        icon: "terminal",
+        shortcutAction: HEADER_ACTIONS.terminal,
+        onSelect: () => onTerminal(modeOf(actions, "terminal")),
+      });
+      folded.push({
+        key: "quick-browser",
+        label: t("header.browser"),
+        icon: "browser",
+        shortcutAction: HEADER_ACTIONS.browser,
+        onSelect: () => onBrowser(modeOf(actions, "browser")),
+      });
+    }
     if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
         key: "quick-changes",
@@ -250,7 +279,7 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
-  const buttons = tabTools && (
+  const buttons = tabTools && !quiet && (
     <>
       {actions.map(({ id, mode }) =>
         id === "newTab" ? (
@@ -398,6 +427,10 @@ export function ChatHeaderTools({
     </div>
   );
 }
+
+/// How a quick action's click behaves as the person set it (toggle unless they chose open).
+const modeOf = (actions: readonly QuickAction[], id: QuickActionId): QuickActionMode =>
+  actions.find((action) => action.id === id)?.mode ?? "toggle";
 
 /// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
 /// Files a folder on this Mac).
