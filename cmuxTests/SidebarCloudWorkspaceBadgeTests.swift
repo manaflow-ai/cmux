@@ -161,6 +161,41 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
     }
 
+    @Test("A local workspace with a Cloud terminal does not show the Cloud badge")
+    func localWorkspaceWithCloudTerminalKeepsLocalIdentity() throws {
+        let workspace = Workspace(title: "Local project", initialSurface: .terminal)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let cloudPanelID = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+        let machine = SurfaceMachineID.cloud("mixed-workspace-machine")
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "cloud-terminal"),
+            title: "Cloud terminal",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: nil,
+            port: nil,
+            url: nil
+        )
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [cloudPanelID: resource.id],
+            machineNames: [machine.rawValue: "Cloud machine"]
+        )
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()),
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(workspace.cloudVMID == nil)
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        #expect(snapshot.remoteWorkspaceBadgeLabel == nil)
+        #expect(workspace.canHostLocalTerminal)
+    }
+
     @Test(arguments: [false, true], [false, true])
     func sidebarDetailSettingsHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
         let suite = "CloudSidebarVisibility.\(UUID())"
