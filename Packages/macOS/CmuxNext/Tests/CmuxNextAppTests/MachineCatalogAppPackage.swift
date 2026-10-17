@@ -16,7 +16,7 @@ struct MachineCatalogAppPackage {
             "files": ["dist/", "catalog.json"],
         ]
         let operations = ["discover", "inventory"].map { verb -> [String: Any] in
-            ["name": "\(family).\(verb)", "owner": "app:\(id)", "class": "read", "risk": "read-own",
+            ["name": "\(family).\(verb)", "owner": "app:\(id)", "class": "read", "risk": "read",
              "idempotency": "forbidden", "input": ["type": "object"], "docs": "Integration fixture", "since": "1.0.0", "export": verb]
         }
         try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(to: root.appendingPathComponent("cmux-app.json"))
