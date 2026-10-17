@@ -3754,7 +3754,8 @@ class TerminalController {
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
                     "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
-                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
+                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser }),
+                    "file_path": v2OrNull(projection.flatMap { Self.controlSurfaceFilePath($0.panel) })
                 ]
             } else {
                 focused = [
