@@ -1027,18 +1027,7 @@ private struct AgentPermissionCard: View {
             } else {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(Array(request.options.enumerated()), id: \.offset) { index, option in
-                        Button {
-                            answer?(index)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.label).font(.subheadline.weight(.semibold))
-                                if let detail = option.detail {
-                                    Text(detail).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(index == request.options.count - 1 ? .bordered : .borderedProminent)
+                        permissionButton(index: index, option: option)
                     }
                 }
             }
@@ -1056,6 +1045,31 @@ private struct AgentPermissionCard: View {
         case .denied: return "Denied"
         case .expired: return "Expired"
         }
+    }
+
+    @ViewBuilder
+    private func permissionButton(index: Int, option: ChatPermissionRequest.Option) -> some View {
+        if index == request.options.count - 1 {
+            Button(action: { answer?(index) }) {
+                permissionButtonLabel(option)
+            }
+            .buttonStyle(.bordered)
+        } else {
+            Button(action: { answer?(index) }) {
+                permissionButtonLabel(option)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func permissionButtonLabel(_ option: ChatPermissionRequest.Option) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(option.label).font(.subheadline.weight(.semibold))
+            if let detail = option.detail {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
