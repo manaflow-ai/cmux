@@ -7,7 +7,7 @@ struct DaemonMachineIdentityTests {
         let identity = try decode(machineField: #", "machine_id":"machine_public-owner""#)
         #expect(identity.machineResourceID == ResourceID(rawValue: "machine_public-owner"))
         #expect(identity.sessionID == "session-registry")
-        #expect(identity.machineName == "cosmic-gray")
+        #expect(identity.machineName == "example-host")
         #expect(identity.machineResourceID?.rawValue != identity.sessionID)
     }
 
@@ -34,7 +34,7 @@ struct DaemonMachineIdentityTests {
     private func decode(machineField: String) throws -> DaemonIdentity {
         let data = Data("""
         {"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12,
-        "registry_id":"SESSION-REGISTRY","machine_name":"cosmic-gray",
+        "registry_id":"SESSION-REGISTRY","machine_name":"example-host",
         "generation":"boot-1"\(machineField)}}
         """.utf8)
         return try WireCoding.decodeResponse(DaemonIdentity.self, from: data)

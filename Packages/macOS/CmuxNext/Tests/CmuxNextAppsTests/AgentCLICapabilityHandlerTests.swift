@@ -32,7 +32,7 @@ struct AgentCLICapabilityHandlerTests {
         let handler = AgentCLICapabilityHandler { box.values }
         let admitted = AgentInventoryRoute(machineID: local, reader: reader, allowed: true, isDefault: true)
         box.values = [admitted]
-        for alias in [remote.rawValue, "local", "cosmic-gray", "SESSION-REGISTRY"] {
+        for alias in [remote.rawValue, "local", "example-host", "SESSION-REGISTRY"] {
             await refusal(handler, params: ["machine": .string(alias)], code: "machine.unavailable")
         }
         box.values = [admitted, admitted]
