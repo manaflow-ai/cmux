@@ -691,15 +691,20 @@ jobs:
           CMUX_NOTARY_WAIT_TIMEOUT=2m \
           CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
           CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=30m \
+          CMUX_STAPLED_APP_DEADLINE_WAIT_SECONDS=600 \
             ./scripts/ci/resume-stapled-app-notarization.sh \
             "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-            "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$RUNNER_TEMP/cmux-stapled-app-notarization.state"
+            "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$RUNNER_TEMP/cmux-stapled-app-notarization.state" \
+            || rc=$?
+          # 75: the stapled-app DMG is not Accepted yet (the only hand-off case).
+          echo "exit_code=${rc:-0}" >> "$GITHUB_OUTPUT"
+          exit "${rc:-0}"
 
       # A stapled-app DMG still at Apple goes to poll-stapled and
       # staple-stapled, which reach its 6 h fallback without a manual run.
       - name: Prepare stapled-app DMG recovery for manual continuation
         id: prepare-stapled
-        if: always() && steps.staple-outer.outcome == 'failure'
+        if: always() && steps.staple-outer.outcome == 'failure' && steps.staple-outer.outputs.exit_code == '75'
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/cmux-stapled-app-notarization.state"
@@ -910,9 +915,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
+          # poll-stapled may decide a deadline due up to 300 s early (its slack):
+          # wait for it before the date check.
           CMUX_CHANNEL="$CHANNEL" \
           CMUX_NOTARY_WAIT_TIMEOUT=2m \
           CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          CMUX_STAPLED_APP_DEADLINE_WAIT_SECONDS=600 \
             ./scripts/ci/resume-stapled-app-notarization.sh \
             "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
             "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$RUNNER_TEMP/cmux-stapled-app-notarization.state"

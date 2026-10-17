@@ -12,8 +12,15 @@
 # A failed query (poll-notary-submission.py exit 3) is an unknown answer and
 # is polled again. The poll sleeps to the nearest deadline when that comes
 # before the next interval, so a refused stapled-app DMG reaches its fallback.
-# The job limit must cover CMUX_OUTER_POLL_BUDGET_SECONDS (357 min) plus setup;
-# a deadline after the budget is reported for a manual resume.
+# The job limit must cover CMUX_OUTER_POLL_BUDGET_SECONDS (357 min) plus setup.
+# A stapled-app deadline that falls at most CMUX_OUTER_POLL_FALLBACK_SLACK_SECONDS
+# (300 s) after the end of the budget (Apple refused the second DMG within a
+# few minutes of its submission) is decided as due for the fallback: its
+# continuation (resume-stapled-app-notarization.sh,
+# CMUX_STAPLED_APP_DEADLINE_WAIT_SECONDS) waits until the deadline before it
+# ships the first DMG. A later deadline is reported for a manual resume.
+# A variant whose submission failed or could not be queried is recorded as
+# failed; the others are still polled, and the script exits 1 at the end.
 #
 # Usage: poll-outer-notarizations.sh <metadata-root> <variants-file> <reports-dir>
 # <metadata-root>/<variant>/ holds each downloaded metadata artifact. Needs
@@ -32,6 +39,10 @@ OUTER_POLL_SECONDS="${CMUX_OUTER_POLL_SECONDS:-4800}"
 # A job may run 360 min; stop polling a little before that.
 BUDGET_SECONDS="${CMUX_OUTER_POLL_BUDGET_SECONDS:-21420}"
 INTERVAL_SECONDS="${CMUX_OUTER_POLL_INTERVAL_SECONDS:-300}"
+SLACK_SECONDS="${CMUX_OUTER_POLL_FALLBACK_SLACK_SECONDS:-300}"
+for value in "$FALLBACK_SECONDS" "$OUTER_POLL_SECONDS" "$BUDGET_SECONDS" "$INTERVAL_SECONDS" "$SLACK_SECONDS"; do
+  [[ "$value" =~ ^[0-9]+$ ]] || { echo "poll-outer-notarizations.sh: every CMUX_*_SECONDS value must be a number of seconds" >&2; exit 2; }
+done
 OUT="${GITHUB_OUTPUT:-/dev/stdout}"
 now() { date +%s; }
 mkdir -p "$REPORTS"
@@ -88,13 +99,23 @@ while :; do
         pending=true
       fi
     else
-      echo "The $variant outer DMG submission failed or could not be queried." >&2
-      exit 1
+      # Refused, or the query itself is broken: this variant fails; the
+      # others are still decided.
+      result_of[$variant]=failed
+      echo "::error::$variant: the outer DMG submission failed or could not be queried"
     fi
   done
   [ "$pending" = true ] || break
   current="$(now)"
   if [ $((current - start)) -ge "$BUDGET_SECONDS" ]; then
+    for variant in "${variants[@]}"; do
+      deadline="${deadline_of[$variant]}"
+      if [ "${result_of[$variant]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -le $((current + SLACK_SECONDS)) ]; then
+        # Due within the slack: its continuation waits for the deadline.
+        result_of[$variant]=fallback
+        echo "::warning::$variant: the DMG around the stapled app is not Accepted and its 6 h deadline is $((deadline - current)) s away; its continuation waits for it and ships the accepted first DMG"
+      fi
+    done
     echo "::warning::the polling budget ended before every outer DMG was decided; continue the rest with resume-nightly-notarization.yml"
     break
   fi
@@ -119,3 +140,9 @@ done
 json="$(printf '%s\n' ${decided[@]+"${decided[@]}"} | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
 if [ "${#decided[@]}" -gt 0 ]; then echo "decided=true" >> "$OUT"; else echo "decided=false" >> "$OUT"; fi
 echo "outer_variants=$json" >> "$OUT"
+for variant in "${variants[@]}"; do
+  if [ "${result_of[$variant]}" = failed ]; then
+    echo "At least one outer DMG failed or could not be queried; the decided variants above still continue." >&2
+    exit 1
+  fi
+done

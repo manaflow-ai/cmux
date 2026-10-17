@@ -959,6 +959,13 @@ check_poll "$status" "a refused stapled-app DMG must reach its deadline" 0 '["ar
 make_state true "$(date +%s)"; stage s >/dev/null
 set +e; run_poll "3 0" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
 check_poll "$status" "a failed query is polled again and Accepted decides" 0 '["arm64"]'
+# Refused within minutes of its submission: the deadline lies 62 s after a
+# 2 s budget, inside the 300 s slack, so it is decided due for the fallback
+# (the continuation waits for the deadline itself).
+make_state true "$(( $(date +%s) - 21600 + 62 ))"; stage s >/dev/null
+set +e; run_poll "1" CMUX_OUTER_POLL_INTERVAL_SECONDS=1 CMUX_OUTER_POLL_BUDGET_SECONDS=2; status=$?; set -e
+check_poll "$status" "a quick refusal whose deadline is inside the slack after the budget is due for the fallback" 0 '["arm64"]' fallback
+make_state true "$(date +%s)"; stage s >/dev/null
 # Pending with the deadline far away and a 2 s budget: not decided.
 set +e; run_poll "2" CMUX_OUTER_POLL_INTERVAL_SECONDS=1 CMUX_OUTER_POLL_BUDGET_SECONDS=2; status=$?; set -e
 check_poll "$status" "a budget that ends before the deadline decides nothing" 0 '[]'
@@ -968,6 +975,11 @@ set +e; run_poll "3 2 0" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
 check_poll "$status" "an outer DMG is accepted after a failed query and In Progress" 0 '["arm64"]'
 set +e; run_poll "1" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
 check_poll "$status" "a refused outer DMG without the marker must fail" 1 ""
+if ! grep -Fxq 'outer_variants=[]' "$P/output" || ! grep -q 'arm64: failed' "$P/poll.out"; then
+  echo "FAIL: poll-outer-notarizations.sh: a failed variant is recorded and the outputs are still written" >&2
+  cat "$P/poll.out" "$P/output" >&2
+  exit 1
+fi
 echo "PASS: outer hand-offs are exact and the poll reaches each stapled-app deadline"
 
 # The CI signing keychain must be gone before any launch smoke runs code from

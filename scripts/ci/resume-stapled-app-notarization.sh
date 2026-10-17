@@ -59,9 +59,18 @@ STAPLED_WAIT_TIMEOUT="${CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT:-40m}"
 FALLBACK_SECONDS="${CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600}"
 SUBMIT_ATTEMPTS="${CMUX_STAPLED_APP_SUBMIT_ATTEMPTS:-3}"
 SUBMIT_RETRY_SECONDS="${CMUX_STAPLED_APP_SUBMIT_RETRY_SECONDS:-60}"
-case "$FALLBACK_SECONDS" in
-  ''|*[!0-9]*) echo "CMUX_STAPLED_APP_FALLBACK_SECONDS must be a number of seconds" >&2; exit 2 ;;
-esac
+# A continuation that the poll decided as due within its slack waits at most
+# this long for the deadline before its date check (0: no wait).
+DEADLINE_WAIT_SECONDS="${CMUX_STAPLED_APP_DEADLINE_WAIT_SECONDS:-0}"
+for value in "$FALLBACK_SECONDS" "$DEADLINE_WAIT_SECONDS"; do
+  case "$value" in
+    ''|*[!0-9]*) echo "CMUX_STAPLED_APP_FALLBACK_SECONDS and CMUX_STAPLED_APP_DEADLINE_WAIT_SECONDS must be numbers of seconds" >&2; exit 2 ;;
+  esac
+done
+# The helper recheck is skipped only for an app whose helper this process
+# (step 1 below) or its caller (resume-helper-notarization.sh) checked.
+HELPER_CHECKED_BY_CALLER="${CMUX_SKIP_HELPER_RECHECK:-false}"
+STEP1_RAN=false
 # Kept out of every child process except the keychain create below.
 CERT_BASE64="${APPLE_CERTIFICATE_BASE64:-}"
 CERT_PASSWORD="${APPLE_CERTIFICATE_PASSWORD:-}"
@@ -81,7 +90,16 @@ state_value() {
 # Either way the shipped DMG ends at <target DMG>. Exit 75: not Accepted yet,
 # before the deadline (hand it off again).
 continue_stapled() {
-  local state="$1" dmg="$2" target="$3" status=0 submitted pending first first_id first_sha work
+  local state="$1" dmg="$2" target="$3" status=0 submitted pending first first_id first_sha work left skip_recheck=false
+  submitted="$(state_value "$state" stapled_submitted_at)"
+  if [[ "$submitted" =~ ^[0-9]+$ ]] && [ "$DEADLINE_WAIT_SECONDS" -gt 0 ]; then
+    left=$((submitted + FALLBACK_SECONDS - $(date +%s)))
+    if [ "$left" -gt 0 ] && [ "$left" -le "$DEADLINE_WAIT_SECONDS" ]; then
+      # A bounded wait to the recorded deadline (the poll decided it due).
+      echo "Waiting ${left}s for the 6 h deadline of the stapled-app DMG"
+      sleep "$left"
+    fi
+  fi
   "$RESUME_TOOL" "$state" "$APP_PATH" "$dmg" "$DMG_IMMUTABLE" || status=$?
   if [ "$status" -eq 0 ]; then
     [ "$dmg" = "$target" ] || /bin/mv -f "$dmg" "$target"
@@ -125,8 +143,10 @@ continue_stapled() {
     printf 'immutable_path=%s\n' "$DMG_IMMUTABLE"
     printf 'channel=%s\n' "$(state_value "$state" channel)"
   } > "$work/first.state"
-  # The app's helper was checked by the continuation above.
-  CMUX_SKIP_HELPER_RECHECK=true \
+  # Skip the helper recheck only when this process or its caller checked it:
+  # the continuation above exits 75 before its own helper check.
+  if [ "$STEP1_RAN" = true ] || [ "$HELPER_CHECKED_BY_CALLER" = true ]; then skip_recheck=true; fi
+  CMUX_SKIP_HELPER_RECHECK="$skip_recheck" \
   CMUX_NOTARY_WAIT_TIMEOUT=2m \
     "$RESUME_TOOL" "$work/first.state" "$APP_PATH" "$work/$(basename "$target")" "$DMG_IMMUTABLE"
   /bin/mv -f "$work/$(basename "$target")" "$target"
@@ -237,6 +257,7 @@ fi
 #    recovery path. The helper of this same app was checked in step 1.
 #    Accepted, stapled and checked: only then does it replace the first DMG.
 export CMUX_SKIP_HELPER_RECHECK=true
+STEP1_RAN=true
 export CMUX_NOTARY_WAIT_TIMEOUT="$STAPLED_WAIT_TIMEOUT"
 export CMUX_NOTARY_EVIDENCE_FILE="$OUTER_LOG"
 continue_stapled "$OUTER_STATE" "$STAPLED_DMG" "$DMG_RELEASE"
