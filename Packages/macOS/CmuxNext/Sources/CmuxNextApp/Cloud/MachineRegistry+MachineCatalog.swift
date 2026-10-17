@@ -2,6 +2,18 @@ import CmuxNextDaemon
 import CmuxNextApps
 
 extension MachineRegistry {
+    /// Only already admitted, policy-allowed ready owners can acquire an inventory lease.
+    func agentInventoryWatchRoutes() -> [AgentInventoryWatchRoute] {
+        daemons.compactMap { daemon in
+            let admitted = self.daemon(machine: daemon.machineID) === daemon
+            let state = daemon.store.connectionState
+            let epoch = daemon.store.connectionEpoch
+            guard admitted, !daemon.policyBlock.isBlocked, case .connected = state,
+                  let machine = daemon.identity?.machineResourceID, let connection = daemon.connection else { return nil }
+            return AgentInventoryWatchRoute(machine: machine, connection: connection, epoch: epoch, events: daemon.store.sideEvents)
+        }
+    }
+
     /// Captures the exact local publication lease and admitted remote metadata.
     func catalogSource() -> MachineCatalogSource? {
         guard let owner = local.identity?.machineResourceID, let connection = local.connection,

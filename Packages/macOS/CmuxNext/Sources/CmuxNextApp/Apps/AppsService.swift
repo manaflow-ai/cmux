@@ -43,7 +43,9 @@ final class AppsService {
 
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon)
+        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+            machines?.agentInventoryWatchRoutes() ?? []
+        })
         client = AppsClient(transport: transport)
     }
 

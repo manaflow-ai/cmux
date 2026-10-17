@@ -22,6 +22,8 @@ extension DaemonEvent {
         func d<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(T.self, from: line) }
         do {
             switch name {
+            case "apps-agent-inventory-demand":
+                return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
             case "agent-inventory-changed", "agent-inventory-watch-ended":
                 return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
