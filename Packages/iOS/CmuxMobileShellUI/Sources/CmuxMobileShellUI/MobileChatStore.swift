@@ -194,7 +194,10 @@ final class MobileChatStore {
     }
 
     func interrupt(hard: Bool = false) {
-        guard let sessionID = selectedSessionID, let source = sourceProvider() else { return }
+        guard let sessionID = selectedSessionID,
+              let descriptor = sessions.first(where: { $0.id == sessionID }),
+              descriptor.state != .ended,
+              let source = sourceProvider() else { return }
         let generation = operationGeneration
         Task { [weak self] in
             do {
