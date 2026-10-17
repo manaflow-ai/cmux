@@ -239,6 +239,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
@@ -5222,6 +5223,24 @@ function AcpmuxPane() {
             .catch(() => undefined),
       }
     : undefined;
+  const chiefDockEnabled = quick && experimentArm(chiefDock) === "on";
+  const quickChiefDock = chiefDockEnabled
+    ? {
+        sessions: composerSnapshot.sessions,
+        currentId: snapshot.sessionId,
+        queueCounts:
+          snapshot.sessionId && snapshot.queue.length > 0
+            ? new Map([[snapshot.sessionId, snapshot.queue.length]])
+            : undefined,
+        steeringIds:
+          snapshot.summary?.steering && snapshot.sessionId && snapshot.queue.length > 0
+            ? new Set([snapshot.sessionId])
+            : undefined,
+        onSelect: selectSession,
+        onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
+        onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),
+      }
+    : undefined;
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
@@ -5236,6 +5255,7 @@ function AcpmuxPane() {
             }
             composer={composer}
             floating={quickFloating}
+            chiefDock={quickChiefDock}
           />
           {imageView && (
             <ImageViewer
