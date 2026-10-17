@@ -853,6 +853,16 @@
         "CmuxAgentBrands"
       ]
     },
+    "CmuxNextSidebarTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextSidebar"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextTabs": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",

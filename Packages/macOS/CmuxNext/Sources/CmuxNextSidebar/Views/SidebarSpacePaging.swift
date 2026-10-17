@@ -96,9 +96,17 @@ import QuartzCore
     /// The model shows the space a release switched to: the real list takes
     /// the page's place at once (no reload animation, no second slide).
     func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget, pendingTarget == profile else { return false }
+        guard let pendingTarget else { return false }
+        if pendingTarget == profile {
+            endPaging()
+            return true
+        }
+        // A dot, key or another profile switch can supersede the profile a
+        // swipe was waiting for. Drop that stale target before the caller
+        // starts the replacement slide, otherwise every later gesture sees
+        // the old request and remains blocked until it is selected.
         endPaging()
-        return true
+        return false
     }
 
     private func endPaging() {

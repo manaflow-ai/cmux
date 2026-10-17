@@ -824,6 +824,11 @@ let package = Package(
             // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
             swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
         ),
+        .testTarget(
+            name: "CmuxNextSidebarTests",
+            dependencies: ["CmuxNextSidebar", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
