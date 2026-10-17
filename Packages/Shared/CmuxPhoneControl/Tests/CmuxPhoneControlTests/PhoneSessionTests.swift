@@ -193,4 +193,69 @@ struct PhoneSessionTests {
         #expect(pressed.count == 2)
         #expect(pressed.first?.type == .response)
     }
+
+    @Test
+    func concurrentDuplicateActionsDoNotReachTheDriverTwice() async throws {
+        let driver = BlockingPhoneDriver()
+        let session = PhoneSession(driver: driver)
+        let params = PhoneJSONValue.object([
+            "action_id": .string("concurrent-tap"),
+            "point": .object(["x": .number(0.5), "y": .number(0.5)]),
+        ])
+        let firstTask = Task {
+            await session.handle(.request(id: "first", method: "action.tap", params: params))
+        }
+        await driver.waitForPerformStart()
+
+        let second = await session.handle(.request(
+            id: "second",
+            method: "action.tap",
+            params: params
+        ))
+        #expect(second.first?.error?.code == "action_in_progress")
+
+        await driver.releasePerform()
+        let first = await firstTask.value
+        #expect(first.first?.type == .response)
+        #expect(await driver.performCount == 1)
+    }
+}
+
+private actor BlockingPhoneDriver: PhoneDriver {
+    private let base = MockPhoneDriver()
+    private var started = false
+    private var startContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private(set) var performCount = 0
+
+    func device() async throws -> PhoneDevice { try await base.device() }
+
+    func snapshot() async throws -> PhoneScreenFrame { try await base.snapshot() }
+
+    func accessibilityTree() async throws -> PhoneUIElement? {
+        try await base.accessibilityTree()
+    }
+
+    func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
+        performCount += 1
+        started = true
+        startContinuation?.resume()
+        startContinuation = nil
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+        return try await base.perform(action)
+    }
+
+    func waitForPerformStart() async {
+        if started { return }
+        await withCheckedContinuation { continuation in
+            startContinuation = continuation
+        }
+    }
+
+    func releasePerform() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
 }
