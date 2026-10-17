@@ -224,10 +224,26 @@ function BrowseCard({
           <h2>{entry.title}</h2>
           <code>{entry.id}</code>
         </div>
-        <span className="gallery-browse-kind">
-          {variantOnly && `${selectedVariant} · `}
-          {fixture?.play ? "Motion" : "Static"}
-        </span>
+        <div className="gallery-browse-card-actions">
+          <span className="gallery-browse-kind">
+            {variantOnly && `${selectedVariant} · `}
+            {fixture?.play ? "Motion" : "Static"}
+          </span>
+          <a
+            className="gallery-browse-review"
+            href={hrefFor(entry, selectedVariant ?? initialVariant)}
+            aria-label={`Review ${entry.title} · ${selectedVariant ?? initialVariant}`}
+            onClick={(event) => {
+              const targetVariant = selectedVariant ?? initialVariant;
+              if (targetVariant) {
+                event.preventDefault();
+                onOpen(entry, targetVariant);
+              }
+            }}
+          >
+            Review
+          </a>
+        </div>
       </header>
       {!variantOnly && (
         <fieldset className="gallery-browse-variants" aria-label={`${entry.title} variants`}>
@@ -266,15 +282,6 @@ function BrowseCard({
         )}
       </div>
       <footer className="gallery-browse-card-footer">
-        <a
-          href={hrefFor(entry, selectedVariant ?? initialVariant)}
-          onClick={(event) => {
-            event.preventDefault();
-            if (selectedVariant) onOpen(entry, selectedVariant);
-          }}
-        >
-          Open full view
-        </a>
         <a href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune)} target="_blank" rel="noreferrer">
           Open frame
         </a>

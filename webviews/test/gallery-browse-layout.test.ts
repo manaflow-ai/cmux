@@ -53,9 +53,10 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
             </header>
             <div class="gallery-browse-grid">
               <article class="gallery-browse-card">
-                <header class="gallery-browse-card-header"><div><h2>Transcript</h2><code>agent-pane.transcript</code></div><span>Motion</span></header>
+                <header class="gallery-browse-card-header"><div><h2>Transcript</h2><code>agent-pane.transcript</code></div><div class="gallery-browse-card-actions"><span>Motion</span><a class="gallery-browse-review" href="/agent-pane.transcript/streaming?view=variant" aria-label="Review Transcript · streaming">Review</a></div></header>
                 <div class="gallery-browse-variants"><button>idle</button><button>streaming</button></div>
                 <figure class="gallery-stage"><div class="gallery-window" style="width:420px;height:220px"><iframe title="preview" style="width:1664px;height:872px"></iframe></div></figure>
+                <footer class="gallery-browse-card-footer"><a href="frame.html?entry=agent-pane.transcript&amp;variant=streaming" target="_blank">Open frame</a></footer>
               </article>
             </div>
           </section>
@@ -80,6 +81,7 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
         viewFilter: rect(".gallery-browse-view-filter"),
         card: rect(".gallery-browse-card"),
         window: rect(".gallery-window"),
+        review: rect(".gallery-browse-review"),
       };
     });
   }
@@ -102,6 +104,13 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
         expect(layout.segmented.right).toBeLessThanOrEqual(layout.controls.right);
         expect(layout.card.right).toBeLessThanOrEqual(layout.main.right);
         expect(layout.window.width).toBeLessThanOrEqual(layout.card.width);
+        expect(layout.review.left).toBeGreaterThanOrEqual(layout.card.left);
+        expect(layout.review.right).toBeLessThanOrEqual(layout.card.right);
+        expect(await page.locator(".gallery-browse-card .gallery-browse-review").count()).toBe(1);
+        expect(await page.locator(".gallery-browse-review").getAttribute("href")).toContain("/streaming?");
+        expect(await page.locator(".gallery-browse-review").getAttribute("aria-label")).toBe(
+          "Review Transcript · streaming",
+        );
         await page.close();
       });
     });

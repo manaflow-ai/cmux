@@ -65,7 +65,7 @@ function galleryNativeCalls(document: Document): GalleryNativeCall[] {
   );
 }
 
-async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed", id: string): Promise<void> {
+async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed" | "workspace", id: string): Promise<void> {
   await ctx.waitFor(() =>
     galleryNativeCalls(ctx.document).some(
       (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
@@ -314,6 +314,29 @@ export default agentPaneEntry({
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
+      },
+    },
+    "workspace-switch": {
+      note: "Canonical workspace switch: type Release, choose the Release workspace suggestion, and hand the jump to the native host.",
+      ready: newTab({
+        omnibar: {
+          tabs: [{ id: "tab-release", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-release", name: "Release", detail: "~/src/release" }],
+          folders: [CWD],
+          commands: [],
+          history: [],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("Release", { selector: ".nt-field" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="option"]')].some(
+            (row) => row.dataset.type === "workspace" && row.textContent?.includes("Release"),
+          ),
+        );
+        await ctx.click({ role: "option", name: /^Release\s+~\/src\/release/ });
+        await waitForTabJump(ctx, "workspace", "workspace-release");
       },
     },
     "typed-reddit": {

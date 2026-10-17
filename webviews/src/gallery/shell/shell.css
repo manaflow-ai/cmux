@@ -485,6 +485,12 @@ body {
   gap: 8px;
   padding: 10px 12px 6px;
 }
+.gallery-browse-card-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
 .gallery-browse-card-header h2 {
   margin: 0;
   font-size: 14px;
@@ -499,6 +505,27 @@ body {
   flex: 0 0 auto;
   color: var(--g-muted);
   font-size: 11px;
+}
+.gallery-browse-review {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--g-text);
+  border-radius: 5px;
+  background: var(--g-text);
+  color: var(--g-panel);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.gallery-browse-review:hover {
+  border-color: var(--g-muted);
+  background: var(--g-muted);
+}
+.gallery-browse-review:focus-visible {
+  outline: 2px solid var(--g-text);
+  outline-offset: 3px;
 }
 .gallery-browse-variants {
   display: flex;
