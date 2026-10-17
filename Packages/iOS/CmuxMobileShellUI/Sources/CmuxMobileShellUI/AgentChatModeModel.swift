@@ -400,6 +400,20 @@ final class AgentChatModeModel {
             connectionState = .reconnecting
             reconnectAttempt += 1
             await reconnectDelay(reconnectAttempt)
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            // Reconcile the session snapshot and transcript after an EOF. The
+            // stream has no replay cursor, so events published while it was
+            // down can only be recovered from the host's authoritative state.
+            await loadSessions(source: source, generation: generation)
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            if let selectedSessionID {
+                await loadHistory(
+                    sessionID: selectedSessionID,
+                    source: source,
+                    reset: true,
+                    generation: generation
+                )
+            }
         }
     }
 
@@ -548,6 +562,18 @@ final class AgentChatModeModel {
                   selectedSessionID == sessionID else { return }
             reconnectAttempt += 1
             await reconnectDelay(reconnectAttempt)
+            guard !Task.isCancelled,
+                  generation == sourceGeneration,
+                  selectedSessionID == sessionID else { return }
+            // Session streams do not replay missed events after EOF. Reload
+            // the transcript before subscribing again so the next stream
+            // starts from a complete, current sequence.
+            await loadHistory(
+                sessionID: sessionID,
+                source: source,
+                reset: true,
+                generation: generation
+            )
         }
     }
 

@@ -118,6 +118,48 @@ import Testing
         #expect(model.selectedSession?.title == "Reconnected")
     }
 
+    @Test func hostStreamEOFReloadsSelectedHistory() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [
+                    page(message(id: "before-gap", seq: 1, text: "before gap")),
+                    page(message(id: "during-gap", seq: 2, text: "during gap")),
+                ],
+            ]
+        )
+        let model = AgentChatModeModel(reconnectDelay: { _ in })
+
+        model.updateSource(source)
+        await settle()
+        await source.finishHostEvents()
+        await settle()
+
+        #expect(model.selectedMessages.map(\.id) == ["during-gap"])
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
+    }
+
+    @Test func sessionStreamEOFReloadsHistoryBeforeResubscribing() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [
+                    page(message(id: "before-gap", seq: 1, text: "before gap")),
+                    page(message(id: "during-gap", seq: 2, text: "during gap")),
+                ],
+            ]
+        )
+        let model = AgentChatModeModel(reconnectDelay: { _ in })
+
+        model.updateSource(source)
+        await settle()
+        await source.finishEvents(sessionID: "session")
+        await settle()
+
+        #expect(model.selectedMessages.map(\.id) == ["during-gap"])
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
+    }
+
     @Test func historyPaginationDeduplicatesAndPrependsOlderMessages() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -437,6 +479,11 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     func finishHostEvents() {
         hostContinuation?.finish()
         hostContinuation = nil
+    }
+
+    func finishEvents(sessionID: String) {
+        eventContinuations[sessionID]?.finish()
+        eventContinuations[sessionID] = nil
     }
 
     private func setEventContinuation(_ continuation: AsyncStream<ChatSessionEvent>.Continuation, for sessionID: String) {

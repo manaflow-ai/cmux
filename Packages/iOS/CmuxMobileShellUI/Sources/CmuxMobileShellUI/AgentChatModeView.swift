@@ -521,6 +521,7 @@ private struct AgentStatusIndicator: View {
 private struct AgentChatTranscriptView: View {
     @Bindable var model: AgentChatModeModel
     @FocusState private var composerFocused: Bool
+    @State private var suppressNextMessageAutoScroll = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -532,7 +533,17 @@ private struct AgentChatTranscriptView: View {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if model.selectedHasMoreHistory {
                             Button {
-                                Task { await model.loadOlderMessages() }
+                                let countBeforeLoad = model.selectedMessages.count
+                                suppressNextMessageAutoScroll = true
+                                Task {
+                                    await model.loadOlderMessages()
+                                    // If the page was empty or the request was
+                                    // cancelled, no count change will arrive
+                                    // to consume the suppression token.
+                                    if model.selectedMessages.count == countBeforeLoad {
+                                        suppressNextMessageAutoScroll = false
+                                    }
+                                }
                             } label: {
                                 Label("Load earlier messages", systemImage: "chevron.up")
                                     .font(.footnote.weight(.medium))
@@ -571,17 +582,21 @@ private struct AgentChatTranscriptView: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: model.selectedMessages.count) { _, _ in
+                    guard !suppressNextMessageAutoScroll else {
+                        suppressNextMessageAutoScroll = false
+                        return
+                    }
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: model.selectedStreamingMessage?.id) { _, _ in
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
+                .refreshable { await model.refresh() }
             }
             AgentChatComposer(model: model, focused: $composerFocused)
         }
         .background(Color(.systemBackground))
         .accessibilityIdentifier("MobileAgentConversation")
-        .refreshable { await model.refresh() }
     }
 }
 
