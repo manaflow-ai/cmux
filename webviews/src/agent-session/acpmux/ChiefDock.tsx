@@ -174,7 +174,7 @@ export function ChiefDock({
                   >
                     {cardStatus !== "idle" && (
                       <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
-                        <Icon name={STATUS_ICONS[cardStatus]} size={17} row />
+                        <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
                       </span>
                     )}
                     <span className="acpmux-chief-card-copy">
