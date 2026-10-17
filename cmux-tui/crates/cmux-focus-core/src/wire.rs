@@ -1,19 +1,14 @@
-//! The JSON requests the app sends over the app FFI for the per-key rules
-//! (`cmux_layout_reducer_json` operations `focus_type_ahead`,
-//! `focus_child_window_key`) and their responses. The focus machine itself
-//! is a handle with typed events and replies (the FFI crate's `focus`
-//! module), not JSON.
+//! The JSON requests the app sends over the app FFI
+//! (`cmux_layout_reducer_json` operations `focus_reduce`,
+//! `focus_changes_view`, `focus_type_ahead`, `focus_child_window_key`) and
+//! their responses. One call per event or key, synchronous, no I/O.
 
 use crate::child_window::{self, Decision, Facts};
-use crate::event::FocusEvent;
+use crate::event::{FocusEffect, FocusEvent};
 use crate::reducer;
 use crate::state::FocusState;
 use crate::type_ahead::TypeAheadQueue;
 use serde::{Deserialize, Serialize};
-
-// Compatibility for app builds pinned before the handle ABI: the old
-// whole-state JSON ops (`focus_reduce`, `focus_changes_view`). Delete them
-// once the app's CCmuxAppFFI pin uses `cmux_focus_*` (bead cx-8w027.2).
 
 #[derive(Debug, Deserialize)]
 pub struct ReduceRequest {
@@ -21,19 +16,15 @@ pub struct ReduceRequest {
     pub event: FocusEvent,
 }
 
-pub fn reduce(request: ReduceRequest) -> serde_json::Value {
-    let mut state = request.state;
-    state.derive();
-    let mut effects = Vec::new();
-    match request.event {
-        FocusEvent::Topology { topology } => {
-            reducer::set_topology(&mut state, topology, &mut effects);
-        }
-        event => {
-            reducer::reduce(&mut state, &event, &mut effects);
-        }
-    }
-    serde_json::json!({"state": state.export(), "effects": effects})
+#[derive(Debug, Serialize)]
+pub struct ReduceResponse {
+    pub state: FocusState,
+    pub effects: Vec<FocusEffect>,
+}
+
+pub fn reduce(request: &ReduceRequest) -> ReduceResponse {
+    let (state, effects) = reducer::reduce(&request.state, &request.event);
+    ReduceResponse { state, effects }
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,8 +32,14 @@ pub struct ChangesViewRequest {
     pub event: FocusEvent,
 }
 
-pub fn changes_view(request: &ChangesViewRequest) -> serde_json::Value {
-    serde_json::json!({"changesView": request.event.changes_view()})
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangesViewResponse {
+    pub changes_view: bool,
+}
+
+pub fn changes_view(request: &ChangesViewRequest) -> ChangesViewResponse {
+    ChangesViewResponse { changes_view: request.event.changes_view() }
 }
 
 #[derive(Debug, Deserialize)]
