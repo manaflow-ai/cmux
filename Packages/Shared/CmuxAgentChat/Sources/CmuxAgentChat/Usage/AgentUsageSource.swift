@@ -11,6 +11,8 @@ public enum AgentUsageSource: String, Sendable, Equatable, Hashable, CaseIterabl
     /// Codex rollout JSONL: `turn_context` lines carry `model` and
     /// `event_msg` `token_count` lines carry cumulative and last-request usage.
     case codex
+    /// OpenCode ACP currently has no stable local token-count record.
+    case opencode
 
     /// Maps a hook event `_source` string to a usage source.
     ///
@@ -25,6 +27,7 @@ public enum AgentUsageSource: String, Sendable, Equatable, Hashable, CaseIterabl
         switch self {
         case .claude: return "claude_code"
         case .codex: return "codex"
+        case .opencode: return "opencode"
         }
     }
 }

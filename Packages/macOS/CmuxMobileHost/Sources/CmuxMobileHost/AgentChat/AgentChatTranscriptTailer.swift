@@ -1,10 +1,11 @@
 public import CmuxAgentChat
 import CmuxFoundation
 import Foundation
+import SQLite3
 
-/// Tails one agent session's transcript JSONL: initial bounded backfill,
-/// incremental parsing on file growth, an in-memory message cache for
-/// history paging, and append/update batches for live push.
+/// Tails one agent session's transcript source: JSONL for Claude/Codex and the
+/// SQLite message/part tables for OpenCode. It keeps an in-memory message
+/// cache for history paging and emits append/update batches for live push.
 ///
 /// Seq stability: `seq` equals the absolute transcript line index. The
 /// initial backfill may skip a long head (bounded memory), in which case
@@ -27,6 +28,7 @@ public actor AgentChatTranscriptTailer {
     private let sessionID: String
     private let agentKind: ChatAgentKind
     private let path: String
+    private let openCodeDatabaseSessionID: String?
     private let onBatch: @Sendable (Batch) async -> Void
 
     private let maxInitialLines: Int
@@ -43,9 +45,10 @@ public actor AgentChatTranscriptTailer {
     private var pendingFragment = Data()
     private var headTruncated = false
     private var watchTask: Task<Void, Never>?
-    private var watcher: FileWatcher?
+    private var watchers: [FileWatcher] = []
     private var started = false
     private var reportedTitle = false
+    private var openCodeMessagesByID: [String: ChatMessage] = [:]
 
     /// Creates a tailer.
     ///
@@ -60,6 +63,7 @@ public actor AgentChatTranscriptTailer {
         sessionID: String,
         agentKind: ChatAgentKind,
         path: String,
+        openCodeDatabaseSessionID: String? = nil,
         maxInitialLines: Int = 2000,
         maxCachedMessages: Int = 4000,
         onBatch: @escaping @Sendable (Batch) async -> Void
@@ -67,6 +71,7 @@ public actor AgentChatTranscriptTailer {
         self.sessionID = sessionID
         self.agentKind = agentKind
         self.path = path
+        self.openCodeDatabaseSessionID = openCodeDatabaseSessionID
         self.maxInitialLines = maxInitialLines
         self.maxCachedMessages = maxCachedMessages
         self.onBatch = onBatch
@@ -77,9 +82,30 @@ public actor AgentChatTranscriptTailer {
     public func start() async {
         guard !started else { return }
         started = true
+        if isOpenCodeDatabase {
+            await reloadOpenCodeDatabase(notify: false)
+            let watchers = [path, path + "-wal", path + "-shm"].map {
+                FileWatcher(path: $0, throttle: .milliseconds(250))
+            }
+            self.watchers = watchers
+            watchTask = Task { [weak self] in
+                await withTaskGroup(of: Void.self) { group in
+                    for watcher in watchers {
+                        group.addTask { [weak self] in
+                            for await _ in watcher.events {
+                                guard let self else { return }
+                                await self.reloadOpenCodeDatabase(notify: true)
+                            }
+                        }
+                    }
+                    await group.waitForAll()
+                }
+            }
+            return
+        }
         loadInitialTail()
         let watcher = FileWatcher(path: path, throttle: .milliseconds(200))
-        self.watcher = watcher
+        self.watchers = [watcher]
         watchTask = Task { [weak self] in
             for await _ in watcher.events {
                 guard let self else { return }
@@ -92,10 +118,10 @@ public actor AgentChatTranscriptTailer {
     public func stop() async {
         watchTask?.cancel()
         watchTask = nil
-        if let watcher {
+        for watcher in watchers {
             await watcher.stop()
         }
-        watcher = nil
+        watchers.removeAll()
     }
 
     /// Serves one history page from the cache, keeping equal-seq groups
@@ -181,6 +207,169 @@ public actor AgentChatTranscriptTailer {
         trimCacheIfNeeded()
     }
 
+    private var isOpenCodeDatabase: Bool {
+        agentKind == .opencode && openCodeDatabaseSessionID != nil
+    }
+
+    /// Reads OpenCode's SQLite session database into the same typed message
+    /// cache used by JSONL agents. The database is read-only and scoped to one
+    /// session, so a busy live OpenCode process never receives a write lock.
+    private func reloadOpenCodeDatabase(notify: Bool) async {
+        guard let sessionID = openCodeDatabaseSessionID else { return }
+        guard let snapshot = try? AgentChatOpenCodeDatabaseSnapshot.make(
+            sourceURL: URL(fileURLWithPath: path),
+            prefix: "cmux-agent-chat"
+        ) else { return }
+        defer { snapshot.remove() }
+        guard let messages = Self.readOpenCodeMessages(
+            databasePath: snapshot.databaseURL.path,
+            sessionID: sessionID
+        ) else { return }
+        let oldByID = openCodeMessagesByID
+        let newByID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        let removed = oldByID.keys.contains { newByID[$0] == nil }
+        cache = Array(messages.suffix(maxCachedMessages))
+        openCodeMessagesByID = newByID
+        headTruncated = messages.count > maxCachedMessages
+        lineCount = messages.count
+        reportedTitle = reportedTitle || title != nil
+        guard notify else { return }
+        let appended = messages.filter { oldByID[$0.id] == nil }
+        let updated = messages.filter { message in
+            oldByID[message.id].map { old in old != message } ?? false
+        }
+        guard removed || !appended.isEmpty || !updated.isEmpty else { return }
+        await onBatch(Batch(
+            appended: appended,
+            updated: updated,
+            discoveredTitle: nil,
+            didReset: removed
+        ))
+    }
+
+    private static func readOpenCodeMessages(databasePath: String, sessionID: String) -> [ChatMessage]? {
+        var database: OpaquePointer?
+        let openResult = sqlite3_open_v2(databasePath, &database, SQLITE_OPEN_READONLY, nil)
+        guard openResult == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            return nil
+        }
+        defer { sqlite3_close(database) }
+        _ = sqlite3_busy_timeout(database, 100)
+
+        let query = """
+            SELECT m.id, m.data, p.id, p.data,
+                   COALESCE(p.time_created, m.time_created), m.time_created
+            FROM message m
+            LEFT JOIN part p ON p.message_id = m.id
+            WHERE m.session_id = ?
+            ORDER BY m.time_created, m.id, p.time_created, p.id
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK else { return nil }
+
+        var messages: [ChatMessage] = []
+        var sequence = 0
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let messageID = sqliteText(statement, 0) ?? "message-\(sequence)"
+            let messageJSON = sqliteText(statement, 1)
+            let partID = sqliteText(statement, 2)
+            let partJSON = sqliteText(statement, 3)
+            let timestamp = sqliteDate(sqlite3_column_double(statement, 4))
+            let role = openCodeRole(messageJSON)
+            guard let kind = openCodeKind(partJSON ?? messageJSON, role: role) else { continue }
+            let stableID = "opencode:\(partID ?? messageID):\(sequence)"
+            messages.append(ChatMessage(
+                id: stableID,
+                seq: sequence,
+                role: role,
+                timestamp: timestamp,
+                kind: kind
+            ))
+            sequence += 1
+        }
+        return messages
+    }
+
+    private static func sqliteText(_ statement: OpaquePointer?, _ index: Int32) -> String? {
+        guard let statement, let value = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: value)
+    }
+
+    private static func sqliteDate(_ raw: Double) -> Date {
+        let seconds = raw > 10_000_000_000 ? raw / 1000 : raw
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    private static func openCodeRole(_ raw: String?) -> ChatRole {
+        guard let raw,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let role = object["role"] as? String else { return .agent }
+        switch role.lowercased() {
+        case "user": return .user
+        case "system", "developer": return .system
+        default: return .agent
+        }
+    }
+
+    private static func openCodeKind(_ raw: String?, role: ChatRole) -> ChatMessageKind? {
+        guard let raw,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let type = (object["type"] as? String)?.lowercased()
+        switch type {
+        case "reasoning":
+            return openCodeText(object).map { .thought(ChatThought(text: $0)) }
+        case "tool":
+            let name = (object["tool"] as? String) ?? (object["name"] as? String) ?? "Tool"
+            let detail = openCodeText(object) ?? name
+            let output = openCodeText(object["state"] ?? object["output"] ?? object["result"])
+            return .toolUse(ChatToolUse(
+                toolName: name,
+                summary: detail,
+                output: output,
+                status: output == nil ? .running : .succeeded
+            ))
+        case "patch":
+            let path = (object["path"] as? String) ?? (object["file"] as? String) ?? "Changed file"
+            return .fileEdit(ChatFileEdit(filePath: path, operation: .edit, unifiedDiff: openCodeText(object)))
+        case "file":
+            let path = (object["filename"] as? String) ?? (object["path"] as? String) ?? "File"
+            return .fileEdit(ChatFileEdit(filePath: path, operation: .write, unifiedDiff: openCodeText(object)))
+        case "step-start", "step-finish":
+            return nil
+        default:
+            guard let text = openCodeText(object) else { return nil }
+            return .prose(ChatProse(text: text))
+        }
+    }
+
+    private static func openCodeText(_ value: Any?) -> String? {
+        if let string = value as? String {
+            let text = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : String(text.prefix(32_000))
+        }
+        if let array = value as? [Any] {
+            let fragments = array.compactMap(openCodeText)
+            return fragments.isEmpty ? nil : fragments.joined(separator: "\n\n")
+        }
+        guard let object = value as? [String: Any] else { return nil }
+        for key in ["text", "content", "output", "result", "message", "diff", "patch", "summary"] {
+            if let text = openCodeText(object[key]) { return text }
+        }
+        return nil
+    }
+
     private func drainNewContent() async {
         guard let handle = FileHandle(forReadingAtPath: path) else { return }
         defer { try? handle.close() }
@@ -257,7 +446,7 @@ public actor AgentChatTranscriptTailer {
         switch agentKind {
         case .codex:
             return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
-        case .claude, .other:
+        case .claude, .opencode, .other:
             return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         }
     }

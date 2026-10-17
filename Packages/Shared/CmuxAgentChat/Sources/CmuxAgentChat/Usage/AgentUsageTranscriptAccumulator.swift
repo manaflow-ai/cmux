@@ -67,6 +67,8 @@ public struct AgentUsageTranscriptAccumulator: Sendable {
             guard line.range(of: Self.codexTokenCountMarker) != nil
                 || line.range(of: Self.codexTurnContextMarker) != nil else { return }
             ingestCodex(line: line)
+        case .opencode:
+            return
         }
     }
 

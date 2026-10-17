@@ -56,6 +56,8 @@ extension ChatAgentKind {
             return String(localized: "globalSearch.agent.claude", defaultValue: "Claude")
         case .codex:
             return String(localized: "agentSession.provider.codex", defaultValue: "Codex")
+        case .opencode:
+            return String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
         case .other:
             return displayName
         }

@@ -389,7 +389,7 @@ final class AgentChatTranscriptService {
         switch record.agentKind {
         case .codex:
             return true
-        case .claude, .other:
+        case .claude, .opencode, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
         }
     }
@@ -539,7 +539,8 @@ final class AgentChatTranscriptService {
         let tailer = AgentChatTranscriptTailer(
             sessionID: sessionID,
             agentKind: agentKind,
-            path: path
+            path: path,
+            openCodeDatabaseSessionID: agentKind == .opencode ? record.hookStoreLookupSessionID : nil
         ) { [weak self] batch in
             await self?.publishBatch(batch, sessionID: sessionID)
         }

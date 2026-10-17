@@ -230,6 +230,7 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var showsAgentChat = false
     /// One-time What's New notice: the unseen-page snapshot captured when the
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
@@ -355,6 +356,9 @@ struct WorkspaceShellView: View {
                     : geometry.size.width
             )
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .sheet(isPresented: $showsAgentChat) {
+                AgentChatRootView(source: store.makeChatEventSource())
+            }
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(
                     isPresented ? .searchPresented : .searchDismissed,
@@ -1406,6 +1410,14 @@ struct WorkspaceShellView: View {
             showAddDevice: showAddDevice,
             gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs
         )
+        ToolbarItem(id: "workspace-agent-chat", placement: .topBarTrailing) {
+            Button { showsAgentChat = true } label: {
+                Image(systemName: "bubble.left.and.bubble.right")
+            }
+            .accessibilityLabel("Open agent conversations")
+            .accessibilityHint("Opens the ChatGPT-style coding agent workspace.")
+            .accessibilityIdentifier("MobileAgentChatButton")
+        }
     }
 
     /// The Mail-style status line under the computers picker. Derived through

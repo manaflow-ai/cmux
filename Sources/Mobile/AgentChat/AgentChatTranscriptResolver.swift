@@ -1,8 +1,11 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import Foundation
 
-/// Resolves the transcript JSONL path for an agent session.
+/// Resolves the transcript source path for an agent session. Claude and Codex
+/// use JSONL; OpenCode uses its SQLite session database and is keyed by the
+/// session id when the host tailer reads it.
 ///
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
@@ -13,6 +16,8 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     let codexConfigRoot: URL
+    /// OpenCode's SQLite session database.
+    let openCodeDatabaseURL: URL
 
     /// Creates a resolver.
     ///
@@ -41,6 +46,11 @@ struct AgentChatTranscriptResolver: Sendable {
             override: environment["CODEX_HOME"],
             default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
+        var openCodeEnvironment = environment
+        // Keep the injected home directory authoritative for tests and for
+        // callers that construct a resolver with a relocated home.
+        openCodeEnvironment["HOME"] = homeDirectory.path
+        self.openCodeDatabaseURL = OpenCodePaths(environment: openCodeEnvironment).databaseURL
     }
 
     /// Resolves a config-dir root from an env override, expanding a leading `~`,
@@ -71,6 +81,8 @@ struct AgentChatTranscriptResolver: Sendable {
             return claudeFallbackPath(record: record)
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
+        case .opencode:
+            return openCodeFallbackPath(record: record)
         case .other:
             return nil
         }
@@ -89,6 +101,8 @@ struct AgentChatTranscriptResolver: Sendable {
             return claudeFallbackPath(record: record)
         case .codex, .other:
             return nil
+        case .opencode:
+            return openCodeFallbackPath(record: record)
         }
     }
 
@@ -141,5 +155,13 @@ struct AgentChatTranscriptResolver: Sendable {
             }
         }
         return nil
+    }
+
+    /// OpenCode stores messages in one SQLite database rather than a JSONL
+    /// transcript. The tailer uses the returned path as a database source and
+    /// scopes its query by the session id.
+    private func openCodeFallbackPath(record: AgentChatSessionRecord) -> String? {
+        guard FileManager.default.fileExists(atPath: openCodeDatabaseURL.path) else { return nil }
+        return openCodeDatabaseURL.path
     }
 }

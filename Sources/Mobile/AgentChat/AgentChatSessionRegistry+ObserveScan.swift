@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import Foundation
+import SQLite3
 
 extension AgentChatSessionRegistry {
     func reviveEndedObservedSessionIfNeeded(
@@ -232,6 +233,9 @@ extension AgentChatSessionRegistry {
         let codexIdentityResolver = CodexRolloutIdentityResolver()
         var candidateBySessionID: [String: Candidate] = [:]
         var rootPIDsBySurfaceID: [UUID: Set<Int>] = [:]
+        let openCodeDatabaseURL = OpenCodePaths(environment: ProcessInfo.processInfo.environment).databaseURL
+        var openCodeSessionByDirectory: [String: String] = [:]
+        var openCodeDirectoryMisses = Set<String>()
         func rootPIDs(for surfaceID: UUID) -> Set<Int> {
             if let cached = rootPIDsBySurfaceID[surfaceID] { return cached }
             let roots = cmuxSurfaceRootPIDs(surfaceID: surfaceID, snapshot: snapshot)
@@ -260,7 +264,7 @@ extension AgentChatSessionRegistry {
                 ),
                 processArgumentsAndEnvironment: { _ in loadDetails() }
             ),
-            def.id == "codex" || def.id == "claude" else { continue }
+            def.id == "codex" || def.id == "claude" || def.id == "opencode" else { continue }
             let loadedDetails = loadDetails()
             let argv = loadedDetails?.arguments
             let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
@@ -281,6 +285,21 @@ extension AgentChatSessionRegistry {
                let envSessionID = loadedDetails?.environment["CLAUDE_CODE_SESSION_ID"],
                let id = firstUUIDLike(in: envSessionID) {
                 sessionID = id
+            }
+            if def.id == "opencode", sessionID == nil,
+               let directory = observedWorkingDirectory(loadedDetails?.environment),
+               !openCodeDirectoryMisses.contains(directory) {
+                if let cached = openCodeSessionByDirectory[directory] {
+                    sessionID = cached
+                } else if let resolved = latestOpenCodeSessionID(
+                    databaseURL: openCodeDatabaseURL,
+                    directory: directory
+                ) {
+                    openCodeSessionByDirectory[directory] = resolved
+                    sessionID = resolved
+                } else {
+                    openCodeDirectoryMisses.insert(directory)
+                }
             }
             if sessionID == nil, let argv, !isClaudeForkLaunch {
                 sessionID = sessionIDFromArguments(argv)
@@ -451,6 +470,50 @@ extension AgentChatSessionRegistry {
             index += 1
         }
         return nil
+    }
+
+    /// Returns the newest root OpenCode session for a process directory when
+    /// the CLI did not expose its session id in argv. This is best-effort for
+    /// multiple sessions sharing a directory; explicit `--session` remains
+    /// authoritative and is handled before this fallback.
+    private nonisolated static func latestOpenCodeSessionID(
+        databaseURL: URL,
+        directory: String
+    ) -> String? {
+        guard let snapshot = try? AgentChatOpenCodeDatabaseSnapshot.make(
+            sourceURL: databaseURL,
+            prefix: "cmux-agent-discovery"
+        ) else { return nil }
+        defer { snapshot.remove() }
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let database else {
+            sqlite3_close(database)
+            return nil
+        }
+        defer { sqlite3_close(database) }
+        _ = sqlite3_busy_timeout(database, 100)
+        let query = """
+            SELECT id FROM session
+            WHERE directory = ?
+            ORDER BY time_updated DESC, id DESC
+            LIMIT 1
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, directory, -1, transient) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              let value = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+        let sessionID = String(cString: value)
+        return sessionID.isEmpty ? nil : sessionID
     }
 
     private nonisolated static func containsExplicitSessionOption(_ arguments: [String]) -> Bool {
