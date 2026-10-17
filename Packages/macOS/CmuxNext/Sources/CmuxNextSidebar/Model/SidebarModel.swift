@@ -206,7 +206,7 @@ public final class SidebarModel {
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
     /// select first/last, arrow keys) may land on: every row but
     /// placeholders, which are no workspace yet.
-    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
@@ -336,7 +336,7 @@ public final class SidebarModel {
 
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
-    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
