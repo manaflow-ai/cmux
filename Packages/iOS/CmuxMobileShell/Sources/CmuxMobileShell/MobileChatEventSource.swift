@@ -1,6 +1,7 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
 public import CmuxMobileRPC
+public import CmuxMobileShellModel
 public import Foundation
 
 private actor MobileArtifactDownloadByteCounter {
@@ -13,6 +14,10 @@ private actor MobileArtifactDownloadByteCounter {
     var value: Int {
         storedValue
     }
+}
+
+private enum MobileChatAttachmentError: Error {
+    case invalidResponse
 }
 
 /// The iOS implementation of ``CmuxAgentChat/ChatEventSource``: adapts the
@@ -231,15 +236,64 @@ public actor MobileChatEventSource: AgentChatSessionSource {
             "text": text,
         ]
         if !attachments.isEmpty {
-            params["attachments"] = attachments.map { attachment in
-                [
-                    "data_b64": attachment.data.base64EncodedString(),
-                    "format": attachment.format.rawValue,
-                ]
+            var wireAttachments: [[String: Any]] = []
+            wireAttachments.reserveCapacity(attachments.count)
+            for attachment in attachments {
+                try Task.checkCancellation()
+                if attachment.format == .file {
+                    let path = try await uploadFileAttachment(attachment)
+                    wireAttachments.append([
+                        "kind": "file",
+                        "path": path,
+                    ])
+                } else {
+                    wireAttachments.append([
+                        "kind": "image",
+                        "data_b64": attachment.data.base64EncodedString(),
+                        "format": attachment.format.rawValue,
+                    ])
+                }
             }
+            params["attachments"] = wireAttachments
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
         _ = try await client.sendRequest(request)
+    }
+
+    /// Uploads a general file through the same resumable host store used by
+    /// the task composer. The returned path is then injected into the agent's
+    /// terminal by `mobile.chat.send`, so PDFs, audio, and documents follow
+    /// the same reference-by-path behavior as images.
+    private func uploadFileAttachment(_ attachment: ChatOutboundAttachment) async throws -> String {
+        let operationID = UUID().uuidString
+        let uploadID = UUID().uuidString
+        let plan = MobileTaskAttachmentChunkPlan(totalByteCount: attachment.data.count)
+        var finalPath: String?
+        for (index, range) in plan.ranges.enumerated() {
+            try Task.checkCancellation()
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.task.attachment.upload",
+                params: [
+                    "operation_id": operationID,
+                    "upload_id": uploadID,
+                    "file_name": attachment.fileName ?? "attachment",
+                    "total_bytes": attachment.data.count,
+                    "offset": range.lowerBound,
+                    "data_b64": attachment.data.subdata(in: range).base64EncodedString(),
+                    "last": index == plan.ranges.count - 1,
+                ]
+            )
+            let response = try await client.sendRequest(request)
+            guard index == plan.ranges.count - 1 else { continue }
+            guard let object = try JSONSerialization.jsonObject(with: response) as? [String: Any],
+                  let path = object["path"] as? String,
+                  path.hasPrefix("/") else {
+                throw MobileChatAttachmentError.invalidResponse
+            }
+            finalPath = path
+        }
+        guard let finalPath else { throw MobileChatAttachmentError.invalidResponse }
+        return finalPath
     }
 
     public func interrupt(sessionID: String, hard: Bool) async throws {

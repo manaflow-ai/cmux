@@ -43,7 +43,7 @@ final class AgentChatModeModel {
         }
 
         var outbound: ChatOutboundAttachment {
-            ChatOutboundAttachment(data: data, format: format)
+            ChatOutboundAttachment(data: data, format: format, fileName: format == .file ? displayName : nil)
         }
     }
 
@@ -534,11 +534,16 @@ final class AgentChatModeModel {
 
     func addAttachment(_ attachment: PendingAttachment) {
         guard attachments.count < 10 else {
-            errorMessage = "You can attach up to 10 images."
+            errorMessage = "You can attach up to 10 files."
             return
         }
-        guard attachment.data.count <= MobileImageAttachmentPreparer.maximumEncodedBytes else {
-            errorMessage = "That image is too large to send."
+        let maximumBytes = attachment.format == .file
+            ? 32 * 1024 * 1024
+            : MobileImageAttachmentPreparer.maximumEncodedBytes
+        guard attachment.data.count <= maximumBytes else {
+            errorMessage = attachment.format == .file
+                ? "That file is too large to send."
+                : "That image is too large to send."
             return
         }
         let totalBytes = attachments.reduce(0) { $0 + $1.data.count }

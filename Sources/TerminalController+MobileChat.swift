@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
+import CmuxControlSocket
 import CmuxTerminal
 import Foundation
 
@@ -315,15 +316,37 @@ extension TerminalController {
             return mobileChatInputError(clearResult)
         }
         for (index, attachment) in attachments.enumerated() {
-            guard let base64 = attachment["data_b64"] as? String else {
-                return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
-            }
-            var imageParams = terminalParams
-            imageParams["image_base64"] = base64
-            imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
-            let result = v2MobileTerminalPasteImage(params: imageParams)
-            if case .err = result {
-                return result
+            let kind = (attachment["kind"] as? String) ?? "image"
+            switch kind {
+            case "file":
+                guard let path = attachment["path"] as? String,
+                      path.hasPrefix("/"),
+                      !path.contains("\0"),
+                      Self.chatAttachmentPathIsOwned(path) else {
+                    return .err(code: "invalid_params", message: "File attachment missing an absolute path", data: nil)
+                }
+                let sendResult = terminalTarget.sendInputResult(Self.chatShellWord(path))
+                switch sendResult {
+                case .sent, .queued:
+                    break
+                case .inputQueueFull:
+                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+                case .surfaceUnavailable:
+                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+                case .processExited:
+                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+                }
+            default:
+                guard let base64 = attachment["data_b64"] as? String else {
+                    return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
+                }
+                var imageParams = terminalParams
+                imageParams["image_base64"] = base64
+                imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
+                let result = v2MobileTerminalPasteImage(params: imageParams)
+                if case .err = result {
+                    return result
+                }
             }
             // Separate each pasted path from the next path or the prompt
             // (the local Mac paste joins with spaces too) so the agent
@@ -365,6 +388,26 @@ extension TerminalController {
         var pasteParams = terminalParams
         pasteParams["text"] = text
         return await v2MobileTerminalPaste(params: pasteParams)
+    }
+
+    /// Quotes a host materialized attachment path before it enters the agent's
+    /// shell-backed terminal. The upload store already restricts paths to its
+    /// own absolute directory; quoting also keeps spaces and shell metacharacters
+    /// inside the attachment reference.
+    private static func chatShellWord(_ path: String) -> String {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%=")
+        guard !path.isEmpty, path.unicodeScalars.allSatisfy(safe.contains) else {
+            return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return path
+    }
+
+    private static func chatAttachmentPathIsOwned(_ path: String) -> Bool {
+        let root = MobileTaskAttachmentStore.defaultRootURL(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        ).standardizedFileURL.path
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+        return candidate == root || candidate.hasPrefix(root + "/")
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
