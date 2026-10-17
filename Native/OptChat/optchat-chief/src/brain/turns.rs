@@ -480,10 +480,7 @@ impl Brain {
             .frozen
             .as_ref()
             .and_then(crate::state::FrozenRecord::frozen);
-        let len = self.chat.status().messages;
-        let (input, delta_end) = self
-            .chat
-            .turn_input(frozen.as_ref(), len.saturating_sub(first_new));
+        let (input, delta_end) = self.chat.turn_input(frozen.as_ref(), first_new);
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
         self.note_engine(&engine);

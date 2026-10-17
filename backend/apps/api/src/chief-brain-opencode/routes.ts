@@ -21,6 +21,8 @@ const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, mess
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
 export const opencodeOn = (env: Env) => env.CHIEF_OPENCODE_ENABLED === "1" && env.OPENCODE_BRAIN_DO !== undefined
 const brainOf = (env: Env, agent: string) => env.OPENCODE_BRAIN_DO!.get(env.OPENCODE_BRAIN_DO!.idFromName(agent))
+/** MuxDO keeps the Chief's brain_impl: the one routing truth (mux-do.ts setBrainImpl). */
+const muxOf = (env: Env, agent: string) => env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as { setBrainImpl(impl: "pi" | "opencode"): Promise<void>; brainImplOf(): Promise<string> }
 
 export const handleBrainImpl = async (request: Request, env: Env, agent: string): Promise<Response> => {
   if (!opencodeOn(env)) return fail({ status: 404, code: "not_found", message: "the opencode brain is off on this deployment" })
@@ -32,9 +34,11 @@ export const handleBrainImpl = async (request: Request, env: Env, agent: string)
   const owned = await chiefOwnedBy(env, agent, p)
   if (!owned) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner chooses its brain" })
   const brain = brainOf(env, agent)
-  if (request.method === "GET") return ok({ impl: await brain.impl() })
+  if (request.method === "GET") return ok({ impl: (await muxOf(env, agent).brainImplOf()) === "opencode" ? "opencode" : "pi" })
   const body = (await request.json().catch(() => null)) as { impl?: unknown } | null
   if (body?.impl !== "pi" && body?.impl !== "opencode") return fail({ status: 400, code: "validation.invalid", message: 'impl is "pi" or "opencode"' })
+  // The routing truth first (MuxDO), then the brain object (owner binding, container stop on pi).
+  await muxOf(env, agent).setBrainImpl(body.impl)
   return ok(await brain.setImpl(agent, owned.owner, body.impl))
 }
 
@@ -64,8 +68,8 @@ export const handleOpencodeRuns = async (request: Request, env: Env, agent: stri
   if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
   const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
   if (!(await conv.readOp(conversation, caller.principal, "conversation.history", { limit: 1 })).ok) return fail(hidden)
+  if ((await muxOf(env, agent).brainImplOf()) !== "opencode") return p()
   const brain = brainOf(env, agent)
-  if ((await brain.impl()) !== "opencode") return p()
   if (!run) return ok(await brain.runs(conversation, num("before"), Math.min(Math.max(Math.floor(num("limit") ?? 20), 1), 100)))
   const found = (await (brain.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
   return found && found.run.conversation === conversation ? ok(found) : fail(hidden)

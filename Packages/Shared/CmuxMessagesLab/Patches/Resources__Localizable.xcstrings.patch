@@ -1,1113 +1,577 @@
 --- a/Sources/MessagesLabHome/Resources/Localizable.xcstrings
 +++ b/Sources/MessagesLabHome/Resources/Localizable.xcstrings
-@@ -4,1125 +4,8649 @@
+@@ -4,33 +4,261 @@
      "compose.placeholder.reply": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Reply"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "رد"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "返信"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Odgovori"
-           }
--        }
--      }
--    },
--    "compose.placeholder": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "iMessage"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Svar"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "iMessage"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Antworten"
-           }
--        }
--      }
--    },
--    "label.edited": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "Edited"
-+            "value": "Reply"
+             "value": "Reply"
            }
          },
--        "ja": {
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "編集済み"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Responder"
-           }
--        }
--      }
--    },
--    "label.notDelivered": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Not Delivered"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Répondre"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "it": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "未配信"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Rispondi"
-           }
--        }
--      }
--    },
--    "label.replies": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "%lld Replies"
--          }
-         },
++          }
++        },
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "%lld件の返信"
-+            "value": "返信"
+             "value": "返信"
            }
--        }
--      }
--    },
--    "longtext.showAll": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
 +        },
 +        "km": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Show all %lld lines"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "ឆ្លើយតប"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ko": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "全%lld行を表示"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "답장"
-           }
--        }
--      }
--    },
--    "longtext.showLess": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "nb": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Show less"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Svar"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "pl": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "表示を減らす"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Odpowiedz"
-           }
--        }
--      }
--    },
--    "menu.copy": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "pt-BR": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Copy"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Responder"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ru": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "コピー"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Ответить"
-           }
--        }
--      }
--    },
--    "menu.copyLink": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "th": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Copy Link"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "ตอบกลับ"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "tr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "リンクをコピー"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Yanıtla"
-           }
--        }
--      }
--    },
--    "menu.edit": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "uk": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Edit"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Відповісти"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "vi": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "編集"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Trả lời"
-           }
--        }
--      }
--    },
--    "menu.reply": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "zh-Hans": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Reply"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "回复"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "zh-Hant": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "返信"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "回覆"
-           }
++          }
          }
        }
      },
--    "menu.tapback": {
-+    "compose.placeholder": {
+     "compose.placeholder": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Tapback"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "رسالة"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Tapback"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Poruka"
-           }
--        }
--      }
--    },
--    "menu.undoSend": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Undo Send"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Besked"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "送信を取り消す"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Nachricht"
-           }
--        }
--      }
--    },
--    "receipt.delivered": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "Delivered"
+-            "value": "iMessage"
 +            "value": "Message"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "配信済み"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Mensaje"
-           }
--        }
--      }
--    },
--    "receipt.read": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Read"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Message"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "it": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "開封済み"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Messaggio"
            }
--        }
--      }
--    },
--    "row.unsent.mine": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "You unsent a message"
--          }
          },
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "メッセージの送信を取り消しました"
+-            "value": "iMessage"
 +            "value": "メッセージ"
-           }
--        }
--      }
--    },
--    "row.unsent.theirs": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "km": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "A message was unsent"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "សារ"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ko": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "メッセージの送信が取り消されました"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "메시지"
-           }
--        }
--      }
--    },
--    "separator.today": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "nb": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Today"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Melding"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "pl": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "今日"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Wiadomość"
-           }
--        }
--      }
--    },
--    "separator.yesterday": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "pt-BR": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Yesterday"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Mensagem"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ru": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "昨日"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Сообщение"
-           }
--        }
--      }
--    },
--    "tapback.dislike": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "th": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Dislike"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "ข้อความ"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "tr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "よくない"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Mesaj"
-           }
--        }
--      }
--    },
--    "tapback.emphasize": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "Emphasize"
++          }
 +        },
 +        "uk": {
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Повідомлення"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "vi": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "強調"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Tin nhắn"
-           }
--        }
--      }
--    },
--    "tapback.laugh.glyph": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "zh-Hans": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "HA\nHA"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "信息"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "zh-Hant": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "HA\nHA"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "訊息"
            }
          }
        }
-     },
--    "tapback.laugh": {
-+    "label.edited": {
+@@ -38,730 +266,5501 @@
+     "label.edited": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Laugh"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "تم التعديل"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "笑う"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Uređeno"
-           }
--        }
--      }
--    },
--    "tapback.like": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Like"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Redigeret"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "いいね"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Bearbeitet"
-           }
--        }
--      }
--    },
--    "tapback.love": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "Love"
-+            "value": "Edited"
+             "value": "Edited"
            }
          },
--        "ja": {
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "ハート"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Editado"
-           }
--        }
--      }
--    },
--    "tapback.question": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Question"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Modifié"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "it": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "はてな"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Modificato"
-           }
--        }
--      }
--    },
--    "preview.location": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "Location"
--          }
-         },
++          }
++        },
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "位置情報"
-+            "value": "編集済み"
+             "value": "編集済み"
            }
--        }
--      }
--    },
--    "file.kind.pdf": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
 +        },
 +        "km": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "PDF Document"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "បានកែ"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ko": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "PDF書類"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "편집됨"
-           }
--        }
--      }
--    },
--    "file.kind.zip": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "nb": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "ZIP Archive"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Redigert"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "pl": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "ZIPアーカイブ"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Edytowano"
-           }
--        }
--      }
--    },
--    "file.kind.audio": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "pt-BR": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Audio Recording"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Editada"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ru": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "オーディオ録音"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Изменено"
-           }
--        }
--      }
--    },
--    "file.kind.document": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "th": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Document"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "แก้ไขแล้ว"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "tr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "書類"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Düzenlendi"
-           }
--        }
--      }
--    },
--    "menu.tapbackDetails": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "uk": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Tapback Details…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Змінено"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "vi": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "タップバックの詳細…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Đã sửa"
-           }
--        }
--      }
--    },
--    "menu.attachSticker": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "zh-Hans": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Attach Sticker…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "已编辑"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "zh-Hant": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "ステッカーを添付…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "已編輯"
-           }
++          }
          }
        }
      },
--    "menu.share": {
-+    "label.notDelivered": {
+     "label.notDelivered": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Share…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "لم يتم التسليم"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "共有…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Nije isporučeno"
-           }
--        }
--      }
--    },
--    "menu.delete": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Delete…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Ikke leveret"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "削除…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Nicht zugestellt"
-           }
--        }
--      }
--    },
--    "menu.replyEllipsis": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "Reply…"
-+            "value": "Not Delivered"
+             "value": "Not Delivered"
            }
          },
--        "ja": {
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "返信…"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "No entregado"
-           }
--        }
--      }
--    },
--    "tapback.details.title": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Tapbacks"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Non distribué"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "it": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "タップバック"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Non consegnato"
-           }
--        }
--      }
--    },
--    "tapback.details.none": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "No Tapbacks"
--          }
-         },
++          }
++        },
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "タップバックなし"
-+            "value": "未配信"
+             "value": "未配信"
            }
--        }
--      }
--    },
--    "delete.confirm.title": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
 +        },
 +        "km": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Delete this message?"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "មិនបានបញ្ជូន"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ko": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "このメッセージを削除しますか?"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "전송되지 않음"
-           }
--        }
--      }
--    },
--    "delete.confirm.info": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "nb": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "It is deleted from this Mac."
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Ikke levert"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "pl": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "このMacから削除されます。"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Nie dostarczono"
-           }
--        }
--      }
--    },
--    "delete.confirm.button": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "pt-BR": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Delete"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Não Entregue"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ru": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "削除"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Не доставлено"
-           }
--        }
--      }
--    },
--    "delete.confirm.cancel": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "th": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Cancel"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "ไม่ได้ส่ง"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "tr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "キャンセル"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "İletilmedi"
-           }
--        }
--      }
--    },
--    "markdown.ax.checked": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "uk": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "checked"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Не доставлено"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "vi": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "チェック済み"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Chưa gửi được"
-           }
--        }
--      }
--    },
--    "markdown.ax.codeBlock": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "zh-Hans": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Code block, %@"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "未送达"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "zh-Hant": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "コードブロック、%@"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "未送達"
-           }
++          }
          }
        }
      },
--    "markdown.ax.codeText": {
-+    "label.replies": {
+     "label.replies": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "text"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld من الردود"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "テキスト"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Odgovora: %lld"
-           }
--        }
--      }
--    },
--    "markdown.ax.heading": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Heading level %d"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld svar"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "見出しレベル %d"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld Antworten"
-           }
--        }
--      }
--    },
--    "markdown.ax.list": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "List, %d items"
-+            "value": "%lld Replies"
+             "value": "%lld Replies"
            }
          },
--        "ja": {
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "リスト、%d 項目"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld respuestas"
-           }
--        }
--      }
--    },
--    "markdown.ax.quote": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Quote"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld réponses"
-           }
-         },
++          }
++        },
 +        "it": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1117,240 +581,128 @@
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "引用"
-+            "value": "%lld件の返信"
+             "value": "%lld件の返信"
            }
--        }
--      }
--    },
--    "markdown.ax.table": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "Table, %1$d rows, %2$d columns"
 +        },
 +        "km": {
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "ការឆ្លើយតប %lld"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ko": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "表、%1$d 行、%2$d 列"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "답장 %lld개"
-           }
--        }
--      }
--    },
--    "markdown.ax.unchecked": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "nb": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "not checked"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld svar"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "pl": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "未チェック"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Odpowiedzi: %lld"
-           }
--        }
--      }
--    },
--    "markdown.code.more": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "pt-BR": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "… %@ more characters"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld respostas"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "ru": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "… ほか %@ 文字"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Ответов: %lld"
-           }
--        }
--      }
--    },
--    "markdown.image.placeholder": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "th": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[Image: %@]"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "การตอบกลับ %lld รายการ"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "tr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[画像: %@]"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld Yanıt"
-           }
--        }
--      }
--    },
--    "markdown.image.placeholderEmpty": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "uk": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[Image]"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Відповідей: %lld"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "vi": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[画像]"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld trả lời"
-           }
--        }
--      }
--    },
--    "markdown.copied": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "zh-Hans": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Copied"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld 条回复"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "zh-Hant": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "コピーしました"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "%lld 則回覆"
-           }
++          }
          }
        }
      },
--    "markdown.copy": {
-+    "longtext.showAll": {
+     "longtext.showAll": {
        "extractionState": "manual",
        "localizations": {
--        "en": {
 +        "ar": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Copy"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "عرض كل الأسطر (%lld)"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "bs": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "コピー"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Prikaži sve redove (%lld)"
-           }
--        }
--      }
--    },
--    "markdown.copySource": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Copy Markdown"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Vis alle %lld linjer"
-           }
-         },
--        "ja": {
++          }
++        },
 +        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Markdownをコピー"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Alle %lld Zeilen anzeigen"
-           }
--        }
--      }
--    },
--    "markdown.showFormatted": {
--      "extractionState": "manual",
--      "localizations": {
++          }
 +        },
          "en": {
            "stringUnit": {
              "state": "translated",
--            "value": "Show Formatted Text"
-+            "value": "Show all %lld lines"
+             "value": "Show all %lld lines"
            }
          },
--        "ja": {
 +        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "書式付きテキストを表示"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Mostrar las %lld líneas"
-           }
--        }
--      }
--    },
--    "markdown.showSource": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
++          }
 +        },
 +        "fr": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "Show Markdown Source"
++          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "Afficher les %lld lignes"
-           }
-         },
++          }
++        },
 +        "it": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1360,153 +712,8 @@
          "ja": {
            "stringUnit": {
              "state": "translated",
--            "value": "Markdownのソースを表示"
--          }
--        }
--      }
--    },
--    "selection.copy.attachment": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[File: %@]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[ファイル: %@]"
--          }
--        }
--      }
--    },
--    "selection.copy.audio": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Audio Message]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[オーディオメッセージ]"
--          }
--        }
--      }
--    },
--    "selection.copy.contact": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Contact]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[連絡先]"
--          }
--        }
--      }
--    },
--    "selection.copy.location": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Location: %@]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[位置情報: %@]"
--          }
--        }
--      }
--    },
--    "selection.copy.locationBare": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Location]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[位置情報]"
--          }
--        }
--      }
--    },
--    "selection.copy.photo": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Photo]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[写真]"
--          }
--        }
--      }
--    },
--    "selection.copy.sender": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "%@:"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "%@:"
--          }
--        }
--      }
--    },
--    "selection.copy.video": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[Video]"
--          }
--        },
--        "ja": {
--          "stringUnit": {
--            "state": "translated",
--            "value": "[ビデオ]"
--          }
--        }
--      }
--    }
--  },
--  "version": "1.0"
--}
-\ No newline at end of file
-+            "value": "全%lld行を表示"
-+          }
+             "value": "全%lld行を表示"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -1579,12 +786,12 @@
 +            "state": "needs_review",
 +            "value": "顯示全部 %lld 行"
 +          }
-+        }
-+      }
-+    },
-+    "longtext.showLess": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "longtext.showLess": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1609,12 +816,12 @@
 +            "value": "Weniger anzeigen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Show less"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Show less"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1633,11 +840,11 @@
 +            "value": "Mostra meno"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "表示を減らす"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "表示を減らす"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -1710,12 +917,12 @@
 +            "state": "needs_review",
 +            "value": "顯示較少"
 +          }
-+        }
-+      }
-+    },
-+    "menu.copy": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.copy": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1740,12 +947,12 @@
 +            "value": "Kopieren"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Copy"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Copy"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -1764,11 +971,11 @@
 +            "value": "Copia"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "コピー"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "コピー"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -1841,12 +1048,12 @@
 +            "state": "needs_review",
 +            "value": "拷貝"
 +          }
-+        }
-+      }
-+    },
-+    "menu.copyLink": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.copyLink": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "translated",
@@ -1871,12 +1078,12 @@
 +            "value": "Link kopieren"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Copy Link"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Copy Link"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "translated",
@@ -1895,11 +1102,11 @@
 +            "value": "Copia link"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "リンクをコピー"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "リンクをコピー"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -1972,12 +1179,12 @@
 +            "state": "translated",
 +            "value": "拷貝連結"
 +          }
-+        }
-+      }
-+    },
-+    "menu.edit": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.edit": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2002,12 +1209,12 @@
 +            "value": "Bearbeiten"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Edit"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Edit"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2026,11 +1233,11 @@
 +            "value": "Modifica"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "編集"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "編集"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2103,12 +1310,12 @@
 +            "state": "needs_review",
 +            "value": "編輯"
 +          }
-+        }
-+      }
-+    },
-+    "menu.reply": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.reply": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2133,12 +1340,12 @@
 +            "value": "Antworten"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Reply"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Reply"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2157,11 +1364,11 @@
 +            "value": "Rispondi"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "返信"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "返信"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2234,12 +1441,12 @@
 +            "state": "needs_review",
 +            "value": "回覆"
 +          }
-+        }
-+      }
-+    },
-+    "menu.tapback": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.tapback": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2264,12 +1471,12 @@
 +            "value": "Tapback"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Tapback"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapback"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2288,11 +1495,11 @@
 +            "value": "Tapback"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Tapback"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapback"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2365,12 +1572,12 @@
 +            "state": "needs_review",
 +            "value": "點按回應"
 +          }
-+        }
-+      }
-+    },
-+    "menu.undoSend": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.undoSend": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2395,12 +1602,12 @@
 +            "value": "Senden widerrufen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Undo Send"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Undo Send"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2419,11 +1626,11 @@
 +            "value": "Annulla invio"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "送信を取り消す"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "送信を取り消す"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2496,12 +1703,12 @@
 +            "state": "needs_review",
 +            "value": "取消傳送"
 +          }
-+        }
-+      }
-+    },
-+    "receipt.delivered": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "receipt.delivered": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2526,12 +1733,12 @@
 +            "value": "Zugestellt"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Delivered"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delivered"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2550,11 +1757,11 @@
 +            "value": "Consegnato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "配信済み"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "配信済み"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2627,12 +1834,12 @@
 +            "state": "needs_review",
 +            "value": "已送達"
 +          }
-+        }
-+      }
-+    },
-+    "receipt.read": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "receipt.read": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2657,12 +1864,12 @@
 +            "value": "Gelesen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Read"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Read"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2681,11 +1888,11 @@
 +            "value": "Letto"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "開封済み"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "開封済み"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2758,12 +1965,12 @@
 +            "state": "needs_review",
 +            "value": "已讀"
 +          }
-+        }
-+      }
-+    },
-+    "row.unsent.mine": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "row.unsent.mine": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2788,12 +1995,12 @@
 +            "value": "Du hast eine Nachricht widerrufen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "You unsent a message"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "You unsent a message"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2812,11 +2019,11 @@
 +            "value": "Hai annullato l’invio di un messaggio"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "メッセージの送信を取り消しました"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "メッセージの送信を取り消しました"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -2889,12 +2096,12 @@
 +            "state": "needs_review",
 +            "value": "你已收回一則訊息"
 +          }
-+        }
-+      }
-+    },
-+    "row.unsent.theirs": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "row.unsent.theirs": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2919,12 +2126,12 @@
 +            "value": "Eine Nachricht wurde widerrufen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "A message was unsent"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "A message was unsent"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -2943,11 +2150,11 @@
 +            "value": "L’invio di un messaggio è stato annullato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "メッセージの送信が取り消されました"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "メッセージの送信が取り消されました"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3020,12 +2227,12 @@
 +            "state": "needs_review",
 +            "value": "已收回一則訊息"
 +          }
-+        }
-+      }
-+    },
-+    "separator.today": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "separator.today": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3050,12 +2257,12 @@
 +            "value": "Heute"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Today"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Today"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3074,11 +2281,11 @@
 +            "value": "Oggi"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "今日"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "今日"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3151,12 +2358,12 @@
 +            "state": "needs_review",
 +            "value": "今天"
 +          }
-+        }
-+      }
-+    },
-+    "separator.yesterday": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "separator.yesterday": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3181,12 +2388,12 @@
 +            "value": "Gestern"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Yesterday"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Yesterday"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3205,11 +2412,11 @@
 +            "value": "Ieri"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "昨日"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "昨日"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3282,12 +2489,12 @@
 +            "state": "needs_review",
 +            "value": "昨天"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.dislike": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.dislike": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3312,12 +2519,12 @@
 +            "value": "Gefällt mir nicht"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Dislike"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Dislike"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3336,11 +2543,11 @@
 +            "value": "Non mi piace"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "よくない"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "よくない"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3413,12 +2620,12 @@
 +            "state": "needs_review",
 +            "value": "倒讚"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.emphasize": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.emphasize": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3443,12 +2650,12 @@
 +            "value": "Hervorheben"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Emphasize"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Emphasize"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3467,11 +2674,11 @@
 +            "value": "Enfatizza"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "強調"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "強調"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3544,12 +2751,12 @@
 +            "state": "needs_review",
 +            "value": "強調"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.laugh.glyph": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.laugh.glyph": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3574,12 +2781,12 @@
 +            "value": "HA\nHA"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "HA\nHA"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "HA\nHA"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3598,11 +2805,11 @@
 +            "value": "HA\nHA"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "HA\nHA"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "HA\nHA"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3675,12 +2882,12 @@
 +            "state": "needs_review",
 +            "value": "HA\nHA"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.laugh": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.laugh": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3705,12 +2912,12 @@
 +            "value": "Lachen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Laugh"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Laugh"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3729,11 +2936,11 @@
 +            "value": "Ridi"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "笑う"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "笑う"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3806,12 +3013,12 @@
 +            "state": "needs_review",
 +            "value": "哈哈"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.like": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.like": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3836,12 +3043,12 @@
 +            "value": "Gefällt mir"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Like"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Like"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3860,11 +3067,11 @@
 +            "value": "Mi piace"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "いいね"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "いいね"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -3937,12 +3144,12 @@
 +            "state": "needs_review",
 +            "value": "讚"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.love": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.love": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3967,12 +3174,12 @@
 +            "value": "Lieben"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Love"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Love"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -3991,11 +3198,11 @@
 +            "value": "Adoro"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "ハート"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "ハート"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4068,12 +3275,12 @@
 +            "state": "needs_review",
 +            "value": "愛心"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.question": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.question": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4098,12 +3305,12 @@
 +            "value": "Frage"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Question"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Question"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4122,11 +3329,11 @@
 +            "value": "Domanda"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "はてな"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "はてな"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4199,12 +3406,12 @@
 +            "state": "needs_review",
 +            "value": "問號"
 +          }
-+        }
-+      }
-+    },
-+    "preview.location": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "preview.location": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4229,12 +3436,12 @@
 +            "value": "Standort"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Location"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Location"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4253,11 +3460,11 @@
 +            "value": "Posizione"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "位置情報"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "位置情報"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4330,12 +3537,12 @@
 +            "state": "needs_review",
 +            "value": "位置"
 +          }
-+        }
-+      }
-+    },
-+    "file.kind.pdf": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "file.kind.pdf": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4360,12 +3567,12 @@
 +            "value": "PDF-Dokument"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "PDF Document"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "PDF Document"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4384,11 +3591,11 @@
 +            "value": "Documento PDF"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "PDF書類"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "PDF書類"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4461,12 +3668,12 @@
 +            "state": "needs_review",
 +            "value": "PDF 文件"
 +          }
-+        }
-+      }
-+    },
-+    "file.kind.zip": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "file.kind.zip": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4491,12 +3698,12 @@
 +            "value": "ZIP-Archiv"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "ZIP Archive"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "ZIP Archive"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4515,11 +3722,11 @@
 +            "value": "Archivio ZIP"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "ZIPアーカイブ"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "ZIPアーカイブ"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4592,12 +3799,12 @@
 +            "state": "needs_review",
 +            "value": "ZIP 封存檔"
 +          }
-+        }
-+      }
-+    },
-+    "file.kind.audio": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "file.kind.audio": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4622,12 +3829,12 @@
 +            "value": "Audioaufnahme"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Audio Recording"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Audio Recording"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4646,11 +3853,11 @@
 +            "value": "Registrazione audio"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "オーディオ録音"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "オーディオ録音"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4723,12 +3930,12 @@
 +            "state": "needs_review",
 +            "value": "錄音"
 +          }
-+        }
-+      }
-+    },
-+    "file.kind.document": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "file.kind.document": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4753,12 +3960,12 @@
 +            "value": "Dokument"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Document"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Document"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4777,11 +3984,11 @@
 +            "value": "Documento"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "書類"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "書類"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4854,12 +4061,12 @@
 +            "state": "needs_review",
 +            "value": "文件"
 +          }
-+        }
-+      }
-+    },
-+    "menu.tapbackDetails": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.tapbackDetails": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4884,12 +4091,12 @@
 +            "value": "Tapback-Details …"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Tapback Details…"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapback Details…"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -4908,11 +4115,11 @@
 +            "value": "Dettagli reazioni…"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "タップバックの詳細…"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバックの詳細…"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -4985,12 +4192,12 @@
 +            "state": "needs_review",
 +            "value": "回應詳細資訊…"
 +          }
-+        }
-+      }
-+    },
-+    "menu.attachSticker": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.attachSticker": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5015,12 +4222,12 @@
 +            "value": "Sticker anhängen …"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Attach Sticker…"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Attach Sticker…"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5039,11 +4246,11 @@
 +            "value": "Allega adesivo…"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "ステッカーを添付…"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "ステッカーを添付…"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5116,12 +4323,12 @@
 +            "state": "needs_review",
 +            "value": "附加貼圖…"
 +          }
-+        }
-+      }
-+    },
-+    "menu.share": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.share": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5146,12 +4353,12 @@
 +            "value": "Teilen …"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Share…"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Share…"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5170,11 +4377,11 @@
 +            "value": "Condividi…"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "共有…"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "共有…"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5247,12 +4454,12 @@
 +            "state": "needs_review",
 +            "value": "分享…"
 +          }
-+        }
-+      }
-+    },
-+    "menu.delete": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.delete": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5277,12 +4484,12 @@
 +            "value": "Löschen …"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Delete…"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete…"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5301,11 +4508,11 @@
 +            "value": "Elimina…"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "削除…"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "削除…"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5378,12 +4585,12 @@
 +            "state": "needs_review",
 +            "value": "刪除…"
 +          }
-+        }
-+      }
-+    },
-+    "menu.replyEllipsis": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "menu.replyEllipsis": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5408,12 +4615,12 @@
 +            "value": "Antworten…"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Reply…"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Reply…"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5432,11 +4639,11 @@
 +            "value": "Rispondi…"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "返信…"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "返信…"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5509,12 +4716,12 @@
 +            "state": "needs_review",
 +            "value": "回覆…"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.details.title": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.details.title": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5539,12 +4746,12 @@
 +            "value": "Tapbacks"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Tapbacks"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapbacks"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5563,11 +4770,11 @@
 +            "value": "Reazioni"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "タップバック"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバック"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5640,12 +4847,12 @@
 +            "state": "needs_review",
 +            "value": "回應"
 +          }
-+        }
-+      }
-+    },
-+    "tapback.details.none": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "tapback.details.none": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5670,12 +4877,12 @@
 +            "value": "Keine Tapbacks"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "No Tapbacks"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "No Tapbacks"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5694,11 +4901,11 @@
 +            "value": "Nessuna reazione"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "タップバックなし"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバックなし"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5771,12 +4978,12 @@
 +            "state": "needs_review",
 +            "value": "沒有回應"
 +          }
-+        }
-+      }
-+    },
-+    "delete.confirm.title": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "delete.confirm.title": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5801,12 +5008,12 @@
 +            "value": "Diese Nachricht löschen?"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Delete this message?"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete this message?"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5825,11 +5032,11 @@
 +            "value": "Eliminare questo messaggio?"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "このメッセージを削除しますか?"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "このメッセージを削除しますか?"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -5902,12 +5109,12 @@
 +            "state": "needs_review",
 +            "value": "要刪除此訊息嗎？"
 +          }
-+        }
-+      }
-+    },
-+    "delete.confirm.info": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "delete.confirm.info": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5932,12 +5139,12 @@
 +            "value": "Sie wird von diesem Mac gelöscht."
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "It is deleted from this Mac."
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "It is deleted from this Mac."
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -5956,11 +5163,11 @@
 +            "value": "Verrà eliminato da questo Mac."
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "このMacから削除されます。"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "このMacから削除されます。"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6033,12 +5240,12 @@
 +            "state": "needs_review",
 +            "value": "它將從這部 Mac 上刪除。"
 +          }
-+        }
-+      }
-+    },
-+    "delete.confirm.button": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "delete.confirm.button": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6063,12 +5270,12 @@
 +            "value": "Löschen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Delete"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6087,11 +5294,11 @@
 +            "value": "Elimina"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "削除"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "削除"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6164,12 +5371,12 @@
 +            "state": "needs_review",
 +            "value": "刪除"
 +          }
-+        }
-+      }
-+    },
-+    "delete.confirm.cancel": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "delete.confirm.cancel": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6194,12 +5401,12 @@
 +            "value": "Abbrechen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Cancel"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Cancel"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6218,11 +5425,11 @@
 +            "value": "Annulla"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "キャンセル"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "キャンセル"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6295,12 +5502,12 @@
 +            "state": "needs_review",
 +            "value": "取消"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.checked": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.checked": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6325,12 +5532,12 @@
 +            "value": "aktiviert"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "checked"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "checked"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6349,11 +5556,11 @@
 +            "value": "selezionato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "チェック済み"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "チェック済み"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6426,12 +5633,12 @@
 +            "state": "needs_review",
 +            "value": "已勾選"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.codeBlock": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.codeBlock": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6456,12 +5663,12 @@
 +            "value": "Codeblock, %@"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Code block, %@"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Code block, %@"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6480,20 +5687,32 @@
 +            "value": "Blocco di codice, %@"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "コードブロック、%@"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "コードブロック、%@"
+           }
+-        }
+-      }
+-    },
+-    "markdown.ax.codeText": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
 +        },
 +        "km": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "text"
 +            "state": "needs_review",
 +            "value": "ប្លុកកូដ, %@"
-+          }
-+        },
+           }
+         },
+-        "ja": {
 +        "ko": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "テキスト"
 +            "state": "needs_review",
 +            "value": "코드 블록, %@"
 +          }
@@ -6556,13 +5775,13 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "程式碼區塊，%@"
-+          }
-+        }
-+      }
-+    },
-+    "markdown.ax.heading": {
-+      "extractionState": "manual",
-+      "localizations": {
+           }
+         }
+       }
+@@ -769,135 +5768,785 @@
+     "markdown.ax.heading": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6587,12 +5806,12 @@
 +            "value": "Überschrift Ebene %d"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Heading level %d"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Heading level %d"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6611,11 +5830,11 @@
 +            "value": "Intestazione di livello %d"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "見出しレベル %d"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "見出しレベル %d"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6688,12 +5907,12 @@
 +            "state": "needs_review",
 +            "value": "%d 級標題"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.list": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.list": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6718,12 +5937,12 @@
 +            "value": "Liste, %d Einträge"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "List, %d items"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "List, %d items"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6742,11 +5961,11 @@
 +            "value": "Elenco, %d elementi"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "リスト、%d 項目"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "リスト、%d 項目"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6819,12 +6038,12 @@
 +            "state": "needs_review",
 +            "value": "列表，%d 個項目"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.quote": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.quote": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6849,12 +6068,12 @@
 +            "value": "Zitat"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Quote"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Quote"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6873,11 +6092,11 @@
 +            "value": "Citazione"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "引用"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "引用"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -6950,12 +6169,12 @@
 +            "state": "needs_review",
 +            "value": "引言"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.table": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.table": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -6980,12 +6199,12 @@
 +            "value": "Tabelle, %1$d Zeilen, %2$d Spalten"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Table, %1$d rows, %2$d columns"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Table, %1$d rows, %2$d columns"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7004,11 +6223,11 @@
 +            "value": "Tabella, %1$d righe, %2$d colonne"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "表、%1$d 行、%2$d 列"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "表、%1$d 行、%2$d 列"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7081,12 +6300,12 @@
 +            "state": "needs_review",
 +            "value": "表格，%1$d 列，%2$d 欄"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.ax.unchecked": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.ax.unchecked": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7111,12 +6330,12 @@
 +            "value": "nicht aktiviert"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "not checked"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "not checked"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7135,11 +6354,11 @@
 +            "value": "non selezionato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "未チェック"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "未チェック"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7212,12 +6431,12 @@
 +            "state": "needs_review",
 +            "value": "未勾選"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.code.more": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.code.more": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7242,12 +6461,12 @@
 +            "value": "… %@ weitere Zeichen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "… %@ more characters"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "… %@ more characters"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7266,32 +6485,56 @@
 +            "value": "… altri %@ caratteri"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "… ほか %@ 文字"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "… ほか %@ 文字"
+           }
+-        }
+-      }
+-    },
+-    "markdown.image.placeholder": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
 +        },
 +        "km": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[Image: %@]"
 +            "state": "needs_review",
 +            "value": "… តួអក្សរ %@ ទៀត"
-+          }
-+        },
+           }
+         },
+-        "ja": {
 +        "ko": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[画像: %@]"
 +            "state": "needs_review",
 +            "value": "… %@자 더 있음"
-+          }
+           }
+-        }
+-      }
+-    },
+-    "markdown.image.placeholderEmpty": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
 +        },
 +        "nb": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[Image]"
 +            "state": "needs_review",
 +            "value": "… %@ tegn til"
-+          }
-+        },
+           }
+         },
+-        "ja": {
 +        "pl": {
-+          "stringUnit": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[画像]"
 +            "state": "needs_review",
 +            "value": "… jeszcze %@ znaków"
 +          }
@@ -7342,13 +6585,13 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "… 還有 %@ 個字元"
-+          }
-+        }
-+      }
-+    },
-+    "markdown.copied": {
-+      "extractionState": "manual",
-+      "localizations": {
+           }
+         }
+       }
+@@ -905,288 +6554,2357 @@
+     "markdown.copied": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7373,12 +6616,12 @@
 +            "value": "Kopiert"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Copied"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Copied"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7397,11 +6640,11 @@
 +            "value": "Copiato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "コピーしました"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "コピーしました"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7474,12 +6717,12 @@
 +            "state": "needs_review",
 +            "value": "已拷貝"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.copy": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.copy": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7504,12 +6747,12 @@
 +            "value": "Kopieren"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Copy"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Copy"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7528,11 +6771,11 @@
 +            "value": "Copia"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "コピー"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "コピー"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7605,12 +6848,12 @@
 +            "state": "needs_review",
 +            "value": "拷貝"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.copySource": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.copySource": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7635,12 +6878,12 @@
 +            "value": "Markdown kopieren"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Copy Markdown"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Copy Markdown"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7659,11 +6902,11 @@
 +            "value": "Copia Markdown"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Markdownをコピー"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Markdownをコピー"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7736,12 +6979,12 @@
 +            "state": "needs_review",
 +            "value": "拷貝 Markdown"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.showFormatted": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.showFormatted": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7766,12 +7009,12 @@
 +            "value": "Formatierten Text anzeigen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Show Formatted Text"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Show Formatted Text"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7790,11 +7033,11 @@
 +            "value": "Mostra testo formattato"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "書式付きテキストを表示"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "書式付きテキストを表示"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7867,12 +7110,12 @@
 +            "state": "needs_review",
 +            "value": "顯示格式化文字"
 +          }
-+        }
-+      }
-+    },
-+    "markdown.showSource": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "markdown.showSource": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7897,12 +7140,12 @@
 +            "value": "Markdown-Quelle anzeigen"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Show Markdown Source"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Show Markdown Source"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -7921,11 +7164,11 @@
 +            "value": "Mostra sorgente Markdown"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "Markdownのソースを表示"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Markdownのソースを表示"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -7998,12 +7241,12 @@
 +            "state": "needs_review",
 +            "value": "顯示 Markdown 原始碼"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.attachment": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.attachment": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8028,12 +7271,12 @@
 +            "value": "[Datei: %@]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[File: %@]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[File: %@]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8052,11 +7295,11 @@
 +            "value": "[File: %@]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[ファイル: %@]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[ファイル: %@]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8129,12 +7372,12 @@
 +            "state": "needs_review",
 +            "value": "[檔案：%@]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.audio": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.audio": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8159,12 +7402,12 @@
 +            "value": "[Audionachricht]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Audio Message]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Audio Message]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8183,11 +7426,11 @@
 +            "value": "[Messaggio audio]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[オーディオメッセージ]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[オーディオメッセージ]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8260,12 +7503,12 @@
 +            "state": "needs_review",
 +            "value": "[語音訊息]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.contact": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.contact": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8290,12 +7533,12 @@
 +            "value": "[Kontakt]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Contact]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Contact]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8314,11 +7557,11 @@
 +            "value": "[Contatto]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[連絡先]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[連絡先]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8391,12 +7634,12 @@
 +            "state": "needs_review",
 +            "value": "[聯絡人]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.location": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.location": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8421,12 +7664,12 @@
 +            "value": "[Ort: %@]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Location: %@]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Location: %@]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8445,11 +7688,11 @@
 +            "value": "[Posizione: %@]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[位置情報: %@]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[位置情報: %@]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8522,12 +7765,12 @@
 +            "state": "needs_review",
 +            "value": "[位置：%@]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.locationBare": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.locationBare": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8552,12 +7795,12 @@
 +            "value": "[Ort]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Location]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Location]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8576,11 +7819,11 @@
 +            "value": "[Posizione]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[位置情報]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[位置情報]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8653,12 +7896,12 @@
 +            "state": "needs_review",
 +            "value": "[位置]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.photo": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.photo": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8683,12 +7926,12 @@
 +            "value": "[Foto]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Photo]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Photo]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8707,11 +7950,11 @@
 +            "value": "[Foto]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[写真]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[写真]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8784,12 +8027,12 @@
 +            "state": "needs_review",
 +            "value": "[照片]"
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.sender": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.sender": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8814,12 +8057,12 @@
 +            "value": "%@:"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "%@:"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "%@:"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8838,11 +8081,11 @@
 +            "value": "%@:"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "%@:"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "%@:"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -8915,12 +8158,12 @@
 +            "state": "needs_review",
 +            "value": "%@："
 +          }
-+        }
-+      }
-+    },
-+    "selection.copy.video": {
-+      "extractionState": "manual",
-+      "localizations": {
+         }
+       }
+     },
+     "selection.copy.video": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8945,12 +8188,12 @@
 +            "value": "[Video]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[Video]"
-+          }
-+        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[Video]"
+           }
+         },
 +        "es": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -8969,11 +8212,11 @@
 +            "value": "[Video]"
 +          }
 +        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
-+            "value": "[ビデオ]"
-+          }
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "[ビデオ]"
+           }
 +        },
 +        "km": {
 +          "stringUnit": {
@@ -9046,12 +8289,144 @@
 +            "state": "needs_review",
 +            "value": "[影片]"
 +          }
-+        }
-+      }
-+    },
+         }
+       }
+     },
+     "label.replies.one": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "رد واحد"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 odgovor"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 svar"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 Antwort"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "1 Reply"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 respuesta"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 réponse"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 risposta"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "1件の返信"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ការឆ្លើយតប 1"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "답장 1개"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 svar"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 odpowiedź"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 resposta"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 ответ"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 การตอบกลับ"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 Yanıt"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 відповідь"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 trả lời"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 条回复"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "1 則回覆"
++          }
+         }
+       }
+     },
+-    "thread.back": {
 +    "markdown.image.placeholder": {
-+      "extractionState": "manual",
-+      "localizations": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -9076,9 +8451,10 @@
 +            "value": "[Bild: %@]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "Back"
 +            "value": "[Image: %@]"
 +          }
 +        },
@@ -9098,11 +8474,12 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "[Immagine: %@]"
-+          }
-+        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "戻る"
 +            "value": "[画像: %@]"
 +          }
 +        },
@@ -9176,13 +8553,14 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "[圖片: %@]"
-+          }
-+        }
-+      }
-+    },
+           }
+         }
+       }
+     },
+-    "thread.status.open": {
 +    "markdown.image.placeholderEmpty": {
-+      "extractionState": "manual",
-+      "localizations": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -9207,9 +8585,10 @@
 +            "value": "[Bild]"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "Open"
 +            "value": "[Image]"
 +          }
 +        },
@@ -9229,11 +8608,12 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "[Immagine]"
-+          }
-+        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "未解決"
 +            "value": "[画像]"
 +          }
 +        },
@@ -9307,13 +8687,14 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "[圖片]"
-+          }
-+        }
-+      }
-+    },
+           }
+         }
+       }
+     },
+-    "thread.status.resolved": {
 +    "markdown.ax.codeText": {
-+      "extractionState": "manual",
-+      "localizations": {
+       "extractionState": "manual",
+       "localizations": {
 +        "ar": {
 +          "stringUnit": {
 +            "state": "needs_review",
@@ -9338,9 +8719,10 @@
 +            "value": "Text"
 +          }
 +        },
-+        "en": {
-+          "stringUnit": {
-+            "state": "translated",
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "Resolved"
 +            "value": "text"
 +          }
 +        },
@@ -9360,11 +8742,12 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "testo"
-+          }
-+        },
-+        "ja": {
-+          "stringUnit": {
-+            "state": "translated",
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "解決済み"
 +            "value": "テキスト"
 +          }
 +        },
@@ -9441,7 +8824,533 @@
 +          }
 +        }
 +      }
-+    }
-+  },
-+  "version": "1.0"
++    },
++    "thread.back": {
++      "extractionState": "manual",
++      "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "رجوع"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nazad"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tilbage"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Zurück"
++          }
++        },
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "Back"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Atrás"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Retour"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Indietro"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "戻る"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ថយក្រោយ"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "뒤로"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tilbake"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Wstecz"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Voltar"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Назад"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ย้อนกลับ"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Geri"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Назад"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Quay lại"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "返回"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "返回"
+           }
+         }
+       }
+@@ -1194,20 +8912,396 @@
+     "thread.owner.none": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "غير معيّن"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nedodijeljeno"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ikke tildelt"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nicht zugewiesen"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Unassigned"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Sin asignar"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Non attribué"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Non assegnato"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "担当者なし"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "មិនទាន់កំណត់"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "담당자 없음"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ikke tildelt"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nieprzypisane"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Não atribuído"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Не назначено"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ยังไม่ได้มอบหมาย"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Atanmamış"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Не призначено"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Chưa giao"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "未分配"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "未指派"
++          }
++        }
++      }
++    },
++    "thread.status.open": {
++      "extractionState": "manual",
++      "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "مفتوح"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Otvoreno"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Åben"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Offen"
++          }
++        },
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "Open"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Abierto"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ouvert"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Aperto"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "未解決"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "បើក"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "열림"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Åpen"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Otwarte"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Aberto"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Открыто"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "เปิดอยู่"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Açık"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Відкрито"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Đang mở"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "未解决"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "未解決"
++          }
++        }
++      }
++    },
++    "thread.status.resolved": {
++      "extractionState": "manual",
++      "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "تم الحل"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Riješeno"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Løst"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Erledigt"
++          }
++        },
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "Resolved"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Resuelto"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Résolu"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Risolto"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "解決済み"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "បានដោះស្រាយ"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "해결됨"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Løst"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Rozwiązane"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Resolvido"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Решено"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "แก้ไขแล้ว"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Çözüldü"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Вирішено"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Đã giải quyết"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "已解决"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "已解決"
++          }
+         }
+       }
+     }
+   },
+   "version": "1.0"
+-}
+\ No newline at end of file
 +}

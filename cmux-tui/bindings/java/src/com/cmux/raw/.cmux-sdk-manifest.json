@@ -437,8 +437,8 @@
     },
     {
       "path": "CloseWorkspaceRequest.java",
-      "sha256": "d83603257b3cc4bcccc4481a15bf9da37f7941d255fee7258c3a4fe1a3751f76",
-      "size": 7899
+      "sha256": "8fcd3653f38674e754801839e0eb1d4f71eb5c3fdd88d4cd49130b8a6b8e6f8c",
+      "size": 8870
     },
     {
       "path": "CloudAttachmentLinkRequest.java",
@@ -2007,7 +2007,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "472de8fc6b87c1137a77956a9b8999df1047c3e4cad2ff3bee959c31d991d82c",
+      "sha256": "a533073f4e8f97d91086f92d3532b99498d6620c47e6f791a40142d1a9eb0254",
       "size": 7112
     },
     {
@@ -3237,8 +3237,8 @@
     },
     {
       "path": "WorkspaceMutationResult.java",
-      "sha256": "d2c2eb4399ad9e6faca6a6da675e3c9252f9f375734a230992f3dcb1bcfa1a51",
-      "size": 7127
+      "sha256": "9c45d5bbbab0b805195c8455499f1aa6803c2fca605caa17367b7a121aed875c",
+      "size": 8092
     },
     {
       "path": "WorkspaceRenamedEvent.java",
@@ -3267,7 +3267,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16",
+  "ir_sha256": "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

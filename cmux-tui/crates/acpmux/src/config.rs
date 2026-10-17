@@ -21,6 +21,12 @@ pub fn home() -> PathBuf {
     if let Some(path) = HOME_OVERRIDE.get() {
         return path.clone();
     }
+    default_home()
+}
+
+/// The default state directory, with no ACPMUX_HOME and no override: the
+/// person's own daemon home (a hand, which runs its own daemon, protects it).
+pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 

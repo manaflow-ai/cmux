@@ -21,7 +21,6 @@ enum BrowserMetrics {
     static var itemSpacing: CGFloat { Metrics.space3 }
     static var buttonSpacing: CGFloat { Metrics.space1 }
 
-    static var separatorThickness: CGFloat { Metrics.dividerThickness }
     static var progressThickness: CGFloat { Metrics.space1 }
     static var minimumAddressWidth: CGFloat { Metrics.tabMaxWidth / 2 }
 

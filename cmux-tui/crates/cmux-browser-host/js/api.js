@@ -157,11 +157,7 @@
       rmdirSync: (p, o) => void op("rm", { path: abs(p), recursive: !!(o && o.recursive) }),
       unlinkSync: (p) => void op("rm", { path: abs(p) }),
       renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
-      copyFileSync(from, to) {
-        // The app leaves out an extended attribute past 1 MiB and says so.
-        const r = op("copyFile", { from: abs(from), to: abs(to) });
-        for (const warning of (r && Array.isArray(r.warnings) ? r.warnings : [])) host.print("warn", String(warning));
-      },
+      copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
       realpathSync: (p) => op("resolve", { path: abs(p) }),
       mkdtempSync(prefix) {
         const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -398,7 +394,6 @@
 
   function createExporter({ fetch, fs, path, host, Buffer }) {
     let n = 0;
-    const fetchFor = (page, pageURL, url) => fetch(url, {}, { page, origin: new core.URL(pageURL).origin });
     const target = (options, ext) => {
       if (options.path) return path.resolve(String(options.path));
       // The session's own temporary directory (private, mode 0700).
@@ -420,7 +415,7 @@
       },
       async google(page, pageURL, options) {
         const { url } = googleExportURL(pageURL, options.format);
-        const r = await fetchFor(page, pageURL, url);
+        const r = await fetch(url);
         if (!r.ok) throw new Error(`page.exportContent: Google returned HTTP ${r.status} for ${url}`);
         const file = target(options, "." + options.format);
         fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
@@ -439,32 +434,13 @@
         if (!usable.length) throw new Error(`page.exportContent: video ${id} has no captions on YouTube's caption hosts (${YOUTUBE_CAPTION_HOSTS.join(", ")})`);
         const want = options.lang ? usable.find((t) => t.lang === options.lang) : usable.find((t) => t.kind !== "asr") || usable[0];
         if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${usable.map((t) => t.lang).join(", ")}`);
-        const r = await fetchFor(page, pageURL, want.url.href + "&fmt=json3");
+        const r = await fetch(want.url.href + "&fmt=json3");
         if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
         const file = target(options, ".txt");
         fs.writeFileSync(file, transcriptText(await r.json()));
         return file;
       },
     };
-  }
-
-  // tabs.content reads in the page agent's world, within the page-read
-  // budget (A.budget, page-agent.js): the body's text or the document's
-  // HTML is built under the budget (the getter runs only when its string
-  // fits, else node by node), so a page's text or HTML crosses to the
-  // session cut at the URL's share, and no DOM-wide string is made first.
-  const CONTENT_READ_SIZE = 2000000;
-  function readContent(opts) {
-    const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize });
-    let content;
-    if (opts.html) {
-      const doctype = document.doctype ? B.fit(new XMLSerializer().serializeToString(document.doctype)) : "";
-      content = doctype + (document.documentElement ? B.outerHTML(document.documentElement) : "");
-    } else content = document.body ? B.innerText(document.body) : "";
-    return { content, truncated: B.truncated || null, report: B.report() };
-  }
-  function readTitle(opts) {
-    return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
   }
 
   function createGlobals(session, host) {
@@ -601,10 +577,12 @@
       else Object.assign(headers, src);
       const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
       if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
-        const cookies = await session.call("cookies.get", { targetId, urls: [url] }).catch(() => []);
+        const scope = page && !String(page._targetId).startsWith("lazy:") ? { targetId: page._targetId } : {};
+        const cookies = await session.call("cookies.get", { ...scope, urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
+      const targetId = page && !String(page._targetId).startsWith("lazy:") ? page._targetId : undefined;
       const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId, credentials, origin });
       const bytes = Buffer.from(r.base64 || "", "base64");
       return {
@@ -625,14 +603,9 @@
 
     async function pageById(id) {
       if (id instanceof core.Page) return id;
-      // A tab tabs.list({ all: true }) lists can be attached, except one
-      // another running session opened; the driver refuses those. A user's
-      // tab of another workspace is not listed (a person must grant one,
-      // and cmux has no such grant yet).
+      // Any tab tabs.list({ all: true }) lists can be attached (a claim).
       const list = await session.call("tabs.list", { all: true });
-      const row = list.find((t) => t.targetId === String(id));
-      if (!row) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
-      if (row.ownerSession) throw new Error(`Tab ${JSON.stringify(String(id))} belongs to the REPL session ${JSON.stringify(row.ownerSession)}, which is still running; a session drives only the tabs it opened and the user's tabs`);
+      if (!list.some((t) => t.targetId === String(id))) throw new Error(`No open tab with id ${JSON.stringify(String(id))}; see tabs.list()`);
       const page = session.pageFor(String(id));
       await page._syncInfo().catch(() => {});
       return page;
@@ -641,10 +614,8 @@
     session.exporter = createExporter({ fetch: fetchWithCookies, fs, path, host, Buffer });
 
     const tabs = {
-      // `{ all: true }` also lists the session's own tabs that moved to
-      // another workspace (never a user's tab there); tabs.use(id) attaches
-      // a listed tab, but not one another running session opened (`ownedBy`
-      // names that session).
+      // `{ all: true }` also lists browser tabs in the user's other
+      // workspaces and windows; tabs.use(id) attaches any of them.
       async list(options = {}) {
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
@@ -661,11 +632,7 @@
       },
       // Loads each URL in a background tab, extracts it and closes the tab;
       // the current tab does not change. format: "text" (default),
-      // "markdown", "html" or "snapshot". The whole call reads at most the
-      // page-read budget's characters (2,000,000), each batch of URLs
-      // splitting what is left; a row cut there carries `truncated`, the
-      // note saying so, and a URL read after the budget is used up is not
-      // read.
+      // "markdown", "html" or "snapshot".
       async content(input, options = {}) {
         const opts = Array.isArray(input) || typeof input === "string" ? { ...options, urls: [].concat(input) } : { ...(input || {}) };
         const urls = opts.urls;
@@ -801,7 +768,7 @@
       history: historyApi,
       snapshot,
       screenshot,
-      fetch: (input, init) => fetchWithCookies(input, init),
+      fetch: fetchWithCookies,
       fs,
       path,
       os,
@@ -828,20 +795,7 @@
     if (ns.sites) {
       let sites = null;
       Object.defineProperty(globals, "sites", {
-        get: () =>
-          sites ||
-          (sites = ns.sites.createSites({
-            session,
-            host,
-            fetch: (input, init) => fetchWithCookies(input, init),
-            fetchFrom: (page, origin) => (input, init) => fetchWithCookies(input, init, { page, origin }),
-            fs,
-            path,
-            Buffer,
-            URL: core.URL,
-            currentPage,
-            snapshot,
-          })),
+        get: () => sites || (sites = ns.sites.createSites({ session, host, fetch: fetchWithCookies, fs, path, Buffer, URL: core.URL, currentPage, snapshot })),
         enumerable: true,
         configurable: true,
       });

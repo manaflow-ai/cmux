@@ -12,7 +12,7 @@ extension TabStripView {
         groups.holdTask?.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
         let local = convert(press.start, to: tabsClip)
-        let contentX = local.x + scroll.value
+        let contentX = scrollMapping.contentX(local.x, isPinned: false)
         groups.drag = TabStripGroupState.Drag(
             groupID: group,
             memberIDs: members,
@@ -49,7 +49,7 @@ extension TabStripView {
         let block = region.filter { groups.isDragged($0.id) }
         guard let first = region.first, let last = region.last, !block.isEmpty else { return }
         let blockWidth = block.reduce(0) { $0 + $1.width }
-        let contentX = convert(point, to: tabsClip).x + scroll.value
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: false)
         let x = min(max(contentX - drag.grabOffset, first.x), max(first.x, last.maxX - blockWidth))
         let entries = region.filter { !groups.isDragged($0.id) }
         let resolution = TabGroupDropMath.resolveGroup(entries: entries, start: first.x, draggedMinX: x)

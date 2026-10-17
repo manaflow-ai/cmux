@@ -1,7 +1,6 @@
 {
   "repl": [
     "vendor/acorn.js",
-    "async-owner.js",
     "vendor/playwright-locator-utils.js",
     "runtime-core.js",
     "snapshot.js",

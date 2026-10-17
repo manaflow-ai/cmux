@@ -65,6 +65,8 @@ pub enum Kind {
     TimeRange,
     Theme,
     FontFamily,
+    /// Any string, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+    Text,
     /// Absolute (`/...`) or home-relative (`~/...`) folder paths.
     FolderList,
     /// Non-empty strings.
@@ -92,6 +94,7 @@ impl Kind {
             Kind::TimeRange => "time_range",
             Kind::Theme => "theme",
             Kind::FontFamily => "font_family",
+            Kind::Text => "text",
             Kind::FolderList => "folder_list",
             Kind::StringList | Kind::OrderedChoices(_) => "string_list",
             Kind::NumberList(_) => "number_list",
@@ -257,6 +260,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "time_range" => Kind::TimeRange,
         "theme" => Kind::Theme,
         "font_family" => Kind::FontFamily,
+        "text" => Kind::Text,
         "folder_list" => Kind::FolderList,
         "string_list" if parsed.ordered => Kind::OrderedChoices(parsed.choices.clone()),
         "string_list" => Kind::StringList,

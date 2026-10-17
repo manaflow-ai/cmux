@@ -6,9 +6,9 @@
 // clipboard (the one `page.clipboard` reads) and returns a promise that
 // rejects when the tab has no session to hold it.
 //
-// The app also turns WebKit's asynchronous Clipboard API and its DOM paste
-// requests off for these tabs, so a document this script does not reach has
-// no `navigator.clipboard` and cannot paste. What this script adds:
+// This is the routing layer, not the guard: the app also turns WebKit's
+// asynchronous Clipboard API off for these tabs, so a document this script
+// does not reach has no `navigator.clipboard` at all. What it adds:
 //
 // - `navigator.clipboard`, `Clipboard` and `ClipboardItem` whose writes go to
 //   the tab's clipboard; a `ClipboardItem` whose data is a promise is written
@@ -20,18 +20,12 @@
 //   clipboard through script (Meta+V gives it a paste event).
 // - `document.execCommand("copy" | "cut")` fires the page's copy or cut
 //   handlers with a DataTransfer and writes what they set, or the selection,
-//   to the tab's clipboard; `execCommand("paste")` returns false. WebKit's
-//   own commands, which use the system clipboard, never run from page script.
-//   The command name is read with built-ins captured here, before the page's
-//   scripts run, and only that string reaches WebKit: a page that replaces
-//   `String`, `String.prototype.toLowerCase` or array methods cannot make a
-//   name this script does not see as "copy" reach WebKit's Copy.
+//   to the tab's clipboard; WebKit's own command, which writes the system
+//   clipboard, never runs from page script.
 (function cmuxPageClipboard(post) {
   "use strict";
   const define = Object.defineProperty;
   const apply = Reflect.apply;
-  const toPrimitiveString = String;
-  const toLowerCase = String.prototype.toLowerCase;
   const NativeBlob = globalThis.Blob;
   const NativeDOMException = globalThis.DOMException;
   const NativeDataTransfer = globalThis.DataTransfer;
@@ -191,18 +185,14 @@
     if (!nativeExecCommand) return;
     const routed = new Proxy(nativeExecCommand, {
       apply(target, thisArg, args) {
-        // Converted once: an object whose toString changes, or a replaced
-        // String, cannot hand WebKit another name than the one checked.
-        const command = args.length ? toPrimitiveString(args[0]) : "";
-        if (typeof command !== "string") return false;
-        const name = apply(toLowerCase, command, []);
+        const command = args.length ? String(args[0]) : "";
+        const name = command.toLowerCase();
         if (name === "copy" || name === "cut") {
           return copyOrCut(thisArg instanceof NativeDocument || (thisArg && thisArg.nodeType === 9) ? thisArg : null, name);
         }
-        if (name === "paste") return false;
-        // Only the checked string reaches WebKit, with the other arguments
-        // read by index (no array method the page could replace).
-        return apply(target, thisArg, [command, args[1], args[2]]);
+        // The command name is passed as the string checked above, so an
+        // object whose toString changes cannot turn into "copy" here.
+        return apply(target, thisArg, [command, ...Array.prototype.slice.call(args, 1)]);
       },
     });
     try {

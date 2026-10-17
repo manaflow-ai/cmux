@@ -74,7 +74,7 @@ nonisolated enum CloudHomeMapping {
 
     static func message(_ wire: ConversationMessage, identity: CloudIdentity) -> Message {
         let message = HomeCoreMapping.message(wire)
-        return Message(id: message.id, conversation: message.conversation, seq: message.seq,
+        var mapped = Message(id: message.id, conversation: message.conversation, seq: message.seq,
                        clientMessageID: message.clientMessageID, author: identity.toHome(wire.author),
                        parts: message.parts.map { part($0, identity: identity) }, createdAt: message.createdAt,
                        editedAt: message.editedAt, retractedAt: message.retractedAt,
@@ -82,6 +82,11 @@ nonisolated enum CloudHomeMapping {
                            Reaction(author: identity.toHome($0.author.rawValue), partIndex: $0.partIndex, kind: $0.kind)
                        },
                        replyTo: message.replyTo, threadRoot: message.threadRoot)
+        mapped.thread = message.thread.map { t in
+            ThreadInfo(title: t.title, owner: t.owner.map { identity.toHome($0.rawValue) }, resolvedAtSeq: t.resolvedAtSeq,
+                       resolvedBy: t.resolvedBy.map { identity.toHome($0.rawValue) })
+        }
+        return mapped
     }
 
     /// A cloud head. Participants who left are not members any more.

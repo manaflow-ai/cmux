@@ -89,7 +89,7 @@ def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "univer
         tarballs[variant] = tarball
         blob = zip_of({"cmux-prepared-app.tar.gz": tarball})
         blobs[artifact_id] = blob
-        jobs.append({"id": job_id, "name": f"build-sign-notarize-nightly ({variant})", "conclusion": "success",
+        jobs.append({"id": job_id, "name": f"prepare-nightly-variant ({variant})", "conclusion": "success",
                      "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
         annotations[job_id] = [
             {"annotation_level": "warning", "title": "Node.js 20 is deprecated", "message": "..."},
@@ -399,7 +399,7 @@ class AdmitCase(unittest.TestCase):
 
     def test_prepare_job_of_an_unknown_variant_is_refused(self) -> None:
         data = scenario("main")
-        data["jobs"][2]["name"] = "build-sign-notarize-nightly (ppc)"
+        data["jobs"][2]["name"] = "prepare-nightly-variant (ppc)"
         self.assert_refused(self.run_tool(data), "unknown variant 'ppc'")
 
     def test_head_sha_on_a_same_named_tag_but_not_on_the_branch_is_refused(self) -> None:
@@ -412,14 +412,14 @@ class AdmitCase(unittest.TestCase):
     def test_run_that_built_an_app_without_a_prepare_job_is_refused(self) -> None:
         data = scenario("main", ())
         data["jobs"][1]["conclusion"] = "success"
-        self.assert_refused(self.run_tool(data), "but has no build-sign-notarize-nightly job")
+        self.assert_refused(self.run_tool(data), "but has no prepare-nightly-variant job")
 
     def test_build_only_run_with_skipped_prepare_jobs_is_skipped(self) -> None:
         data = scenario("main", ())
         data["jobs"][1]["conclusion"] = "success"
         # GitHub does not expand a matrix job its `if:` skips: one job, bare name
         # (run 38902061362).
-        data["jobs"].append({"id": 400, "name": "build-sign-notarize-nightly", "conclusion": "skipped",
+        data["jobs"].append({"id": 400, "name": "prepare-nightly-variant", "conclusion": "skipped",
                              "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
         self.assert_skipped(self.run_tool(data), "prepared no app")
 

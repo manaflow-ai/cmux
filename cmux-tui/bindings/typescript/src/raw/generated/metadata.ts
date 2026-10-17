@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16. */
+/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16" as const;
+export const SDK_IR_SHA256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -12929,6 +12929,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "closed_ids": {
+        "description": "close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -14561,6 +14573,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "CloseReason"
+          }
+        },
+        "report_closed_ids": {
+          "default": false,
+          "description": "With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "workspace": {

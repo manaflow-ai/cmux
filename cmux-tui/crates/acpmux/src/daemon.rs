@@ -216,7 +216,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("could not save the moved web listener: {e}");
         }
     }
-    let hub = Hub::new(config, store);
+    let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let hub = Hub::new_with_mailbox(config, store, mailbox);
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -545,7 +546,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
 /// ptrace it or read its memory through /proc, and the kernel owns its
 /// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
 #[cfg(target_os = "linux")]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
     // process's dumpable flag.
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
@@ -567,7 +568,7 @@ fn not_dumpable() -> std::io::Result<()> {
 /// which refuses a debugger without the get-task-allow entitlement, and
 /// ignores the key descriptor (it enrolls the signed app instead).
 #[cfg(all(unix, not(target_os = "linux")))]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     Ok(())
 }
 

@@ -71,7 +71,8 @@ PASSWORD="$("$OPENSSL" rand -hex 16)"
 # The CI certificate secret carries Apple's Developer ID G2 intermediate next
 # to the identity; put it in the throwaway .p12 too, so the import and the
 # intermediates step see the same duplicate as in CI.
-"$OPENSSL" x509 -inform DER -in "$ROOT_DIR/scripts/apple-developer-id-certs/DeveloperIDG2CA.cer" -out "$TMP_DIR/g2.pem"
+"$OPENSSL" x509 -inform DER -in "$ROOT_DIR/scripts/apple-developer-id-certs/DeveloperIDG2CA.cer" -out "$TMP_DIR/g2.pem" \
+  || fail "openssl could not read the vendored DeveloperIDG2CA.cer"
 p12_args=(-export -inkey "$TMP_DIR/key.pem" -in "$TMP_DIR/cert.pem" -certfile "$TMP_DIR/g2.pem" -out "$TMP_DIR/identity.p12"
   -passout "pass:$PASSWORD" -name "$SUBJECT" -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1)
 if ! "$OPENSSL" pkcs12 "${p12_args[@]}" >/dev/null 2>&1; then
@@ -83,7 +84,13 @@ rm -f "$TMP_DIR/key.pem"
 export CMUX_SIGNING_KEYCHAIN_STATE_DIR="$TMP_DIR/state"
 APPLE_CERTIFICATE_BASE64="$(base64 < "$TMP_DIR/identity.p12" | tr -d '\n')" \
 APPLE_CERTIFICATE_PASSWORD="$PASSWORD" \
-  "$TOOL" create --keychain "$NAME" || fail "signing-keychain.sh create failed"
+  "$TOOL" create --keychain "$NAME" > "$TMP_DIR/create.log" 2>&1 \
+  || { cat "$TMP_DIR/create.log" >&2; fail "signing-keychain.sh create failed"; }
+cat "$TMP_DIR/create.log"
+# The .p12 brought the G2 intermediate, so the intermediates step must have
+# met it already in the keychain (the path that broke signing on 2026-10-16).
+grep -F "DeveloperIDG2CA is already in $NAME" "$TMP_DIR/create.log" >/dev/null \
+  || fail "the intermediates step did not meet the G2 intermediate from the .p12"
 
 [ -e "$KEYCHAIN_FILE" ] || fail "create made no keychain at $KEYCHAIN_FILE"
 "$TOOL" is-present || fail "is-present must report the new keychain"

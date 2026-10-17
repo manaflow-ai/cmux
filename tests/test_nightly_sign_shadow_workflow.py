@@ -162,16 +162,16 @@ def check_tool() -> None:
 def check_nightly_producer() -> None:
     text = NIGHTLY.read_text(encoding="utf-8")
     check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
-    steps = yaml.safe_load(text)["jobs"]["build-sign-notarize-nightly"]["steps"]
+    steps = yaml.safe_load(text)["jobs"]["prepare-nightly-variant"]["steps"]
     names = [step.get("name") for step in steps]
     try:
         package = names.index("Package prepared app for signing")
         record = names.index("Record prepared app digest")
         upload = names.index("Upload prepared app for signing")
     except ValueError as error:
-        failures.append(f"nightly.yml build-sign-notarize-nightly: {error}")
+        failures.append(f"nightly.yml prepare-nightly-variant: {error}")
         return
-    check(package < record < upload, "nightly.yml build-sign-notarize-nightly must record the digest after packaging and before upload")
+    check(package < record < upload, "nightly.yml prepare-nightly-variant must record the digest after packaging and before upload")
     record_step, upload_step = steps[record], steps[upload]
     check(record_step["env"]["PREPARED_APP_ARTIFACT"] == upload_step["with"]["name"],
           "nightly.yml must record the digest under the artifact name it uploads")

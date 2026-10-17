@@ -33,8 +33,9 @@ extension TabStripView {
               TabOverflowHintView.owner == nil || TabOverflowHintView.owner === self,
               window != nil, drag == nil, isCrowdedAtMinimum else { return }
         let hint = overflowHint ?? makeOverflowHint()
-        // A narrow pane keeps its tabs: the hint waits for a wider crowded strip.
-        guard bounds.width >= hint.preferredWidth * 2.5 else { return }
+        // A narrow pane keeps its tabs: the hint waits for a crowded strip with room for it, the selected
+        // tab and two more at their minimum (an 1100 pt window's 854 pt strip shows it).
+        guard bounds.width >= hint.preferredWidth + metrics.minActiveTabWidth + 2 * metrics.minInactiveTabWidth else { return }
         TabOverflowHintView.owner = self
         hint.isHidden = false
         needsLayout = true

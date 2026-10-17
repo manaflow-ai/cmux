@@ -3,8 +3,9 @@
 // on <html> as data-top-strip; composerLocation.css). The "top strip" is whatever stands on the
 // card's top edge: the location strip of a new chat (chat composer and New Tab) or the queued
 // prompts of a started chat. For each value:
-//   - default (no attribute): today's tab, flush on the card, in the card's fill, its rim open at
-//     the bottom, and the card's rim masked under the strip;
+//   - default (no attribute): in a chat, today's tab, flush on the card, in the card's fill, its rim
+//     open at the bottom, and the card's rim masked under the strip; on the New Tab, plain text a
+//     few px over the card (Cursor's home, #21133), no fill and no rim, the card's rim whole;
 //   - bump: a few px above the card, the card's fill, one closed hairline ring, the card's rim whole;
 //   - plain: a few px above the card, no fill and no rim, its first ink on the card's content edge
 //     (where the prompt's text starts), the card's rim whole;
@@ -118,6 +119,15 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           const drawn = await page.evaluate(measure, surface.card);
           await page.close();
           expect(drawn.kind).toBe(surface.kind);
+          if (style === "default" && surface.card === ".nt-box") {
+            // The New Tab: plain text a few px over the card, nothing drawn, the card's rim whole.
+            expect(drawn.gap).toBeGreaterThanOrEqual(2);
+            expect(drawn.gap).toBeLessThanOrEqual(8);
+            expect(drawn.filled).toBe(false);
+            expect(drawn.shadows).toEqual([]);
+            expect(drawn.cardMasked).toBe(false);
+            return;
+          }
           if (style === "default") {
             // Today's tab: flush, filled, the hairline on its top and sides only.
             expect(Math.abs(drawn.gap)).toBeLessThanOrEqual(0.5);

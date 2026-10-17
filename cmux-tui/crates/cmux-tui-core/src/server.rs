@@ -1975,6 +1975,11 @@ enum Command {
         /// at commit time (`workspace_not_empty` otherwise).
         #[serde(default)]
         if_empty: bool,
+        /// With `end_terminals`: answer `closed_ids`, the closed groups the
+        /// close stored. Opt-in: older raw decoders refuse an unknown result
+        /// field (Python `unexpected fields`).
+        #[serde(default)]
+        report_closed_ids: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

@@ -15,10 +15,10 @@ an artifact's contents:
   that branch now (compare HEAD_SHA...refs/heads/BRANCH is identical or ahead;
   a full ref, because a tag can share the branch's name);
 - channel: from the head branch (main and nightly-next: nightly; rc/*: rc);
-- variants: the successful `build-sign-notarize-nightly (<variant>)` jobs of the
+- variants: the successful `prepare-nightly-variant (<variant>)` jobs of the
   admitted attempt; a run whose build-nightly-app job passed but prepared no
   app is refused, not skipped;
-- digests: each producer job records the sha256 of the tarball it uploaded as a
+- digests: each prepare job records the sha256 of the tarball it uploaded as a
   check-run annotation of that job (title nightly-prepared-app). The artifact
   zip must match the artifact digest the API records, and the tarball inside
   must match the producing job's sha256. The same record carries the run's
@@ -50,8 +50,8 @@ SOURCE_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 SOURCE_WORKFLOW_FILE = "nightly.yml"
 PUBLISHING_EVENTS = {"push", "schedule", "workflow_dispatch"}
 VARIANTS = ("universal", "arm64", "x86_64")
-PRODUCER_JOB = "build-sign-notarize-nightly"
-PRODUCER_JOB_NAME = re.compile(r"^build-sign-notarize-nightly \(([^()]*)\)$")
+PRODUCER_JOB = "prepare-nightly-variant"
+PRODUCER_JOB_NAME = re.compile(r"^prepare-nightly-variant \(([^()]*)\)$")
 DIGEST_TITLE = "nightly-prepared-app"
 DIGEST_MESSAGE = re.compile(
     r"^variant=(\S+) artifact=(\S+) sha256=([0-9a-f]{64}) publish=(true|false) fast=(true|false)$"
@@ -225,7 +225,7 @@ def prepare_jobs(gh: GitHub, repo: str, run: dict) -> dict[str, dict]:
         )
         if not has_prepare and any(job.get("name") == BUILD_JOB and job.get("conclusion") == "success" for job in jobs):
             fail(f"source run built an app ({BUILD_JOB} passed) but has no {PRODUCER_JOB} job")
-        raise Skipped("source run prepared no app (no successful build-sign-notarize-nightly job)")
+        raise Skipped("source run prepared no app (no successful prepare-nightly-variant job)")
     return found
 
 

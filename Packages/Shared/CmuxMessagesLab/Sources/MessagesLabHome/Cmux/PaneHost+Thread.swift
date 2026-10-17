@@ -26,7 +26,10 @@ final class PaneThread {
     func note(_ a: Action) {
         switch a {
         case .send: sentInView = openThread
-        case .reply, .closeThread: sentInView = nil
+        case .reply, .closeThread, .openThreadPath:
+            sentInView = nil
+            // The user moved: a permalink still waiting for its message no longer opens it later.
+            controller?.intents?.threadMovedByUser()
         default: break
         }
     }
@@ -49,7 +52,14 @@ final class PaneThread {
     /// "N Replies" or a thread preview opens its thread with the field not focused
     /// (Messages: the first Esc then closes it). True when the click was taken.
     func clicked(_ p: CGPoint) -> Bool {
-        guard let controller, let demo = controller.demo, controller.intents?.canReply == true else { return false }
+        guard let controller, let demo = controller.demo else { return false }
+        // A tree thread view's own controls first (ThreadHost.swift): "N Replies" under a reply opens its
+        // branch, the breadcrumb pops or opens a level. nil in `.messages` mode and outside them.
+        if openThread != nil, demo.threadContentContains(p), let control = demo.hostControl(at: p) {
+            if case let .dispatch(action) = control { controller.dispatch(action) }
+            return true
+        }
+        guard controller.intents?.canReply == true else { return false }
         if openThread != nil {
             guard !demo.threadContentContains(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
             controller.dispatch(.closeThread)

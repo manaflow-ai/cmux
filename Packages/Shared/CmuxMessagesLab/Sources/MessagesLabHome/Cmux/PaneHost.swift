@@ -318,6 +318,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     weak var intents: ChatIntents?
     /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
+    var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
@@ -389,6 +391,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
         self.store = store
         store.responder = nil
+        // Nested threads (host-hooks-b): the daemon's replies have a parent at any depth (conversation-tree-v1).
+        store.setThreadMode(.tree)
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
         self.demo = demo

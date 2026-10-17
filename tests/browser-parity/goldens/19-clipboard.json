@@ -55,10 +55,13 @@
       "value": "ask first"
     },
     "late-copy": {
-      "late": "finished",
-      "crashed": false,
-      "clipboard": "",
-      "value": "never copied"
+      "late": {
+        "code": "timeout",
+        "endedWebContent": true
+      },
+      "crashed": true,
+      "clipboard": "before the late copy",
+      "reloaded": ""
     },
     "page-write-text": [
       "ok",
@@ -74,10 +77,6 @@
     ],
     "page-read-text": [
       "NotAllowedError",
-      "from execCommand"
-    ],
-    "page-exec-paste": [
-      "false:",
       "from execCommand"
     ],
     "user-tab-clipboard": {
