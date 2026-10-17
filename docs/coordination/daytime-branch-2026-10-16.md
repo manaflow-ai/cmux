@@ -59,10 +59,10 @@ substitute for reviewing the resulting diff.
 | --- | --- | --- | --- | --- | --- |
 | `DAY-000` | Leo | Inherited checkout history before the pilot | `7f62f3c` | accepted | Starting-point receipt above |
 | `DAY-001` | Leo | Pilot branch policy and ledger | `7451d1f` | complete | `git diff --check`; remote head matched at setup |
-| `DAY-002` | `fleet_capacity` | Fleet health and periodic measurement capacity | — | verified | `cmux-ci status` `4988866be9b60607`; workers `41de3f8a3888e2df`; storage `b848ecdc05038b31`; fleet `a8be0769366407b8` |
-| `DAY-003` | `regression_guardrails` | Regression prevention and tracking model | — | verified | `cmux-testing` policy; CI guard shards; signposts/tests; red-first history `c943cc9` → `346df1` |
-| `DAY-004` | `workspace_switch_perf` | Workspace-switch lifecycle and performance evidence | — | partial | cmux-next `00e3f3a`; lifecycle `18fb52fe90a`; warm reuse found; cold fade/prefetch/bottleneck receipt missing |
-| `DAY-005` | `pilot_review` | Independent pilot review | — | needs-work | branch clean at `2d00440`; start `7f62f3c` ancestor; stale-frame and live-fetch gaps recorded below |
+| `DAY-002` | `/root/fleet_capacity` | Fleet health and periodic measurement capacity | analysis-only; findings recorded in `e2be782` | verified | `cmux-ci status` `4988866be9b60607`; workers `41de3f8a3888e2df`; storage `b848ecdc05038b31`; fleet `a8be0769366407b8` |
+| `DAY-003` | `/root/regression_guardrails` | Regression prevention and tracking model | analysis-only; findings recorded in `e2be782` | verified | `cmux-testing` policy; CI guard shards; signposts/tests; red-first history `c943cc9` → `346df1` |
+| `DAY-004` | `/root/workspace_switch_perf` | Workspace-switch lifecycle and performance evidence | analysis-only; findings recorded in `e2be782` | partial | cmux-next `00e3f3a`; lifecycle `18fb52fe90a`; warm reuse found; cold fade/prefetch/bottleneck receipt missing |
+| `DAY-005` | `/root/pilot_review` | Independent pilot review | analysis-only; findings recorded in `e2be782` | needs-work | branch clean at `e2be782`; start `7f62f3c` ancestor; stale-base and live-fetch gaps recorded below |
 
 Add one row per work slice. Use the commit SHA after committing, and record
 focused checks in the final column. If two slices need the same scope, record a
@@ -70,11 +70,13 @@ handoff before the second slice starts.
 
 ## Evidence and open gaps
 
-- Fleet capacity supports occasional measurements, not blanket fan-out. Use
-  `cmux-ci run --class exclusive --measurement --label measure` only when the
-  live queue is low, reserve one idle exclusive worker, and keep the default
-  cadence to one or two runs per day or at least 30–60 minutes apart. Stop if
-  queue depth grows. Do not target reserved, drained, or unhealthy minis.
+- Fleet capacity supports occasional measurements, not blanket fan-out. Use the
+  controller's allowlisted script and an exact 40-character SHA with the
+  command shape `cmux-ci run --class exclusive --script <allowlisted-script>
+  --ref <exact-sha> --measurement --label measure` only when the live queue is
+  low. Reserve one idle exclusive worker, keep the default cadence to one or
+  two runs per day or at least 30–60 minutes apart, and stop if queue depth
+  grows. Do not target reserved, drained, or unhealthy minis.
 - Regression coverage already includes red-test→fix discipline, pbxproj wiring,
   non-tolerant workspace-switch CI, lifecycle signposts, and focused tests.
   Record every revert/re-land as a ledger item with repro, invariant, receipt,
@@ -88,6 +90,21 @@ handoff before the second slice starts.
 - The existing perceived-speed and sidebar receipt harnesses are useful
   follow-ups but are not ancestors of this branch. The first reconciliation
   must link or import the selected harness before claiming performance coverage.
+
+### First reconciliation receipt
+
+- At end of day on 2026-10-16 Pacific, `origin/main` was fetched at
+  `9dcb0521e8c31b57038e836b9fc949199da9cb0f`.
+- Merge base was `e77a6b14228b3c1a7a224670666018ba7ed33d09`; divergence was
+  `5621` commits on `origin/main` versus `11` on this branch.
+- `git merge --no-ff --no-edit origin/main` produced 14 conflicts across
+  active product files. The merge was aborted without rewriting or dropping
+  the pilot branch; exact preserved head is `e2be7826a21af31065dcb013a2d6035f033b9e22`.
+- Reconciliation result: **blocked by stale inherited base**. Before accepting
+  more code slices, start the next daytime branch from current `origin/main`
+  or assign a dedicated owner to reconcile the inherited feature stack. Do not
+  force-resolve this merge or call the pilot integrated until the exact
+  reconciled SHA has checks and hosted evidence.
 
 ## Fast-forward rules
 
