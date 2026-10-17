@@ -2178,11 +2178,12 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # A build that publishes submits only (resume-nightly-notarization.sh
-          # continues it). Any other build waits here and then signs and
-          # notarizes the DMG around the stapled app (CMUX_STAPLE_APP_IN_DMG).
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # A build that publishes submits only (resume-stapled-app-notarization.sh
+          # continues it and signs there), so it gets no certificate. Any other
+          # build waits here and then signs and notarizes the DMG around the
+          # stapled app (CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_BASE64 || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m
           CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
           CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}

@@ -2,7 +2,8 @@
 # Finish the DMGs around stapled apps that notarize-nightly-dmg.sh submitted
 # without a wait (CMUX_STAPLED_DMG_HANDOFF_FILE). All submissions are waited on
 # at once, so several variants share one bounded wait instead of one each.
-# For each: require Accepted, staple the DMG, validate it and the app inside it
+# For each: require Accepted from both `notarytool wait` and `notarytool log`,
+# require the DMG bytes the handoff recorded, staple the DMG, validate it and the app inside it
 # (its own ticket, Gatekeeper, metadata, licenses, launch smokes unless
 # CMUX_DEFER_LAUNCH_SMOKES), then move it to the release path and copy it to
 # the immutable path.
@@ -26,7 +27,12 @@ done
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 TMP_DIR="$(mktemp -d)"
 MOUNT_DIR=""
+pids=()
 cleanup() {
+  local pid
+  for pid in ${pids[@]+"${pids[@]}"}; do
+    kill "$pid" 2>/dev/null || true
+  done
   if [ -n "$MOUNT_DIR" ]; then
     "$HDIUTIL_TOOL" detach "$MOUNT_DIR" || "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR" || true
   fi
@@ -54,14 +60,20 @@ print(found)
 PY
 }
 
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else sha256sum "$1"; fi | awk '{print $1}'
+}
 handoffs=("$@")
-pids=()
 for i in "${!handoffs[@]}"; do
   handoff="${handoffs[$i]}"
   [ -f "$handoff" ] || { echo "Handoff record not found: $handoff" >&2; exit 1; }
   id="$(value "$handoff" submission_id)"
   [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Handoff $handoff names no valid submission id" >&2; exit 1; }
   [ -f "$(value "$handoff" stapled_dmg)" ] || { echo "Handoff $handoff: stapled-app DMG missing" >&2; exit 1; }
+  if [ "$(sha256_of "$(value "$handoff" stapled_dmg)")" != "$(value "$handoff" dmg_sha256)" ]; then
+    echo "Handoff $handoff: the stapled-app DMG is not the submitted one" >&2
+    exit 1
+  fi
   "$XCRUN_TOOL" notarytool wait "$id" "${NOTARY_AUTH_ARGS[@]}" \
     --timeout "$WAIT_TIMEOUT" --output-format json > "$TMP_DIR/wait-$i.out" 2>&1 &
   pids+=("$!")
@@ -69,14 +81,20 @@ done
 for pid in "${pids[@]}"; do
   wait "$pid" || true
 done
+pids=()
 failed=false
 for i in "${!handoffs[@]}"; do
   id="$(value "${handoffs[$i]}" submission_id)"
   status="$(status_of "$TMP_DIR/wait-$i.out")"
-  if [ "$status" != Accepted ]; then
+  log_status=""
+  if [ "$status" = Accepted ]; then
+    "$XCRUN_TOOL" notarytool log "$id" "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/log-$i.out" 2>&1 || true
+    log_status="$(status_of "$TMP_DIR/log-$i.out")"
+  fi
+  if [ "$status" != Accepted ] || [ "$log_status" != Accepted ]; then
     cat "$TMP_DIR/wait-$i.out" >&2
-    "$XCRUN_TOOL" notarytool log "$id" "${NOTARY_AUTH_ARGS[@]}" >&2 || true
-    echo "The DMG around the stapled app (submission $id) is not Accepted within $WAIT_TIMEOUT: ${status:-unknown}; nothing is published" >&2
+    [ ! -f "$TMP_DIR/log-$i.out" ] || cat "$TMP_DIR/log-$i.out" >&2
+    echo "The DMG around the stapled app (submission $id) is not proven Accepted within $WAIT_TIMEOUT (wait: ${status:-unknown}, log: ${log_status:-unknown}); nothing is published" >&2
     failed=true
   fi
 done
@@ -89,6 +107,10 @@ for handoff in "${handoffs[@]}"; do
   release="$(value "$handoff" release_dmg)"
   immutable="$(value "$handoff" immutable_dmg)"
   channel="$(value "$handoff" channel)"
+  if [ "$(sha256_of "$dmg")" != "$(value "$handoff" dmg_sha256)" ]; then
+    echo "The stapled-app DMG changed after its submission: $dmg" >&2
+    exit 1
+  fi
   "$XCRUN_TOOL" stapler staple "$dmg"
   "$XCRUN_TOOL" stapler validate "$dmg"
   MOUNT_DIR="$(mktemp -d "$TMP_DIR/mount.XXXXXX")"

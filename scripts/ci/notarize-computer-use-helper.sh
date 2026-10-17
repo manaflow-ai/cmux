@@ -345,6 +345,9 @@ PYSTATE
   cat "$TMP_DIR/notary-log.json"
   verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"
+  # The ticket is written with this script's 077 umask; the shipped helper
+  # must be readable by every user.
+  [ ! -e "$HELPER_PATH/Contents/CodeResources" ] || chmod 0644 "$HELPER_PATH/Contents/CodeResources"
   "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
   verify_stapled_ticket_covers_slices "$HELPER_PATH"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"

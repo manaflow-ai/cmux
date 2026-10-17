@@ -254,6 +254,7 @@ write_notary_state() {
   if command -v shasum >/dev/null 2>&1; then
     dmg_sha256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
   fi
+  (
   umask 077
   {
     printf 'submission_id=%s\n' "$DMG_SUBMIT_ID"
@@ -267,13 +268,20 @@ write_notary_state() {
     printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
     printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
+    # The DMG around the stapled app (resume-stapled-app-notarization.sh).
+    if [ "${CMUX_NOTARY_STATE_STAPLED_APP:-false}" = true ]; then
+      printf 'stapled_app=true\n'
+    fi
   } > "$state_tmp"
+  )
   /bin/mv "$state_tmp" "$NOTARY_SUBMISSION_FILE"
 }
 
 save_notary_output() {
   # The output file is intentionally retained after a failed run. It is the
   # evidence needed to resume the exact Apple submission in a follow-up job.
+  # Only the sidecar is private; the app stapled later must not inherit 077.
+  (
   umask 077
   /bin/cp "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_OUTPUT_FILE"
   if [ -n "$DMG_SUBMIT_ID" ] && [ "${CMUX_SKIP_NOTARY_LOG:-false}" != true ]; then
@@ -282,6 +290,7 @@ save_notary_output() {
       "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
     } >> "$NOTARY_OUTPUT_FILE" 2>&1
   fi
+  )
   cat "$NOTARY_OUTPUT_FILE" >&2
 }
 
@@ -338,6 +347,8 @@ fi
 # A DMG submission scans nested code and issues a ticket for the exact signed
 # app. Require that independently usable ticket before accepting the artifact.
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
+# The ticket in Contents/CodeResources must be readable by every user.
+[ ! -e "$APP_PATH/Contents/CodeResources" ] || chmod 0644 "$APP_PATH/Contents/CodeResources"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
 
@@ -372,6 +383,7 @@ if [ "$STAPLE_APP_IN_DMG" = true ]; then
     {
       printf 'submission_id=%s\n' "$restaple_id"
       printf 'stapled_dmg=%s\n' "$DMG_RELEASE.stapled-app.dmg"
+      printf 'dmg_sha256=%s\n' "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$DMG_RELEASE.stapled-app.dmg")"
       printf 'release_dmg=%s\n' "$DMG_RELEASE"
       printf 'immutable_dmg=%s\n' "$DMG_IMMUTABLE"
       printf 'channel=%s\n' "$CHANNEL"

@@ -83,6 +83,10 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ] && [ "${3:-}" = fixture-stapled-id ]; then
+  printf '{"id":"fixture-stapled-id","status":"%s"}\n' "${CMUX_TEST_WAIT_STATUS:-Accepted}"
+  exit 0
+fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
   printf '{"id":"fixture-id","status":"In Progress","message":"still processing"}\n' >&2
 fi
@@ -661,6 +665,104 @@ for case in accepted rejected; do
   fi
 done
 echo "PASS: handed-off stapled-app DMGs are finished together"
+
+# resume-stapled-app-notarization.sh, with stub package, resume and keychain
+# tools: the order of its steps, the stapled_app=true state it hands off, and a
+# second submission that Apple rejects or that is still pending.
+W="$TMP_DIR/wrapper"
+mkdir -p "$W/bin" "$W/recovery"
+cat > "$W/bin/keychain" <<'EOF'
+#!/usr/bin/env bash
+printf 'keychain %s cert=%s\n' "$1" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
+EOF
+cat > "$W/bin/package" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'package %s cert=%s submit_only=%s marker=%s\n' "$2" "${APPLE_CERTIFICATE_BASE64:+set}" "$CMUX_NOTARY_SUBMIT_ONLY" "${CMUX_NOTARY_STATE_STAPLED_APP:-}" >> "$CMUX_TEST_CALL_LOG"
+printf 'second-dmg\n' > "$2"
+{
+  printf 'submission_id=fixture-second-id\n'
+  printf 'dmg_path=%s\n' "$2"
+  [ "${CMUX_NOTARY_STATE_STAPLED_APP:-}" != true ] || printf 'stapled_app=true\n'
+} > "$CMUX_NOTARY_SUBMISSION_FILE"
+printf 'submit evidence\n' > "$CMUX_NOTARY_OUTPUT_FILE"
+EOF
+cat > "$W/bin/resume" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'resume %s %s app_only=%s helper_recheck_skipped=%s wait=%s cert=%s\n' "$(basename "$1")" "$3" "${CMUX_RESUME_APP_ONLY:-false}" "${CMUX_SKIP_HELPER_RECHECK:-false}" "${CMUX_NOTARY_WAIT_TIMEOUT:-}" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
+if grep -Fxq 'stapled_app=true' "$1"; then
+  case "${CMUX_TEST_SECOND:-Accepted}" in
+    Accepted) cp "$3" "$4" ;;
+    *) echo "submission fixture-second-id: ${CMUX_TEST_SECOND}" >&2; exit 1 ;;
+  esac
+fi
+EOF
+chmod +x "$W/bin"/*
+run_wrapper() {
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_NOTARIZE_NIGHTLY_DMG_TOOL="$W/bin/package" \
+  CMUX_RESUME_NIGHTLY_NOTARIZATION_TOOL="$W/bin/resume" \
+  CMUX_SIGNING_KEYCHAIN_TOOL="$W/bin/keychain" \
+  APPLE_SIGNING_IDENTITY="Developer ID Application: Fixture" \
+  APPLE_CERTIFICATE_BASE64=fixture-p12 \
+  APPLE_CERTIFICATE_PASSWORD=fixture-password \
+  CMUX_NOTARY_WAIT_TIMEOUT=2m \
+  CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+  "$ROOT_DIR/scripts/ci/resume-stapled-app-notarization.sh" \
+    "$1" "$APP" "$W/recovery/cmux-nightly-macos.dmg" "$W/immutable.dmg" \
+    "$ROOT_DIR/cmux.nightly.entitlements" "$W/outer.state"
+}
+for case in Accepted Invalid "In Progress"; do
+  : > "$LOG"
+  rm -rf "$W/recovery/stapled-app" "$W/outer.state" "$W/outer.state.log" "$W/immutable.dmg"
+  printf 'first-dmg\n' > "$W/recovery/cmux-nightly-macos.dmg"
+  printf 'submission_id=fixture-first-id\n' > "$W/first.state"
+  set +e
+  CMUX_TEST_SECOND="$case" run_wrapper "$W/first.state" >/dev/null 2>"$W/err"
+  status=$?
+  set -e
+  expected="$(cat <<EOF
+keychain delete cert=
+resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true helper_recheck_skipped=false wait=2m cert=
+keychain create cert=set
+package $W/recovery/stapled-app/cmux-nightly-macos.dmg cert= submit_only=true marker=true
+keychain delete cert=
+resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false helper_recheck_skipped=true wait=40m cert=
+EOF
+)"
+  if [ "$(head -n 6 "$LOG")" != "$expected" ] \
+    || ! grep -Fxq 'stapled_app=true' "$W/outer.state" || [ ! -s "$W/outer.state.log" ]; then
+    echo "FAIL ($case): the wrapper must staple the first DMG's app without a keychain, make the keychain just before the second signature, and hand the stapled_app=true state to a bounded wait" >&2
+    cat "$LOG" "$W/err" >&2
+    exit 1
+  fi
+  if [ "$case" = Accepted ]; then
+    if [ "$status" -ne 0 ] || [ "$(cat "$W/recovery/cmux-nightly-macos.dmg")" != second-dmg ] \
+      || [ -e "$W/recovery/stapled-app/cmux-nightly-macos.dmg" ] || [ "$(cat "$W/immutable.dmg")" != second-dmg ]; then
+      echo "FAIL: an accepted stapled-app DMG must replace the first DMG and be published" >&2
+      cat "$W/err" >&2
+      exit 1
+    fi
+  elif [ "$status" -eq 0 ] || [ "$(cat "$W/recovery/cmux-nightly-macos.dmg")" != first-dmg ] \
+    || [ "$(cat "$W/recovery/stapled-app/cmux-nightly-macos.dmg")" != second-dmg ] || [ -e "$W/immutable.dmg" ]; then
+    echo "FAIL ($case): a stapled-app DMG that is not accepted must fail, publish nothing, and keep both DMGs for the hand-off" >&2
+    exit 1
+  fi
+done
+# A stapled_app=true state (an outer recovery artifact) is only continued.
+: > "$LOG"
+printf 'submission_id=fixture-second-id\nstapled_app=true\n' > "$W/marked.state"
+printf 'second-dmg\n' > "$W/recovery/cmux-nightly-macos.dmg"
+rm -f "$W/immutable.dmg"
+if ! run_wrapper "$W/marked.state" >/dev/null 2>"$W/err" \
+  || grep -q '^package \|^keychain create' "$LOG" \
+  || ! grep -q "^resume marked.state $W/recovery/cmux-nightly-macos.dmg app_only=false " "$LOG"; then
+  echo "FAIL: a stapled_app=true state must be continued without a new DMG or keychain" >&2
+  cat "$LOG" "$W/err" >&2
+  exit 1
+fi
+echo "PASS: the stapled-app wrapper hands off its second submission and never publishes it unaccepted"
 
 # The CI signing keychain must be gone before any launch smoke runs code from
 # the bundle. Give the helper a managed keychain (scripts/ci/signing-keychain.sh

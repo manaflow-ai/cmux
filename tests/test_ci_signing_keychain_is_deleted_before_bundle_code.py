@@ -88,6 +88,17 @@ RELEASE_ENVIRONMENT = re.compile(r"\b(release|release-next|content-signing|night
 # The CodeRouter release signs one CLI binary with a keychain at an absolute
 # path and runs nothing from it; it keeps its own inline import.
 INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
+# Jobs whose Developer ID keychain a script makes with signing-keychain.sh
+# create just before its signature: notarize-nightly-dmg.sh (the DMG around
+# the stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
+# continuation). Rule 5 checks the order inside those scripts.
+SCRIPT_MADE_KEYCHAINS = {
+    ("nightly.yml", "build-sign-notarize-nightly"): "scripts/ci/notarize-nightly-dmg.sh",
+    ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
+    ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
+    ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
+    ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
+}
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.
 STEP_LEVEL_ONLY = {
@@ -170,9 +181,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
-        # notarize-nightly-dmg.sh creates its stapled-app DMG keychain through
-        # scripts/ci/signing-keychain.sh create itself.
-        if "signing-keychain.sh create" not in text and "scripts/ci/notarize-nightly-dmg.sh" not in text:
+        script = SCRIPT_MADE_KEYCHAINS.get(tuple(name.split(" ", 1)))
+        if "signing-keychain.sh create" not in text and not (script and script in text):
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
@@ -239,16 +249,22 @@ def check_scripts(failures: list[str]) -> None:
 
     resume = read_lines("scripts/ci/resume-helper-notarization.sh", failures)
     delete = index_of(resume, '"$SIGNING_KEYCHAIN_TOOL" delete')
-    continuation = index_of(resume, '"$RESUME_TOOL"')
+    continuation = index_of(resume, '"$STAPLED_TOOL"')
     if not (0 <= delete < continuation):
         failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
 
     stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
+    first = index_of(stapled, '"$RESUME_TOOL" "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE"', last=True)
+    create = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" create')
     package = index_of(stapled, '"$PACKAGE_TOOL"')
     delete = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" delete', last=True)
     continuation = index_of(stapled, '"$RESUME_TOOL" "$OUTER_STATE"', last=True)
-    if not (0 <= package < delete < continuation):
-        failures.append("scripts/ci/resume-stapled-app-notarization.sh: delete the signing keychain after the stapled-app DMG signature and before the continuation")
+    if not (0 <= first < create < package < delete < continuation):
+        failures.append(
+            "scripts/ci/resume-stapled-app-notarization.sh: create the signing keychain after the first "
+            "continuation and just before the stapled-app DMG signature, and delete it before the second "
+            f"continuation (first={first} create={create} package={package} delete={delete} continuation={continuation})"
+        )
 
     sign = "\n".join(read_lines("scripts/sign-cmux-bundle.sh", failures))
     if '"$SIGNING_KEYCHAIN_TOOL" is-present' not in sign or "SIDECAR_CHECK+=(--static-only)" not in sign:

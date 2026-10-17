@@ -366,19 +366,23 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
-      # Both kinds sign an outer DMG here: a recovered Computer Use helper
-      # re-seals the app, and a recovered DMG gets the DMG around its stapled
-      # app (resume-stapled-app-notarization.sh). notarize-nightly-dmg.sh deletes
-      # the keychain after the DMG signature, before the continuation checks
-      # the stapled app.
+      # Only a recovered Computer Use helper needs a keychain before the wait:
+      # the helper re-seals the app. notarize-nightly-dmg.sh deletes it after
+      # the outer DMG signature. The DMG around the stapled app is signed with
+      # a keychain that resume-stapled-app-notarization.sh makes just before
+      # that signature.
       - name: Import signing certificate for recovered DMG
+        if: env.RECOVERY_KIND == 'computer-use-helper'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: ./scripts/ci/signing-keychain.sh create
 
+      # The step limit leaves the job time to stage the outer submission below
+      # (a step that runs out of time fails; a job that does is cancelled).
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
+        timeout-minutes: 75
         env:
           # Launch smokes of the stapled DMG run in verify-stapled, which holds
           # no secrets. No bundle code runs in this job.
@@ -387,18 +391,22 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Only for the keychain of the DMG around the stapled app.
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p verified
           if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
             outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-            # Leave enough of the 90-minute job budget to write and upload an
-            # exact outer-DMG recovery artifact if Apple is still processing.
+            # Two bounded waits (the outer DMG, then the DMG around its
+            # stapled app) inside the 75-minute step limit.
             CMUX_CHANNEL="$CHANNEL" \
             CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
             CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
             NIGHTLY_VARIANT="$VARIANT" \
-            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m \
+            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=20m \
               ./scripts/ci/resume-helper-notarization.sh \
               "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
               "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
@@ -412,85 +420,38 @@ jobs:
             NIGHTLY_VARIANT="$VARIANT" \
             CMUX_NOTARY_WAIT_TIMEOUT=2m \
             CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
               ./scripts/ci/resume-stapled-app-notarization.sh \
               "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
               "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$outer_state"
           fi
 
+      # The DMG around the stapled app (stapled_app=true) is handed off when
+      # it exists. Otherwise a recovered helper hands off its outer DMG
+      # (<outer-state>.first). A recovered DMG hands off only the stapled-app
+      # DMG: nothing else of it is still at Apple.
       - name: Prepare outer DMG recovery after bounded wait
         id: prepare-outer
         if: always() && steps.wait-staple.outcome == 'failure'
         run: |
           set -euo pipefail
           outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-          outer_log="$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log"
-          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" != computer-use-helper ]; then
-            echo "The failure came before the stapled-app DMG was submitted; nothing to hand off."
+          require=(--require-stapled-app)
+          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" = computer-use-helper ]; then
+            outer_state="$outer_state.first"
+            require=()
+          fi
+          if [ ! -s "$outer_state" ]; then
+            echo "The failure came before an outer DMG was submitted; nothing to hand off."
             exit 0
           fi
-          for required in "$outer_state" "$outer_log" "$DMG_RELEASE" recovery/cmux-nightly-notarization-recovery-app.tar.gz recovery/cmux-nightly-notarization-recovery.json; do
-            [ -s "$required" ] || { echo "missing outer recovery input: $required" >&2; exit 1; }
-          done
-          mkdir -p outer-recovery-staging outer-metadata-staging
-          python3 - \
+          python3 scripts/ci/stage-outer-notarization-recovery.py \
             recovery/cmux-nightly-notarization-recovery.json \
-            "$outer_state" "$DMG_RELEASE" "$outer_log" \
-            "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$SOURCE_RUN_ATTEMPT" \
-            "$CHANNEL" "$VARIANT" "$RELEASE_TAG" "$DMG_PREFIX" "$SHORT_SHA" <<'PY'
-          import hashlib
-          import json
-          import pathlib
-          import sys
-
-          source_manifest, state_path, dmg_path, log_path, source_run_id, head_sha, run_attempt, channel, variant, release_tag, dmg_prefix, short_sha = sys.argv[1:]
-          original = json.loads(pathlib.Path(source_manifest).read_text(encoding="utf-8"))
-          state = {}
-          for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
-              key, sep, value = line.partition("=")
-              if not sep or key in state:
-                  raise SystemExit(f"invalid outer state line: {line!r}")
-              state[key] = value
-          submission_id = state.get("submission_id", "")
-          if not submission_id or not all(ch.isalnum() or ch in "._-" for ch in submission_id):
-              raise SystemExit("outer state has no valid Apple submission id")
-          dmg = pathlib.Path(dmg_path)
-          canonical_state = f"{dmg.name}.notarization.state"
-          canonical_log = f"{dmg.name}.notarization.log"
-          digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
-          if state.get("dmg_sha256", "").lower() != digest:
-              raise SystemExit("outer state SHA-256 does not match the recovered DMG")
-          manifest = {
-              "schema": 1,
-              "source_run_id": source_run_id,
-              "source_run_attempt": run_attempt,
-              "should_publish": True,
-              "head_sha": head_sha,
-              "short_sha": short_sha,
-              "channel": channel,
-              "variant": variant,
-              "release_tag": release_tag,
-              "dmg_prefix": dmg_prefix,
-              "build": original["build"],
-              "dmg_path": dmg.name,
-              "immutable_path": pathlib.Path(state["immutable_path"]).name,
-              "app_path": original["app_path"],
-              "app_archive_path": original["app_archive_path"],
-              "state_path": canonical_state,
-              "log_path": canonical_log,
-              "dmg_sha256": digest,
-              "submission_id": submission_id,
-          }
-          for directory in (pathlib.Path("outer-recovery-staging"), pathlib.Path("outer-metadata-staging")):
-              directory.joinpath("cmux-nightly-notarization-recovery.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          pathlib.Path("outer-metadata-staging", canonical_state).write_bytes(pathlib.Path(state_path).read_bytes())
-          pathlib.Path("outer-metadata-staging", canonical_log).write_bytes(pathlib.Path(log_path).read_bytes())
-          pathlib.Path("outer-recovery-staging", dmg.name).write_bytes(dmg.read_bytes())
-          pathlib.Path("outer-recovery-staging", canonical_state).write_bytes(pathlib.Path(state_path).read_bytes())
-          pathlib.Path("outer-recovery-staging", canonical_log).write_bytes(pathlib.Path(log_path).read_bytes())
-          archive = pathlib.Path("recovery", original["app_archive_path"])
-          pathlib.Path("outer-recovery-staging", original["app_archive_path"]).write_bytes(archive.read_bytes())
-          PY
+            "$outer_state" "$DMG_RELEASE" "$APP_PATH" outer-recovery-staging \
+            --metadata-dir outer-metadata-staging ${require[@]+"${require[@]}"} \
+            --source-run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_HEAD_SHA" \
+            --run-attempt "$SOURCE_RUN_ATTEMPT" --channel "$CHANNEL" --variant "$VARIANT" \
+            --release-tag "$RELEASE_TAG" --dmg-prefix "$DMG_PREFIX" --short-sha "$SHORT_SHA"
           echo "prepared=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload outer DMG recovery artifact
@@ -687,9 +648,8 @@ jobs:
       actions: read
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
-      GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
@@ -698,9 +658,6 @@ jobs:
       DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -712,6 +669,8 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download exact outer recovery artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -728,18 +687,101 @@ jobs:
             --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app > "$RUNNER_TEMP/recovery.env"
           while IFS='=' read -r key value; do printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"; done < "$RUNNER_TEMP/recovery.env"
 
+      # An outer DMG of a recovered helper (no stapled_app=true) still needs
+      # the DMG around its stapled app: packaging tools, a certificate and a
+      # second, bounded wait. A stapled-app DMG is only stapled here.
+      - name: Classify outer DMG
+        run: |
+          set -euo pipefail
+          if grep -Fxq 'stapled_app=true' "$STATE_FILE"; then
+            echo "OUTER_STAPLED_APP=true" >> "$GITHUB_ENV"
+          else
+            echo "OUTER_STAPLED_APP=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Node for the stapled-app DMG
+        if: env.OUTER_STAPLED_APP != 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install stapled-app DMG packaging tools
+        if: env.OUTER_STAPLED_APP != 'true'
+        env:
+          CREATE_DMG_VERSION: 8.0.0
+        run: |
+          set -euo pipefail
+          npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$(command -v node)" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
       - name: Staple and validate accepted outer DMG
+        id: staple-outer
+        timeout-minutes: 45
         env:
           # Launch smokes run in verify-stapled, which holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Only for the keychain of the DMG around the stapled app.
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p verified
           CMUX_CHANNEL="$CHANNEL" \
-            CMUX_NOTARY_WAIT_TIMEOUT=2m \
-            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            ./scripts/ci/resume-nightly-notarization.sh \
-            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+          CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
+          CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
+          NIGHTLY_VARIANT="$VARIANT" \
+          CMUX_NOTARY_WAIT_TIMEOUT=2m \
+          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=30m \
+            ./scripts/ci/resume-stapled-app-notarization.sh \
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+            "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$RUNNER_TEMP/cmux-stapled-app-notarization.state"
+
+      # No poller follows this job. A stapled-app DMG still at Apple is kept
+      # for resume-nightly-notarization.yml, which only continues it.
+      - name: Prepare stapled-app DMG recovery for manual continuation
+        id: prepare-stapled
+        if: always() && steps.staple-outer.outcome == 'failure' && env.OUTER_STAPLED_APP != 'true'
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/cmux-stapled-app-notarization.state"
+          if [ ! -s "$state" ]; then
+            echo "The failure came before the stapled-app DMG was submitted; nothing to hand off."
+            exit 0
+          fi
+          python3 scripts/ci/stage-outer-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$state" "$DMG_RELEASE" "$APP_PATH" stapled-recovery-staging --require-stapled-app \
+            --source-run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_HEAD_SHA" \
+            --run-attempt "$SOURCE_RUN_ATTEMPT" --channel "$CHANNEL" --variant "$VARIANT" \
+            --release-tag "$RELEASE_TAG" --dmg-prefix "$DMG_PREFIX" --short-sha "$SHORT_SHA"
+          id="$(awk -F= '$1 == "submission_id" { print $2; exit }' "$state")"
+          artifact="cmux-${CHANNEL}-stapled-app-notarization-recovery-${VARIANT}-${SHORT_SHA}"
+          echo "::warning::The DMG around the stapled app (Apple submission $id) is still pending. Continue it with resume-nightly-notarization.yml: source_run_id=$SOURCE_RUN_ID artifact_run_id=$GITHUB_RUN_ID recovery_artifact=$artifact channel=$CHANNEL variant=$VARIANT"
+          echo "prepared=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload stapled-app DMG recovery artifact
+        if: always() && steps.prepare-stapled.outputs.prepared == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-stapled-app-notarization-recovery-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: stapled-recovery-staging/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Generate verified Sparkle feed
         env:
@@ -776,6 +818,12 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   verify-stapled:
     name: Verify stapled DMG (${{ matrix.variant }})

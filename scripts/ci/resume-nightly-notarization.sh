@@ -120,6 +120,9 @@ STATE_STAPLED_APP="$(state_value stapled_app)"
 # CMUX_RESUME_APP_ONLY=true: staple and check the app and this DMG, then stop
 # (resume-stapled-app-notarization.sh builds the DMG that ships).
 RESUME_APP_ONLY="${CMUX_RESUME_APP_ONLY:-false}"
+# CMUX_SKIP_HELPER_RECHECK=true: the caller checked this same app's Computer
+# Use helper earlier in the job (the stapled-app DMG continuation).
+SKIP_HELPER_RECHECK="${CMUX_SKIP_HELPER_RECHECK:-false}"
 CHANNEL="${CMUX_CHANNEL:-${RECORDED_CHANNEL:-nightly}}"
 if [ -z "$SUBMISSION_ID" ] || [ -z "$RECORDED_DMG" ] || [ -z "$RECORDED_SHA256" ] || [ -z "$RECORDED_IMMUTABLE" ] || [ -z "$RECORDED_CHANNEL" ]; then
   echo "Incomplete notarization state: $STATE_FILE" >&2
@@ -179,8 +182,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# stapler writes the ticket to Contents/CodeResources with the process umask.
+# The shipped app must be readable by every user, so its ticket is 0644.
+staple_app() {
+  "$XCRUN_TOOL" stapler staple "$1"
+  [ ! -e "$1/Contents/CodeResources" ] || chmod 0644 "$1/Contents/CodeResources"
+}
+
 verify_computer_use_helper() {
   local helper_path="$APP_PATH/Contents/Library/cmux Computer Use.app"
+  if [ "$SKIP_HELPER_RECHECK" = true ]; then
+    echo "The Computer Use helper of this app was checked earlier in this job"
+    return 0
+  fi
   local standalone_helper="$TMP_DIR/cmux Computer Use.app"
   if [ ! -d "$helper_path/Contents" ]; then
     echo "Recovered app is missing the Computer Use helper: $helper_path" >&2
@@ -255,15 +269,18 @@ set -e
 WAIT_STATUS="$(extract_notary_value "$WAIT_OUTPUT" status || true)"
 LOG_STATUS="$(extract_notary_value "$LOG_OUTPUT" status || true)"
 
-umask 077
-{
-  printf '%s\n' '--- original timed-out notarytool evidence ---'
-  cat "$EVIDENCE_FILE"
-  printf '\n--- notarytool wait for submission %s ---\n' "$SUBMISSION_ID"
-  cat "$WAIT_OUTPUT"
-  printf '\n--- notarytool log for submission %s ---\n' "$SUBMISSION_ID"
-  cat "$LOG_OUTPUT"
-} > "$NOTARY_OUTPUT_FILE"
+# Only the evidence file is private; the app stapled below must not inherit 077.
+(
+  umask 077
+  {
+    printf '%s\n' '--- original timed-out notarytool evidence ---'
+    cat "$EVIDENCE_FILE"
+    printf '\n--- notarytool wait for submission %s ---\n' "$SUBMISSION_ID"
+    cat "$WAIT_OUTPUT"
+    printf '\n--- notarytool log for submission %s ---\n' "$SUBMISSION_ID"
+    cat "$LOG_OUTPUT"
+  } > "$NOTARY_OUTPUT_FILE"
+)
 
 if [ "$WAIT_EXIT" -ne 0 ] || [ "$WAIT_STATUS" != "Accepted" ] || [ "$LOG_EXIT" -ne 0 ] || [ "$LOG_STATUS" != "Accepted" ]; then
   cat "$NOTARY_OUTPUT_FILE" >&2
@@ -273,7 +290,7 @@ fi
 
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
 verify_computer_use_helper
-"$XCRUN_TOOL" stapler staple "$APP_PATH"
+staple_app "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
 # Apple is done with this artifact; the app below must not find the key.
