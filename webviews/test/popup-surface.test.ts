@@ -124,7 +124,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
