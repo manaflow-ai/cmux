@@ -49,6 +49,9 @@ struct Browser {
     /// A fetch shell's navigation never answers (Chromium seen stalling a
     /// first connection on the Testbox).
     stall_shell_navigation: bool,
+    /// The page's `navigator.maxTouchPoints`: above 0 under touch emulation,
+    /// also one DevTools device mode turned on (cx-3ny35).
+    max_touch_points: i64,
 }
 
 struct FakeWire {
@@ -328,6 +331,11 @@ impl FakeWire {
                 } else {
                     json!({"node": {"backendNodeId": 42, "nodeName": "BUTTON"}})
                 }
+            }
+            "Runtime.evaluate"
+                if params["expression"].as_str().is_some_and(|e| e.contains("maxTouchPoints")) =>
+            {
+                json!({"result": {"type": "number", "value": browser.max_touch_points}})
             }
             "DOM.resolveNode" => {
                 json!({"object": {"type": "object", "objectId": format!("page-{}", params["backendNodeId"])}})
@@ -769,6 +777,47 @@ fn a_touch_emulating_tab_gets_touch_events_and_mouse_again_after_clear() {
         methods,
         ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"],
         "after clear: mouse again"
+    );
+}
+
+#[test]
+fn a_page_with_touch_emulated_by_devtools_gets_touch_events() {
+    // cx-3ny35: DevTools device mode turns touch on itself (the app is not
+    // told), and Chromium then never answers Input.dispatchMouseEvent either.
+    let h = Harness::with_browser(Browser { max_touch_points: 5, ..Browser::default() });
+    let target = h.open(None);
+    let mark = h.mark();
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call("input.mouse", json!({"targetId": target, "type": "move", "x": 11, "y": 21}));
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 11, "y": 21, "button": "left"}),
+    );
+    let input: Vec<(String, Value)> =
+        h.sent_since(mark).into_iter().filter(|(m, _)| m.starts_with("Input.")).collect();
+    let types: Vec<&str> = input.iter().map(|(_, p)| p["type"].as_str().unwrap()).collect();
+    assert!(input.iter().all(|(m, _)| m == "Input.dispatchTouchEvent"), "{input:?}");
+    assert_eq!(types, ["touchStart", "touchMove", "touchEnd"]);
+
+    h.wire.browser.lock().unwrap().max_touch_points = 0;
+    let mark = h.mark();
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 10, "y": 20, "button": "left"}),
+    );
+    let methods: Vec<String> =
+        h.methods_since(mark).into_iter().filter(|m| m.starts_with("Input.")).collect();
+    assert_eq!(
+        methods,
+        ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"],
+        "device mode off: mouse"
     );
 }
 
