@@ -62,6 +62,9 @@ extension TabContentCache {
     /// Applies a new warm set budget (memory pressure changed).
     func setWarmBudget(_ budget: WarmSetBudget) {
         guard budget != warmBudget else { return }
+        // A smaller budget (memory pressure) frees the surfaces now, with no last picture.
+        evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
+        defer { evictsAtOnce = false }
         warmBudget = budget
         apply(ledger.setCapacity(budget.terminalCapacity))
     }
@@ -87,11 +90,15 @@ extension TabContentCache {
     /// stays for its hover card and drag, then the surface closes. Its view leaves the pane now.
     private func evict(_ entry: TerminalEntry, key: String) {
         entry.session.view.removeFromSuperview()
+        guard !evictsAtOnce, TerminalOutput.shows(entry.session) else { return entry.close() }
         Task { [weak self] in
-            let image = TerminalOutput.shows(entry.session) ? await entry.session.snapshotInBackground(maxPixelSize: 480) : nil
+            // Read after this eviction's `.released` (it runs once `apply` returns).
+            let generation = self?.lifecycle.record(key)?.generation
+            let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
             entry.close()
-            // Not when the tab closed (no record) or has a live surface again meanwhile.
-            guard let image, let self, self.terminals[key] == nil, self.lifecycle.record(key) != nil else { return }
+            // Not when the tab closed (no record), has a live surface again, or a later eviction's picture is newer.
+            guard let image, let self, self.terminals[key] == nil, let record = self.lifecycle.record(key),
+                  record.generation == generation else { return }
             self.previews.insert(image, for: key)
         }
     }

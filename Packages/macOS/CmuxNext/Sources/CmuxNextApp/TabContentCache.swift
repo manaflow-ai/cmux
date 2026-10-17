@@ -27,6 +27,8 @@ final class TabContentCache {
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
+    /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
+    var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
