@@ -93,8 +93,9 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        let suppressEffects = suppressesHoverEffects
+        fadesNextFill = !suppressEffects
+        fadesNextHover = !suppressEffects
         needsDisplay = true
     }
 
