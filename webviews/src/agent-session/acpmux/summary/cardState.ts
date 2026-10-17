@@ -92,7 +92,7 @@ export function useSummaryCard(column: boolean, hasContent: boolean) {
   const [popover, setPopover] = useState(false);
   const [explicit, setExplicit] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const shown = column ? (!hidden && hasContent) || explicit : popover;
+  const shown = column ? !hidden && (hasContent || explicit) : popover;
   const show = useCallback(() => {
     setCollapsed(false);
     if (column) {
