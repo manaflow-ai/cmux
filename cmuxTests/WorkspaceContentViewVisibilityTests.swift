@@ -692,6 +692,51 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func testPanelVisibleInUIReturnsTrueForBonsplitFallbackDuringTransientSelectionGap() {
+        #expect(
+            WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIKeepsNonFallbackPanelHiddenDuringTransientSelectionGap() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: false
+            )
+        )
+    }
+
+    @Test
+    func testFallbackTabIdKeepsFirstOfTwoAgentTabsDuringReparentingGap() {
+        let firstTabId = UUID()
+        let secondTabId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: nil,
+                tabIds: [firstTabId, secondTabId]
+            ) == firstTabId
+        )
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: secondTabId,
+                tabIds: [firstTabId, secondTabId]
+            ) == nil
+        )
+    }
+
+    @Test
     func testPanelVisibleInUIReturnsFalseForStaleFocusedPanelWhenAnotherTabIsSelected() {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(

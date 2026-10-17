@@ -18,10 +18,22 @@ enum WorkspacePanelVisibilityPolicy {
         isWorkspaceVisible: Bool,
         paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
-        isFocused: Bool
+        isFocused: Bool,
+        isFallbackInPane: Bool = false
     ) -> Bool {
         guard isWorkspaceVisible else { return false }
-        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+        return isSelectedInPane
+            || (isFocused && !paneHasSelectedTab)
+            || (isFallbackInPane && !paneHasSelectedTab)
+    }
+
+    /// Returns the first tab Bonsplit keeps visible while a pane has no selection.
+    nonisolated static func fallbackTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard selectedTabId == nil else { return nil }
+        return tabIds.first
     }
 
     nonisolated static func visiblePanelIdForRenderedPane(
@@ -248,11 +260,16 @@ struct WorkspaceContentView: View {
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
                 let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
                 let isSelectedInPane = selectedTab?.id == tab.id
+                let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
+                    selectedTabId: selectedTab?.id.uuid,
+                    tabIds: workspace.bonsplitController.tabIds(inPane: paneId).map(\.uuid)
+                ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
                     paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocusedPanel
+                    isFocused: isFocusedPanel,
+                    isFallbackInPane: isFallbackInPane
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
