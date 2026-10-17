@@ -240,6 +240,48 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         #expect(tasks[1]["agent_type"] as? String == "Explore")
         #expect(tasks[1]["command"] == nil)
     }
+
+    @Test func directFeedHookForwardsBackgroundTasks() throws {
+        let context = try FeedTelemetryTestContext(name: "direct-bg-tasks")
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-direct-bg-tasks"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "claude", "--event", "Stop"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-direct-bg-tasks","hook_event_name":"Stop","background_tasks":[{"id":"task-001","type":"shell","status":"running"}]}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        let event = try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "Stop" },
+            "Expected direct Feed Stop telemetry, saw \(context.state.commandsSnapshot())"
+        )
+        let tasks = try #require(event["background_tasks"] as? [[String: Any]], "event=\(event)")
+        #expect(tasks.map { $0["id"] as? String } == ["task-001"])
+    }
 }
 
 private final class FeedTelemetryTestContext {

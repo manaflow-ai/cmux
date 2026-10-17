@@ -44593,6 +44593,13 @@ export default {
             promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
         enrichStopFeedEvent(&eventDict, hookEventName: hookEventName, rawObject: stdinObj)
+        if source == "claude",
+           hookEventName == "Stop" || hookEventName == "SubagentStop",
+           let backgroundTasks = claudeBackgroundTasksFeedValue(from: stdinObj) {
+            // Keep direct Feed hooks aligned with the native Claude hook path
+            // so custom sidebars do not retain stale task lists.
+            eventDict["background_tasks"] = backgroundTasks
+        }
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
