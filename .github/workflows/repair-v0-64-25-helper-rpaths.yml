@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           CMUX_NODE_BIN="$(command -v node)"
-          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          npm_config_prefix="$RUNNER_TEMP/npm-global"
           export npm_config_prefix
           mkdir -p "$npm_config_prefix"
           npm install --global "create-dmg@8.0.0"
