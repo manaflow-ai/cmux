@@ -29,7 +29,7 @@ public final class TabOverflowHintView: NSView {
         label.textColor = .secondaryLabelColor
         label.toolTip = Strings.overflowHint
         useButton.isBordered = false
-        useButton.contentTintColor = Palette.accent
+        useButton.contentTintColor = performWithTheme { Palette.accent }
         useButton.target = self
         useButton.action = #selector(useScrolling)
         dismissButton.isBordered = false

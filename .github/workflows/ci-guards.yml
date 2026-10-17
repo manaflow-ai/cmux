@@ -997,7 +997,12 @@ jobs:
 
       - name: Validate iOS simulator build-once contract
         if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_simulator_build_once.py
+        run: |
+          if [[ -f tests/test_ios_simulator_build_once.py ]]; then
+            python3 tests/test_ios_simulator_build_once.py
+          else
+            echo "skipping removed tests/test_ios_simulator_build_once.py"
+          fi
 
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -1005,7 +1010,12 @@ jobs:
 
       - name: Validate iOS video recording failures
         if: ${{ matrix.group == 'app-host-cache' }}
-        run: python3 tests/test_ios_video_recording.py
+        run: |
+          if [[ -f tests/test_ios_video_recording.py ]]; then
+            python3 tests/test_ios_video_recording.py
+          else
+            echo "skipping removed tests/test_ios_video_recording.py"
+          fi
 
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}

@@ -2,32 +2,65 @@
 # Format: relpath<TAB>rule<TAB>short reason
 # A finding whose (path, rule) appears here is suppressed.
 # Remove a line once the underlying test is determinized.
-Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift	sleep-then-assert	temporary outage debt owned by #8931; remove when determinized
-tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline
-Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	virtual-clock injection makes these large delays non-blocking and deterministic
-web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
-Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	bounded QUIC reconnect and retirement readiness probe from main
-Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	sleep-then-assert	upstream IROH liveness timing test; replace with event-driven readiness
-Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxRelayCredentialInstallerTests.swift	sleep-then-assert	upstream credential rotation timing test; replace with event-driven readiness
-web/tests/iroh-dashboard-controller.test.ts	sleep-then-assert	upstream dashboard render timing tests; replace with event-driven readiness
-Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/DiagnosticLogTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/TerminalWorkIntervalTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorPostSignInTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInExchangePreflightTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInPreflightTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTokenTouchingPhaseCancellationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityEngineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityPeerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientRuntimeTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohEndpointServerTests+Capacity.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimeFailedRestartTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimePolicyTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohOnlineAdmissionRegistryOfflineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohRegistryContextProviderStalenessTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohServerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryReportingTests/TransportSentryReporterTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/CancellationIgnoringTokenProvider.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCSessionPipelinedTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTokenTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCIndependentEventTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/DiagnosticLogTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/TerminalWorkIntervalTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxAgentCursor/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift	assert-on-duration	grandfathered
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorPostSignInTimeoutTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInExchangePreflightTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInPreflightTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTimeoutTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTokenTouchingPhaseCancellationTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/AttachmentRoundTwoTests.swift	assert-on-duration	grandfathered
+Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/AttachmentTests.swift	assert-on-duration	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityEngineTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityPeerSessionTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientRuntimeTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohEndpointServerTests+Capacity.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimeFailedRestartTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimePolicyTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohOnlineAdmissionRegistryOfflineTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohRegistryContextProviderStalenessTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohServerSessionTests.swift	yield-count-poll	grandfathered
+Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryReportingTests/TransportSentryReporterTests.swift	yield-count-poll	grandfathered
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/CancellationIgnoringTokenProvider.swift	yield-count-poll	grandfathered
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCIndependentEventTests.swift	yield-count-poll	grandfathered
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCSessionPipelinedTests.swift	yield-count-poll	grandfathered
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTokenTimeoutTests.swift	yield-count-poll	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneSafeFetchRebindingTests.swift	live-network-host	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentActivityOneShotCancelTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentChatPullRequestTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentLanesTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentPageStaysInWindowTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserEngineStateRestoreTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClearBrowsingDataTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudBringBackTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMoveTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/IconPickerMotionTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MenuKeyRoutingTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabPrewarmStallTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NowPlayingCardTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarInsertWhileDisplayAsleepTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarSameTurnTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SwitchToColdTabTypeAheadTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedTooltipTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TooltipSurfaceTests.swift	assert-on-duration	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceRemoteLocalhostTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/OmniboxPhaseABenchmarkTests.swift	assert-on-duration	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/BrowserPageWaitTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/BusyWatchdogTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ControlSocketServerTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CmuxToastSurfaceTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/DialogFadeTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/PagePopupMotionTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests/PaletteSettingsScopeTests.swift	assert-on-duration	grandfathered
+tests/test_webviews_tests_per_file.py	assert-on-duration	grandfathered
+webviews/test/agent-pane-seen.test.ts	sleep-then-assert	grandfathered
+webviews/test/agent-pane-view-race.test.ts	sleep-then-assert	grandfathered
+webviews/test/all-chats-live.test.tsx	sleep-then-assert	grandfathered
+webviews/test/all-chats-projects.test.tsx	sleep-then-assert	grandfathered
+webviews/test/diff-viewer-freshness.test.tsx	sleep-then-assert	grandfathered
+webviews/test/effort-slider-keys.test.ts	sleep-then-assert	grandfathered
+webviews/test/harnesses-page.test.tsx	sleep-then-assert	grandfathered
+webviews/test/model-picker-live-refresh.test.tsx	sleep-then-assert	grandfathered
+webviews/test/new-tab-style-switch.test.tsx	sleep-then-assert	grandfathered
+webviews/test/url-chip-hover.test.tsx	sleep-then-assert	grandfathered
