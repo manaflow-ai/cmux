@@ -36,6 +36,7 @@ struct PendingWorkspaceRowsTests {
         let shown = PendingWorkspaceRows.adding(rows.rows(in: "window"), to: [Self.section()], home: nil)
 
         #expect(shown.flatMap(\.workspaces).map(\.id.rawValue) == ["first", "second"])
+    }
 
     private static let machine = MachineID("test-machine")
     private static func sections() -> [SidebarRowSection] {
