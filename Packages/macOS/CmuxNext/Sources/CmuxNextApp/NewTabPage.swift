@@ -19,6 +19,8 @@ struct NewTabPageHandler {
     /// folder when the page picked one), a browser opens it as an address
     /// or searches it.
     var open: (String, AgentPaneOpenTab) -> Void
+    /// A Run board attach is a typed native request, but uses the same tab placement lifecycle.
+    var attachRun: (String, AgentPaneRunAttach) -> Void = { _, _ in }
     var inputReady: (String, String) -> Void = { _, _ in }
     /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
     var typeAhead: (String, String) -> Void = { _, _ in }
@@ -219,6 +221,7 @@ enum NewTabPage {
                         open: @escaping (String, AgentPaneOpenTab) -> Void) -> NewTabPageHandler {
         NewTabPageHandler(
             open: open,
+            attachRun: { key, target in open(key, AgentPaneOpenTab(kind: .terminal, text: target.shellCommand, run: true, keep: true)) },
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
             setTemplate: { [weak services] template in

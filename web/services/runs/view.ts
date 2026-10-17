@@ -149,6 +149,7 @@ function attemptView(
   return {
     id: attempt.id,
     ordinal: attempt.ordinal,
+    variant: attempt.variant,
     status: attempt.status as AttemptStatus,
     runtimeId: attempt.runtimeId ?? null,
     placement: placementFor(attempt, backendProvider),

@@ -324,6 +324,8 @@ export const runAttempts = pgTable(
     /** Tenant-scoped durable runtime selected for this execution attempt. */
     runtimeId: uuid("runtime_id").references(() => cloudRuntimes.id, { onDelete: "set null" }),
     ordinal: integer("ordinal").notNull(),
+    /** Immutable per-attempt recipe selected at Run creation. */
+    variant: jsonb("variant").$type<{ id: string; label: string; instruction: string }>().notNull(),
     status: runAttemptStatus("status").notNull().default("queued"),
     providerVmId: text("provider_vm_id"),
     providerWorkspaceId: text("provider_workspace_id"),

@@ -14,6 +14,7 @@ import {
   type AttemptStatus,
   type RunEventKind,
   type RunStatus,
+  type RunVariantRecipe,
 } from "./model";
 
 export class RunIdempotencyConflictError extends Error {}
@@ -44,6 +45,7 @@ export type CreateRunInput = {
   readonly recipe: string;
   readonly provider?: string;
   readonly desiredAttempts: number;
+  readonly variants?: readonly RunVariantRecipe[];
 };
 
 export type RunAttachTarget = {
@@ -73,6 +75,20 @@ export function requestDigest(value: unknown): string {
 export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
   if (!Number.isSafeInteger(input.desiredAttempts) || input.desiredAttempts < 1 || input.desiredAttempts > 32) {
     throw new Error("desiredAttempts must be between 1 and 32");
+  }
+  const variants = input.variants?.length
+    ? input.variants
+    : Array.from({ length: input.desiredAttempts }, (_, ordinal) => ({
+        id: `attempt-${ordinal + 1}`,
+        label: `Attempt ${String.fromCharCode(65 + ordinal)}`,
+        instruction: "Explore the shared intent independently and publish build, test, and artifact evidence.",
+      }));
+  if (variants.length !== input.desiredAttempts) throw new Error("variants must match desiredAttempts");
+  const ids = new Set<string>();
+  for (const variant of variants) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(variant.id) || ids.has(variant.id)) throw new Error("variant ids must be unique lowercase labels");
+    if (!variant.label.trim() || variant.label.length > 120 || !variant.instruction.trim() || variant.instruction.length > 8_192) throw new Error("variant label and instruction are invalid");
+    ids.add(variant.id);
   }
   const db = cloudDb();
   return db.transaction(async (tx) => {
@@ -104,13 +120,14 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
       await tx.insert(runAttempts).values(Array.from({ length: input.desiredAttempts }, (_, ordinal) => ({
         runId: run.id,
         ordinal,
+        variant: variants[ordinal]!,
       })));
       await tx.insert(runEvents).values({
         runId: run.id,
         sequence: 1,
         externalId: "run-created",
         kind: "run.created",
-        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts },
+        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts, variants },
       });
     }
     return readSnapshot(tx, run.id, input.userId);

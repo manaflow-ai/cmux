@@ -2,7 +2,7 @@ import { resolveVmProvisioningAccountScope, runAfterResponse, withAuthedVmApiRou
 import { runError, runJson, jsonBodyObject } from "../../../services/runs/http";
 import { createRun, requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
-import { ALLOWED_RUN_RECIPES, type RunRoutingRequest } from "../../../services/runs/model";
+import { ALLOWED_RUN_RECIPES, type RunRoutingRequest, type RunVariantRecipe } from "../../../services/runs/model";
 import { runAdmissionFor, runRoutingFor } from "../../../services/runs/view";
 
 export const maxDuration = 960;
@@ -13,6 +13,7 @@ type ParsedRunBody = {
   readonly desiredAttempts: number;
   readonly provider: "cloud-vm";
   readonly routing: RunRoutingRequest;
+  readonly variants: readonly RunVariantRecipe[];
 };
 
 type ParsedProviderRouting = {
@@ -40,10 +41,30 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   const recipe = typeof body.recipe === "string" ? body.recipe.trim() : "";
   const desiredAttempts = typeof body.desiredAttempts === "number" && Number.isSafeInteger(body.desiredAttempts)
     ? body.desiredAttempts : 1;
+  const rawVariants = Array.isArray(body.variants) ? body.variants : [];
+  const variants = rawVariants.map((value, index) => {
+    const candidate = jsonBodyObject(value);
+    return {
+      id: typeof candidate?.id === "string" ? candidate.id.trim() : `attempt-${index + 1}`,
+      label: typeof candidate?.label === "string" ? candidate.label.trim() : `Attempt ${String.fromCharCode(65 + index)}`,
+      instruction: typeof candidate?.instruction === "string" ? candidate.instruction.trim() : "Explore the shared intent independently and publish build, test, and artifact evidence.",
+    } satisfies RunVariantRecipe;
+  });
+  if (variants.length === 0 && desiredAttempts > 0) {
+    variants.push(...Array.from({ length: desiredAttempts }, (_, index) => ({
+      id: `attempt-${index + 1}`,
+      label: `Attempt ${String.fromCharCode(65 + index)}`,
+      instruction: "Explore the shared intent independently and publish build, test, and artifact evidence.",
+    })));
+  }
   if (!/^[0-9a-f]{40}$/i.test(commit)) return runJson({ error: "run_source_required", message: "source.commit must be a 40-character immutable commit SHA." }, 400);
   if (!repository || repository.length > 512) return runJson({ error: "run_source_required", message: "source.repository is required." }, 400);
   if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runJson({ error: "run_recipe_required", message: "recipe must be an allowlisted internal recipe." }, 400);
   if (desiredAttempts < 1 || desiredAttempts > 32) return runJson({ error: "run_attempts_invalid", message: "desiredAttempts must be between 1 and 32." }, 400);
+  if (variants.length !== desiredAttempts) return runJson({ error: "run_variants_invalid", message: "variants must contain one recipe for each desired attempt." }, 400);
+  if (variants.some((variant) => !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(variant.id) || variant.label.length === 0 || variant.label.length > 120 || variant.instruction.length === 0 || variant.instruction.length > 8_192)) {
+    return runJson({ error: "run_variants_invalid", message: "Each variant needs a unique safe id, label, and bounded instruction." }, 400);
+  }
   const providerRouting = parseProviderRouting(body);
   if (providerRouting instanceof Response) return providerRouting;
   return {
@@ -52,6 +73,7 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
     desiredAttempts,
     provider: providerRouting.provider,
     routing: providerRouting.routing,
+    variants,
   };
 }
 
@@ -101,13 +123,14 @@ export async function POST(request: Request): Promise<Response> {
           recipe: parsed.recipe,
           provider: parsed.provider,
           desiredAttempts: parsed.desiredAttempts,
+          variants: parsed.variants,
         });
         runAfterResponse(async () => {
           await launchQueuedCloudVmAttempts({
             user,
             entitlements: scope.entitlements,
             runId: run.run.id,
-            attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status })),
+            attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status, variant: attempt.variant })),
             source: run.run.source,
             recipe: run.run.recipe,
           });
@@ -116,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
         return runJson({
           id: run.run.id,
           status: run.run.status,
-          attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status })),
+          attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status, variant: attempt.variant })),
           createdAt: run.run.createdAt,
           executionProvider: "cloud-vm",
           backendProvider: "freestyle",

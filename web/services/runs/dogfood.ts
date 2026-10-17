@@ -19,6 +19,7 @@ import {
   scheduleAttemptRetention,
   type RunSource,
 } from "./repository";
+import type { RunVariantRecipe } from "./model";
 
 /**
  * The first internal dogfood adapter deliberately goes through the existing
@@ -34,6 +35,7 @@ export async function launchCloudVmAttempt(input: {
   readonly index: number;
   readonly source: RunSource;
   readonly recipe: string;
+  readonly variant: RunVariantRecipe;
 }): Promise<void> {
   const lease = await claimAttemptLease({
     runId: input.runId,
@@ -94,7 +96,7 @@ export async function launchCloudVmAttempt(input: {
       payload: { provider, providerVmId: createdVmId },
     });
     void started;
-    const prompt = `Work on immutable commit ${input.source.commit ?? ""} for ${input.source.repository ?? "the attached repository"}. ${input.recipe}`;
+    const prompt = `Work on immutable commit ${input.source.commit ?? ""} for ${input.source.repository ?? "the attached repository"}. Shared recipe: ${input.recipe}. Variant ${input.variant.label}: ${input.variant.instruction}`;
     const adapter = new CloudVmRunAdapter(getProvider(provider));
     const prepared = await adapter.prepareAttempt({
       runId: input.runId,
@@ -256,7 +258,7 @@ export async function launchQueuedCloudVmAttempts(input: {
   readonly user: AuthedUser;
   readonly entitlements: VmEntitlements;
   readonly runId: string;
-  readonly attempts: ReadonlyArray<{ id: string; ordinal: number; status: string }>;
+  readonly attempts: ReadonlyArray<{ id: string; ordinal: number; status: string; variant: RunVariantRecipe }>;
   readonly source: RunSource;
   readonly recipe: string;
 }): Promise<void> {
@@ -269,6 +271,7 @@ export async function launchQueuedCloudVmAttempts(input: {
     index: attempt.ordinal,
     source: input.source,
     recipe: input.recipe,
+    variant: attempt.variant,
   })));
 }
 

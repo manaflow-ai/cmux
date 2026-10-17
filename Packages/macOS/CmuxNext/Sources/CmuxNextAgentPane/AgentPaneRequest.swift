@@ -25,6 +25,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
     case openTab(AgentPaneOpenTab)
+    /// `run.attach`: redeem a short-lived Run terminal target through the native host boundary.
+    case runAttach(AgentPaneRunAttach)
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
@@ -232,6 +234,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// An upload: the person's files, never logged.
     public var carriesFiles: Bool {
         if case .upload = self { return true }
+        return false
+    }
+
+    /// A redeemed Run target carries a short-lived provider route and must never be logged.
+    public var carriesRunAttach: Bool {
+        if case .runAttach = self { return true }
         return false
     }
 

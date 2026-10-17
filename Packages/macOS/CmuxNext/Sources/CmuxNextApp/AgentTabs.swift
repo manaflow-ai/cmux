@@ -373,6 +373,11 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
+        model.onRunAttach = { [weak self] target in
+            guard let self else { return }
+            let key = resolve(provisional)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.attachRun(key, target)
+        }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }

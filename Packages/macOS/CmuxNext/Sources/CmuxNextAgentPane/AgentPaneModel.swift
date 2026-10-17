@@ -36,6 +36,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// The Run board's redeemed terminal target; the app decides how to materialize its tab.
+    @ObservationIgnored public var onRunAttach: ((AgentPaneRunAttach) -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
@@ -249,6 +251,11 @@ public final class AgentPaneModel {
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
+        case .runAttach(let target):
+            guard let onRunAttach else { return Self.unsupported("run.attach") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            onRunAttach(target)
+            return AgentPaneReply.success(["runId": target.runID, "attemptId": target.attemptID, "session": target.session])
         case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).

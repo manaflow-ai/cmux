@@ -37,7 +37,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         // Transport and shell requests carry chat content or commands and run often, a tool card's
         // typed value is a secret, and an upload carries the person's files: not logged.
-        if !request.isTransport, !request.isShell, !request.carriesEntered, !request.carriesFiles {
+        if !request.isTransport, !request.isShell, !request.carriesEntered, !request.carriesFiles, !request.carriesRunAttach {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
         // task-owner: one page request; its reply goes back through replyHandler

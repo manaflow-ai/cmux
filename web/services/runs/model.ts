@@ -78,6 +78,7 @@ export type RunPlacementView = {
 export type RunAttemptView = {
   readonly id: string;
   readonly ordinal: number;
+  readonly variant: RunVariantRecipe;
   readonly status: AttemptStatus;
   /** Opaque durable runtime identity; provider handles remain private. */
   readonly runtimeId: string | null;
@@ -91,6 +92,13 @@ export type RunAttemptView = {
   readonly finishedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+};
+
+/** The immutable work recipe assigned to one attempt. It is safe to show in the board. */
+export type RunVariantRecipe = {
+  readonly id: string;
+  readonly label: string;
+  readonly instruction: string;
 };
 
 export type RunArtifactView = {
