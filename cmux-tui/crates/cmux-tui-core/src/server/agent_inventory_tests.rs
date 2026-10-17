@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -33,7 +32,9 @@ impl Owner {
         let (sent, frames) = channel();
         let worker = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            // The real link closes after its bounded calls; the cleanup
+            // connection closes immediately to wake accept. No timeout is
+            // set on that already-closed wake socket (EINVAL on macOS).
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut line = String::new();
             while reader.read_line(&mut line).is_ok_and(|n| n > 0) {
@@ -67,8 +68,11 @@ impl Drop for Owner {
     fn drop(&mut self) {
         // Wake accept when a policy test correctly made no connection.
         let _ = UnixStream::connect(&self.socket);
-        self.worker.take().unwrap().join().unwrap();
+        let result = self.worker.take().unwrap().join();
         let _ = std::fs::remove_file(&self.socket);
+        if !std::thread::panicking() {
+            assert!(result.is_ok(), "fake inventory owner failed");
+        }
     }
 }
 
