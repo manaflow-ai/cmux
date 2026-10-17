@@ -232,6 +232,76 @@ export const runs = pgTable(
   ],
 );
 
+/**
+ * Durable cross-host agent broker jobs. The broker owns delivery and lease
+ * fencing; provider adapters only interpret the opaque hostClass and payload.
+ * effectKey is unique inside a tenant so a retried enqueue cannot create a
+ * second provider-side effect.
+ */
+export const agentBrokerJobs = pgTable(
+  "agent_broker_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    effectKey: text("effect_key").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    owner: text("owner").notNull(),
+    sourceSha: text("source_sha").notNull(),
+    scopeRevision: text("scope_revision").notNull(),
+    hostClass: text("host_class").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: text("status").$type<"queued" | "leased" | "completed" | "failed">().notNull().default("queued"),
+    attempt: integer("attempt").notNull().default(0),
+    leaseToken: uuid("lease_token"),
+    leaseGeneration: integer("lease_generation").notNull().default(0),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    receiptSequence: integer("receipt_sequence").notNull().default(0),
+    result: jsonb("result").$type<Record<string, unknown> | null>(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("agent_broker_jobs_tenant_effect_unique").on(table.tenantId, table.effectKey),
+    index("agent_broker_jobs_claim_idx").on(table.status, table.leaseExpiresAt, table.createdAt),
+    index("agent_broker_jobs_tenant_updated_idx").on(table.tenantId, table.updatedAt, table.id),
+    check("agent_broker_jobs_status_check", sql`${table.status} in ('queued', 'leased', 'completed', 'failed')`),
+    check("agent_broker_jobs_attempt_check", sql`${table.attempt} >= 0`),
+    check("agent_broker_jobs_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
+    check("agent_broker_jobs_receipt_sequence_check", sql`${table.receiptSequence} >= 0`),
+    check("agent_broker_jobs_lease_pair_check", sql`(${table.leaseToken} is null) = (${table.leaseExpiresAt} is null)`),
+  ],
+);
+
+/** Append-only lifecycle receipts for broker replay and host acknowledgements. */
+export const agentBrokerReceipts = pgTable(
+  "agent_broker_receipts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id").notNull().references(() => agentBrokerJobs.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    state: text("state").$type<"queued" | "leased" | "completed" | "failed">().notNull(),
+    attempt: integer("attempt").notNull(),
+    leaseGeneration: integer("lease_generation").notNull(),
+    owner: text("owner").notNull(),
+    hostClass: text("host_class").notNull(),
+    effectKey: text("effect_key").notNull(),
+    result: jsonb("result").$type<Record<string, unknown> | null>(),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agent_broker_receipts_job_sequence_unique").on(table.jobId, table.sequence),
+    index("agent_broker_receipts_job_cursor_idx").on(table.jobId, table.sequence),
+    check("agent_broker_receipts_sequence_check", sql`${table.sequence} > 0`),
+    check("agent_broker_receipts_state_check", sql`${table.state} in ('queued', 'leased', 'completed', 'failed')`),
+    check("agent_broker_receipts_attempt_check", sql`${table.attempt} >= 0`),
+    check("agent_broker_receipts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
+  ],
+);
+
 /** One independently leased execution slot in a run. Lease tokens fence stale workers. */
 export const runAttempts = pgTable(
   "run_attempts",
