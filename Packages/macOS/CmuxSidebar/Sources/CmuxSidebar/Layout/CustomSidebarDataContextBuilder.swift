@@ -173,11 +173,37 @@ public struct CustomSidebarDataContextBuilder {
         if !agent.children.isEmpty {
             fields["children"] = .array(agent.children.map(agentChildValue(_:)))
         }
+        if !agent.backgroundTasks.isEmpty {
+            fields["backgroundTasks"] = .array(agent.backgroundTasks.map(agentBackgroundTaskValue(_:)))
+        }
         if let transcriptPath = agent.transcriptPath, !transcriptPath.isEmpty {
             fields["transcriptPath"] = .string(transcriptPath)
         }
         if let pid = agent.pid {
             fields["pid"] = .int(pid)
+        }
+        return .object(fields)
+    }
+
+    /// Projects one in-flight background task into the interpreter value tree
+    /// (`agents[j].backgroundTasks[k]`). Optional fields are omitted when absent.
+    public func agentBackgroundTaskValue(_ task: CustomSidebarAgentBackgroundTaskSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(task.id),
+            "type": .string(task.type),
+            "status": .string(task.status),
+        ]
+        if let description = task.description, !description.isEmpty {
+            fields["description"] = .string(description)
+        }
+        if let command = task.command, !command.isEmpty {
+            fields["command"] = .string(command)
+        }
+        if let agentType = task.agentType, !agentType.isEmpty {
+            fields["agentType"] = .string(agentType)
+        }
+        if let name = task.name, !name.isEmpty {
+            fields["name"] = .string(name)
         }
         return .object(fields)
     }

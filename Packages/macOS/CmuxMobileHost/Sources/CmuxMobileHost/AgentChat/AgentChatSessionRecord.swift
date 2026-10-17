@@ -42,6 +42,11 @@ public struct AgentChatSessionRecord: Sendable {
     /// are pruned after ``AgentChatChildRun/settledRetention``.
     public var children: [AgentChatChildRun] = []
 
+    /// In-flight background tasks from the agent's latest report (Claude's
+    /// `background_tasks`, what `/tasks` shows). Replaced on each report,
+    /// cleared when the session ends; only as fresh as the last report.
+    public var backgroundTasks: [AgentChatBackgroundTask] = []
+
     /// Conversation title (first user prompt), filled by the tailer.
     public var title: String?
 
@@ -68,6 +73,7 @@ public struct AgentChatSessionRecord: Sendable {
         endedAt: Date? = nil,
         lastActivityAt: Date,
         children: [AgentChatChildRun] = [],
+        backgroundTasks: [AgentChatBackgroundTask] = [],
         title: String? = nil,
         pid: Int? = nil,
         hookStoreSessionID: String? = nil,
@@ -84,6 +90,7 @@ public struct AgentChatSessionRecord: Sendable {
         self.endedAt = endedAt
         self.lastActivityAt = lastActivityAt
         self.children = children
+        self.backgroundTasks = backgroundTasks
         self.title = title
         self.pid = pid
         self.hookStoreSessionID = hookStoreSessionID
