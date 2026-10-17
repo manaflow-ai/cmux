@@ -42,9 +42,12 @@ public final class CEFBrowserPage: BrowserPage {
     private var appliedNavigationGuardMode: Int32?
     /// JavaScript dialogs waiting for the UI delegate, by shim token.
     private var pendingDialogs: [Int32: Task<Void, Never>] = [:]
-    /// Captures running while the page is hidden, and the occlusion the page
-    /// had before the first of them (CEFBrowserPage+HiddenCapture).
-    var hiddenCapture = (depth: 0, savedOcclusion: [CGRect](), wantsVisible: true)
+    /// Captures running while the page is hidden, the occlusion the page had
+    /// before the first of them, and the off-screen window holding a page no
+    /// window shows during them (CEFBrowserPage+HiddenCapture).
+    var hiddenCapture = (
+        depth: 0, savedOcclusion: [CGRect](), wantsVisible: true, renderWindow: CEFCaptureRenderWindow?.none
+    )
     /// Permission prompts and downloads of this page (CEFBrowserPage+Data.swift).
     let dataBridge = CEFBrowserPageDataBridge()
 
