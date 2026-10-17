@@ -99,6 +99,9 @@ public final class CEFBrowserPage: BrowserPage {
             self?.enableProtocolTelemetryIfWanted(browserID: id)
             self?.registerPendingUserScripts(browserID: id)
         }
+        browser.onLeftScreen = { [weak self] in
+            self?.extensionSupport?.pageLeftScreen()
+        }
     }
 
     /// Always ``BrowserEngineKind/chromium``.

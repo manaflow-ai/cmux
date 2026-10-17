@@ -100,6 +100,9 @@ public final class CEFBrowser {
     /// with its id: the moment to register per-page setup (user scripts)
     /// that must apply to the first document.
     public var onWindowCreated: (@MainActor (Int32) -> Void)?
+    /// Runs when ``hostView`` leaves the screen: it left its window, or it
+    /// or an ancestor was hidden (another tab or workspace shows).
+    public var onLeftScreen: (@MainActor () -> Void)?
 
     unowned let runtime: CEFRuntime
     private var pendingURL: URL?
@@ -172,7 +175,11 @@ public final class CEFBrowser {
     // MARK: Lifetime
 
     private func presentationChanged() {
-        guard !isClosed, hostView.isPresented else { return }
+        guard !isClosed else { return }
+        guard hostView.isPresented else {
+            onLeftScreen?()
+            return
+        }
         if awaitsWindowMove {
             ensureOwnWindow()
         } else if contentRelease.isReleasing || contentRelease.isReleased {

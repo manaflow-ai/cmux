@@ -132,6 +132,14 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
         openPopup = nil
     }
 
+    /// The page left the screen (another tab or workspace shows, or it left
+    /// its window): its action popup closes, as Chrome closes a popup that
+    /// loses focus. A popup left open on a hidden page also keeps the action
+    /// from opening on another page.
+    public func pageLeftScreen() {
+        hidePopup()
+    }
+
     /// Chromium's own action context menu at a screen point (AppKit coordinates, bottom-left origin).
     ///
     /// - Parameters:
