@@ -14763,9 +14763,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
               !RecorderHostButton.isActivelyRecording else { return false }
         let window = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
-        guard window?.attachedSheet == nil,
+        let responder: NSResponder? = window?.firstResponder
+        // A terminal's Control chords stay on the typing path: no focus resolution.
+        guard responder.cmuxStrictOwningGhosttyView() == nil,
+              window?.attachedSheet == nil,
               !(window.map { isCommandPaletteEffectivelyVisible(for: $0) } ?? false),
-              !shortcutResponderHasMarkedText(window?.firstResponder),
+              !shortcutResponderHasMarkedText(responder),
               let panel = shortcutEventBrowserPanel(event) else { return false }
         return panel.runExtensionShortcut(for: event)
     }
