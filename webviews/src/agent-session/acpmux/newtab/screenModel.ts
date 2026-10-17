@@ -85,6 +85,18 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
   return rows[0] && rows[0].type !== "search" ? 0 : -1;
 }
 
+/// The inline address completion accepted by Right or End. Only a top-row open result that
+/// extends the typed prefix qualifies; prompt, search, history and tab rows stay explicit picks.
+/// Keeping this pure lets the New Tab field and its tests share the same safety rule.
+export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
+  const query = text.trim();
+  const row = rows[0];
+  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  if (!query || !completion || completion.length <= query.length) return undefined;
+  if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
+  return completion;
+}
+
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
 export function isAddress(text: string, home?: string): boolean {
   return classifyNewTabInput(text, home ? { home } : {}).kind === "url";

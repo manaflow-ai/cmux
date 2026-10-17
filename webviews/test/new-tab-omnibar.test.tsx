@@ -129,6 +129,37 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
   expect(calls).toEqual([["open", "https://reddit.com"]]);
 });
 
+test("Right accepts the inline URL completion without opening it", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddi");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+  expect(calls).toEqual([]);
+});
+
+test("End accepts the inline URL completion and Tab only advances the selected row", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddit");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+
+  // A fresh query has multiple rows; Tab moves the highlight and never submits one.
+  await type("why is the reddit scraper slow");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+  const after = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  expect(after).toBe((before + 1) % rows().length);
+  expect(calls).toEqual([]);
+});
+
 test("the rows float in a popover over the page, not in the page's flow", async () => {
   await render([]);
   const field = await type("reddit");
