@@ -169,7 +169,9 @@ second screenshot manifest, transition ID, or runner-failure taxonomy.
 
 The PR, bead, chat, and source-head feed (canonical bead `cx-4oa.1` under epic
 `cx-4oa`) is a projection over the existing Beads/HQ/gallery records; it is not
-a second database. A feed item keeps the
+a second database. The already-landed Linux gallery, diff, and sticky-comment
+path remains authoritative for the rendered proof and its review link. A feed
+item keeps the
 authoritative record IDs and embeds the receipt cases needed to open or compare
 evidence:
 
@@ -193,6 +195,12 @@ Retries update delivery status under the same `receipt_id` and
 `retry_message_id`, preserving the original artifact hashes and source head.
 Consumers can therefore compare PRs, beads, and chats without inventing a
 lane-specific manifest or mutating the source of truth.
+
+Keep `cx-4oa.1` open until the Freestyle matrix has exact receipts for every
+required row and the feed card exposes the corresponding stills or screencap,
+downloadable artifact metadata, and clickable hosted URL (or an explicit
+`missing-clickable-build` evidence gap). A card that only links a PR or reports
+an aggregate pass is incomplete.
 
 ## Reconnect and backpressure
 
