@@ -83,16 +83,7 @@ final class AppsService {
                 guard let machines, let owner = machines.local.identity?.machineResourceID,
                       let connection = machines.local.connection, !machines.local.policyBlock.isBlocked,
                       case .connected = machines.local.store.connectionState else { return nil }
-                let records = machines.remoteDaemons.compactMap { daemon -> MachineCatalogRecord? in
-                    guard !daemon.policyBlock.isBlocked, machines.daemon(machine: daemon.machineID) === daemon,
-                          let identity = daemon.identity, let id = identity.machineResourceID else { return nil }
-                    let origin: MachineCatalogRecord.Origin = machines.session(daemon.machineID) != nil ? .cloud : machines.sshSession(daemon.machineID) != nil ? .ssh : .server
-                    let ready: Bool = if case .connected = daemon.store.connectionState { daemon.connection != nil } else { false }
-                    return MachineCatalogRecord(id: id, name: machines.machineName(daemon.machineID) ?? id.rawValue,
-                                                origin: origin, status: ready ? .running : .unavailable,
-                                                platform: identity.machinePlatform, capabilities: identity.machineCapabilities)
-                }
-                return MachineCatalogSource(owner: owner, writer: connection, epoch: machines.local.store.connectionEpoch, machines: records)
+                return MachineCatalogSource(owner: owner, writer: connection, epoch: machines.local.store.connectionEpoch, machines: machines.catalogRecords())
             }
             machineCatalog?.start()
         }
