@@ -163,7 +163,12 @@ struct SidebarWorkspaceSnapshotFactory {
             // (nil when the flag is off) is the fallback.
             customColorHex: workspace.customColor ?? originColorHex,
             hasManualCustomColor: workspace.customColor != nil,
-            cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
+            // A projected Cloud terminal can live beside local terminals. Its
+            // remote provenance still drives directory details, but only a
+            // workspace bound as Cloud-owned gets the Cloud identity badge.
+            cloudWorkspaceLabel: workspace.isManagedCloudVMWorkspace && cloud?.isDeviceWorkspace != true
+                ? cloud?.machineLabel
+                : nil,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
