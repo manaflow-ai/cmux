@@ -1,3 +1,5 @@
+import { useThreadTitle } from "../header/headerStyle";
+import type { ReactNode } from "react";
 import React, { useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -24,8 +26,11 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  details,
 }: {
   card: SummaryCardControl;
+  /// The thread's folder, branch and commit at the top (ThreadDetails.tsx).
+  details?: ReactNode;
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -64,7 +69,8 @@ export function SummaryCard({
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
-  const title = t("summary.open");
+  const threadDetails = useThreadTitle();
+  const title = threadDetails ? t("summary.threadDetails") : t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   return (
     <>
@@ -79,7 +85,7 @@ export function SummaryCard({
             onClick={() => card.fold(!card.collapsed)}
           >
             <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+            <span className="acpmux-summary-card__title">{threadDetails ? title : t("summary.title")}</span>
             {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
           </button>
           <button
@@ -99,6 +105,7 @@ export function SummaryCard({
         </div>
         {summary && (
           <div className="acpmux-summary-card__body">
+            {details}
             {/* The subagents first: they are what the card follows while a turn runs. */}
             {agents.length > 0 && (
               <SubagentStatusList

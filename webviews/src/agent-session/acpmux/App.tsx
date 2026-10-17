@@ -40,6 +40,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
+import { SurfaceLauncher, type Surface } from "./newtab/SurfaceLauncher";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -126,6 +127,8 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { ThoughtFold } from "./conversation/ThoughtFold";
+import { isThoughtNote } from "./conversation/thoughtStyle";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -188,6 +191,14 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
+import {
+  configureHeaderStyle,
+  configurePointerCursor,
+  configureThreadTitle,
+  useThreadTitle,
+} from "./header/headerStyle";
+import { ThreadTitle } from "./header/ThreadTitle";
+import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -563,6 +574,13 @@ const MessageRow = memo(
         </div>
       );
     }
+    // A note between steps, under an open "Worked for", as a thought line (thoughtStyle.ts).
+    if (isThoughtNote(row))
+      return (
+        <div className="cv-tools">
+          <ThoughtFold id={row.id} text={row.text ?? ""} githubRepository={githubRepository} />
+        </div>
+      );
     return (
       <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
     );
@@ -952,7 +970,8 @@ const speaker = (kind: string, t: Translate) =>
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 /// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
 const isStepRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
+  row !== undefined &&
+  (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)) || isThoughtNote(row));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -977,6 +996,11 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
 });
 
+/// The thread's top padding (`.acpmux-thread` in styles.css): every row draws this far below its
+/// layout top.
+const THREAD_INSET = 16;
+/// Room under the last row at the latest message, so it rests above the composer instead of on it.
+const THREAD_END = 16;
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
@@ -1452,7 +1476,14 @@ export function VirtualTranscript({
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
-  const layout = measured.layout;
+  // The scroll range ends a little past where the last row draws: rows sit THREAD_INSET below their
+  // layout tops, so a followed view that stopped at the layout's own end hid the last row's bottom
+  // 16px and pinned the newest text against the composer (Lucas 2026-10-17); THREAD_END leaves room
+  // under it.
+  const layout = useMemo(
+    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_INSET + THREAD_END }),
+    [measured.layout],
+  );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
@@ -2599,6 +2630,7 @@ function AcpmuxPane() {
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   const chatName = snapshot.summary?.title || snapshot.summary?.name || "";
+  const threadTitle = useThreadTitle();
   const childRows = useMemo(
     () =>
       subagentView ? childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName) : undefined,
@@ -3230,6 +3262,8 @@ function AcpmuxPane() {
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
+  /// Opt-Cmd-B (Debug Settings agentChat.sideColumn): the chat's New tab / Hide tabs.
+  const sideTabsRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
@@ -3432,6 +3466,7 @@ function AcpmuxPane() {
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
+        if (name === "sideTabs") sideTabsRef.current?.();
         if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
@@ -3525,6 +3560,9 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
+          configureHeaderStyle(customization.layout);
+          configureThreadTitle(customization.layout);
+          configurePointerCursor(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },
@@ -4328,6 +4366,7 @@ function AcpmuxPane() {
         setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
+  sideTabsRef.current = toggleSideTabs;
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
   // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
   // closing an archived chat's tab is the host's (a tab is the window's).
@@ -4585,6 +4624,18 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  /// A tile of the chat's side column (newtab/SurfaceLauncher.tsx): Terminal and Browser replace the
+  /// page, as its create buttons do; Files and Changes open in this pane (`pane.action` `here:`); New
+  /// chat shows the usual New Tab screen in place.
+  const pickSurface = (surface: Surface, page: NewTabHost) => {
+    const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
+    const cwd = page.cwd ? { cwd: page.cwd } : {};
+    if (surface === "terminal") ignore(callNative("tab.open", { kind: "terminal", text: "", run: false, ...cwd }));
+    else if (surface === "browser") ignore(callNative("tab.open", { kind: "browser", text: "" }));
+    else if (surface === "files") ignore(callNative("pane.action", { id: "here:files", ...cwd }));
+    else if (surface === "changes") ignore(callNative("pane.action", { id: "here:openDiffViewer", ...cwd }));
+    else setNewTab({ ...page, surfaces: false });
+  };
   const chatFromNewTab = (text: string, cwd?: string) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
@@ -5277,6 +5328,8 @@ function AcpmuxPane() {
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
             />
+          ) : showNewTab && newTab.surfaces ? (
+            <SurfaceLauncher onPick={(surface) => pickSurface(surface, newTab)} />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
@@ -5381,6 +5434,13 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
+                  {threadTitle && !quick && snapshot.sessionId && (
+                    <ThreadTitle
+                      folder={localCwd}
+                      title={chatName}
+                      onRename={(name) => callNative("pane.rename", { name })}
+                    />
+                  )}
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     {preview && (
@@ -5476,6 +5536,19 @@ function AcpmuxPane() {
                   onOpenOutput={quick ? undefined : openOutput}
                   onOpenImage={quick ? undefined : openImage}
                   subagents={cardSubagents}
+                  details={
+                    quick || !threadTitle ? undefined : (
+                      <ThreadDetails
+                        folder={localCwd}
+                        {...(machineName ? { machine: machineName } : {})}
+                        openIn={(app) =>
+                          callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
+                            (reply) => reply?.apps ?? [],
+                          )
+                        }
+                      />
+                    )
+                  }
                 />
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (

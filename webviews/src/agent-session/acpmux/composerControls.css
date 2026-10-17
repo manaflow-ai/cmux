@@ -215,3 +215,26 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
+
+/* Pointer cursors on the composer's controls (layout.json pointerCursor, header/headerStyle.ts): every
+   enabled button and chip in the card and the strips around it, never the field. */
+:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]):not(.acpmux-send:not(.acpmux-send-ready, .acpmux-cancel)) {
+  cursor: pointer;
+}
+/* The prompt field is a combobox (its @ and / menus): where text goes, the text cursor, always. */
+:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is([contenteditable="true"], [contenteditable=""], textarea, input) {
+  cursor: text;
+}
+
+/* Send with nothing to send does nothing: it draws as at rest under the pointer, with the arrow cursor
+   (Lucas 2026-10-17), here and on the New Tab page. */
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel),
+.acpmux-newtab .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel) {
+  cursor: default;
+}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover,
+.acpmux-newtab .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover,
+.acpmux-composer-bar .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover {
+  background: var(--acpmux-send-off-bg);
+  color: var(--acpmux-send-off-fg);
+}

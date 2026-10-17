@@ -25,6 +25,23 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     }
 }
 
+/// How the agent pane draws thoughts, for comparing designs: `agentPane.debug.thoughtStyle`
+/// (webviews conversation/thoughtStyle.ts).
+public nonisolated enum AgentPaneThoughtStyle: String, Sendable, CaseIterable, TunableChoice {
+    /// Today's: a muted "Thought" beside its text; notes between steps draw as replies.
+    case plain
+    /// A brain and the thought's first line, which opens to "Thoughts" over the whole text; notes
+    /// between steps in an open "Worked for" draw the same way (Lucas 2026-10-17).
+    case brain
+
+    public var tunableTitle: String {
+        switch self {
+        case .plain: "Plain (Thought beside its text)"
+        case .brain: "Brain (one line that opens to Thoughts)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -50,6 +67,34 @@ public nonisolated struct AgentPaneTunables {
         "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
         default: false, code: "AgentPaneTunables.terminalButtonAdds")
+
+    /// Panels open as tabs on the right (Lucas 2026-10-17): with a panel beside the chat, the header's
+    /// Terminal and Browser open a tab in that panel's pane instead of another split, and the header
+    /// drops its quick-action buttons into "..." (the page's header/ChatHeaderTools.tsx), so the right
+    /// side's own tab strip is where new tabs go. Off keeps every split and button as before.
+    public static let panelTabs = Tunable<Bool>.toggle(
+        "agentChat.panelTabs", .panes, "Panels open as tabs on the right",
+        help: "With a panel beside an agent chat, Terminal and Browser add a tab to it instead of another split, and the chat header keeps its tools in its ... menu.",
+        default: false, code: "AgentPaneTunables.panelTabs")
+
+    /// The agent chat's side column on Opt-Cmd-B (Lucas 2026-10-17, after T3 Code's surface panel): Toggle
+    /// Right Sidebar runs the focused chat's New tab / Hide tabs, so a column of panes opens beside the
+    /// chat (a New Tab page whose tiles open a terminal, browser, files or changes there) and hides
+    /// again, closing nothing. Off, Toggle Right Sidebar reports that cmux-next has no right sidebar.
+    /// Read on every press.
+    public static let sideColumn = Tunable<Bool>.toggle(
+        "agentChat.sideColumn", .panes, "Opt-Cmd-B opens the chat's side column",
+        help: "Toggle Right Sidebar shows and hides a column of panes beside the focused agent chat, starting with a page of tiles for a terminal, browser, files or changes.",
+        default: false, code: "AgentPaneTunables.sideColumn")
+
+    /// A chat that shares its pane with other tabs docks left when Files, Changes or Preview opens
+    /// beside it, as a chat alone in its pane does (Lucas 2026-10-17): the view lands on its right and
+    /// the other tabs stay with it. Off, such a chat keeps its pane and the view takes a new column,
+    /// which on a screen without columns filled the window and scrolled the chat out of view.
+    public static let dockBesideTabs = Tunable<Bool>.toggle(
+        "agentChat.dockBesideTabs", .panes, "Chat docks left beside other tabs",
+        help: "Files, Changes or Preview opened from a chat that shares its pane with other tabs docks the chat left and opens on its right, as for a chat alone in its pane.",
+        default: false, code: "AgentPaneTunables.dockBesideTabs")
 
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
@@ -89,6 +134,13 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
         default: false, code: "AgentPaneTunables.foldLongThoughts")
 
+    /// The thoughts' look (webviews conversation/thoughtStyle.ts): `plain` sets nothing, so the
+    /// page draws as before; `brain` sets `data-thought-style` on `<html>`. New agent tabs read it.
+    public static let thoughtStyle = Tunable<AgentPaneThoughtStyle>.choice(
+        "agentPane.debug.thoughtStyle", PageTunables.section, "Thought style",
+        help: "Plain: a muted Thought beside its text. Brain: one line with a brain that opens to the whole thought; notes between steps in an open Worked for draw the same way. New agent tabs.",
+        default: .plain, code: "AgentPaneTunables.thoughtStyle")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -125,13 +177,18 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
+        attributes(
+            foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
+            thoughtStyle: thoughtStyle.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle) -> [String: String] {
+    static func attributes(
+        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle, thoughtStyle: AgentPaneThoughtStyle = .plain
+    ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
         return attributes
     }
 
@@ -154,5 +211,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

@@ -9,6 +9,7 @@ import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { isThoughtNote } from "./conversation/thoughtStyle";
 import type { ComposerAttachment } from "./attachments";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
@@ -355,6 +356,12 @@ const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
 const CODE_LINE_HEIGHT = 20;
 const CODE_CHROME = 58.5;
+/// The slim code card (`data-chat-code="slim"`, conversation/chatLook.css): a 32px header over 12px.
+const SLIM_CODE_CHROME = 44;
+const codeChrome = () =>
+  typeof document !== "undefined" && document.documentElement.dataset.chatCode === "slim"
+    ? SLIM_CODE_CHROME
+    : CODE_CHROME;
 const CODE_PADDING = 13;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
@@ -549,7 +556,7 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
       const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      return codeChrome() + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
@@ -590,6 +597,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // A note between steps drawn as a closed thought line, as a one-call tool row.
+  if (isThoughtNote(row)) return 36;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {

@@ -784,10 +784,17 @@ pre.cv-math-source {
   opacity: 0;
 }
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
-   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
-.acpmux-row:focus-within .acpmux-row__copy,
+   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it.
+   Only keyboard focus (the row's tab stop or the button itself), not any focus inside the row: a
+   click on a prompt's Edit focused its editor, and Copy then sat on the prompt's corner (Lucas
+   2026-10-17). Never over an open prompt editor. */
+.acpmux-row:focus-visible .acpmux-row__copy,
+.acpmux-row .acpmux-row__copy:focus-visible,
 .acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
   opacity: 1;
+}
+.acpmux-row:has(.cv-user__edit) .acpmux-row__copy {
+  visibility: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-row .acpmux-row__copy {
@@ -1108,6 +1115,19 @@ pre.cv-math-source {
   line-height: 20px;
   overflow: hidden;
 }
+/* A thought as one quiet line (Debug thought style "brain", ThoughtFold.tsx): a brain and the
+   thought's first line on the tool rows' rhythm; opened, the line reads "Thoughts" and the whole
+   text sits under a left rule in the transcript's own color, so it reads a layer below the
+   answer without fading out. */
+.cv-thought-fold.is-streaming .cv-thought-fold__line {
+  color: var(--cv-text-muted);
+}
+.cv-thought-fold__body {
+  margin: 2px 0 8px 7.5px;
+  padding-left: 14.5px;
+  border-left: 1px solid var(--cv-rule);
+  color: var(--cv-text);
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;
@@ -1183,7 +1203,7 @@ pre.cv-math-source {
   margin: 4px 0 8px;
 }
 .cv-tool-images .cv-img {
-  max-width: min(100%, 360px);
+  max-width: min(100%, 300px);
   max-height: 220px;
   margin: 0;
   object-fit: contain;
@@ -1659,12 +1679,12 @@ pre.cv-math-source {
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
-/* A reply's image: as wide as the column at most, and no taller than a screenful's share, so a tall
- * screenshot does not push the reply off the page; the viewer shows it whole. */
+/* A reply's image: a preview at most 300px on each side, at its own ratio, so a screenshot reads
+ * at a glance without pushing the reply off the page; a click shows it whole in the viewer. */
 .cv-img {
   display: block;
-  max-width: 100%;
-  max-height: 360px;
+  max-width: min(100%, 300px);
+  max-height: 300px;
   height: auto;
   object-fit: contain;
   margin: 6px 0;
