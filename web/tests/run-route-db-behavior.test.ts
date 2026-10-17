@@ -4,6 +4,14 @@ import postgres, { type Sql } from "postgres";
 import type { AuthedUser } from "../services/vms/auth";
 import { artifactDigest } from "../services/runs/model";
 
+// Keep this route suite importable in a dependency-only checkout. The real
+// auth/env module validates these values while it is imported, even when all
+// DB tests are skipped.
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "test@example.com";
+process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000001";
+
 // These tests exercise the HTTP boundary against the real Run repository. They
 // are intentionally skipped unless a test database is explicitly requested;
 // route suites must stay runnable in a dependency-only checkout.
