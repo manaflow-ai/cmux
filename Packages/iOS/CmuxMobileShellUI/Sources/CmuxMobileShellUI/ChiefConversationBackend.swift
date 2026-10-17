@@ -422,15 +422,6 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 isMe: true
             ))
         }
-        if !seen.contains("agent_chief") {
-            participants.append(ConversationParticipant(
-                id: "agent_chief",
-                name: "Chief",
-                initials: "CH",
-                colorHex: "#8E8E93",
-                isMe: false
-            ))
-        }
         return (ConversationInfo(
             id: conversationID,
             title: fallbackTitle.isEmpty ? conversationID : fallbackTitle,
