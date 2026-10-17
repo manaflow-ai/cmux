@@ -1193,14 +1193,24 @@ export class AcpmuxDirectClient {
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
   /// its own task, so a view must wait for the attach it changes and for the view before it.
   private syncView(): void {
+    const generation = this.selectionGeneration;
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
       const visible = pageShown();
-      if (!sessionId || this.closed || this.shownToAcpmux?.sessionId !== sessionId) return;
+      if (
+        generation !== this.selectionGeneration ||
+        !sessionId ||
+        this.closed ||
+        this.shownToAcpmux?.sessionId !== sessionId
+      )
+        return;
       if (this.shownToAcpmux.visible === visible) return;
       await this.request("_acpmux/view", { sessionId, visible }).then(
-        () => (this.shownToAcpmux = { sessionId, visible }),
+        () => {
+          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.shownToAcpmux = { sessionId, visible };
+        },
         () => undefined,
       );
     });
