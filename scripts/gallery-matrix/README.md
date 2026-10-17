@@ -31,11 +31,16 @@ bun runner.ts --manifest manifest.json --gallery-dir dist/gallery --output-dir .
 
 The Freestyle path installs the declared Bun dependencies and Playwright browsers in each VM, runs each shard in parallel, records every exact VM id in `.cmux-scratch/pane-protocol/gallery/freestyle-ledger.json`, and PAUSES only those recorded ids in a `finally` block (also on failure and signals). It never lists the account to decide what to pause or delete. A run refuses to start while the ledger holds ids an earlier run neither paused nor deleted; `--freestyle-cleanup` pauses exactly those. Each VM also pauses itself after 300 s of network idleness. The key is read from its file and only sent to the Freestyle API.
 
-The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The per-PR workflow runs the base, head and repeat stages as isolated jobs, then compares their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
+The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The local matrix can run base, head and repeat stages as isolated jobs, then compare their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
 ## Per-PR diff
 
-`.github/workflows/gallery-pr.yml` runs on each PR to feat-cmux-next that touches the webviews. `webviews/scripts/gallery/touched.ts` picks the entries the change reaches: an entry's own file, anything its `covers` import, and every entry of a host whose stylesheet changed. A gallery or build-config change picks every entry. The job renders those entries x variants x both default themes x both compact and normal pane widths x both engines on Linux at the merge-base and at the head, and at the head a second time.
+The per-PR GitHub Actions gallery workflow is currently disabled. The local matrix remains
+available for an explicitly requested run: `webviews/scripts/gallery/touched.ts` picks the entries
+the change reaches (an entry's own file, anything its `covers` import, and every entry of a host
+whose stylesheet changed), then the matrix renders those entries x variants x both default themes
+x both compact and normal pane widths x both engines at the merge-base and at the head, with the
+head rendered a second time.
 
 `pr.ts` (with `compare.ts` and `report.ts`) compares each state and writes `diff/`:
 
@@ -48,7 +53,7 @@ A variant with `play` steps (webviews/src/gallery/ENTRIES.md, "Play steps and ch
 
 A state whose head render differs from a second head render is nondeterministic (a clock or fixture leak). It is listed apart and never counted as a PR change.
 
-The render job runs the PR's code with no secrets. The publish job runs only the base branch's scripts: it rebuilds the comment from `outcomes.json`, puts the comment's thumbnails on the pr-media branch and updates the comment. The diff page, the PR's gallery and the matrix are in the run's `gallery-pr` artifact.
+An explicitly published matrix runs the code with no secrets. Its publisher rebuilds the comment from `outcomes.json`, puts the comment's thumbnails on the pr-media branch and updates the comment. The diff page, gallery and matrix are kept in the publisher's `gallery-pr` artifact.
 
 Tests:
 

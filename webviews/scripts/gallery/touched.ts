@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Which gallery entries a change touches, for the per-PR gallery (.github/workflows/gallery-pr.yml):
+// Which gallery entries a change touches for an explicitly requested local matrix run:
 // an entry is touched when a changed file is its own `*.gallery.ts`, or is reachable through
 // relative imports from that file or from one of its `covers`. Following imports catches what
 // `covers` leaves out (a hook, a shared helper). A stylesheet is global to the page that loads it,
