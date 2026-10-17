@@ -288,7 +288,9 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests",
       "targets": [
         "CmuxNextApps",
-        "CmuxNextDaemon"
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": []

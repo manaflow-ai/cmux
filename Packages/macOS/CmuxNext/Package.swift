@@ -521,7 +521,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):

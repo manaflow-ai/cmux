@@ -300,14 +300,14 @@ fn machine_snapshot(context: &LocalResourceContext) -> Value {
     })
 }
 
-fn machine_platform() -> Value {
+pub(crate) fn machine_platform() -> Value {
     json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
     })
 }
 
-fn machine_capabilities() -> Value {
+pub(crate) fn machine_capabilities() -> Value {
     json!(["terminal", "workspace", "agent_session"])
 }
 

@@ -4062,6 +4062,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("lifecycle_ready", std::move(encoded).value());
     }
+    if (value.machine_capabilities) {
+        auto encoded = encode_value(*value.machine_capabilities);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_capabilities", std::move(encoded).value());
+    }
     if (value.machine_id) {
         auto encoded = encode_value(*value.machine_id);
         if (!encoded) return std::move(encoded).error();
@@ -4071,6 +4076,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         auto encoded = encode_value(*value.machine_name);
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_name", std::move(encoded).value());
+    }
+    if (value.machine_platform) {
+        auto encoded = encode_value(*value.machine_platform);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_platform", std::move(encoded).value());
     }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
@@ -4194,6 +4204,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.lifecycle_ready = std::move(decoded).value();
     }
+    const Json* field_machine_capabilities = value.find("machine_capabilities");
+    if (field_machine_capabilities) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_machine_capabilities);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_capabilities = std::move(decoded).value();
+    }
     const Json* field_machine_id = value.find("machine_id");
     if (field_machine_id) {
         auto decoded = decode_value<std::string>(*field_machine_id);
@@ -4205,6 +4221,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_machine_name);
         if (!decoded) return std::move(decoded).error();
         result.machine_name = std::move(decoded).value();
+    }
+    const Json* field_machine_platform = value.find("machine_platform");
+    if (field_machine_platform) {
+        auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_platform = std::move(decoded).value();
     }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {
@@ -4839,6 +4861,43 @@ Result<MachineListeningTcpResult> Codec<MachineListeningTcpResult>::decode(const
         auto decoded = decode_value<std::string>(*field_stdout);
         if (!decoded) return std::move(decoded).error();
         result.stdout = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MachinePlatform>::encode(const MachinePlatform& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_arch = encode_value(value.arch);
+    if (!encoded_arch) return std::move(encoded_arch).error();
+    object.emplace("arch", std::move(encoded_arch).value());
+    auto encoded_os = encode_value(value.os);
+    if (!encoded_os) return std::move(encoded_os).error();
+    object.emplace("os", std::move(encoded_os).value());
+    return Json(std::move(object));
+}
+
+Result<MachinePlatform> Codec<MachinePlatform>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachinePlatform result{};
+    const Json* field_arch = value.find("arch");
+    if (!field_arch) {
+        return make_error(ErrorCode::decode, "missing required field 'arch'");
+    }
+    if (field_arch) {
+        auto decoded = decode_value<std::string>(*field_arch);
+        if (!decoded) return std::move(decoded).error();
+        result.arch = std::move(decoded).value();
+    }
+    const Json* field_os = value.find("os");
+    if (!field_os) {
+        return make_error(ErrorCode::decode, "missing required field 'os'");
+    }
+    if (field_os) {
+        auto decoded = decode_value<std::string>(*field_os);
+        if (!decoded) return std::move(decoded).error();
+        result.os = std::move(decoded).value();
     }
     return result;
 }

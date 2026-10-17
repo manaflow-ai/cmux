@@ -31,6 +31,7 @@ final class AppsService {
     private var appPages: [String: AppPanePage] = [:]
     /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
     private var webStorePages: [String: PageWebView] = [:]
+    private var machineCatalog: MachineCatalogPublisher?
     /// The App Store tabs (internal page), one store model per tab over the
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
@@ -77,6 +78,24 @@ final class AppsService {
             }
         }
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control), inventory]))
+        if machineCatalog == nil {
+            machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
+                guard let machines, let owner = machines.local.identity?.machineResourceID,
+                      let connection = machines.local.connection, !machines.local.policyBlock.isBlocked,
+                      case .connected = machines.local.store.connectionState else { return nil }
+                let records = machines.remoteDaemons.compactMap { daemon -> MachineCatalogRecord? in
+                    guard !daemon.policyBlock.isBlocked, machines.daemon(machine: daemon.machineID) === daemon,
+                          let identity = daemon.identity, let id = identity.machineResourceID else { return nil }
+                    let origin: MachineCatalogRecord.Origin = machines.session(daemon.machineID) != nil ? .cloud : machines.sshSession(daemon.machineID) != nil ? .ssh : .server
+                    let ready: Bool = if case .connected = daemon.store.connectionState { daemon.connection != nil } else { false }
+                    return MachineCatalogRecord(id: id, name: machines.machineName(daemon.machineID) ?? id.rawValue,
+                                                origin: origin, status: ready ? .running : .unavailable,
+                                                platform: identity.machinePlatform, capabilities: identity.machineCapabilities)
+                }
+                return MachineCatalogSource(owner: owner, writer: connection, epoch: machines.local.store.connectionEpoch, machines: records)
+            }
+            machineCatalog?.start()
+        }
     }
 
     /// Opens the App Store (palette "App Store", `appStore.show`): a user
