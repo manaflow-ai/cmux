@@ -35,6 +35,7 @@ export default defineConfig({
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
+      "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
