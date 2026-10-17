@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 import CmuxNextDesign
 
 /// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
@@ -59,7 +58,7 @@ final class SidebarAvatarView: NSView {
 
 extension SidebarAvatar {
     /// Render the avatar as the image in the profile menu's current-profile row.
-    @MainActor public func image(diameter: CoreGraphics.CGFloat) -> NSImage {
+    @MainActor public func image(diameter: Double) -> NSImage {
         let size = NSSize(width: diameter, height: diameter)
         let image = NSImage(size: size)
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(diameter * 2), pixelsHigh: Int(diameter * 2),
