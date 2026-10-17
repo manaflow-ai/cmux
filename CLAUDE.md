@@ -98,14 +98,15 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
 - The normal merge path is `gh-merge-green`, including its coordinator `WINDOW` freeze check.
-  A maintainer’s direct merge directive may use a narrow CI-only exception when that helper
-  refuses solely because the coordinator `WINDOW` is unavailable or unreadable: verify live that
-  the exact head SHA is unchanged, `ci-status` is successful, the exact-head `cmux-next` run is
-  successful, no required check is pending or red, no conflict markers or unresolved actionable
-  review threads remain, and the PR changes only CI, tests, docs, or developer tooling. Record the
-  helper refusal and each verification receipt in the PR before using the direct merge. This
-  exception never bypasses a failed or pending check and never applies to app/runtime/UI changes,
-  frozen paths, or a missing exact-head workflow run.
+  A maintainer’s direct merge directive may use a guarded fallback when that helper refuses solely
+  because the coordinator `WINDOW` is unavailable or unreadable: verify live that the exact head
+  SHA is unchanged, `ci-status` is successful, the exact-head `cmux-next` run is successful, all
+  focused checks pass, every remaining red check is proven identical base-red, no conflict markers
+  or unresolved actionable review threads remain, and the PR is not missing an exact-head workflow
+  run. Record the helper refusal and each verification receipt in the PR before using the fallback.
+  This fallback never bypasses a failed or pending focused check, a missing workflow run, or an
+  active freeze path; it applies to app/runtime/UI PRs only with the maintainer’s direct merge
+  directive and the same base-red proof.
 
 ## Implementation rules by task
 
