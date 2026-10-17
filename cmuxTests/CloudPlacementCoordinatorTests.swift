@@ -188,6 +188,34 @@ struct CloudPlacementCoordinatorTests {
         #expect(catalog.projection(forPanel: untouched.panelID) == untouched)
     }
 
+    @Test func aCloudBrowserDroppedIntoItsMachinesWorkspaceOpensAsANewBrowserAtItsCurrentPage() {
+        let (catalog, _) = Self.harness(bound: UUID())
+        let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        let terminal = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
+        catalog.replaceResources([browser, terminal], on: Self.machine)
+        let panel = UUID()
+        catalog.record(SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: panel,
+            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
+        ))
+        let navigated = URL(string: "https://example.com/navigated")!
+        catalog.cloudBrowserDocuments[browser.id] = [panel: SurfaceCatalog.CloudBrowserDocument(
+            url: navigated, title: "Navigated", remoteTabID: "tab_docs", revision: 1
+        )]
+        let browserGroup = SurfaceResourceGroup(single: browser)
+
+        // The machine cannot place one daemon tab twice, so a drop into a
+        // workspace mirrored to that machine is a new browser at the same page.
+        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: Self.machine) == navigated)
+        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: nil) == nil)
+        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: .cloud("other-machine")) == nil)
+        #expect(catalog.cloudBrowserCopyURL(for: SurfaceResourceGroup(single: terminal), intoWorkspaceOn: Self.machine) == nil)
+        #expect(catalog.cloudBrowserCopyURL(
+            for: SurfaceResourceGroup(title: "both", resources: [browser.id, terminal.id]),
+            intoWorkspaceOn: Self.machine
+        ) == nil)
+    }
+
     @Test func aCloudBrowserSidebarMoveIgnoresAReplacedProvidersReply() async {
         let (catalog, provider) = Self.harness(bound: UUID())
         let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
