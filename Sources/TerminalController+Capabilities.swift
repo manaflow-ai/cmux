@@ -501,6 +501,9 @@ extension TerminalController {
         methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
+        if !ChiefSettings.isEnabled {
+            methods.removeAll { $0.hasPrefix("chief.") }
+        }
 
         return [
             "protocol": "cmux-socket",

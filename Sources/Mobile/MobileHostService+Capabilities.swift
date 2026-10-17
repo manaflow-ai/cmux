@@ -306,6 +306,11 @@ extension MobileHostService {
 #if DEBUG
         capabilities.append(contentsOf: ["chief.approve", "chief.answer", "chief.debug"])
 #endif
+        // Chief is a user-disabled Mac surface, not merely an optional RPC
+        // family. Do not advertise stale Home entry points while it is off.
+        if !ChiefSettings.isEnabled {
+            capabilities.removeAll { $0.hasPrefix("chief.") }
+        }
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
         }

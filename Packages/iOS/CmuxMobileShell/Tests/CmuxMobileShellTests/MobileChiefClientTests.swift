@@ -65,8 +65,12 @@ struct MobileChiefClientTests {
 
     @Test
     func chiefCapabilityGatesReadPaths() {
-        #expect(MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
-        #expect(MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))
+        #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
+        #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))
+        #expect(MobileChiefCapability.isAvailable(in: [
+            MobileChiefCapability.conversations,
+            MobileChiefCapability.read,
+        ]))
         #expect(!MobileChiefCapability.isAvailable(in: ["mobile.chat.sessions"]))
     }
 }

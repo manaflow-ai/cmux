@@ -12,11 +12,26 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private let client: MobileChiefClient
     private let conversationID: String
     private let fallbackTitle: String
-    private var pollTask: Task<Void, Never>?
-    private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
-    private var latestMessages: [MobileChiefMessage] = []
-    private var meID = "mobile-user"
-    private var closed = false
+    // Concurrency carve-out: ConversationBackend exposes synchronous lifecycle
+    // methods while its polling task is asynchronous, so state needs one small
+    // critical section instead of an actor hop from every callback.
+    private let stateLock = NSLock()
+    private var state = State()
+
+    private struct State {
+        var previousMessagesByID: [String: MobileChiefMessage] = [:]
+        var pendingSends: [String: PendingSend] = [:]
+        var meID = "mobile-user"
+        var pollTask: Task<Void, Never>?
+        var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
+        var closed = false
+    }
+
+    private struct PendingSend {
+        let clientMessageID: String
+        let text: String
+        let startedAt: Date
+    }
 
     init(client: MobileChiefClient, conversationID: String, title: String) {
         self.client = client
@@ -26,30 +41,50 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
 
     func events() -> AsyncStream<ConversationBackendEvent> {
         AsyncStream { continuation in
-            self.continuation = continuation
-            self.pollTask?.cancel()
-            self.pollTask = Task { [weak self] in
+            let task = Task { [weak self] in
                 await self?.poll(continuation: continuation)
+            }
+            withState { state in
+                state.continuation = continuation
+                state.pollTask?.cancel()
+                state.pollTask = task
             }
         }
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
         let result = try await client.read(conversation: conversationID, limit: limit)
-        latestMessages = result.messages
         let mapped = map(result.messages)
+        withState { state in
+            state.previousMessagesByID.merge(
+                result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
+                uniquingKeysWith: { _, new in new }
+            )
+        }
         return ConversationHistoryPage(messages: mapped, hasMore: false)
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
-        _ = try await client.send(draft.text, conversation: conversationID)
-        let result = try await client.read(conversation: conversationID, limit: 200)
-        latestMessages = result.messages
-        if let sent = result.messages.last(where: { $0.text == draft.text && $0.authorKind == "human" }) {
-            var message = map(sent)
-            message.clientMessageID = draft.clientMessageID
-            message.delivery = .sent
-            return message
+        withState { state in
+            state.pendingSends[draft.clientMessageID] = PendingSend(
+                clientMessageID: draft.clientMessageID,
+                text: draft.text,
+                startedAt: Date()
+            )
+        }
+        do {
+            _ = try await client.send(draft.text, conversation: conversationID)
+            let result = try await client.read(conversation: conversationID, limit: 200)
+            if let sent = result.messages.last(where: { $0.text == draft.text && $0.authorKind == "human" }) {
+                withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+                var message = map(sent, clientMessageID: draft.clientMessageID)
+                message.clientMessageID = draft.clientMessageID
+                message.delivery = .sent
+                return message
+            }
+        } catch {
+            withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+            throw error
         }
         // Some Chief owners acknowledge before the committed message is
         // visible to `chief.read`; preserve the optimistic row identity so a
@@ -58,7 +93,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             id: "chief-local-\(draft.clientMessageID)",
             seq: nil,
             clientMessageID: draft.clientMessageID,
-            senderID: meID,
+            senderID: withState { $0.meID },
             sentAt: Date(),
             text: draft.text,
             delivery: .sent
@@ -86,23 +121,38 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func close() {
-        closed = true
-        pollTask?.cancel()
-        pollTask = nil
-        continuation?.finish()
-        continuation = nil
+        let resources: (
+            Task<Void, Never>?,
+            AsyncStream<ConversationBackendEvent>.Continuation?
+        ) = withState { state in
+            state.closed = true
+            let resources = (state.pollTask, state.continuation)
+            state.pollTask = nil
+            state.continuation = nil
+            return resources
+        }
+        resources.0?.cancel()
+        resources.1?.finish()
     }
 
     private func poll(continuation: AsyncStream<ConversationBackendEvent>.Continuation) async {
         var first = true
+        var connected = false
+        var reportedFailure = false
         var lastSeq: UInt64 = 0
-        while !Task.isCancelled && !closed {
+        var eventSeq = 0
+        while !Task.isCancelled && !isClosed {
             do {
                 let result = try await client.read(conversation: conversationID, limit: 200)
-                latestMessages = result.messages
+                guard !Task.isCancelled, !isClosed else { return }
                 let mappedInfo = info(from: result.messages)
                 if first {
                     first = false
+                    withState { state in
+                        state.previousMessagesByID = Dictionary(
+                            uniqueKeysWithValues: result.messages.map { ($0.id, $0) }
+                        )
+                    }
                     lastSeq = result.messages.map(\.seq).max() ?? 0
                     continuation.yield(.connected(
                         info: mappedInfo.info,
@@ -110,13 +160,33 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         lagged: false
                     ))
                     continuation.yield(.readState(ConversationReadState(
-                        lastReadSeq: lastSeq > UInt64(Int.max) ? Int.max : Int(lastSeq),
+                        lastReadSeq: safeInt(lastSeq),
                         unreadCount: 0,
-                        headSeq: lastSeq > UInt64(Int.max) ? Int.max : Int(lastSeq)
+                        headSeq: safeInt(lastSeq)
                     )))
+                    connected = true
                 } else {
-                    for message in result.messages where message.seq > lastSeq {
-                        continuation.yield(.message(map(message), eventSeq: safeInt(message.seq)))
+                    if !connected {
+                        continuation.yield(.connected(
+                            info: mappedInfo.info,
+                            meID: mappedInfo.meID,
+                            lagged: true
+                        ))
+                        connected = true
+                    }
+                    for message in result.messages {
+                        let previous = withState { $0.previousMessagesByID[message.id] }
+                        guard previous != message else { continue }
+                        eventSeq = max(eventSeq + 1, safeInt(message.seq))
+                        continuation.yield(.message(
+                            map(message, clientMessageID: clientMessageID(for: message)),
+                            eventSeq: eventSeq
+                        ))
+                    }
+                    withState { state in
+                        state.previousMessagesByID = Dictionary(
+                            uniqueKeysWithValues: result.messages.map { ($0.id, $0) }
+                        )
                     }
                     lastSeq = max(lastSeq, result.messages.map(\.seq).max() ?? 0)
                     continuation.yield(.readState(ConversationReadState(
@@ -125,18 +195,26 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         headSeq: safeInt(lastSeq)
                     )))
                 }
+                reportedFailure = false
             } catch {
-                if !first { continuation.yield(.disconnected(reason: String(describing: error))) }
+                connected = false
+                if !reportedFailure || !first {
+                    continuation.yield(.disconnected(reason: String(describing: error)))
+                    reportedFailure = true
+                }
             }
             do {
                 try await Task.sleep(nanoseconds: 3_000_000_000)
-            } catch { return }
+            } catch {
+                return
+            }
         }
     }
 
     private func info(from messages: [MobileChiefMessage]) -> (info: ConversationInfo, meID: String) {
-        let human = messages.first(where: { $0.authorKind == "human" })?.authorID ?? meID
-        meID = human
+        let human = messages.first(where: { $0.authorKind == "human" })?.authorID
+            ?? withState { $0.meID }
+        withState { $0.meID = human }
         var participants: [ConversationParticipant] = []
         var seen = Set<String>()
         for message in messages {
@@ -166,16 +244,22 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         ), human)
     }
 
-    private func map(_ message: MobileChiefMessage) -> ConversationMessage {
-        let senderIsMe = message.authorID == meID || message.authorKind == "human"
-        if senderIsMe { meID = message.authorID }
+    private func map(
+        _ message: MobileChiefMessage,
+        clientMessageID: String? = nil
+    ) -> ConversationMessage {
+        let senderIsMe = withState { state in
+            let isMe = message.authorID == state.meID || message.authorKind == "human"
+            if isMe { state.meID = message.authorID }
+            return isMe
+        }
         let text = message.text.isEmpty && !message.parts.isEmpty
             ? message.parts.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · ")
             : message.text
         return ConversationMessage(
             id: message.id,
             seq: safeInt(message.seq),
-            clientMessageID: nil,
+            clientMessageID: clientMessageID,
             senderID: message.authorID,
             sentAt: message.at,
             text: text,
@@ -185,7 +269,32 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     private func map(_ messages: [MobileChiefMessage]) -> [ConversationMessage] {
-        messages.map(map)
+        messages.map { map($0) }
+    }
+
+    /// Chief's transcript does not echo the mobile client id. Correlate a
+    /// human message with the optimistic row while its send is pending.
+    private func clientMessageID(for message: MobileChiefMessage) -> String? {
+        guard message.authorKind == "human" else { return nil }
+        return withState { state in
+            let cutoff = Date().addingTimeInterval(-300)
+            state.pendingSends = state.pendingSends.filter { $0.value.startedAt >= cutoff }
+            guard let pending = state.pendingSends.values
+                .filter({ $0.text == message.text })
+                .min(by: { $0.startedAt < $1.startedAt }) else { return nil }
+            state.pendingSends.removeValue(forKey: pending.clientMessageID)
+            return pending.clientMessageID
+        }
+    }
+
+    private var isClosed: Bool {
+        withState { $0.closed }
+    }
+
+    private func withState<T>(_ body: (inout State) -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body(&state)
     }
 
     private func initials(for name: String) -> String {

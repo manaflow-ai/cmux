@@ -73,6 +73,24 @@ extension TerminalController {
             if case .unknownMethod = error { return Self.chiefUnknownMethod }
             return .err(code: "invalid_params", message: error.message, data: error.parameter.map { ["param": $0] })
         }
+        // `chief.open` keeps its established no-op response when the user
+        // turns Chief off. Every other Chief operation must fail closed before
+        // it can start the service or read its local transcript.
+        if !(try await v2MainAsync({ ChiefSettings.isEnabled })) {
+            switch parsed {
+            case .open:
+                break
+            default:
+                return .err(
+                    code: "not_available",
+                    message: String(
+                        localized: "socket.chief.error.disabled",
+                        defaultValue: "Chief is disabled in Settings."
+                    ),
+                    data: nil
+                )
+            }
+        }
         do {
             switch parsed {
             case .open(let target):
@@ -199,8 +217,9 @@ extension TerminalController {
                 guard let id = self.v2UUIDAny(raw) else { return nil }
                 tabManager = app.tabManagerFor(windowId: id)
                 if tabManager == nil { return nil }
-            } else if let raw = target.workspaceID, let workspace = self.v2UUIDAny(raw),
-                      let owner = app.tabManagerFor(tabId: workspace) {
+            } else if let raw = target.workspaceID {
+                guard let workspace = self.v2UUIDAny(raw),
+                      let owner = app.tabManagerFor(tabId: workspace) else { return nil }
                 tabManager = owner
             } else {
                 tabManager = app.currentScriptableMainWindow()?.tabManager

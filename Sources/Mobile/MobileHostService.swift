@@ -433,11 +433,31 @@ final class MobileHostService {
 
     private let defaults: UserDefaults
     private let runtimeOverride: (any MobileHostPairingRuntime)?
+    private var chiefEnabledSnapshot: Bool
+    private var chiefSettingsObserver: NSObjectProtocol?
     private var pairingRuntime: any MobileHostPairingRuntime { runtimeOverride ?? MobileHostIrxRuntime.shared }
 
     init(defaults: UserDefaults = .standard, runtime: (any MobileHostPairingRuntime)? = nil) {
         self.defaults = defaults
         runtimeOverride = runtime
+        chiefEnabledSnapshot = ChiefSettings.isEnabled(in: defaults)
+        chiefSettingsObserver = nil
+        chiefSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.publishChiefCapabilityChangeIfNeeded()
+            }
+        }
+    }
+
+    private func publishChiefCapabilityChangeIfNeeded() {
+        let enabled = ChiefSettings.isEnabled(in: defaults)
+        guard enabled != chiefEnabledSnapshot else { return }
+        chiefEnabledSnapshot = enabled
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     /// Inject the auth dependency. Call once at the composition root.

@@ -28,11 +28,11 @@ public struct MobileChiefCapability: Hashable, Sendable {
     public static let answer = "chief.answer"
     public static let open = "chief.open"
 
-    /// Chief is available when the host advertises its read path. Older Chief
-    /// builds may omit the optional action methods, so callers should gate
-    /// those actions independently before presenting buttons.
+    /// Chief is available when the host advertises both read paths required by
+    /// the Home list and transcript screens. Older Chief builds may omit the
+    /// optional action methods, so callers gate those actions independently.
     public static func isAvailable(in capabilities: Set<String>) -> Bool {
-        capabilities.contains(conversations) || capabilities.contains(status)
+        capabilities.contains(conversations) && capabilities.contains(read)
     }
 }
 

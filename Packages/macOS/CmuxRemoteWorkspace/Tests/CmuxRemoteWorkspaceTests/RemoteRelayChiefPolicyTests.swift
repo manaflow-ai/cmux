@@ -9,7 +9,7 @@ import Testing
 @Suite("Remote relay Chief methods")
 struct RemoteRelayChiefPolicyTests {
     static let methods = [
-        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
+        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve", "chief.answer",
         "chief.debug",
     ]
 
