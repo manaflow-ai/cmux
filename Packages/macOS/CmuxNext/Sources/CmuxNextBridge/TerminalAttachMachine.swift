@@ -20,7 +20,9 @@ public import Foundation
 /// daemon answers late or refused its connection for a while comes back with
 /// no user input. While hidden it re-attaches on the next event that can make
 /// an attach work (shown again, a key press, a click or focus, the terminal
-/// or the connection back). One re-attach at a time. Until a view first went
+/// or the connection back). After ``quietReconnects`` self-started ones the
+/// view keeps retrying but says the attach failed, so Retry shows (and a
+/// restored view stops saying `restoring`). One re-attach at a time. Until a view first went
 /// live its status is `restoring` (when it was created as a restore) while it
 /// attaches or retries. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
@@ -49,6 +51,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     public static var maxAttempts: Int { 8 }
     /// Input held while attaching. Beyond it new input is dropped and counted.
     public static var maxQueuedInputBytes: Int { 4 << 20 }
+    /// Self-started re-attaches in a row (about 90 s with the App's backoff)
+    /// before the view, still retrying, offers Retry: its status says the
+    /// attach failed and that a click or key re-attaches now.
+    public static var quietReconnects: Int { 8 }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -270,7 +276,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// already pending, a live, exited or closed view) ignores it.
     ///
     /// An event (a key, focus, shown again, Retry, the terminal or the
-    /// connection back) opens at once and gives the view its retries back;
+    /// connection back) opens at once and restarts its backoff;
     /// it also cuts short a self-started re-attach still waiting out its
     /// backoff (that attempt's late open is then detached as superseded).
     /// A self-started one waits the backoff for the larger of the failed
@@ -300,7 +306,13 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
             : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
-        let status: LinkStatus = restoring && !wentLive ? .restoring : .disconnected(reason, reconnecting: true)
+        let status: LinkStatus = if !byEvent, autoReconnects > Self.quietReconnects {
+            .disconnected(reason, reconnecting: false)
+        } else if restoring, !wentLive {
+            .restoring
+        } else {
+            .disconnected(reason, reconnecting: true)
+        }
         return announce(status) + [open]
     }
 

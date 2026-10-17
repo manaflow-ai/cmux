@@ -26,7 +26,7 @@ public final class TerminalHostView: NSView {
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
-    /// "Retry" above the banner once the view stopped retrying its attach.
+    /// "Retry" above the banner once the view's attach kept failing.
     private let retryButton = TerminalRetryButton()
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).

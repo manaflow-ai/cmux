@@ -30,7 +30,7 @@ import os
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach
-///   works; a hidden one waits for an event: shown again, a key press, a
+///   works, offering Retry after about 90 s; a hidden one waits for an event: shown again, a key press, a
 ///   click, focus or Retry, or the App's ``reconnect()`` (terminal or
 ///   connection back). A restored view says "Restoring…" until its first replay.
 ///   ``processExited()`` ends it until the daemon reports the terminal
@@ -84,7 +84,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
+            backoffDelay: { failed in
+                try await Self.reattachBackoff(afterFailures: failed)
+                // Turned off by the organization: no self-started re-attach; an event still tries.
+                if policyBlocked() { throw CancellationError() }
+            }
         )
         self.driver = driver
         self.creatingInput = creatingInput
