@@ -88,14 +88,20 @@ final class DividerHandleView: NSView {
         CATransaction.commit()
     }
 
-    /// A column edge or a row edge: it sits in a gap and draws only while
-    /// hovered or dragged.
+    /// A column edge sits in a gap and draws only while hovered or dragged.
     private var isColumnEdge: Bool {
         switch kind {
-        case .columnEdge, .rowEdge: true
-        case .split: false
+        case .columnEdge: true
+        case .split, .rowEdge: false
         }
     }
+
+    private var isRowEdge: Bool {
+        if case .rowEdge = kind { return true }
+        return false
+    }
+
+    private var isEdgeHandle: Bool { isColumnEdge || isRowEdge }
 
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
@@ -195,12 +201,18 @@ final class DividerHandleView: NSView {
     }
 
     private func applyColors() {
-        let isEdge = isColumnEdge
+        let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine
             let color: NSColor
             if isEdge {
-                color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
+                if active {
+                    color = Palette.focusRing.withAlphaComponent(isRowEdge ? 0.6 : 0.45)
+                } else if isRowEdge, showsIdleLine {
+                    color = Palette.separator.withAlphaComponent(0.32)
+                } else {
+                    color = .clear
+                }
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }

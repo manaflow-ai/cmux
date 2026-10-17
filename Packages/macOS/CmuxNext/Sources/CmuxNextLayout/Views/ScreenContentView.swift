@@ -219,7 +219,10 @@ final class ScreenContentView: NSView {
                 dividerViews[kind] = view
             }
             view.lineThickness = context.style.dividerThickness
-            view.showsIdleLine = context.style.showsDividerLine
+            view.showsIdleLine = switch kind {
+            case .rowEdge: context.style.showsRowSeparator
+            default: context.style.showsDividerLine
+            }
             view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 if scrolls(kind) {
