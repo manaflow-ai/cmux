@@ -33,7 +33,7 @@ const STEP_PENDING_MS = 800;
 /// The space left of the rows (`.acpmux-row`'s left).
 const gutter = (width: number) => transcriptColumn(width).inset;
 
-export function ThreadMinimap({
+export const ThreadMinimap = memo(function ThreadMinimap({
   rows,
   sessionId,
   layout,
@@ -152,17 +152,23 @@ export function ThreadMinimap({
     const index = Math.floor((clientY - box.top) / pitch);
     return Math.max(0, Math.min(turns.length - 1, index));
   };
-  const jump = (index: number) => {
-    const node = scroller.current;
-    const target = turns[index];
-    if (!node || !target) return;
-    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
-  };
-  const focusTick = (index: number) => {
-    const next = Math.max(0, Math.min(turns.length - 1, index));
-    root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
-  };
+  const jump = useCallback(
+    (index: number) => {
+      const node = scroller.current;
+      const target = turns[index];
+      if (!node || !target) return;
+      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
+    },
+    [layout.tops, scroller, turns],
+  );
+  const focusTick = useCallback(
+    (index: number) => {
+      const next = Math.max(0, Math.min(turns.length - 1, index));
+      root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
+    },
+    [turns.length],
+  );
 
   if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
   const center = first + active * pitch;
@@ -260,7 +266,7 @@ export function ThreadMinimap({
       </nav>
     </div>
   );
-}
+});
 
 function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
   const seq = promptSeq(rowId);

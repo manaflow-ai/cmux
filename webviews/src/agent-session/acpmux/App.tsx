@@ -833,7 +833,7 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
+const RowFrame = React.memo(function RowFrame({
   row,
   kind,
   joinsPrevious,
@@ -852,7 +852,7 @@ function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopy,
+  onCopyRow,
   copyable,
   children,
 }: {
@@ -875,10 +875,15 @@ function RowFrame({
   active: boolean;
   selected: boolean;
   tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
+  onFocus: (id: string) => void;
+  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopyRow?: (id: string) => Promise<void>;
   copyable: boolean;
+  contentType: unknown;
+  controls?: string;
+  onToggleActivity: (id: string) => void;
+  onOpenDiff?: OpenDiff;
+  githubRepository?: string;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
@@ -886,8 +891,9 @@ function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event), [index, onRowKeyDown]);
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -923,7 +929,7 @@ function RowFrame({
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
+      onFocus={() => onFocus(row.id)}
     >
       {copyable && (
         <button
@@ -934,7 +940,7 @@ function RowFrame({
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
-              await onCopy?.();
+              await onCopyRow?.(row.id);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             } catch {
@@ -948,7 +954,32 @@ function RowFrame({
       {children}
     </article>
   );
-}
+}, (previous, next) =>
+  previous.row === next.row &&
+  previous.kind === next.kind &&
+  previous.joinsPrevious === next.joinsPrevious &&
+  previous.joinsNext === next.joinsNext &&
+  previous.index === next.index &&
+  previous.setSize === next.setSize &&
+  previous.top === next.top &&
+  previous.rowWidth === next.rowWidth &&
+  previous.expanded === next.expanded &&
+  previous.observer === next.observer &&
+  previous.report === next.report &&
+  previous.enter === next.enter &&
+  previous.onEntered === next.onEntered &&
+  previous.active === next.active &&
+  previous.selected === next.selected &&
+  previous.tabStop === next.tabStop &&
+  previous.onRowKeyDown === next.onRowKeyDown &&
+  previous.onCopyRow === next.onCopyRow &&
+  previous.copyable === next.copyable &&
+  previous.contentType === next.contentType &&
+  previous.controls === next.controls &&
+  previous.onToggleActivity === next.onToggleActivity &&
+  previous.onOpenDiff === next.onOpenDiff &&
+  previous.githubRepository === next.githubRepository,
+);
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -1366,6 +1397,9 @@ export function VirtualTranscript({
   }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
+  /// Pointerover bubbles for every markdown descendant. Avoid rescanning a row's preceding turns
+  /// while the pointer moves between spans inside the same row.
+  const pointedRow = useRef<string | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1549,6 +1583,14 @@ export function VirtualTranscript({
     },
     [rows],
   );
+  const copyRowsRef = useRef(copyRows);
+  copyRowsRef.current = copyRows;
+  const selectedRowIdsRef = useRef(selectedRowIds);
+  selectedRowIdsRef.current = selectedRowIds;
+  const copyRow = useCallback(async (rowId: string) => {
+    const selected = selectedRowIdsRef.current;
+    await copyRowsRef.current(selected.includes(rowId) && selected.length > 0 ? selected : [rowId]);
+  }, []);
   const rowKeyDown = useCallback(
     (index: number, event: React.KeyboardEvent<HTMLElement>) => {
       // Buttons and links own their keyboard behavior. A focused row itself owns only the
@@ -1584,6 +1626,12 @@ export function VirtualTranscript({
       }
     },
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
+  );
+  const rowKeyDownRef = useRef(rowKeyDown);
+  rowKeyDownRef.current = rowKeyDown;
+  const handleRowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
+    [],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
@@ -1967,7 +2015,7 @@ export function VirtualTranscript({
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
   };
-  useLayoutEffect(markTurns);
+  useLayoutEffect(markTurns, [lastTurnId, rows]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
@@ -1978,6 +2026,9 @@ export function VirtualTranscript({
   });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const rowId = row?.dataset.rowId;
+    if (rowId === pointedRow.current) return;
+    pointedRow.current = rowId;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
@@ -2050,14 +2101,15 @@ export function VirtualTranscript({
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      onFocus={rowFocus}
+                      onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
-                      }
+                      onCopyRow={copyRow}
+                      contentType={Component}
+                      controls={controls}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      githubRepository={githubRepository}
                     >
                       <Component
                         row={row}
@@ -4697,13 +4749,16 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
