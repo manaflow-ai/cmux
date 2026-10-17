@@ -57,6 +57,41 @@ const onBranch = (branch: string) =>
     summary: { sessionId: "", cwd: CWD, branch, harness: "claude", model: "claude-opus-5-5", effort: "high" },
   });
 
+// A Claude chat as Leo's app shows it (2026-10-13): the agent names its model with the vendor
+// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac. Nothing is
+// sent yet, so the location strip shows (locationRow.ts).
+function footerChat(mode: "default" | "full-access") {
+  const base = chat(finished);
+  return {
+    ...base,
+    rows: [],
+    queue: [],
+    isWorking: false,
+    catalog: CATALOG.map((entry) =>
+      entry.id === "claude"
+        ? {
+            ...entry,
+            models: entry.models.map((model) =>
+              model.id === "claude-opus-5-5" ? { ...model, name: "Claude Opus 5.5" } : model,
+            ),
+          }
+        : entry,
+    ),
+    summary: {
+      ...base.summary!,
+      turnCount: 0,
+      usage: { used: 0, size: 200_000 },
+      modes: {
+        currentModeId: mode,
+        availableModes: [
+          { id: "default", name: "Default", description: "Ask before sensitive actions." },
+          { id: "full-access", name: "Full access", description: "Run actions without asking." },
+        ],
+      },
+    },
+  };
+}
+
 /// Claude Code's Ultracode switch, as acpmux's claude_stdio lists it beside the levels.
 const CLAUDE_ULTRACODE_OFF = {
   id: "ultracode",
@@ -174,6 +209,34 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+      },
+    },
+    "footer-essentials": {
+      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its icon alone, no context ring before any use. Titles and labels keep the full text.',
+      snapshot: footerChat("default"),
+      play: async (ctx) => {
+        const model = ctx.find({ selector: ".acpmux-model-name" });
+        if (model.textContent !== "Opus 5.5") throw new Error("the model chip repeats its vendor");
+        if (!model.closest("button")?.title.startsWith("Claude Opus 5.5"))
+          throw new Error("the model chip lost its full tooltip");
+        const access = ctx.find({ selector: ".acpmux-access-trigger" });
+        const mode = access.querySelector(".acpmux-mode-text");
+        if (mode?.textContent !== "Default" || !mode.classList.contains("sr-only"))
+          throw new Error("the default mode must keep its accessible name without a visible label");
+        if (!access.querySelector('[data-shield="check"]') || !access.getAttribute("title")?.includes("Default"))
+          throw new Error("the default mode lost its shield or tooltip");
+        if (ctx.document.querySelector(".acpmux-context")) throw new Error("an unused context ring is visible");
+      },
+    },
+    "footer-full-access": {
+      note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
+      snapshot: footerChat("full-access"),
+      play: async (ctx) => {
+        const access = ctx.find({ selector: ".acpmux-access-trigger" });
+        const mode = access.querySelector(".acpmux-mode-text");
+        if (mode?.textContent !== "Full access" || mode.classList.contains("sr-only"))
+          throw new Error("Full access must keep its visible mode name");
+        if (!access.querySelector('[data-shield="alert"]')) throw new Error("Full access lost its warning shield");
       },
     },
     idle: {
