@@ -120,9 +120,14 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 preview
                 previewVariant={preview}
               />
-              <div className={`cmux-comparison-preview-specimen acpmux-session-preview-${preview}`} aria-label={`Visible ${preview} sidebar preview specimen`}>
+              <div
+                className={`cmux-comparison-preview-specimen acpmux-session-preview-${preview}`}
+                aria-label={`Visible ${preview} sidebar preview specimen`}
+              >
                 <div className="acpmux-session-preview-title">Review the sidebar polish</div>
-                <div className="acpmux-session-preview-copy">Card, quiet and outline treatments are ready to compare.</div>
+                <div className="acpmux-session-preview-copy">
+                  Card, quiet and outline treatments are ready to compare.
+                </div>
                 <div className="acpmux-session-preview-meta">
                   <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
                   <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
@@ -182,7 +187,10 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                   </button>
                 </div>
               </div>
-              <div className="cmux-comparison-slider-specimen" aria-label={`Visible ${sliderStyle} reasoning slider specimen`}>
+              <div
+                className="cmux-comparison-slider-specimen"
+                aria-label={`Visible ${sliderStyle} reasoning slider specimen`}
+              >
                 <div className="cmux-comparison-specimen-heading">
                   <span>Reasoning slider</span>
                   <strong>{sliderStyle === "accent" ? "Accent" : "Minimal"}</strong>
