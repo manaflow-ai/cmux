@@ -33,9 +33,13 @@ test("the page's Cloud rows match the shared corpus the daemon's rows follow", a
     const expected = c.row as Row;
     // The page shows the daemon's channel and group kinds as its "group".
     const kind = expected.kind === "channel" || expected.kind === "group" ? "group" : expected.kind;
-    expect(
-      { kind: row!.kind, name: conversationName(row!, "user_local"), unread: row!.unread, pinned: row!.pinned, muted: row!.muted },
-      c.name,
-    ).toEqual({ ...expected, kind });
+    const shown: Record<string, unknown> = {
+      kind: row!.kind,
+      name: conversationName(row!, "user_local"),
+      unread: row!.unread,
+      pinned: row!.pinned,
+      muted: row!.muted,
+    };
+    expect(shown, c.name).toEqual({ ...expected, kind } as Record<string, unknown>);
   }
 });
