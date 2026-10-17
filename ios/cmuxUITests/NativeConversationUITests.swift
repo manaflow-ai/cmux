@@ -9,25 +9,26 @@ final class NativeConversationUITests: XCTestCase {
     /// sharing setup and keeping the test runtime bounded.
     private enum MatrixState: String, CaseIterable {
         case taskList = "task-list"
-        case taskDetail = "task-detail"
-        case newProviderWorkspaceTask = "new-provider-workspace-task"
-        case toolExpanded = "tool-expanded"
+        case taskDetail = "idle-composer"
+        case newProviderWorkspaceTask = "new-task-provider"
+        case toolExpanded = "expanded-tool"
         case steerQueueMenu = "steer-queue-menu"
-        case queueLifecycle = "queue-add-edit-cancel"
-        case steerReceipt = "steer-receipt"
+        case queueLifecycle = "queued-prompt"
+        case steerReceipt = "steering-receipt"
         case stopReceipt = "stop-receipt"
         case stopWithLiveTool = "stop-with-live-tool"
         case approval = "approval"
-        case questionPaging = "question-paging"
-        case singleQuestionCustomAnswer = "single-question-custom-answer"
+        case questionPaging = "multi-question"
+        case singleQuestion = "single-question"
+        case singleQuestionCustomAnswer = "custom-answer"
         case asyncQuestion = "async-question"
         case reconnectedPendingRequest = "reconnected-pending-request"
-        case disconnectedRetainedTranscript = "disconnected-retained-transcript"
-        case streamingAssistantDelta = "streaming-assistant-delta"
-        case rejectedCommand = "rejected-command"
+        case disconnectedRetainedTranscript = "disconnected"
+        case streamingAssistantDelta = "streaming-assistant"
+        case rejectedCommand = "rejected-or-uncertain-command"
         case uncertainCommand = "uncertain-command"
-        case modelSettings = "model-settings"
-        case filesDiff = "files-diff"
+        case modelSettings = "provider-settings"
+        case filesDiff = "file-diff"
         case emptyFiles = "empty-files"
         case noGit = "no-git"
         case noLastTurn = "no-last-turn"
@@ -41,6 +42,7 @@ final class NativeConversationUITests: XCTestCase {
             switch self {
             case .approval: "approval"
             case .questionPaging: "question"
+            case .singleQuestion: "single-question-custom-answer"
             case .singleQuestionCustomAnswer: "single-question-custom-answer"
             case .asyncQuestion: "async-question"
             case .reconnectedPendingRequest: "reconnected-pending-request"
@@ -236,6 +238,12 @@ final class NativeConversationUITests: XCTestCase {
             app.buttons["ConversationQuestionOption-yes"].tap()
             XCTAssertTrue(app.staticTexts["2 of 2"].waitForExistence(timeout: 5))
             capture(app, name: "native-question-page-2")
+
+        case .singleQuestion:
+            try openDetail(in: app)
+            XCTAssertTrue(app.otherElements["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.textFields["ConversationQuestionCustomAnswer"].waitForExistence(timeout: 3))
+            capture(app, name: "native-single-question")
 
         case .singleQuestionCustomAnswer:
             try openDetail(in: app)
