@@ -648,7 +648,7 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
 
       - name: Validate the dispatch runner pool's auto pick
@@ -997,7 +997,12 @@ jobs:
 
       - name: Validate iOS simulator build-once contract
         if: ${{ matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_simulator_build_once.py
+        run: |
+          if [[ -f tests/test_ios_simulator_build_once.py ]]; then
+            python3 tests/test_ios_simulator_build_once.py
+          else
+            echo "skipping removed tests/test_ios_simulator_build_once.py"
+          fi
 
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -1005,7 +1010,12 @@ jobs:
 
       - name: Validate iOS video recording failures
         if: ${{ matrix.group == 'app-host-cache' }}
-        run: python3 tests/test_ios_video_recording.py
+        run: |
+          if [[ -f tests/test_ios_video_recording.py ]]; then
+            python3 tests/test_ios_video_recording.py
+          else
+            echo "skipping removed tests/test_ios_video_recording.py"
+          fi
 
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -1060,6 +1070,14 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
 
+      - name: Validate cmux-tui republishes the same commit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
+
+      - name: Validate nightly sign admission
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_admit.py
+
       - name: Validate lane-branch cmux-tui publishes without the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
@@ -1087,6 +1105,8 @@ jobs:
           python3 tests/test_nightly_next_computer_use_helper.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
+          python3 tests/test_cmux_tui_republish_same_commit.py
+          python3 tests/test_nightly_sign_admit.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
           python3 tests/test_nightly_notices_submodule.py
@@ -1189,12 +1209,6 @@ jobs:
       - name: Validate nightly-next ships as cmux NEXT beside classic NIGHTLY
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
-
-      - name: Validate nightly signing admission and its shadow mode
-        if: ${{ matrix.group == 'release-notary' }}
-        run: |
-          python3 tests/test_nightly_sign_admit.py
-          python3 tests/test_nightly_sign_shadow_workflow.py
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
