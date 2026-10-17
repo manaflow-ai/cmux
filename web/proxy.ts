@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextFetchEvent, type NextRequest, NextResponse } from "next/server";
 import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
@@ -25,11 +25,19 @@ import {
   VM_REFLECTION_ALIAS_HEADER,
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
+import { withWebPricingExperiment } from "./services/billing/pricingExperiment/proxy";
 
 const localeSet = new Set<string>(routing.locales);
 
-export default function middleware(incomingRequest: NextRequest) {
-  return responseWithInternalRewrite(routeRequest(incomingRequest), incomingRequest);
+export default function middleware(incomingRequest: NextRequest, event?: NextFetchEvent) {
+  // The pricing experiment applies to whichever branch rewrote `/pricing` to
+  // the English page (the fallback-content branch does, before next-intl), and
+  // after the prefetch rebuild, so a prefetch pins the same arm the later
+  // navigation renders.
+  return responseWithInternalRewrite(
+    withWebPricingExperiment(incomingRequest, routeRequest(incomingRequest), event),
+    incomingRequest,
+  );
 }
 
 function routeRequest(incomingRequest: NextRequest) {

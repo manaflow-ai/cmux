@@ -207,6 +207,99 @@ tell the variants apart. Moving traffic earlier would follow noise. The
 experiment pays off only when App Store paywall traffic grows, or when it is
 run with fewer arms.
 
+## web-pricing-v1
+
+- **Flag:** `web-pricing-v1`, a PostHog multivariate flag with no payloads.
+  The variants are code in `../pricingExperiment/webPricingV1.ts`, and each
+  one passes `copyErrors`. A flag variant that the code does not define, or
+  whose copy fails, is served as control. Create the flag with
+  `scripts/pricing-experiment/create-flag.ts` after merge.
+- **Platform:** web, the English `cmux.com/pricing` page only. Other locales
+  always get control and have no exposure. Web results are never pooled with
+  iOS results.
+- **Assignment:** the proxy evaluates the flag locally with PostHog's hash on
+  the visitor's PostHog distinct id. A first visit with no PostHog id hashes a
+  random id. The result is pinned in the `cmux_wp1` cookie for one year, so a
+  later traffic change does not move a visitor. Each non-control arm is a
+  static route (`/pricing/<variant>`) that the proxy rewrites to, so the page
+  arrives as server HTML with no flash. The proxy reads the flag definition in
+  the background, at most once a minute. Until it has a fresh definition, the
+  experiment is off.
+- **Difference from rule 2:** the unit is the PostHog person, not the cmux
+  account, because most visitors are anonymous. The `cmux_wp1` cookie replaces
+  `paywall_assignments`. Sign-in merges the anonymous person into the account
+  with `identify`.
+- **Assignment and exposure (rule 3):** the proxy chooses the arm and pins it
+  in the `cmux_wp1` cookie. When the page renders, the browser records
+  `paywall_assigned` with that pinned arm and then the exposure,
+  `$feature_flag_called`. Both carry `paywall_experiment`, `paywall_variant`,
+  `paywall_platform = web`, `paywall_channel` and `paywall_sticky` (true when
+  the browser has an existing pin but no visit in the last day, so the SRM
+  window skips it). The browser sends the assignment record because the proxy
+  does not know the browser's PostHog id on a first visit. The arm still comes
+  from the proxy's cookie, never from the page. Unlike iOS, the web
+  assignment is therefore client-reported, with the same trust as any
+  browser event. Both events come from one page view, so the optimizer's
+  client-variant mismatch count is not an app bug on the web: a non-zero
+  count means sign-in merged people from devices that hold different pins
+  (cross-arm contamination). Both events are recorded only when the proxy
+  put this browser in the running experiment (`cmux_wp1_live` cookie), the
+  pinned arm is the rendered one, and the URL is `/pricing`. A bot (the proxy
+  gives it no cookie), a visitor without JavaScript, a paused experiment and a
+  staff preview of `/pricing/<variant>` never make an assignment or an
+  exposure.
+- **Exclusions** (on the assignment record): `paywall_channel = production`
+  (only `cmux.com`; preview deployments report to the same project),
+  `is_internal_user` (registered by the route tracker for verified company
+  accounts), `is_synthetic`, and headless user agents.
+- **Paid accounts:** everyone is bucketed and keeps their arm, but an exposure
+  counts only when the visitor can still convert. The route tracker registers
+  `account_plan` (the signed-in account's plan when the event is sent), and
+  exposures with a paid plan (`go`, `pro`, `max`, `team`) are left out. A
+  person whose only exposures were on a paid plan is therefore outside both
+  the exposure count and the primary metric. A free account that later buys
+  keeps its earlier free exposure, so its conversion counts. A signed-out
+  visitor counts as free; a paying customer who browses signed out is a
+  known, small leak. Events buffered before the identity resolves take the
+  plan resolved for that page view, not a value persisted from an earlier
+  visit.
+- **Hypotheses:** `yearly-emphasis`: a note that yearly billing costs less per
+  month raises paid conversion. `highlight-pro`: one recommended plan raises
+  Pro checkouts. `outcome-headline`: an outcome headline (agents keep working
+  while your Mac sleeps) beats the plain title.
+- **Arms:** `control` (today's page), `yearly-emphasis`, `highlight-pro` and
+  `outcome-headline`, at 25% each. No arm changes a price, a plan, a feature or
+  checkout. Only the title, a subheadline, the emphasized card, a note under
+  the button and the first billing period can vary.
+- **Primary metric:** the share of exposed people with a live-mode
+  `cmux_billing_checkout_completed` after their first exposure. Internal and
+  synthetic checkouts are excluded (`is_internal`, `is_synthetic` from the
+  checkout session).
+- **Secondary metric:** `cmux_billing_checkout_started` tagged with this
+  experiment. The checkout route reads the assignment from the cookie, never
+  from the URL, and stores it on the Stripe session and subscription.
+- **Guardrails:** live-mode `cmux_billing_charge_refunded`, and
+  `cmux_billing_plan_switch_started` to a cheaper plan (Max to Pro or Go, Pro
+  to Go). The same review rule as `ios-paywall-v1` applies: a guardrail rate
+  above 2 times control, with at least 5 events, makes a person review the
+  variant before the next run.
+- **Kill switch:** the Paywall Lab (`/dashboard/ops/paywall-lab`) turns the
+  flag off. Every visitor then gets control within a minute, nobody is
+  exposed, and the optimizer holds. Resume turns the flag on with the same
+  split. Each use is in the change log with the staff member's email.
+- **Decision rule and stop:** the default rule above, and the same stop rule
+  as `ios-paywall-v1`.
+
+### What to expect at current traffic
+
+In the 14 days to 2026-10-14, about 3,300 people viewed the production pricing
+page, and 95% of the views were in English. In the same period there were 27
+live checkouts from the pricing page. So each arm gets about 55 exposed people
+a day, and the first traffic move can come after one day. At a base rate near
+1%, the arms cannot be told apart for weeks: a 50% lift needs several thousand
+exposed people per arm. The control floor keeps at least 10% of traffic on
+control while the optimizer follows P(best).
+
 ## Adding an experiment (for example web-pricing-v1)
 
 1. Append its definition to `PAYWALL_EXPERIMENTS` in `experiments.ts`. Give

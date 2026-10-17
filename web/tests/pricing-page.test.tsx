@@ -112,6 +112,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
+const { default: PricingVariantPage } = await import("../app/[locale]/(landing)/pricing/[variant]/page");
 
 describe("localized pricing page", () => {
   test("hides Go when the Go rollout is disabled", async () => {
@@ -460,6 +461,38 @@ describe("localized pricing page", () => {
     expect(html).toContain("Team &amp; Enterprise");
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('hidden=""');
+  });
+});
+
+describe("web-pricing-v1 arms", () => {
+  const render = async (variant: string, locale = "en") =>
+    renderSettled(await PricingVariantPage({ params: Promise.resolve({ locale, variant }) }));
+
+  test("each arm is server HTML with the same prices and plans as control", async () => {
+    const control = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const arms = {
+      "yearly-emphasis": await render("yearly-emphasis"),
+      "highlight-pro": await render("highlight-pro"),
+      "outcome-headline": await render("outcome-headline"),
+    };
+    for (const html of [control, ...Object.values(arms)]) {
+      for (const fact of ["$40", "$160", "Get Pro", "Get Max", "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM"]) {
+        expect(html).toContain(fact);
+      }
+    }
+    expect(control).not.toContain("Recommended");
+    expect(control).not.toContain("Agents keep working while your Mac sleeps");
+    expect(control).not.toContain("Yearly billing costs less per month.");
+    expect(arms["highlight-pro"]).toContain("Recommended");
+    expect(arms["highlight-pro"]).toContain('data-highlighted="true"');
+    expect(arms["outcome-headline"]).toContain("Agents keep working while your Mac sleeps");
+    expect(arms["yearly-emphasis"]).toContain("Yearly billing costs less per month.");
+  });
+
+  test("an arm route exists only in English and only for defined arms", async () => {
+    await expect(render("highlight-pro", "ja")).rejects.toThrow("notFound");
+    await expect(render("control")).rejects.toThrow("notFound");
+    await expect(render("made-up")).rejects.toThrow("notFound");
   });
 });
 

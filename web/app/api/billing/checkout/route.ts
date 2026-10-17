@@ -41,6 +41,11 @@ import {
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 import {
+  checkoutAccountKind,
+  checkoutExperimentFromCookies,
+  checkoutTaggingMetadata,
+} from "../../../../services/billing/pricingExperiment/checkoutTagging";
+import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
   forwardCheckoutAttribution,
@@ -387,6 +392,7 @@ async function stripePersonalCheckout(
       nativeCallbackScheme: callbackScheme,
       ...(returnTo ? { returnTo } : {}),
       ...checkoutAttributionMetadata(attribution),
+      ...checkoutTaggingMetadata(checkoutExperimentFromCookies(request.cookies), checkoutAccountKind(user)),
     };
 
     const session = await stripe().checkout.sessions.create({
@@ -423,6 +429,7 @@ async function stripePersonalCheckout(
       plan,
       billingInterval: interval,
       attribution,
+      tagging: metadata,
       signedIn: !user.isAnonymous,
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
       ...checkoutLivemode(session),
@@ -496,6 +503,7 @@ async function stripeTeamCheckout(
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
       ...checkoutAttributionMetadata(attribution),
+      ...checkoutTaggingMetadata(checkoutExperimentFromCookies(request.cookies), checkoutAccountKind(user)),
     };
 
     const customerId =
@@ -530,6 +538,7 @@ async function stripeTeamCheckout(
       plan: "team",
       billingInterval: interval,
       attribution,
+      tagging: metadata,
       signedIn: !user.isAnonymous,
       existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
       ...checkoutLivemode(session),

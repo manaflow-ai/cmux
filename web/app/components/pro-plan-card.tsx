@@ -39,6 +39,8 @@ export function ProPlanCard({
   initialInterval = "year",
   plan = "pro",
   pricing,
+  highlightLabel,
+  yearlyNote,
   children,
 }: {
   name: string;
@@ -61,6 +63,10 @@ export function ProPlanCard({
   initialInterval?: BillingInterval;
   plan?: "pro" | "max";
   pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
+  /** A pricing-experiment emphasis: the card gets a strong border and this label. */
+  highlightLabel?: string | null;
+  /** A pricing-experiment note under the button while yearly is selected. */
+  yearlyNote?: string | null;
   children: ReactNode;
 }) {
   const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
@@ -82,13 +88,19 @@ export function ProPlanCard({
   const price = planPricing[action ? "month" : interval];
 
   return (
-    <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
+    <div {...cardFrameProps(highlightLabel)}>
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       {action || monthlyOnly ? (
-        <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
+        <h2 className="pr-28 text-sm font-medium tracking-tight">
+          {name}
+          <HighlightLabel label={highlightLabel} />
+        </h2>
       ) : (
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium tracking-tight">{name}</h2>
+          <h2 className="text-sm font-medium tracking-tight">
+            {name}
+            <HighlightLabel label={highlightLabel} />
+          </h2>
           {/* Native radios give the arrow-key and single-tab-stop behavior. */}
           <fieldset className="flex items-center gap-1.5 text-sm">
             <legend className="sr-only">{labels.billingPeriod}</legend>
@@ -140,7 +152,28 @@ export function ProPlanCard({
           </ProCtaLink>
         )}
       </div>
+      <YearlyNote note={yearlyNote} interval={interval} hasAction={Boolean(action)} />
       {children}
     </div>
+  );
+}
+
+function cardFrameProps(highlightLabel: string | null | undefined) {
+  return highlightLabel
+    ? { className: "relative flex h-full min-w-0 flex-col border border-foreground p-6", "data-highlighted": "true" }
+    : { className: "relative flex h-full min-w-0 flex-col border border-border p-6" };
+}
+
+function YearlyNote({ note, interval, hasAction }: { note?: string | null; interval: BillingInterval; hasAction: boolean }) {
+  if (!note || hasAction || interval !== "year") return null;
+  return <p className="mt-2 text-xs text-muted">{note}</p>;
+}
+
+function HighlightLabel({ label }: { label?: string | null }) {
+  if (!label) return null;
+  return (
+    <span className="ml-2 inline-block border border-foreground px-1.5 py-px align-[1px] text-[11px] font-medium leading-4">
+      {label}
+    </span>
   );
 }

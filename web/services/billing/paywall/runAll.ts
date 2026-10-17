@@ -5,10 +5,12 @@ import { PAYWALL_EXPERIMENTS, type ExperimentDefinition } from "./experiments";
 import { iosPaywallV1FlagDefinition, IOS_PAYWALL_EXPERIMENT } from "./iosPaywallV1";
 import { postHogApi, runOptimizer, seedFlag, type OptimizerRunResult, type PostHogApi, type PostHogFlag } from "./optimizer";
 import type { PaywallExperimentLog } from "./store";
+import { webPricingV1FlagDefinition, WEB_PRICING_EXPERIMENT } from "../pricingExperiment/webPricingV1";
 
 /** Seed flags by experiment, for dry runs before a flag is created. */
 export const SEED_FLAGS: Readonly<Record<string, () => PostHogFlag>> = {
   [IOS_PAYWALL_EXPERIMENT]: () => seedFlag(iosPaywallV1FlagDefinition()),
+  [WEB_PRICING_EXPERIMENT]: () => seedFlag(webPricingV1FlagDefinition()),
 };
 
 export const POSTHOG_PROJECT_ID_DEFAULT = "244066";

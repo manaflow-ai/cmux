@@ -7,6 +7,7 @@
 // Every analysis is per experiment, and every experiment is on one platform:
 // iOS and web rates are never pooled.
 
+import { WEB_PRICING_V1_DEFINITION } from "../pricingExperiment/webPricingV1";
 import { IOS_PAYWALL_CONTROL_VARIANT, IOS_PAYWALL_EXPERIMENT, IOS_PAYWALL_V1_SEED } from "./iosPaywallV1";
 import type { PostHogApi } from "./optimizer";
 import { IOS_PAYWALL_BASE_LAYOUTS, validateIosPaywallPayload, type ValidationResult } from "./validator";
@@ -142,6 +143,8 @@ export const IOS_PAYWALL_V1: ExperimentDefinition = {
   validatePayload: (payload, variant) => validateIosPaywallPayload(payload, IOS_PAYWALL_EXPERIMENT, variant),
 };
 
+/** cmux.com/pricing (services/billing/pricingExperiment/webPricingV1.ts). */
+export const WEB_PRICING_V1: ExperimentDefinition = { ...WEB_PRICING_V1_DEFINITION, policy: DEFAULT_EXPERIMENT_POLICY };
 /** Share of recent assignments whose app must be able to draw a layout before an arm using it goes live. */
 export const LAYOUT_ADOPTION_THRESHOLD = 0.9;
 const LAYOUT_ADOPTION_MIN_ASSIGNMENTS = 20;
@@ -169,7 +172,7 @@ async function iosLayoutAdoptionGate(payload: unknown, api: PostHogApi): Promise
 }
 
 /** Every experiment the optimizer manages, in run order. */
-export const PAYWALL_EXPERIMENTS: readonly ExperimentDefinition[] = [IOS_PAYWALL_V1];
+export const PAYWALL_EXPERIMENTS: readonly ExperimentDefinition[] = [IOS_PAYWALL_V1, WEB_PRICING_V1];
 
 export function experimentDefinition(key: string): ExperimentDefinition | null {
   return PAYWALL_EXPERIMENTS.find((experiment) => experiment.key === key) ?? null;

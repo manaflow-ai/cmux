@@ -7294,6 +7294,81 @@
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
   },
+  "opsPaywallLab": {
+    "eyebrow": "スタッフ · グロース",
+    "title": "Paywall Lab",
+    "description": "すべてのペイウォールと料金ページの実験を、ユーザーが見るとおりに表示します。トラフィック、露出、コンバージョン、オプティマイザーの変更履歴も確認できます。オプティマイザーは1日1回実行されます。",
+    "empty": "登録された実験はありません。",
+    "platform": {
+      "web": "Web",
+      "ios": "iOS"
+    },
+    "flag": {
+      "live": "実行中",
+      "paused": "一時停止中: 全員にコントロールを表示",
+      "missing": "フラグ未作成: 全員にコントロールを表示",
+      "unavailable": "フラグの状態を取得できません",
+      "unconfigured": "フラグ API キーが未設定です"
+    },
+    "pause": "実験を一時停止",
+    "resume": "実験を再開",
+    "pauseConfirm": "{experiment} を一時停止しますか? 1分以内に全訪問者に {control} が表示されます。トラフィック配分は再開用に保持されます。",
+    "resumeConfirm": "{experiment} を再開しますか? フラグのトラフィック配分が再び適用されます。",
+    "toggleFailed": "フラグは変更されませんでした。もう一度試すか、分析コンソールで変更してください。",
+    "lastRun": "最後のオプティマイザー実行: {time}",
+    "noRun": "オプティマイザーはまだ実行されていません。表は初期配分を示します。",
+    "halted": "停止中: 原因が説明されるまでトラフィックは変更されません。",
+    "srmTested": "サンプル比率チェック: p = {p}{mismatch, select, true { (不一致)} other {}}",
+    "srmNotTested": "サンプル比率チェック未実行: {reason}",
+    "report": "日次レポート (Markdown)",
+    "noReport": "日次レポートはまだありません",
+    "primary": "主要指標: {label}",
+    "trialNone": "トライアル指標: トライアル商品は販売されていないため、まだ件数はありません。",
+    "trialAvailable": "トライアル指標: 実験で定義されている場合は副次指標として表示されます。",
+    "reasonsTitle": "オプティマイザーの判断",
+    "column": {
+      "variant": "バリアント",
+      "status": "状態",
+      "traffic": "トラフィック",
+      "next": "提案",
+      "exposed": "露出",
+      "converted": "コンバージョン",
+      "rate": "率",
+      "pBest": "P(最良)"
+    },
+    "status": {
+      "live": "稼働中",
+      "retired": "終了",
+      "queued": "待機中"
+    },
+    "invalidCopy": "無効なコピー: このアームはコントロールを表示します",
+    "queuedNote": "待機中のアームはトラフィック 0% で待ち、昇格する順に並びます。稼働中のチャレンジャーが終了すると、オプティマイザーが次の1つを昇格します。稼働アームは最大4つです。",
+    "previewsTitle": "ユーザーに表示されるバリアント",
+    "webPreviewNote": "cmux.com/pricing のコンポーネントで、サインインしていない訪問者向けに表示しています。価格とプランは変わりません。",
+    "iosPreviewNote": "iOS ペイウォールのレイアウトを Web で再現したものです。アプリでは App Store の価格が表示されます。シミュレーターのキャプチャはまだ添付されていません。",
+    "changeLogTitle": "変更履歴",
+    "changeLogEmpty": "変更はまだありません。",
+    "changeColumn": {
+      "when": "日時",
+      "kind": "変更",
+      "variant": "バリアント",
+      "reason": "理由",
+      "actor": "実行者"
+    },
+    "ios": {
+      "recommended": "おすすめ",
+      "layout": "レイアウト: {layout}",
+      "fallback": "古いアプリでの表示: {layout}",
+      "selectedPlan": "選択中のプラン",
+      "seeAllPlans": "すべてのプランを見る",
+      "ctaAction": "{plan} で続ける",
+      "ctaPrice": "App Store の価格で登録",
+      "yearlySavings": "年額の割引を表示",
+      "yearly": "年額",
+      "monthly": "月額",
+      "appStorePrice": "App Store の価格"
+    }
+  },
   "opsCloudVmHealth": {
     "eyebrow": "スタッフ · 運用",
     "title": "VM ヘルス",

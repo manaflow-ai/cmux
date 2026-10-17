@@ -8,6 +8,8 @@ import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
+  isStackAnalyticsPlan,
+  syncAccountEventProperties,
   syncStackAnalyticsIdentity,
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
@@ -102,6 +104,10 @@ function PageviewTracker() {
           "$anon_distinct_id",
           "$had_persisted_distinct_id",
           "$groups",
+          // Account properties are re-read from the identity resolved just
+          // now, not the value persisted when the event was buffered.
+          "account_plan",
+          "is_internal_user",
         ]) {
           delete properties[identityProperty];
         }
@@ -147,7 +153,7 @@ function PageviewTracker() {
           return;
         }
         const payload = await response.json() as {
-          user?: { id?: unknown; plan?: unknown } | null;
+          user?: { id?: unknown; plan?: unknown; internal?: unknown } | null;
         };
         if (controller.signal.aborted || currentGeneration !== generation) return;
         let identity: StackAnalyticsIdentity | null;
@@ -157,15 +163,16 @@ function PageviewTracker() {
           const plan = payload.user?.plan;
           if (
             typeof payload.user?.id !== "string"
-            || (plan !== "free" && plan !== "pro" && plan !== "team")
+            || !isStackAnalyticsPlan(plan)
           ) {
             recoverAsAnonymous(!hadAuthenticatedIdentity);
             return;
           }
-          identity = { id: payload.user.id, plan };
+          identity = { id: payload.user.id, plan, internal: payload.user.internal === true };
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
+        syncAccountEventProperties(posthog, identity);
         const identityUnchanged = !hadAuthenticatedIdentity
           || identity?.id === previousPostHogUserId;
         flushBufferedCaptures(identityUnchanged);
