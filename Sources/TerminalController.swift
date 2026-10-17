@@ -6954,6 +6954,31 @@ class TerminalController {
         tabManager: TabManager,
         allowSoleBrowserFallback: Bool = false
     ) -> (context: V2BrowserPanelContext?, error: V2CallResult?) {
+        let resolved = v2ResolveBrowserPanelContextAsResolved(
+            params: params, tabManager: tabManager, allowSoleBrowserFallback: allowSoleBrowserFallback
+        )
+        // Resolving marked the panel agent-driven. A live Chromium page it
+        // had not marked yet reopens, since a saved password Chromium filled
+        // for the person may still sit in it; the command runs on the new
+        // page when retried (same rule as cmux Next).
+        if let context = resolved.context, context.browserPanel.takeAgentReopenNotice() {
+            return (nil, .err(
+                code: "unavailable",
+                message: String(
+                    localized: "cli.browser.error.reopenedForAgent",
+                    defaultValue: "The browser page reopened so no saved password stays filled in it; retry"
+                ),
+                data: ["surface_id": context.surfaceId.uuidString, "retry": true]
+            ))
+        }
+        return resolved
+    }
+
+    private func v2ResolveBrowserPanelContextAsResolved(
+        params: [String: Any],
+        tabManager: TabManager,
+        allowSoleBrowserFallback: Bool
+    ) -> (context: V2BrowserPanelContext?, error: V2CallResult?) {
         let dockResolution = v2ResolveDockBrowserPanelContext(
             params: params,
             tabManager: tabManager

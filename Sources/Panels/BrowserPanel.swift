@@ -2256,12 +2256,38 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private(set) var browserDialogOwner: BrowserDialogOwner = .user
     var browserDialogsOwnedByCLI: Bool { browserDialogOwner == .automation }
+    /// Set the first time automation drives the panel and never cleared, even
+    /// when the person takes the dialogs back: its pages never get a saved
+    /// password filled (`markAgentDriven`, BrowserPanel+AgentURLPolicy.swift).
+    private(set) var isAgentDriven = false
+    /// Set when marking reopened a live page; the automation command that
+    /// resolved the panel answers "retry" once (`takeAgentReopenNotice`).
+    private var agentReopenPending = false
 
     /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
     func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
         let changed = browserDialogOwner != owner
         browserDialogOwner = owner
         if changed { syncAgentNavigationGuard() }
+    }
+
+    /// Marks the panel and its engine page agent-driven for good: Chromium
+    /// stops filling saved passwords in it and stops offering to save them.
+    /// - Returns: `true` when the live page had not been marked yet and the
+    ///   engine reopened it, since a password filled before may still sit in
+    ///   it; the automation command that caused this should be retried.
+    @discardableResult
+    func markAgentDriven() -> Bool {
+        isAgentDriven = true
+        guard enginePage?.markAgentDriven() == true else { return false }
+        agentReopenPending = true
+        return true
+    }
+
+    /// Whether marking reopened the page since the last call; clears it.
+    func takeAgentReopenNotice() -> Bool {
+        defer { agentReopenPending = false }
+        return agentReopenPending
     }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 

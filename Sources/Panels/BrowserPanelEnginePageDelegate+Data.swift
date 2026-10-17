@@ -17,7 +17,7 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
 
     func pageDidEndPermissionRequest(_ page: any BrowserPage) {
         // Chromium shows one question per page at a time: the bar's is gone.
-        permissionQueue.cancelAll()
+        permissionQueue.cancelPermissionPrompts()
     }
 
     /// Decides one permission request of the panel's page.
@@ -135,6 +135,43 @@ extension BrowserPanelEnginePageDelegate: BrowserPagePermissionOutcomeDelegate {
         let file = staged.temporaryURL
         Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: file)
+        }
+    }
+}
+
+/// Chromium's offers to save or update a submitted sign-in's password, asked
+/// in the panel's prompt strip (design spec §4 and §8b; cmux Next
+/// `CEFPasswordPrompts`). Only the site and user name reach the panel; the
+/// password stays inside Chromium. A panel automation drives is never asked:
+/// Chromium does not offer there (filling is off), and this holds even if it
+/// did, so an agent can neither see nor answer the question.
+extension BrowserPanelEnginePageDelegate: BrowserPagePasswordPromptDelegate {
+    func page(_ page: any BrowserPage, offerToSavePassword offer: BrowserPagePasswordSaveOffer) async -> BrowserPagePasswordSaveAnswer? {
+        guard let panel, !panel.isAgentDriven else { return .notNow }
+        #if DEBUG
+        cmuxDebugLog("browser.chromium.password.offer update=\(offer.isUpdate ? 1 : 0)")
+        #endif
+        let prompt = BrowserPermissionPrompt.savePassword(origin: offer.origin, username: offer.username, isUpdate: offer.isUpdate)
+        passwordPromptIDs[offer.id] = prompt.id
+        let answer = await withCheckedContinuation { continuation in
+            permissionQueue.enqueue(prompt) { continuation.resume(returning: $0) }
+        }
+        if passwordPromptIDs[offer.id] == prompt.id { passwordPromptIDs.removeValue(forKey: offer.id) }
+        return Self.passwordSaveAnswer(answer)
+    }
+
+    func page(_ page: any BrowserPage, didEndPasswordSaveOffer id: Int) {
+        guard let promptID = passwordPromptIDs.removeValue(forKey: id) else { return }
+        permissionQueue.cancel(promptID)
+    }
+
+    /// The strip's button as the engine's answer; `nil` when it ended unanswered.
+    nonisolated static func passwordSaveAnswer(_ answer: BrowserPermissionPromptAnswer?) -> BrowserPagePasswordSaveAnswer? {
+        switch answer {
+        case .allowAndRemember?, .allowOnce?: .save
+        case .block?: .never
+        case .notNow?, .openSystemSettings?: .notNow
+        case nil: nil
         }
     }
 }

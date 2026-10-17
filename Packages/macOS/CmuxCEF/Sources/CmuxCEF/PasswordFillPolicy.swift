@@ -33,6 +33,16 @@ public nonisolated struct PasswordFillState: Sendable, Equatable {
         return allowed != allowedByProfile
     }
 
+    /// Whether Chromium was last told to fill: a live page may then hold a
+    /// password it filled.
+    public var sentFillOn: Bool { lastSentValue == true }
+
+    /// The page got a new Chromium browser (Memory Saver, a reopen), which
+    /// starts with Chromium's default: the next switch value is sent again.
+    public mutating func browserRecreated() {
+        lastSentValue = nil
+    }
+
     /// Returns the CEF switch value only when Chromium needs a transition.
     public mutating func nextSwitchValue(agentDriven: Bool) -> Int32? {
         let shouldFill = fills(agentDriven: agentDriven)

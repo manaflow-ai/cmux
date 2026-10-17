@@ -217,7 +217,9 @@ extension BrowserPanel {
             applyEnginePageNavigationFailure(url: url, code: code, message: message, showsEngineErrorPage: showsEngineErrorPage)
         case .navigationStarted:
             // A question about the page being left goes with it (spec §4).
-            enginePageDelegate.permissionQueue.cancelAll()
+            // An offer to save a password stays: Chromium makes it after the
+            // sign-in navigates, and ends it itself.
+            enginePageDelegate.permissionQueue.cancelPermissionPrompts()
             enginePageDelegate.permissionCoordinator.pageWillLoad()
         case .downloadUpdated(let download):
             enginePageDelegate.applyDownload(download)

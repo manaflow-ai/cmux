@@ -32,6 +32,9 @@ import WebKit
         private(set) var stopCount = 0
         private(set) var closeCount = 0
         private(set) var focusChanges: [Bool] = []
+        private(set) var agentDrivenMarks = 0
+        /// What the next `markAgentDriven` answers (a live page reopened).
+        var reopensWhenMarked = false
         private let stream: AsyncStream<BrowserPageEvent>
         private let continuation: AsyncStream<BrowserPageEvent>.Continuation
 
@@ -64,6 +67,11 @@ import WebKit
         func setContentVisible(_ visible: Bool) {}
         func dispatchInput(_ event: BrowserPageInputEvent) async throws {}
         func exportRestoreState() -> BrowserPageRestoreState? { nil }
+        func markAgentDriven() -> Bool {
+            agentDrivenMarks += 1
+            defer { reopensWhenMarked = false }
+            return reopensWhenMarked
+        }
         func close() {
             closeCount += 1
             continuation.finish()
@@ -476,5 +484,114 @@ import WebKit
         defer { panel.close() }
         #expect(!panel.setMuted(true))
         #expect(!panel.isMuted)
+    }
+
+    // MARK: Passwords (agent-driven fill off, save offers in the strip)
+
+    private func chromiumPanel() throws -> (BrowserPanel, FakeChromiumPage) {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        return (panel, try #require(provider.pages.first))
+    }
+
+    private let fixtureOffer = BrowserPagePasswordSaveOffer(
+        id: 3, origin: URL(string: "http://localhost:19250/login")!, username: "fixture-user", isUpdate: false
+    )
+
+    /// Waits (bounded) until the strip shows a question.
+    private func currentPrompt(_ panel: BrowserPanel) async -> BrowserPermissionPrompt? {
+        for _ in 0..<100 {
+            if let prompt = panel.enginePageDelegate.permissionQueue.current { return prompt }
+            await Task.yield()
+        }
+        return nil
+    }
+
+    @Test func automationTurnsPasswordFillOffForGood() throws {
+        let (panel, page) = try chromiumPanel()
+        defer { panel.close() }
+        #expect(!panel.isAgentDriven)
+        #expect(page.agentDrivenMarks == 0)
+
+        panel.takeBrowserDialogOwnership(.automation)
+        #expect(panel.isAgentDriven)
+        #expect(page.agentDrivenMarks > 0)
+
+        // Physical input takes the dialogs back; filling stays off.
+        panel.takeBrowserDialogOwnership(.user)
+        #expect(panel.isAgentDriven)
+    }
+
+    @Test func aPanelAutomationOpenedInTheBackgroundStartsAgentDriven() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            preloadInitialNavigationInBackground: true,
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        #expect(panel.isAgentDriven)
+        #expect(try #require(provider.pages.first).agentDrivenMarks > 0)
+    }
+
+    @Test func aReopenedPageAsksTheAgentToRetryOnce() throws {
+        let (panel, page) = try chromiumPanel()
+        defer { panel.close() }
+        page.reopensWhenMarked = true
+        #expect(panel.markAgentDriven())
+        #expect(panel.takeAgentReopenNotice())
+        #expect(!panel.takeAgentReopenNotice())
+    }
+
+    @Test func passwordOfferWaitsInTheStripThroughNavigation() async throws {
+        let (panel, page) = try chromiumPanel()
+        defer { panel.close() }
+        let delegate = panel.enginePageDelegate
+        let offer = fixtureOffer
+        let answer = Task { await delegate.page(page, offerToSavePassword: offer) }
+
+        let prompt = try #require(await currentPrompt(panel))
+        #expect(prompt.isPasswordPrompt)
+        #expect(prompt.variant == .savePassword(username: "fixture-user", isUpdate: false))
+        // Chromium asks after the sign-in navigated; the next load keeps it.
+        panel.handleEnginePageEvent(.navigationStarted(URL(string: "http://localhost:19250/welcome")))
+        #expect(delegate.permissionQueue.current?.id == prompt.id)
+
+        delegate.permissionQueue.answer(prompt.id, with: .allowAndRemember)
+        #expect(await answer.value == .save)
+    }
+
+    @Test func aPasswordOfferChromiumDroppedLeavesTheStrip() async throws {
+        let (panel, page) = try chromiumPanel()
+        defer { panel.close() }
+        let delegate = panel.enginePageDelegate
+        let offer = fixtureOffer
+        let answer = Task { await delegate.page(page, offerToSavePassword: offer) }
+        _ = try #require(await currentPrompt(panel))
+
+        delegate.page(page, didEndPasswordSaveOffer: offer.id)
+        #expect(await answer.value == nil)
+        #expect(delegate.permissionQueue.current == nil)
+    }
+
+    @Test func anAgentDrivenPanelIsNeverAskedToSaveAPassword() async throws {
+        let (panel, page) = try chromiumPanel()
+        defer { panel.close() }
+        panel.takeBrowserDialogOwnership(.automation)
+        let answer = await panel.enginePageDelegate.page(page, offerToSavePassword: fixtureOffer)
+        #expect(answer == .notNow)
+        #expect(panel.enginePageDelegate.permissionQueue.current == nil)
+    }
+
+    @Test func stripButtonsMapToChromiumAnswers() {
+        #expect(BrowserPanelEnginePageDelegate.passwordSaveAnswer(.allowAndRemember) == .save)
+        #expect(BrowserPanelEnginePageDelegate.passwordSaveAnswer(.block) == .never)
+        #expect(BrowserPanelEnginePageDelegate.passwordSaveAnswer(.notNow) == .notNow)
+        #expect(BrowserPanelEnginePageDelegate.passwordSaveAnswer(nil) == nil)
     }
 }

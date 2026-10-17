@@ -2,7 +2,9 @@ import AppKit
 import CmuxBrowser
 import SwiftUI
 
-/// The Chromium panel's permission prompt strip (design spec §4, v1.1): a
+/// The Chromium panel's permission prompt strip (design spec §4, v1.1), which
+/// also asks the password manager's save and update questions (§8b, same
+/// strip family, one question at a time): a
 /// non-modal row docked directly under the toolbar, full page width, drawn
 /// over the top of the page without resizing it, so it reads as the toolbar
 /// growing a row. It asks the first waiting question of the panel's
@@ -111,7 +113,11 @@ private struct BrowserPermissionPromptStrip: View {
                 .frame(height: 0.5)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(BrowserPermissionPromptText.accessibilityLabel)
+        .accessibilityLabel(
+            prompt.isPasswordPrompt
+                ? BrowserPermissionPromptText.passwordAccessibilityLabel
+                : BrowserPermissionPromptText.accessibilityLabel
+        )
     }
 
     private var question: some View {
@@ -145,6 +151,16 @@ private struct BrowserPermissionPromptStrip: View {
                 button(BrowserPermissionPromptText.openSystemSettings, prominent: true) { answer(.openSystemSettings) }
             case .systemManaged:
                 button(BrowserPermissionPromptText.notNow, prominent: false) { answer(.notNow) }
+            case .savePassword(let isUpdate):
+                // Next PromptBarView: an update is for a saved sign-in, so it has no Never.
+                if !isUpdate {
+                    button(BrowserPermissionPromptText.passwordNever, prominent: false) { answer(.block) }
+                }
+                button(BrowserPermissionPromptText.notNow, prominent: false) { answer(.notNow) }
+                button(
+                    isUpdate ? BrowserPermissionPromptText.passwordUpdate : BrowserPermissionPromptText.passwordSave,
+                    prominent: true
+                ) { answer(.allowAndRemember) }
             }
         }
         .fixedSize()
@@ -204,9 +220,30 @@ enum BrowserPermissionPromptText {
         String(localized: "browser.permission.prompt.accessibilityLabel", defaultValue: "Permission request")
     }
 
+    // Save-password strip (spec §8b; Next `Strings+PasswordPrompt.swift`,
+    // in Classic's sentence case).
+
+    static var passwordSave: String {
+        String(localized: "browser.password.prompt.save", defaultValue: "Save")
+    }
+
+    static var passwordUpdate: String {
+        String(localized: "browser.password.prompt.update", defaultValue: "Update")
+    }
+
+    static var passwordNever: String {
+        String(localized: "browser.password.prompt.never", defaultValue: "Never for this site")
+    }
+
+    /// Names the save-password strip for VoiceOver.
+    static var passwordAccessibilityLabel: String {
+        String(localized: "browser.password.prompt.accessibilityLabel", defaultValue: "Save password")
+    }
+
     /// The SF Symbol of the capability asked about; slashed when macOS keeps
     /// the device from cmux (spec §4 v1.4).
     static func symbolName(for prompt: BrowserPermissionPrompt) -> String {
+        if prompt.isPasswordPrompt { return "key" }
         if prompt.variant != .ask {
             return prompt.kinds.contains(.camera) ? "video.slash" : "mic.slash"
         }
@@ -229,6 +266,9 @@ enum BrowserPermissionPromptText {
     /// frame of another site asks, the embedding page's site too.
     static func message(for prompt: BrowserPermissionPrompt) -> AttributedString {
         let origin = prompt.displayOrigin
+        if case .savePassword(let username, let isUpdate) = prompt.variant {
+            return passwordMessage(origin: origin, username: username, isUpdate: isUpdate)
+        }
         if let format = systemFormat(for: prompt) {
             return boldingOrigin(origin, in: format)
         }
@@ -263,6 +303,19 @@ enum BrowserPermissionPromptText {
         return filling(format, with: bolding([origin, embedding], in: sites))
     }
 
+    /// "Save password for **site**?", with the user name on its own line
+    /// (Next `PromptBarView`); never the password.
+    static func passwordMessage(origin: String, username: String, isUpdate: Bool) -> AttributedString {
+        let format = isUpdate
+            ? String(localized: "browser.password.prompt.update.message", defaultValue: "Update the saved password for %@?")
+            : String(localized: "browser.password.prompt.save.message", defaultValue: "Save password for %@?")
+        var message = boldingOrigin(origin, in: format)
+        if !username.isEmpty {
+            message += AttributedString("\n" + username)
+        }
+        return message
+    }
+
     /// What VoiceOver announces when the strip shows a question: the message
     /// as plain text, then the choices.
     static func announcement(for prompt: BrowserPermissionPrompt) -> String {
@@ -272,6 +325,8 @@ enum BrowserPermissionPromptText {
         case .blockOrAllow: [block, allow]
         case .systemBlocked: [notNow, openSystemSettings]
         case .systemManaged: [notNow]
+        case .savePassword(let isUpdate):
+            isUpdate ? [notNow, passwordUpdate] : [passwordNever, notNow, passwordSave]
         }
         return ([text] + choices).joined(separator: ", ")
     }
@@ -280,7 +335,7 @@ enum BrowserPermissionPromptText {
     static func systemFormat(for prompt: BrowserPermissionPrompt) -> String? {
         let devices = Set(prompt.kinds).intersection([.camera, .microphone])
         switch (prompt.variant, devices) {
-        case (.ask, _):
+        case (.ask, _), (.savePassword, _):
             return nil
         case (.systemBlocked, [.camera]):
             return String(

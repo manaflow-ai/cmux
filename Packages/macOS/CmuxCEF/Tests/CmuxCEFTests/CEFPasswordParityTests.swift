@@ -111,4 +111,31 @@ struct CEFPasswordParityTests {
         #expect(state.nextSwitchValue(agentDriven: false) == 1)
     }
 
+    @Test("password prompt JSON decodes save, update and gone, never anything else")
+    func parsesPasswordPrompt() {
+        let save = CEFPasswordPromptMessage(json: #"{"prompt_id":3,"browser_id":7,"kind":"save","origin":"http://localhost:19250","username":"alice"}"#)
+        #expect(save == .offer(origin: "http://localhost:19250", username: "alice", isUpdate: false))
+        let update = CEFPasswordPromptMessage(json: #"{"kind":"update","origin":"https://example.com"}"#)
+        #expect(update == .offer(origin: "https://example.com", username: "", isUpdate: true))
+        #expect(CEFPasswordPromptMessage(json: #"{"kind":"gone","prompt_id":3}"#) == .gone)
+        #expect(CEFPasswordPromptMessage(json: #"{"kind":"generate"}"#) == nil)
+        #expect(CEFPasswordPromptMessage(json: "not json") == nil)
+        #expect(CEFPasswordPromptAction.save.rawValue == 0)
+        #expect(CEFPasswordPromptAction.update.rawValue == 1)
+        #expect(CEFPasswordPromptAction.never.rawValue == 2)
+        #expect(CEFPasswordPromptAction.dismiss.rawValue == 3)
+    }
+
+    @Test("a recreated browser gets the fill switch again")
+    func fillSwitchResentForRecreatedBrowser() {
+        var state = PasswordFillState()
+        #expect(state.nextSwitchValue(agentDriven: false) == 1)
+        #expect(state.sentFillOn)
+        state.browserRecreated()
+        #expect(!state.sentFillOn)
+        #expect(state.nextSwitchValue(agentDriven: true) == 0)
+        #expect(!state.sentFillOn)
+        state.browserRecreated()
+        #expect(state.nextSwitchValue(agentDriven: true) == 0)
+    }
 }
