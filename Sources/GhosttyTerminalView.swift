@@ -8581,9 +8581,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             modifierFlagsRawValue: pressFlags.rawValue,
             permitsLinkActivation: TerminalLinkActivationPolicy().permitsCommandClick(
                 modifierFlagsRawValue: pressFlags.rawValue,
-                commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue
-            )
-                && bounds.contains(eventPoint),
+                commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+                isInsideBounds: bounds.contains(eventPoint)
+            ),
             pressPointX: eventPoint.x,
             pressPointY: eventPoint.y
         )

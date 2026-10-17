@@ -13,11 +13,13 @@ public struct TerminalLinkActivationPolicy: Sendable {
     /// - Parameters:
     ///   - modifierFlagsRawValue: Device-independent modifier flags at press time.
     ///   - commandModifierRawValue: The platform's raw Command modifier bit.
+    ///   - isInsideBounds: Whether the press landed inside the terminal view.
     /// - Returns: `true` only when Command is the sole device-independent modifier.
     public func permitsCommandClick(
         modifierFlagsRawValue: UInt,
-        commandModifierRawValue: UInt
+        commandModifierRawValue: UInt,
+        isInsideBounds: Bool
     ) -> Bool {
-        modifierFlagsRawValue == commandModifierRawValue
+        isInsideBounds && modifierFlagsRawValue == commandModifierRawValue
     }
 }

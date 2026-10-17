@@ -7,25 +7,37 @@ import Testing
     @Test func plainClickDoesNotReserveMouseReporting() {
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: 0,
-            commandModifierRawValue: commandModifierRawValue
+            commandModifierRawValue: commandModifierRawValue,
+            isInsideBounds: true
         ))
     }
 
     @Test func commandClickReservesMouseReporting() {
         #expect(TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: commandModifierRawValue,
-            commandModifierRawValue: commandModifierRawValue
+            commandModifierRawValue: commandModifierRawValue,
+            isInsideBounds: true
+        ))
+    }
+
+    @Test func commandClickOutsideBoundsDoesNotReserveMouseReporting() {
+        #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
+            modifierFlagsRawValue: commandModifierRawValue,
+            commandModifierRawValue: commandModifierRawValue,
+            isInsideBounds: false
         ))
     }
 
     @Test func extraModifiersRemainTerminalInput() {
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: commandModifierRawValue | 0x0002_0000,
-            commandModifierRawValue: commandModifierRawValue
+            commandModifierRawValue: commandModifierRawValue,
+            isInsideBounds: true
         ))
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: commandModifierRawValue | 0x0008_0000,
-            commandModifierRawValue: commandModifierRawValue
+            commandModifierRawValue: commandModifierRawValue,
+            isInsideBounds: true
         ))
     }
 }

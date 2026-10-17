@@ -14,7 +14,8 @@ struct TerminalLinkActivationPolicyTests {
     func plainClickDoesNotReserveMouseReporting() {
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: 0,
-            commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue
+            commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+            isInsideBounds: true
         ))
     }
 
@@ -22,7 +23,8 @@ struct TerminalLinkActivationPolicyTests {
     func commandClickReservesMouseReporting() {
         #expect(TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue,
-            commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue
+            commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+            isInsideBounds: true
         ))
     }
 
@@ -31,11 +33,13 @@ struct TerminalLinkActivationPolicyTests {
         let command = NSEvent.ModifierFlags.command.rawValue
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: command | NSEvent.ModifierFlags.shift.rawValue,
-            commandModifierRawValue: command
+            commandModifierRawValue: command,
+            isInsideBounds: true
         ))
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: command | NSEvent.ModifierFlags.option.rawValue,
-            commandModifierRawValue: command
+            commandModifierRawValue: command,
+            isInsideBounds: true
         ))
     }
 }
