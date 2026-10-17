@@ -81,7 +81,14 @@ impl Reread {
             Reread::Nothing => {}
             Reread::Detail(id) => {
                 if let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": id})).await {
-                    let _ = tx.send(AppMsg::Attached { id, detail: v, events: vec![] });
+                    let _ = tx.send(AppMsg::Attached {
+                        id,
+                        detail: v,
+                        events: vec![],
+                        after_seq: None,
+                        has_more: false,
+                        last_seq: 0,
+                    });
                 }
             }
             Reread::Sessions => {
@@ -109,6 +116,9 @@ pub struct App {
     pub transcripts: HashMap<String, Transcript>,
     pub(super) details: HashMap<String, Value>,
     pub(super) attached: HashSet<String>,
+    /// Sessions with a lag recovery request in flight.  A broadcast lag can
+    /// notify us more than once; one bounded replay per session is enough.
+    pub(super) recovery_in_flight: HashSet<String>,
     pub input: Editor,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
@@ -455,20 +465,52 @@ impl App {
 
     pub(super) fn attach(&mut self, id: &str) {
         self.attached.insert(id.to_owned());
+        self.request_attach(id, None);
+    }
+
+    /// Replay records after the last sequence the TUI applied.  The daemon's
+    /// page is forward-ordered for `afterSeq`, so Transcript's existing
+    /// sequence deduplication can merge it into the live model.
+    pub(super) fn recover_after_lag(&mut self, id: &str, after_seq: u64) -> bool {
+        if !self.recovery_in_flight.insert(id.to_owned()) {
+            return false;
+        }
+        self.request_attach(id, Some(after_seq));
+        true
+    }
+
+    fn request_attach(&mut self, id: &str, after_seq: Option<u64>) {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            match client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 3000})).await
-            {
+            let mut params = json!({"sessionId": id, "limit": 3000});
+            if let Some(after) = after_seq {
+                params["afterSeq"] = json!(after);
+            }
+            match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {
                     let events =
                         v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
                     let detail = v.get("session").cloned().unwrap_or(Value::Null);
-                    let _ = tx.send(AppMsg::Attached { id, detail, events });
+                    let has_more = v.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
+                    let last_seq = v.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
+                    let _ = tx.send(AppMsg::Attached {
+                        id,
+                        detail,
+                        events,
+                        after_seq,
+                        has_more,
+                        last_seq,
+                    });
                 }
                 Err(e) => {
-                    let _ = tx.send(AppMsg::Error(format!("attach: {e}")));
+                    if let Some(after_seq) = after_seq {
+                        let _ =
+                            tx.send(AppMsg::RecoveryFailed { id, after_seq, error: e.to_string() });
+                    } else {
+                        let _ = tx.send(AppMsg::Error(format!("attach: {e}")));
+                    }
                 }
             }
         });
@@ -705,6 +747,66 @@ mod interaction_tests {
         let draft = app.draft().unwrap();
         assert_eq!(draft.peer.as_deref(), Some("providers"));
         assert_eq!(draft.harness, "deepseek");
+    }
+
+    #[tokio::test]
+    async fn lagged_recovery_replays_from_each_transcript_cursor() {
+        let (mut app, mut requests) = app().await;
+        let id = "test-session";
+        app.sessions = vec![json!({"sessionId": id})];
+        app.selected = 0;
+        app.attached.insert(id.into());
+        let mut transcript = Transcript::default();
+        transcript.last_seq = 41;
+        app.transcripts.insert(id.into(), transcript);
+
+        app.on_notification("_acpmux/lagged", json!({"dropped": 3}));
+        assert_eq!(app.status, "event stream lagged; recovering 1 session(s)…");
+
+        let request = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request["method"], method::MUX_ATTACH);
+        assert_eq!(request["params"]["sessionId"], id);
+        assert_eq!(request["params"]["afterSeq"], 41);
+        assert_eq!(request["params"]["limit"], 3000);
+
+        // A second lag notification while the replay is in flight does not
+        // fan out another request for the same session.
+        app.on_notification("_acpmux/lagged", json!({"dropped": 1}));
+        assert_eq!(app.status, "event stream lagged; recovery required");
+    }
+
+    #[tokio::test]
+    async fn recovery_attach_merges_only_new_records_and_clears_the_guard() {
+        let (mut app, _) = app().await;
+        let id = "test-session";
+        let mut transcript = Transcript::default();
+        transcript.last_seq = 41;
+        app.transcripts.insert(id.into(), transcript);
+        app.recovery_in_flight.insert(id.into());
+
+        app.on_msg(AppMsg::Attached {
+            id: id.into(),
+            detail: json!({"status": "running"}),
+            events: vec![
+                json!({"seq": 41, "dir": "mux", "kind": "user_message", "msg": {"text": "old"}}),
+                json!({"seq": 42, "dir": "mux", "kind": "user_message", "msg": {"text": "new"}}),
+            ],
+            after_seq: Some(40),
+            has_more: false,
+            last_seq: 42,
+        });
+
+        let transcript = app.transcripts.get(id).unwrap();
+        assert_eq!(transcript.last_seq, 42);
+        assert_eq!(
+            transcript.items,
+            vec![Item::User { text: "new".into(), steer: false, queued: false }]
+        );
+        assert!(!app.recovery_in_flight.contains(id));
+        assert_eq!(app.status, "recovered 1 events from seq 40");
     }
 
     #[tokio::test]

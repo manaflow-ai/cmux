@@ -26,6 +26,45 @@ enum Strings {
     static var menuStatusIcons: String {
         String(localized: "menu.debug.statusIcons", defaultValue: "Status Icons", bundle: .module)
     }
+    static var menuSidebarPriority: String {
+        String(localized: "menu.debug.sidebarPriority", defaultValue: "Sidebar Priority", bundle: .module)
+    }
+    static var menuSidebarPriorityFollowSetting: String {
+        String(localized: "menu.debug.sidebarPriority.followSetting", defaultValue: "Follow Setting", bundle: .module)
+    }
+    static var menuSidebarPriorityManual: String {
+        String(localized: "menu.debug.sidebarPriority.manual", defaultValue: "Manual Order", bundle: .module)
+    }
+    static var menuSidebarPriorityAttention: String {
+        String(localized: "menu.debug.sidebarPriority.attention", defaultValue: "Attention First", bundle: .module)
+    }
+    static var menuMotion: String {
+        String(localized: "menu.debug.motion", defaultValue: "Motion", bundle: .module)
+    }
+    static var menuMotionSpeed: String {
+        String(localized: "menu.debug.motion.speed", defaultValue: "Animation Speed", bundle: .module)
+    }
+    static var menuMotionFast: String {
+        String(localized: "menu.debug.motion.fast", defaultValue: "Fast", bundle: .module)
+    }
+    static var menuMotionNormal: String {
+        String(localized: "menu.debug.motion.normal", defaultValue: "Normal", bundle: .module)
+    }
+    static var menuMotionOff: String {
+        String(localized: "menu.debug.motion.off", defaultValue: "Off", bundle: .module)
+    }
+    static var menuMotionReduceMotion: String {
+        String(localized: "menu.debug.motion.reduceMotion", defaultValue: "Reduce Motion", bundle: .module)
+    }
+    static var menuMotionFollowSystem: String {
+        String(localized: "menu.debug.motion.followSystem", defaultValue: "Follow System", bundle: .module)
+    }
+    static var menuMotionEnabled: String {
+        String(localized: "menu.debug.motion.enabled", defaultValue: "Enabled", bundle: .module)
+    }
+    static var menuMotionDisabled: String {
+        String(localized: "menu.debug.motion.disabled", defaultValue: "Disabled", bundle: .module)
+    }
     static var menuServer: String { String(localized: "menu.server", defaultValue: "Server", bundle: .module) }
     static var menuMinimize: String { String(localized: "menu.window.minimize", defaultValue: "Minimize", bundle: .module) }
     static var menuZoom: String { String(localized: "menu.window.zoom", defaultValue: "Zoom", bundle: .module) }
