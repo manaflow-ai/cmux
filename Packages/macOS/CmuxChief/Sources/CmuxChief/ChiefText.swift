@@ -71,6 +71,20 @@ enum ChiefText {
                bundle: .module)
     }
 
+    /// A model provider (`provider`, such as DeepInfra) needs an API key and none is saved.
+    static func missingCredential(_ provider: String) -> String {
+        String(localized: "chief.brain.missingCredential",
+               defaultValue: "Add your \(provider) API key in Chief Settings (click the model name above the conversation) to use its models.",
+               bundle: .module)
+    }
+
+    /// A model provider (`provider`) rejected the saved API key.
+    static func invalidCredential(_ provider: String) -> String {
+        String(localized: "chief.brain.invalidCredential",
+               defaultValue: "\(provider) did not accept the saved API key. Check it in Chief Settings (click the model name above the conversation).",
+               bundle: .module)
+    }
+
     /// Codex ended before it answered the request `method` (a JSON-RPC method name).
     static func codexStopped(before method: String) -> String {
         String(localized: "chief.brain.codex.stoppedBefore", defaultValue: "Codex stopped before \(method).", bundle: .module)

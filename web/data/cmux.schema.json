@@ -2165,9 +2165,9 @@
         },
         "harness": {
           "type": "string",
-          "enum": ["claude", "codex"],
+          "enum": ["claude", "codex", "deepinfra"],
           "default": "claude",
-          "description": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "description": "Agent harness Chief runs on: claude (Claude Code), codex (Codex), or deepinfra (DeepInfra models through Claude Code, with your DeepInfra API key).",
           "descriptionKey": "schemaDescriptions.chief.harness"
         },
         "model": {

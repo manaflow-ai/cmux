@@ -6,6 +6,8 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
     private let defaultsStore: UserDefaultsSettingsStore
+    private let secretStore: SecretFileStore
+    private let errorLog: SettingsErrorLog
     private let hostActions: any SettingsHostActions
     private let socketPolicyResolver: SocketControlPolicyResolver
     @State private var socketPasswordModel: SecretValueModel
@@ -51,6 +53,8 @@ public struct AutomationSection: View {
     ) {
         self.catalog = catalog
         self.defaultsStore = defaultsStore
+        self.secretStore = secretStore
+        self.errorLog = errorLog
         self.hostActions = hostActions
         self.socketPolicyResolver = socketPolicyResolver
         _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
@@ -103,7 +107,8 @@ public struct AutomationSection: View {
             agentAutoResumeCard
             canonicalAgentScratchCard
             AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
-            ChiefSettingsCard(defaultsStore: defaultsStore, catalog: catalog, controlWidth: Self.columnWidth)
+            ChiefSettingsCard(defaultsStore: defaultsStore, secretStore: secretStore, errorLog: errorLog, catalog: catalog,
+                              controlWidth: Self.columnWidth)
             ampCard
             cursorCard
             geminiCard

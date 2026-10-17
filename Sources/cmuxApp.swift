@@ -75,6 +75,9 @@ struct cmuxApp: App {
             .deletingLastPathComponent()
             ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
+        // Chief reads its provider API key (`chief.deepInfraAPIKey`) from the same store
+        // the Settings UI writes.
+        ChiefService.shared.secretStore = secretStore
 
         // Lift any plaintext socket-control password out of `cmux.json` into the
         // secure store, then scrub it from the config. This runs here, in the App
