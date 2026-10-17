@@ -1,5 +1,6 @@
-/// Inputs to the focus state machine (plans/cmux-next/focus.md section 4),
-/// in `cmux-focus-core`'s `FocusEvent` JSON shape (synthesized `Codable`).
+/// Inputs to the focus state machine (plans/cmux-next/focus.md section 4).
+/// Sent to `FocusMachine` in its typed C form; the synthesized `Codable`
+/// shape (`cmux-focus-core`'s `FocusEvent` JSON) is the input journal's.
 /// Every entrypoint that changes focus sends one of these to its window's
 /// `FocusCoordinator`; nothing else writes focus.
 nonisolated enum FocusEvent: Hashable, Sendable, Codable {
@@ -78,12 +79,12 @@ extension FocusEvent {
     /// run without view-change permission must not send. Reports of what
     /// AppKit or the daemon did (responder, topology, key, overlays) are not.
     /// The rule is `cmux-focus-core`'s `FocusEvent::changes_view`.
-    var changesView: Bool { FocusReducer.changesView(self) }
+    var changesView: Bool { FocusMachine.changesView(self) }
 }
 
 /// Outputs of the reducer, applied by `FocusEffectApplier` after the
-/// reducer returns. Each is idempotent. Decoded from `cmux-focus-core`'s
-/// `FocusEffect`.
+/// reducer returns. Each is idempotent. Read from `cmux-focus-core`'s
+/// typed reply.
 nonisolated enum FocusEffect: Hashable, Sendable, Codable {
     /// Make `tab` the selected tab of `pane` (client-local selection).
     case select(pane: String, tab: String)

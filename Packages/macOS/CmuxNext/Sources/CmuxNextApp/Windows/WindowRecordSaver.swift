@@ -157,7 +157,7 @@ final class WindowRecordSaver {
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
-        var panes = focus.remembered
+        var panes = state.focus.rememberedPanes()
         if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
         let listed = Set(window.workspaceIDs)
         return panes.filter { listed.contains($0.key) }

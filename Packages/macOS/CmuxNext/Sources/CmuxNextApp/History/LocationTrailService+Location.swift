@@ -12,12 +12,14 @@ import Observation
 /// Where the user is, as a trail location, and whether a location can be focused now.
 extension LocationTrailService {
     /// `anyTarget`: also when the keyboard is elsewhere (a page's origin).
+    /// The tab is found in the window's own pane (no walk of every machine's tabs).
     func location(of state: FocusState, in controller: WindowController, anyTarget: Bool = false) -> HistoryLocation? {
         guard anyTarget || state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
-              let tabID = state.topology.pane(pane)?.selectedTab?.id,
-              let (tab, paneModel) = services.locateTab(tabID) else { return nil }
+              let tabID = state.topology.pane(pane)?.selectedTab?.id, let content = controller.content,
+              content.workspace.id == state.topology.workspace, let paneModel = content.paneModel(key: pane),
+              let tab = paneModel.tabs.first(where: { $0.id == tabID }) else { return nil }
         let daemon = services.daemon(for: paneModel)
-        let workspace = daemon.store.workspace(containing: paneModel.handle)
+        let workspace: WorkspaceModel? = content.workspace
         let content: HistoryLocation.Content = switch tab.kind {
         case .pty: .terminal
         case .browser: .browser

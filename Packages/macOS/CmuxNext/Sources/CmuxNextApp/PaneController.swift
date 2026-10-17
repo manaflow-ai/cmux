@@ -234,7 +234,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             services.presentation.setNeedsShowSelected(self)
         }
         // Focus follows selection; the coordinator re-targets the keyboard.
-        workspace?.sendTopology()
+        workspace?.paneTopologyDidChange(self)
         dropClosedParkedBrowsers(snapshot)
     }
 

@@ -34,7 +34,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var settlingObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
-    private var isApplying = false
+    private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
@@ -170,6 +170,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        // The one topology of this apply (mounts and pane snapshots inside it sent none).
+        isApplying = wasApplying
         sendTopology()
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
     }
@@ -240,7 +242,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
-        if !isApplying { sendTopology() }
+        sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {

@@ -64,7 +64,7 @@ enum DebugFocus {
                 "resolved_tab": resolved.tab.map(JSONValue.string) ?? .null,
                 "overlays": .array(state.overlays.map { .string($0.rawValue) }),
                 "expectation": state.expectation.map { .string(String(describing: $0.key)) } ?? .null,
-                "dragging": .bool(state.drag != nil),
+                "dragging": .bool(state.isDragging),
                 "browser_focus_mode": .array(state.browserFocusMode.sorted().map(JSONValue.string)),
                 "window_key": .bool(state.windowKey),
                 "sidebar_hidden": .bool(state.sidebarHidden),

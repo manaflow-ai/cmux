@@ -5,13 +5,27 @@ import CmuxNextLayout
 // The focus topology of the shown workspace and the helpers creation paths
 // use to ask for focus on something that lands later.
 extension WorkspaceContentController {
-    /// Tells the coordinator the current panes, tabs and selections.
+    /// Tells the coordinator the current panes, tabs and selections. While
+    /// `apply` runs it sends once, at its end. The coordinator drops a
+    /// topology equal to the one it holds.
     func sendTopology() {
-        guard !isParked else { return }
+        guard !isParked, !isApplying else { return }
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
         #endif
         focus.send(.topology(focusTopology()))
+    }
+
+    /// `pane`'s strip or selection may have changed (a daemon delta, a
+    /// selection echo): the topology is rebuilt and sent only when that
+    /// pane's entry differs from the one the coordinator holds.
+    func paneTopologyDidChange(_ pane: PaneController) {
+        guard !isParked, !isApplying else { return }
+        let held = focus.state.topology
+        if held.workspace == workspace.id, let entry = held.panes.first(where: { $0.id == pane.paneKey }), entry == pane.focusPane {
+            return
+        }
+        sendTopology()
     }
 
     /// Panes in layout order (every screen, in screen order). A pane whose
@@ -42,7 +56,14 @@ extension WorkspaceContentController {
 
     /// The shown workspace's focus history, newest first (focus.md 4a).
     var recentPanes: [LayoutPaneID] {
-        focus.state.recentPanes.map(LayoutPaneID.init(rawValue:))
+        focus.recentPanes().map(LayoutPaneID.init(rawValue:))
+    }
+
+    /// The daemon pane shown as layout pane `key` (its controller's, else the store's).
+    func paneModel(key: String) -> PaneModel? {
+        let id = LayoutPaneID(key)
+        if let controller = panes[id] { return controller.pane }
+        return handles.panes[id].flatMap(daemon.store.pane)
     }
 
     /// Focuses the most recently focused pane of `screen`, else its first.

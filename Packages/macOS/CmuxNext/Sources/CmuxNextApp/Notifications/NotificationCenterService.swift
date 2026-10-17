@@ -157,10 +157,15 @@ final class NotificationCenterService {
     }
 
     /// A window's focus settled: the viewed tab counts as focused while the
-    /// window is key and cmux is active.
-    func focusDidSettle(_ state: FocusState) {
-        guard state.windowKey, state.appActive, let tab = Self.contentTab(state.resolved) else { return }
-        interacted(.focus, tabID: tab)
+    /// window is key and cmux is active. The tab is found in the window's own
+    /// focused pane (no walk of every workspace); a pane of another machine
+    /// is not this daemon's to acknowledge.
+    func focusDidSettle(_ state: FocusState, in controller: WindowController) {
+        guard state.windowKey, state.appActive, let id = Self.contentTab(state.resolved), let pane = state.resolved.pane,
+              let services, let model = controller.content?.paneModel(key: pane),
+              services.daemon.store.pane(model.handle) === model,
+              let tab = model.tabs.first(where: { $0.id == id }) else { return }
+        interacted(.focus, tab: tab)
     }
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
@@ -202,12 +207,16 @@ final class NotificationCenterService {
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        interacted(trigger, tab: tab)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
-        note("\(trigger.rawValue) read \(tabID)")
+        note("\(trigger.rawValue) read \(tab.id)")
         acknowledge(tab)
     }
 
