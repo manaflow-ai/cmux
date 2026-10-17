@@ -24,7 +24,7 @@ impl Scratch {
     }
 
     fn manager(&self, default: &Path) -> PathBuf {
-        let program = self.0.join("npm-stand-in");
+        let program = self.0.join("npm");
         let default = serde_json::to_string(&default.to_str().unwrap()).unwrap();
         std::fs::write(
             &program,
@@ -130,4 +130,36 @@ fn cmux_next_harness_health_npm_update_leaves_non_npm_plans_unchanged() {
         let install = Install { channel, package: Some("@manaflow-ai/codex".into()), writes: None };
         assert_eq!(update_plan(&install, None, None, home).unwrap().argv, expected);
     }
+}
+
+#[test]
+fn cmux_next_harness_health_npm_update_refuses_legacy_or_mismatched_cached_plans() {
+    use acpmux::harness_health::auto::updatable;
+    let root = Scratch::new("saved");
+    let prefix = root.0.join("selected");
+    let (install, real) = root.install(&prefix);
+    let plan = update_plan(&install, Some(&real), Some(&real), &root.0).unwrap();
+    let mut row = serde_json::from_value::<HarnessHealth>(json!({
+        "id":"fork", "program":"codex", "path":real, "channel":"npm",
+        "package":"@manaflow-ai/codex", "version":"1.0.0", "latest":"2.0.0",
+        "outdated":true, "auth":"unknown", "checkedAt":1, "update":plan
+    }))
+    .unwrap();
+    let original = row.update.as_ref().unwrap().argv.clone();
+    assert_eq!(updatable(&row), Some(original.clone()));
+    for argv in [
+        vec!["npm", "install", "-g", "@manaflow-ai/codex@latest"],
+        vec!["npm", "install", "-g", "--prefix", "relative", "@manaflow-ai/codex@latest"],
+        vec!["npm", "install", "-g", "--prefix", "/tmp/../other", "@manaflow-ai/codex@latest"],
+        vec!["npm", "install", "-g", "--prefix", "/tmp/other", "@openai/codex@latest"],
+    ] {
+        row.update.as_mut().unwrap().argv = argv.into_iter().map(str::to_owned).collect();
+        assert!(
+            updatable(&row).is_none(),
+            "a saved plan cannot use a default target or another fork"
+        );
+    }
+    row.update.as_mut().unwrap().argv = original;
+    row.update.as_mut().unwrap().elevated = true;
+    assert!(updatable(&row).is_none(), "prefix binding never permits elevation");
 }
