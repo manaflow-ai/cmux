@@ -1867,7 +1867,7 @@ jobs:
     # queue for close to an hour before the final DMG can be created. Keep the
     # runner lease bounded, but leave enough room for the helper wait and the
     # signed DMG validation that follows it.
-    timeout-minutes: 120
+    timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 120 || 170 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2212,13 +2212,21 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true'
         # Computer Use helper propagation can still take about 20 minutes;
         # this budget covers that work and DMG validation, not Apple's outer
-        # notarization queue, which is asynchronous now.
-        timeout-minutes: 90
+        # notarization queue, which is asynchronous now for a published build.
+        # A build that does not publish waits for both DMG submissions here.
+        timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # A build that publishes submits only (resume-stapled-app-notarization.sh
+          # continues it and signs there), so it gets no certificate. Any other
+          # build waits here and then signs and notarizes the DMG around the
+          # stapled app (CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_BASE64 || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m
           CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
           CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
