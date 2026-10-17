@@ -272,19 +272,24 @@ final class ChiefLineProcess: @unchecked Sendable {
 /// override path is configured.
 enum ChiefExecutableResolver {
     /// The process environment for a CLI: the app's environment, then the
-    /// turn's, then `overrides`.
+    /// turn's, without `removing`, then `overrides`.
     ///
     /// - Parameters:
+    ///   - base: The starting environment; the app's own by default.
     ///   - request: The turn's extra environment.
-    ///   - overrides: Values that always win (hook opt-outs).
+    ///   - overrides: Values that always win (hook opt-outs, a model endpoint).
+    ///   - removing: Keys dropped before `overrides` apply (credentials a model endpoint must not see).
     /// - Returns: The complete environment.
-    static func environment(_ request: [String: String], overrides: [String: String]) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+    static func environment(base: [String: String] = ProcessInfo.processInfo.environment,
+                            request: [String: String], overrides: [String: String],
+                            removing: (String) -> Bool = { _ in false }) -> [String: String] {
+        var environment = base
         // The app is not a terminal; a Chief must not claim one.
         for key in ["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID"] {
             environment.removeValue(forKey: key)
         }
         environment.merge(request) { _, new in new }
+        for key in environment.keys where removing(key) { environment.removeValue(forKey: key) }
         environment.merge(overrides) { _, new in new }
         return environment
     }

@@ -29,6 +29,8 @@ public actor ClaudeCodeBrain: ChiefBrain {
         /// Arguments added after the stream-json flags: by default the
         /// Chief's tool set, project settings only and no slash commands.
         public var extraArguments: [String]
+        /// A provider Claude Code talks to instead of Anthropic; nil for Anthropic.
+        public var endpoint: ChiefModelEndpoint?
 
         /// The tool set and settings a Chief runs with.
         public static let chiefArguments = [
@@ -46,14 +48,17 @@ public actor ClaudeCodeBrain: ChiefBrain {
         ///   - dangerouslySkipPermissions: Whether to bypass permission prompts.
         ///   - executableOverride: An explicit `claude` path.
         ///   - extraArguments: Arguments after the stream-json flags.
+        ///   - endpoint: A provider to talk to instead of Anthropic.
         public init(model: String, effort: String? = nil, dangerouslySkipPermissions: Bool = false,
                     executableOverride: URL? = nil,
-                    extraArguments: [String] = Configuration.chiefArguments) {
+                    extraArguments: [String] = Configuration.chiefArguments,
+                    endpoint: ChiefModelEndpoint? = nil) {
             self.model = model
             self.effort = effort
             self.dangerouslySkipPermissions = dangerouslySkipPermissions
             self.executableOverride = executableOverride
             self.extraArguments = extraArguments
+            self.endpoint = endpoint
         }
     }
 
@@ -146,6 +151,9 @@ public actor ClaudeCodeBrain: ChiefBrain {
         case .resume(let id): arguments += ["--resume", id]
         }
         if !systemPrompt.isEmpty { arguments += ["--append-system-prompt", systemPrompt] }
+        if let endpoint = configuration.endpoint {
+            arguments += ["--settings", endpoint.settingsJSON(model: configuration.model)]
+        }
         var extra = configuration.extraArguments
         if configuration.dangerouslySkipPermissions,
            let index = extra.firstIndex(of: "default"),
@@ -256,8 +264,19 @@ actor ClaudeConversation {
 
     /// Starts `claude`; returns whether it resumes an earlier session.
     private func launch(_ request: ChiefTurnRequest) throws -> Bool {
-        let environment = ChiefExecutableResolver.environment(request.environment,
-                                                              overrides: ["CMUX_CLAUDE_HOOKS_DISABLED": "1"])
+        let endpoint = configuration.endpoint
+        // A model endpoint must not see the app's Anthropic routing or credentials; its own
+        // settings reach Claude Code through `--settings` (``arguments(_:session:systemPrompt:)``).
+        let clearsAnthropic = endpoint != nil
+        let environment = ChiefExecutableResolver.environment(request: request.environment,
+                                                              overrides: ["CMUX_CLAUDE_HOOKS_DISABLED": "1"],
+                                                              removing: { (key: String) -> Bool in
+                                                                  clearsAnthropic && ChiefModelEndpoint.isClearedKey(key)
+                                                              })
+        // Checked before anything launches: without a key the endpoint answers 401.
+        if let endpoint, !endpoint.hasKey(environment: environment) {
+            throw ChiefBrainError.missingCredential(endpoint.name)
+        }
         guard let executable = ChiefExecutableResolver.resolve("claude", override: configuration.executableOverride,
                                                                environment: environment) else {
             throw ChiefBrainError.missingExecutable("claude")
@@ -409,8 +428,10 @@ actor ClaudeConversation {
         token = nil
         current = nil
         if case .failed(let message)? = event {
-            // An unknown model reads as one, with a pointer to Chief Settings.
-            open?.yield(.failed(ChiefHarness.claude.failureMessage(message, model: configuration.model)))
+            // An unknown model (or a rejected provider key) reads as one, with a pointer to Chief Settings.
+            let text = configuration.endpoint?.failureMessage(message, model: configuration.model)
+                ?? ChiefHarness.claude.failureMessage(message, model: configuration.model)
+            open?.yield(.failed(text))
         } else if let event {
             open?.yield(event)
         }
@@ -424,11 +445,15 @@ public enum ChiefBrainError: Error, Sendable, Equatable, CustomStringConvertible
     case missingExecutable(String)
     /// The agent CLI answered a request with an error.
     case protocolError(String)
+    /// The model provider needs an API key and none is configured.
+    case missingCredential(String)
 
     public var description: String {
         switch self {
         case .missingExecutable(let name):
             return ChiefText.missingExecutable(name)
+        case .missingCredential(let provider):
+            return ChiefText.missingCredential(provider)
         case .protocolError(let message):
             return message
         }

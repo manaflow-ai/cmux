@@ -473,6 +473,124 @@
         }
       }
     },
+    "chief.brain.invalidCredential": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ did not accept the saved API key. Check it in Chief Settings (click the model name above the conversation)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat den gesicherten API-Schlüssel nicht akzeptiert. Prüfe ihn in den Chief-Einstellungen (klicke auf den Modellnamen über der Unterhaltung)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas accepté la clé API enregistrée. Vérifiez-la dans les réglages de Chief (cliquez sur le nom du modèle au-dessus de la conversation)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقبل %@ مفتاح API المحفوظ. تحقّق منه في إعدادات Chief (انقر اسم النموذج فوق المحادثة)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no aceptó la clave de API guardada. Revísala en los ajustes de Chief (haz clic en el nombre del modelo sobre la conversación)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不接受已儲存的 API 金鑰。請在 Chief 設定中檢查（按一下對話上方的模型名稱）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不接受已保存的 API 密钥。请在 Chief 设置中检查（点按对话上方的模型名称）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 저장된 API 키를 받아들이지 않았습니다. Chief 설정(대화 위의 모델 이름 클릭)에서 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が保存済みの API キーを受け付けませんでした。Chief 設定（会話の上のモデル名をクリック）で確認してください。"
+          }
+        }
+      }
+    },
+    "chief.brain.missingCredential": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add your %@ API key in Chief Settings (click the model name above the conversation) to use its models."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge deinen %@-API-Schlüssel in den Chief-Einstellungen hinzu (klicke auf den Modellnamen über der Unterhaltung), um seine Modelle zu nutzen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez votre clé API %@ dans les réglages de Chief (cliquez sur le nom du modèle au-dessus de la conversation) pour utiliser ses modèles."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف مفتاح API الخاص بـ %@ في إعدادات Chief (انقر اسم النموذج فوق المحادثة) لاستخدام نماذجه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade tu clave de API de %@ en los ajustes de Chief (haz clic en el nombre del modelo sobre la conversación) para usar sus modelos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Chief 設定中加入你的 %@ API 金鑰（按一下對話上方的模型名稱）以使用其模型。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Chief 设置中添加你的 %@ API 密钥（点按对话上方的模型名称）以使用其模型。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 설정(대화 위의 모델 이름 클릭)에서 %@ API 키를 추가하면 해당 모델을 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 設定（会話の上のモデル名をクリック）で %@ の API キーを追加すると、そのモデルを使えます。"
+          }
+        }
+      }
+    },
     "chief.brain.missingExecutable": {
       "extractionState": "manual",
       "localizations": {

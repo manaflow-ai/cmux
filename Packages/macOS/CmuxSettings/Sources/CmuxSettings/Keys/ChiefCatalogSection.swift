@@ -6,6 +6,8 @@ public enum ChiefHarnessSetting: String, CaseIterable, Sendable {
     case claude
     /// OpenAI Codex.
     case codex
+    /// Claude Code against DeepInfra's models, with the user's DeepInfra key (``ChiefCatalogSection/deepInfraAPIKey``).
+    case deepInfra = "deepinfra"
 
     /// The harness used when `chief.harness` is unset or invalid.
     public static let defaultHarness: ChiefHarnessSetting = .claude
@@ -17,7 +19,8 @@ public enum ChiefHarnessSetting: String, CaseIterable, Sendable {
 /// entry point when off; ``harness``, ``model`` and ``effort`` pick the agent
 /// that answers. An empty ``model`` or ``effort`` means the harness default.
 /// ``dangerouslySkipPermissions`` is an explicit opt-in for bypassing agent
-/// permission prompts and is off by default.
+/// permission prompts and is off by default. ``deepInfraAPIKey`` is the key the
+/// DeepInfra harness sends; it lives in its own `0600` file, never in cmux.json.
 public struct ChiefCatalogSection: SettingCatalogSection {
     /// Whether the Home row and Chief entry points are shown.
     public let enabled = DefaultsKey<Bool>(
@@ -26,7 +29,7 @@ public struct ChiefCatalogSection: SettingCatalogSection {
         userDefaultsKey: "chiefEnabled"
     )
 
-    /// The harness raw value, one of ``ChiefHarnessSetting`` (`"claude"` or `"codex"`).
+    /// The harness raw value, one of ``ChiefHarnessSetting`` (`"claude"`, `"codex"` or `"deepinfra"`).
     public let harness = DefaultsKey<String>(
         id: "chief.harness",
         defaultValue: "claude",
@@ -52,6 +55,12 @@ public struct ChiefCatalogSection: SettingCatalogSection {
         id: "chief.dangerouslySkipPermissions",
         defaultValue: false,
         userDefaultsKey: "chiefDangerouslySkipPermissions"
+    )
+
+    /// The user's DeepInfra API key for the DeepInfra harness; empty when none is saved.
+    public let deepInfraAPIKey = SecretFileKey(
+        id: "chief.deepInfraAPIKey",
+        fileName: "chief-deepinfra-api-key"
     )
 
     /// Creates the Chief settings section with its default keys.

@@ -16,6 +16,11 @@ import Testing
         (.codex, "gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]),
         (.codex, "gpt-5.6-sol", ["low", "medium", "high", "xhigh", "max"]),
         (.codex, "gpt-5.5", ["low", "medium", "high", "xhigh"]),
+        // DeepInfra serves open models through Claude Code; `--effort` is Claude-only, so none.
+        (.deepInfra, "deepseek-ai/DeepSeek-V4-Pro-0813", []),
+        (.deepInfra, "moonshotai/Kimi-K3", []),
+        (.deepInfra, "zai-org/GLM-5.3", []),
+        (.deepInfra, "deepseek-ai/DeepSeek-V4-Flash-0731", []),
     ]
 
     @Test func everyModelOffersExactlyTheEffortsItsRowLists() {

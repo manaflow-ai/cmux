@@ -22,6 +22,36 @@ enum ChiefSettingsStrings {
                defaultValue: "Shown in the header, the conversation list and the sidebar.")
     }
 
+    // MARK: Provider key
+
+    static var deepInfraKey: String { String(localized: "chief.settings.deepInfraKey", defaultValue: "DeepInfra API Key") }
+    static var deepInfraKeyPlaceholder: String {
+        String(localized: "chief.settings.deepInfraKey.placeholder", defaultValue: "Paste your key")
+    }
+    static var deepInfraKeySavedPlaceholder: String {
+        String(localized: "chief.settings.deepInfraKey.savedPlaceholder", defaultValue: "Saved. Paste a new key to replace it.")
+    }
+    static var deepInfraKeyHelp: String {
+        String(localized: "chief.settings.deepInfraKey.help",
+               defaultValue: "Saved on this Mac, never in cmux.json. Create a key at deepinfra.com. Usage is billed to your DeepInfra account.")
+    }
+    static var deepInfraKeyFromEnvironment: String {
+        String(localized: "chief.settings.deepInfraKey.environment",
+               defaultValue: "Using DEEPINFRA_API_KEY from the environment.")
+    }
+    static var deepInfraKeyMissing: String {
+        String(localized: "chief.settings.deepInfraKey.missing", defaultValue: "Add a key to use DeepInfra models.")
+    }
+    static var deepInfraKeySaveFailed: String {
+        String(localized: "chief.settings.deepInfraKey.saveFailed", defaultValue: "Could not save the key.")
+    }
+    static var deepInfraKeyRemoveFailed: String {
+        String(localized: "chief.settings.deepInfraKey.removeFailed", defaultValue: "Could not remove the key.")
+    }
+    static var deepInfraKeyRemove: String {
+        String(localized: "chief.settings.deepInfraKey.remove", defaultValue: "Remove Key")
+    }
+
     // MARK: Pickers
 
     /// "Default (Opus 5.5)": the picker's first item names what the default resolves to.
