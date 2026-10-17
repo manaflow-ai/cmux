@@ -268,9 +268,11 @@ final class CEFDevToolsController {
     /// Device mode: DevTools take `bounds`, the page the frontend's area
     /// (top-left origin) converted to the content view's bottom-left origin.
     nonisolated static func deviceModeFrames(in bounds: CGRect, area: CGRect) -> CEFDevToolsLayout.Frames {
+        // The page keeps the device's full screen area, as in Chrome: its widget size is the
+        // emulated viewport (the frontend sets dontSetVisibleSize). A part past the pane is masked
+        // by the fork's clip, never cut from the page (cutting gave innerHeight 428 for 430).
         let page = CGRect(x: bounds.minX + area.minX, y: bounds.maxY - area.minY - area.height, width: area.width, height: area.height)
-            .intersection(bounds)
-        return CEFDevToolsLayout.Frames(page: page.isNull ? .zero : page, devTools: bounds, line: .zero, grab: .zero)
+        return CEFDevToolsLayout.Frames(page: page, devTools: bounds, line: .zero, grab: .zero)
     }
 
     func dragDivider(to point: CGPoint) {

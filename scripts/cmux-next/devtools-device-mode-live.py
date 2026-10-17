@@ -197,7 +197,7 @@ window.__s={state:'init',errors:[]};
 function status(){const v=document.getElementById('v');const q=v.getVideoPlaybackQuality();return Object.assign({},__s,{t:v.currentTime,frames:q.totalVideoFrames})}
 setInterval(()=>{document.getElementById('o').textContent=JSON.stringify(status(),null,1)},500);</script>"""
 MP4 = """<!doctype html><meta charset=utf-8><title>h264 aac</title>
-<video id=v autoplay muted playsinline width=640 src="https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"></video><script>
+<video id=v autoplay muted playsinline width=640 src="https://download.samplelib.com/mp4/sample-5s.mp4"></video><script>
 let err=null;document.getElementById('v').addEventListener('error',e=>{const m=e.target.error;err=m?m.code+' '+m.message:'error'});
 function mp4(){const v=document.getElementById('v');return {t:v.currentTime,vw:v.videoWidth,frames:v.getVideoPlaybackQuality().totalVideoFrames,
  audioBytes:v.webkitAudioDecodedByteCount,canPlay:v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),error:err}}</script>"""
@@ -349,7 +349,7 @@ def main():
             reference = suite(chrome, page, front)
             RESULTS["chrome"] = {"version": chrome.version, "suite": reference}
         port = 9300 + random.randint(0, 600)
-        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d" % port, opts.app], check=True)
+        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, ":component-updater=fast-update" if opts.widevine else ""), opts.app], check=True)
         wait_for(lambda: "error" not in (rpc("system.ping") or {"error": 1}), 120, 1)
         ident = rpc("system.identify") or {}; app_cli = ident.get("app_cli_path"); pid = ident.get("pid"); started = time.time()
         rpc("debug.window_frame", {"frame": [40, 60, 1400, 1000]}); rpc("debug.focus")
@@ -454,10 +454,10 @@ def main():
                 cmux.cdp.call("Target.closeTarget", {"targetId": target})
             root = os.path.expanduser("~/Library/Application Support/%s/Chromium" % ident.get("bundle_id"))
             def fresh(sub, name):
-                """Version folders under <root>/<sub> that hold `name`, written by this run."""
+                """Version folders under <root>/<sub> that hold `name`."""
                 base = os.path.join(root, sub); hits = []
                 for dirpath, _, files in os.walk(base) if os.path.isdir(base) else []:
-                    if name in files and os.path.getmtime(dirpath) >= started - 5:  # the version folder the install made (file times come from the CRX)
+                    if name in files:  # an installed version folder, not an empty or partial one
                         hits.append(os.path.relpath(dirpath, base))
                 return sorted(hits) or None
             status["cdm_dir"] = fresh("WidevineCdm", "libwidevinecdm.dylib")
