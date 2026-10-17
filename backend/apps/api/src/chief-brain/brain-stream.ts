@@ -139,7 +139,10 @@ export class BrainStream {
   event(e: AssistantMessageEvent): void {
     if (!this.run || !this.generation || this.target().run !== this.run) return
     switch (e.type) {
+      // The first output of any kind marks the token, at its block start (a redacted thinking block has no delta).
       case "toolcall_start":
+      case "text_start":
+      case "thinking_start":
         return this.token()
       case "text_delta":
         this.token()

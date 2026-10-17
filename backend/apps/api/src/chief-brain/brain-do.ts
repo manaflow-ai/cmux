@@ -115,7 +115,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
               const capped = capText(text)
               const out = clip(text)
               if (call.name === "agent") this.agentCallEnded(call.id, text)
-              this.logOnce(`echo:${call.id}`, "echo", capped, { id: `tool:${call.id}`, kind: "tool", status: "done", ...(out.truncated ? { truncated: true } : {}), ended_at: Date.now(), tool: { name: call.name, output: out.text, ended_at: Date.now() } })
+              this.logOnce(`echo:${call.id}`, "echo", capped, { id: `tool:${call.id}`, kind: "tool", status: "done", ...(out.truncated ? { truncated: true } : {}), ...((now) => ({ ended_at: now, tool: { name: call.name, output: out.text, ended_at: now } }))(Date.now()) })
               return capped === text ? undefined : { ...result, content: [{ type: "text", text: capped }] }
             }
           })
