@@ -3,7 +3,7 @@
 /// projections. Each subscriber filters the cases it needs.
 @MainActor
 public final class DaemonSideEvents {
-    private var subscribers: [UInt64: (DaemonEvent) -> Void] = [:]
+    private var subscribers: [UInt64: (DaemonEvent, DaemonEventEnvelope?) -> Void] = [:]
     private var next: UInt64 = 0
 
     public init() {}
@@ -11,6 +11,25 @@ public final class DaemonSideEvents {
     /// Adds a subscriber; returns the token that removes it.
     @discardableResult
     public func subscribe(_ handler: @escaping (DaemonEvent) -> Void) -> UInt64 {
+        add { event, _ in handler(event) }
+    }
+
+    /// Subscribes to side events with their original control-connection stamp.
+    ///
+    /// Events without a source ID or envelope do not reach this listener.
+    /// Match the captured connection and serial before interpreting demand or
+    /// lease metadata; snapshot retention does not establish current authority.
+    /// - Parameter handler: Receives the original native event and sequence.
+    /// - Returns: The token removed by ``unsubscribe(_:)``.
+    @discardableResult
+    public func subscribeEnvelopes(_ handler: @escaping (DaemonEventEnvelope) -> Void) -> UInt64 {
+        add { _, envelope in
+            guard let envelope, envelope.sourceID != nil else { return }
+            handler(envelope)
+        }
+    }
+
+    private func add(_ handler: @escaping (DaemonEvent, DaemonEventEnvelope?) -> Void) -> UInt64 {
         next += 1
         subscribers[next] = handler
         return next
@@ -25,7 +44,7 @@ public final class DaemonSideEvents {
     /// model them (`DaemonEvent.unknown`); the apps client reads them.
     public nonisolated static func isAppsEvent(_ name: String) -> Bool { name.hasPrefix("apps-") }
 
-    func deliver(_ event: DaemonEvent) {
-        for subscriber in subscribers.values { subscriber(event) }
+    func deliver(_ event: DaemonEvent, envelope: DaemonEventEnvelope? = nil) {
+        for subscriber in subscribers.values { subscriber(event, envelope) }
     }
 }
