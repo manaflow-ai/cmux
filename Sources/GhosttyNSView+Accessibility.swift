@@ -65,9 +65,11 @@ extension GhosttyNSView {
                 // than the rendered screen, so derive a suffix from the
                 // value the client read immediately before writing it.
                 let snapshot = (self.accessibilityValue() as? String) ?? ""
-                inserted = content.hasPrefix(snapshot)
-                    ? String(content.dropFirst(snapshot.count))
-                    : content
+                inserted = TerminalAccessibilityText.insertedText(
+                    settingValue: content,
+                    over: snapshot,
+                    allowsPartialMatch: false
+                ) ?? content
             }
             self.insertAccessibilityCommittedText(inserted)
         }
