@@ -497,6 +497,7 @@ final class ChiefFirstRunView: NSView {
                 glyph.frame = CGRect(x: rtl ? x + width - 12 - glyphSize : x + 12,
                                      y: y + max(0, floor((min(height, firstLine) - glyphSize) / 2)),
                                      width: glyphSize, height: glyphSize)
+                y += height
             }
             placedBlock = true
         }
