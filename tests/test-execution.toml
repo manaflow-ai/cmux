@@ -329,6 +329,12 @@ lane = "macos-cli-no-socket"
 serial = true
 
 [[test]]
+path = "tests/test_zsh_git_head_watch_no_fork.py"
+lane = "macos-cli-no-socket"
+# This test starts a disowned git HEAD watcher and stops it; run it alone.
+serial = true
+
+[[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
