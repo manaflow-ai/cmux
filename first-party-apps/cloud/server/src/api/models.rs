@@ -54,6 +54,15 @@ pub struct MachineError {
     pub at: Option<i64>,
 }
 
+/// Non-secret host metadata that an owner may attach to a machine record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct MachinePlatform {
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+}
+
 /// `CloudMachine`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Machine {
@@ -83,7 +92,21 @@ pub struct Machine {
     pub idle_policy: Option<IdlePolicy>,
     #[serde(default)]
     pub error: Option<MachineError>,
+    /// Optional non-secret platform metadata supplied by the machine owner.
+    #[serde(default)]
+    pub platform: Option<MachinePlatform>,
+    /// Stable capability names; credentials, paths and account labels stay in
+    /// the session-host operations rather than this record.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub revision: Revision,
+}
+
+impl Machine {
+    /// Whether this record advertises one exact capability name.
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|candidate| candidate == capability)
+    }
 }
 
 /// `CloudSnapshot`.
@@ -169,6 +192,15 @@ pub struct ConnectInfo {
     pub revision: Revision,
 }
 
+impl ConnectInfo {
+    /// Whether the Cloud policy permits this server to dial one service.
+    /// Service names are opaque wire values; callers must not infer access
+    /// from machine state or display fields.
+    pub fn has_service(&self, service: &str) -> bool {
+        self.services.iter().any(|candidate| candidate == service)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Peer {
     pub wg_public_key: String,
@@ -185,6 +217,14 @@ pub struct DaemonInfo {
     pub version: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
+}
+
+impl DaemonInfo {
+    /// Whether the connected daemon advertised a capability for this control
+    /// generation. Missing or unknown names fail closed at call sites.
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|candidate| candidate == capability)
+    }
 }
 
 /// A `cmux.wire/1` revision: a decimal string (`^[0-9]+$`), compared as a
@@ -219,6 +259,58 @@ impl TryFrom<String> for Revision {
 impl From<Revision> for String {
     fn from(r: Revision) -> String {
         r.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConnectInfo, DaemonInfo, MachineStatus, Peer, Revision};
+
+    fn info() -> ConnectInfo {
+        ConnectInfo {
+            machine: "vm-1".into(),
+            host: "host-1".into(),
+            epoch: 1,
+            state: MachineStatus::Running,
+            peer: Peer {
+                wg_public_key: "wg".into(),
+                overlay_address: "10.0.0.2".into(),
+                vpc_endpoint: None,
+                public_ipv6: None,
+            },
+            gateway: None,
+            services: vec!["daemon".into(), "ssh".into()],
+            daemon: DaemonInfo {
+                version: Some("0.1.0".into()),
+                capabilities: vec!["fs-v1".into()],
+            },
+            revision: Revision::zero(),
+        }
+    }
+
+    #[test]
+    fn capability_and_service_checks_are_exact_and_fail_closed() {
+        let info = info();
+        assert!(info.has_service("daemon"));
+        assert!(info.daemon.has_capability("fs-v1"));
+        assert!(!info.has_service("http"));
+        assert!(!info.daemon.has_capability("fs-v2"));
+    }
+
+    #[test]
+    fn machine_metadata_is_optional_and_preserves_non_secret_capabilities() {
+        let machine: super::Machine = serde_json::from_str(
+            r#"{"id":"vm-1","revision":"2","platform":{"os":"linux","arch":"x86_64"},"capabilities":["terminal","agent_session"]}"#,
+        )
+        .expect("machine metadata decodes");
+        assert_eq!(machine.platform.as_ref().and_then(|platform| platform.os.as_deref()), Some("linux"));
+        assert!(machine.has_capability("agent_session"));
+        assert!(!machine.has_capability("provider_secret"));
+
+        let older: super::Machine = serde_json::from_str(r#"{"id":"vm-old","revision":"3"}"#)
+            .expect("older machine decodes");
+        assert!(older.platform.is_none());
+        assert!(older.capabilities.is_empty());
     }
 }
 
