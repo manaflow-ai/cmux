@@ -70,6 +70,10 @@ struct AgentChatModeView: View {
         .onChange(of: searchText, initial: true) { _, value in
             model.sessionSearchQuery = value
             model.beginTranscriptSearch()
+            model.reconcileSelectionToFilter()
+        }
+        .onChange(of: model.selectedProvider) { _, _ in
+            model.reconcileSelectionToFilter()
         }
         .onChange(of: scenePhase) { _, phase in
             // A suspended iOS process can miss the host's best-effort event
@@ -280,7 +284,8 @@ private struct AgentChatSidebar: View {
                             }
                         }
                     }
-                    Section("Recent") {
+                    if !recentSessions.isEmpty {
+                        Section("Recent") {
                         ForEach(recentSessions) { session in
                             AgentChatSessionRow(
                                 session: session,
@@ -291,6 +296,7 @@ private struct AgentChatSidebar: View {
                                 isPinned: false,
                                 isArchived: false
                             )
+                        }
                         }
                     }
                     if !model.visibleArchivedSessions.isEmpty {
@@ -1267,10 +1273,7 @@ private struct AgentChatMessageView: View {
                     answerText: { text in answerText?(text, message.id) }
                 )
             case .status(let status):
-                Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
+                AgentStatusCard(status: status, timestamp: message.timestamp)
             case .attachment(let attachment):
                 AgentAttachmentCard(attachment: attachment, artifactLoader: artifactLoader)
             case .unsupported(let payload):
@@ -1533,10 +1536,17 @@ private struct AgentToolCard: View {
                 }
                 .font(.caption.weight(.medium))
             }
+            if tool.status == .running {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Tool is running")
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentToolCard")
     }
 
     private var iconName: String {
@@ -1654,15 +1664,96 @@ private struct AgentTerminalCard: View {
     let terminal: ChatTerminalCapture
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(terminal.command, systemImage: "terminal")
-                .font(.caption.monospaced().weight(.semibold))
+            HStack(spacing: 8) {
+                Label(terminal.command, systemImage: terminal.isRunning ? "arrow.triangle.2.circlepath" : "terminal")
+                    .font(.caption.monospaced().weight(.semibold))
+                Spacer(minLength: 4)
+                if terminal.isRunning {
+                    ProgressView().controlSize(.mini)
+                    Text("Running")
+                } else if let exitCode = terminal.exitCode {
+                    Text("Exit \(exitCode)")
+                        .foregroundStyle(exitCode == 0 ? .green : .red)
+                } else {
+                    Text("Done").foregroundStyle(.secondary)
+                }
+            }
             if let output = terminal.output { Text(output).font(.caption.monospaced()).textSelection(.enabled) }
-            if let exitCode = terminal.exitCode { Text("Exit \(exitCode)").font(.caption2).foregroundStyle(exitCode == 0 ? .green : .red) }
+            if let duration = terminal.durationSeconds {
+                Text(durationLabel(duration))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
         .foregroundStyle(.white)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileAgentTerminalCard")
+    }
+
+    private func durationLabel(_ duration: Double) -> String {
+        if duration < 1 { return String(format: "%.0f ms", duration * 1_000) }
+        if duration < 60 { return String(format: "%.1f s", duration) }
+        return String(format: "%.1f min", duration / 60)
+    }
+}
+
+private struct AgentStatusCard: View {
+    let status: ChatStatusTransition
+    let timestamp: Date
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconName).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption.weight(.semibold))
+                if let detail = status.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 4)
+            Text(timestamp, style: .time)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.09), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileAgentStatusCard")
+    }
+
+    private var title: String {
+        switch status.event {
+        case .sessionStarted: return "Session started"
+        case .sessionEnded: return "Session ended"
+        case .interrupted: return "Turn interrupted"
+        case .contextCompacted: return "Context compacted"
+        }
+    }
+
+    private var iconName: String {
+        switch status.event {
+        case .sessionStarted: return "play.circle.fill"
+        case .sessionEnded: return "checkmark.circle.fill"
+        case .interrupted: return "stop.circle.fill"
+        case .contextCompacted: return "arrow.down.right.and.arrow.up.left"
+        }
+    }
+
+    private var color: Color {
+        switch status.event {
+        case .sessionStarted: return .green
+        case .sessionEnded: return .secondary
+        case .interrupted: return .orange
+        case .contextCompacted: return .accentColor
+        }
     }
 }
 
@@ -1744,6 +1835,14 @@ private struct AgentDiffCard: View {
                     .font(.caption.weight(.medium))
                     .disabled(isReviewing)
                 }
+            } else {
+                Label("Diff unavailable", systemImage: "exclamationmark.triangle")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text("The agent changed this file, but the host did not provide a reviewable diff.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if isExpanded, let artifactLoader, artifactLoader.supportsArtifacts {
                 Divider()
@@ -1872,11 +1971,12 @@ private struct AgentPermissionCard: View {
 
     @ViewBuilder
     private func permissionButton(index: Int, option: ChatPermissionRequest.Option) -> some View {
-        if index == request.options.count - 1 {
+        if isDestructive(option) {
             Button(action: { answer?(index) }) {
                 permissionButtonLabel(option)
             }
             .buttonStyle(.bordered)
+            .tint(.red)
             .disabled(isSubmitting)
         } else {
             Button(action: { answer?(index) }) {
@@ -1884,6 +1984,13 @@ private struct AgentPermissionCard: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(isSubmitting)
+        }
+    }
+
+    private func isDestructive(_ option: ChatPermissionRequest.Option) -> Bool {
+        let label = option.label.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return ["deny", "reject", "block", "don't allow", "do not allow"].contains {
+            label.contains($0)
         }
     }
 
@@ -1919,6 +2026,8 @@ private struct AgentQuestionCard: View {
         self.answer = answer
         self.answerSelections = answerSelections
         self.answerText = answerText
+        let labels = Set(question.selectedOptionLabels)
+        _selectedIndexes = State(initialValue: Set(question.options.indices.filter { labels.contains(question.options[$0].label) }))
     }
 
     private var isPlanReview: Bool {
@@ -1972,6 +2081,11 @@ private struct AgentQuestionCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+        .onChange(of: question) { _, newQuestion in
+            let labels = Set(newQuestion.selectedOptionLabels)
+            selectedIndexes = Set(newQuestion.options.indices.filter { labels.contains(newQuestion.options[$0].label) })
+            freeText = ""
+        }
     }
 
     @ViewBuilder

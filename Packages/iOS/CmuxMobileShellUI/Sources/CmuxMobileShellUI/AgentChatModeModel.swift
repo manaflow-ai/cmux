@@ -154,6 +154,23 @@ final class AgentChatModeModel {
         filteredSessions(includeArchived: true).filter { archivedSessionIDs.contains($0.id) }
     }
 
+    /// Keeps the detail column inside the active provider/search scope. A
+    /// filter can change without going through `select`, so reconcile the
+    /// current conversation instead of leaving a stale transcript visible.
+    func reconcileSelectionToFilter() {
+        guard let selectedSessionID else {
+            if let first = visibleSessions.first { select(first) }
+            return
+        }
+        guard visibleSessions.contains(where: { $0.id == selectedSessionID }) else {
+            if let first = visibleSessions.first {
+                select(first)
+            } else {
+                self.selectedSessionID = nil
+            }
+        }
+    }
+
     var pinnedSessions: [ChatSessionDescriptor] {
         visibleSessions.filter { pinnedSessionIDs.contains($0.id) }
     }

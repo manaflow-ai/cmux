@@ -30,6 +30,25 @@ import Testing
         model.selectedProvider = "all"
     }
 
+    @Test func providerFilterReconcilesSelectedDetailSession() async {
+        let source = FakeAgentChatSource(sessions: [
+            descriptor(id: "claude", agent: .claude, title: "Claude", activity: 10),
+            descriptor(id: "codex", agent: .codex, title: "Codex", activity: 30),
+        ], pages: [:])
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.selectedSessionID == "codex")
+        model.selectedProvider = "claude"
+        model.reconcileSelectionToFilter()
+        #expect(model.selectedSessionID == "claude")
+
+        model.selectedProvider = "opencode"
+        model.reconcileSelectionToFilter()
+        #expect(model.selectedSessionID == nil)
+    }
+
     @Test func sessionSearchMatchesMetadataWithoutChangingProviderFilter() async {
         let source = FakeAgentChatSource(sessions: [
             ChatSessionDescriptor(
