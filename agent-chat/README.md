@@ -12,6 +12,18 @@ Three entrypoints, all landing on the same server:
 
 One page = one session: `/` is the composer, `/s/<id>` a chat. Every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...` (compared in constant time); missing or wrong tokens return 404. Every request, `/healthz` included, needs a `Host` that names this server (a loopback name with its port) and, when it has an `Origin`, this server's own origin; anything else gets 403. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
 
+### Gallery fixture lab
+
+Open `/gallery#orchestration-lab` to inspect the dev-only orchestration mock. It
+is a fixture surface: no WebSocket, provider process, scheduler, or dispatch is
+started. The focused header and top-left toggle keep that trust boundary visible.
+The three route cards compare Local queue, Huge Blue lease, and Cloud fair-share;
+selecting a card updates the receipt inspector and its numbered decision,
+blocker, and next-safe-action path. The JSON below the inspector is a
+non-contract display sample containing `{receipt, fixture_context}` with
+deterministic redacted values. Use “Back to full gallery” to clear the hash and
+restore the complete GalleryApp QA surface.
+
 ## Terminal chat view
 
 `/terminal/<surface-id>` shows a Claude Code or Codex session that is already running in a cmux terminal as a chat, without starting another agent. The sidecar looks the surface up in the hook session stores (`~/.cmuxterm/claude-hook-sessions.json`, `~/.cmuxterm/codex-hook-sessions.json`), tails the agent's own transcript (Claude `projects/<slug>/<session>.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*-<session>.jsonl`), and normalizes it into `AgentEvent`s with `adapters/transcript.ts`, so the regular chat renderer draws it. The page lives at `/s/t-<agent session id>`, which re-resolves after a sidecar restart; a view with no open page stops tailing after five minutes.
