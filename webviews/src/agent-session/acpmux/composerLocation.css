@@ -358,6 +358,11 @@
 .acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
 }
+/* The strip's ghost buttons (folder, computer, branch) on the scale's regular weight, not the
+   ghost primitive's 500. */
+.acpmux-location-button.ui-ghost {
+  font-weight: 400;
+}
 @media (max-width: 480px) {
   .acpmux-composer-context { gap: 2px; }
   .acpmux-location-button,
