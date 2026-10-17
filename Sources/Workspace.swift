@@ -2794,11 +2794,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// real timestamp instead of nothing.
     let createdAt = Date()
     private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    var suppressSidebarTitleDidChange = false
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
             // snapshot reads the workspace after this property changes, so
             // publish a second value from didSet for a committed title.
+            guard !suppressSidebarTitleDidChange else { return }
             sidebarTitleDidChangeSubject.send(title)
         }
     }

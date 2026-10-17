@@ -35,6 +35,10 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    var agentLifecycleSessionIDsByPanelId: [UUID: [String: String]] {
+        sidebarAgentRuntimeObservation.agentLifecycleSessionIDsByPanelId
+    }
+
     /// Returns exact-session runtime identities that still match their recorded process generation.
     func confirmedRuntimeAgentProcessIdentities(
         for agent: SessionRestorableAgentSnapshot,
@@ -76,6 +80,9 @@ extension Workspace {
         let lifecycleStates = (agentLifecycleStatesByPanelId[panelId] ?? [:]).filter {
             !AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
         }
+        let lifecycleSessionIDs = (agentLifecycleSessionIDsByPanelId[panelId] ?? [:]).filter {
+            lifecycleStates[$0.key] != nil
+        }
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
@@ -107,7 +114,8 @@ extension Workspace {
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys,
-            agentLifecycleStates: lifecycleStates
+            agentLifecycleStates: lifecycleStates,
+            agentLifecycleSessionIDs: lifecycleSessionIDs
         )
     }
 
@@ -432,7 +440,12 @@ extension Workspace {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
         for (key, lifecycle) in runtimeState.agentLifecycleStates {
-            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
+            setAgentLifecycle(
+                key: key,
+                panelId: runtimeState.panelId,
+                lifecycle: lifecycle,
+                sessionID: runtimeState.agentLifecycleSessionIDs[key]
+            )
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
