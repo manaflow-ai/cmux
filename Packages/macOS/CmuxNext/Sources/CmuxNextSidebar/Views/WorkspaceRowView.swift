@@ -56,7 +56,7 @@ final class WorkspaceRowView: SidebarRowView {
     let statusBlock = WorkspaceStatusView()
     private(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
-    private var grouped = false
+    private(set) var grouped = false
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
@@ -383,7 +383,9 @@ final class WorkspaceRowView: SidebarRowView {
 
         var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
-            agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
+            // On the middle of the title's capitals, like the trailing status glyph, not the box's center.
+            let scale = window?.backingScaleFactor ?? 2, mid = statusGlyphFrame(trailing: 0, titleTop: top).midY
+            agentMark.frame = NSRect(x: textX + Self.labelInset, y: ((mid - ind / 2) * scale).rounded() / scale, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
         }
         let textW = max(0, trailing - textX)
