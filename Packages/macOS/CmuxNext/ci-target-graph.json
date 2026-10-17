@@ -106,6 +106,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -123,6 +124,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
