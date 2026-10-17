@@ -17,7 +17,7 @@ export type BillingScreenSearch = {
   readonly team?: string;
   readonly billing?: string;
   readonly welcome?: string;
-  /** A checkout redirect asking to switch to this plan. */
+  /** A checkout or portal redirect asking to move to this plan. */
   readonly change?: "pro" | "max";
 };
 
@@ -94,6 +94,7 @@ function StripePersonalBilling({ data, change }: { data: PersonalBillingJson; ch
     subscription: subscription
       ? { plan: subscription.plan, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd, status: subscription.status }
       : null,
+    foundersEdition: status.foundersEdition,
     goPlanEnabled: data.goPlanEnabled,
   });
   const picker = (

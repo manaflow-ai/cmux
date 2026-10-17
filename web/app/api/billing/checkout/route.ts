@@ -20,7 +20,6 @@ import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   PRO_PLAN_ID,
-  isStripePortalRecoverable,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
   stripeBillingStatusForUser,
@@ -38,9 +37,13 @@ import {
 } from "../../../../services/billing/stripe";
 import {
   CHECKOUT_BILLING_INTERVAL,
-  isPortalSwitchableLookupKey,
   type BillingInterval,
 } from "../../../../services/billing/plans";
+import {
+  dashboardChangeURL,
+  existingSubscriptionRoute,
+  hasExistingPersonalSubscription,
+} from "../../../../services/billing/personalSwitchRoute";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 import {
   checkoutAttributionFromRequest,
@@ -347,7 +350,7 @@ async function stripePersonalCheckout(
     // cancel-at-period-end states, but it cannot start a new subscription
     // after a terminal cancellation. A plan switch keeps a scheduled
     // cancellation, so a cancelling subscriber gets the plain portal and Renew.
-    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+    if (hasExistingPersonalSubscription(stripeBillingStatus)) {
       return existingSubscriptionRedirect(request, user.id, plan, interval, stripeBillingStatus, attribution);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
@@ -433,10 +436,9 @@ async function stripePersonalCheckout(
 
 /**
  * An account that already pays for a personal plan never gets a second
- * subscription. A plan switch the hosted portal can do (the subscription is
- * on a price it lists) opens its switch flow; one it cannot (Go or a
- * grandfathered price) opens the dashboard's switch dialog for that plan,
- * which prices any subscription. Every other state opens the plain portal.
+ * subscription. existingSubscriptionRoute picks the hosted portal's switch
+ * flow, the dashboard (which prices any subscription and handles a Founder
+ * leaving Max), or the plain portal.
  */
 function existingSubscriptionRedirect(
   request: NextRequest,
@@ -446,30 +448,19 @@ function existingSubscriptionRedirect(
   status: StripeBillingStatus,
   attribution: CheckoutAttribution,
 ): NextResponse {
-  const wantsSwitch = plan !== GO_PLAN_ID && status.hasActiveSubscription &&
-    !status.cancelAtPeriodEnd && status.activePlanId !== plan &&
-    status.subscriptionStatus !== "past_due";
-  // The shared portal offers both monthly and yearly destination prices. Keep
-  // yearly subscribers in the dashboard's interval-aware switch flow so they
-  // cannot accidentally move to a monthly Max price.
-  const requiresIntervalAwareSwitch = status.subscriptionInterval === "year";
-  if (
-    wantsSwitch &&
-    (requiresIntervalAwareSwitch || !isPortalSwitchableLookupKey(status.planLookupKey))
-  ) {
+  const route = existingSubscriptionRoute(status, plan);
+  if (route === "dashboard") {
     captureCheckoutDecision(userId, plan, status.activePlanId, "switch_plan", attribution, interval);
-    const dashboardURL = new URL("/dashboard/billing", requestOrigin(request));
-    dashboardURL.searchParams.set("change", plan);
-    return NextResponse.redirect(dashboardURL);
+    return NextResponse.redirect(dashboardChangeURL(requestOrigin(request), plan));
   }
   const portalURL = new URL("/api/billing/portal", requestOrigin(request));
-  if (wantsSwitch) {
+  if (route === "portal_switch") {
     portalURL.searchParams.set("flow", "switch_plan");
     portalURL.searchParams.set("plan", plan);
   }
   forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
   captureCheckoutDecision(userId, plan, status.activePlanId,
-    wantsSwitch ? "switch_plan" : "manage_billing", attribution, interval);
+    route === "portal_switch" ? "switch_plan" : "manage_billing", attribution, interval);
   return NextResponse.redirect(portalURL);
 }
 
@@ -508,7 +499,7 @@ async function stripeTeamCheckout(
     const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
     // Same rule as personal checkout: an already-paying team manages billing
     // in the portal; checkout would create a duplicate subscription.
-    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+    if (hasExistingPersonalSubscription(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       portalURL.searchParams.set("scope", "team");
       if (target.teamId) portalURL.searchParams.set("teamId", resolvedTeamId);

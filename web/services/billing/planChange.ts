@@ -6,7 +6,7 @@
 // use the same proration date, so the amount shown is the amount charged.
 
 import type Stripe from "stripe";
-import type { BillingInterval } from "./plans";
+import { MAX_PRICING_USD, PRO_PRICING_USD, type BillingInterval } from "./plans";
 import { planTierRank } from "./planTier";
 import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
@@ -21,8 +21,7 @@ export type PlanChangeRefusal =
   | "cancel_scheduled"
   | "same_plan"
   | "not_switchable"
-  | "payment_failed"
-  | "preview_unavailable";
+  | "payment_failed";
 
 export class PlanChangeError extends Error {
   override readonly name = "PlanChangeError";
@@ -81,19 +80,27 @@ type Switch = {
   readonly periodEnd: number | null;
 };
 
-async function resolveSwitch(
-  userId: string,
-  target: SwitchTargetPlan,
-  deps: PlanChangeDependencies,
-): Promise<Switch> {
-  const status = await deps.billingStatus(userId);
+/** The subscription a switch to `target` changes, or the refusal from the stored status. */
+function switchableSubscriptionId(status: StripeBillingStatus, target: SwitchTargetPlan): string {
   const active = ["active", "trialing"].includes(status.subscriptionStatus ?? "");
   if (!status.hasRecurringSubscription || !status.subscriptionId || !active) {
     throw new PlanChangeError("no_subscription");
   }
   if (status.cancelAtPeriodEnd) throw new PlanChangeError("cancel_scheduled");
   if (status.activePlanId === target) throw new PlanChangeError("same_plan");
-  const subscription = await deps.stripe().subscriptions.retrieve(status.subscriptionId);
+  // Founder's Edition already includes Pro for life; a founder leaves Max by
+  // cancelling it, never by paying for Pro.
+  if (status.hasFoundersEdition === true && target === "pro") throw new PlanChangeError("not_switchable");
+  return status.subscriptionId;
+}
+
+async function resolveSwitch(
+  userId: string,
+  target: SwitchTargetPlan,
+  deps: PlanChangeDependencies,
+): Promise<Switch> {
+  const subscriptionId = switchableSubscriptionId(await deps.billingStatus(userId), target);
+  const subscription = await deps.stripe().subscriptions.retrieve(subscriptionId);
   if (subscription.cancel_at_period_end) throw new PlanChangeError("cancel_scheduled");
   const item = planItem(subscription);
   if (!item) throw new PlanChangeError("no_subscription");
@@ -140,8 +147,7 @@ const sumAmounts = (values: readonly { readonly amount: number }[] | null | unde
  * (non-proration) line, net of its discounts plus exclusive tax. The preview's
  * total would also spend the customer's balance and pending invoice items,
  * which the immediate upgrade invoice uses up first, and metered usage, which
- * is not part of the plan's price. A preview without the plan line is
- * unavailable rather than safe to quote from its total.
+ * is not part of the plan's price.
  */
 function planRenewalLines(invoice: Stripe.Invoice, itemId: string): readonly PreviewLine[] {
   return previewLines(invoice).filter((line) =>
@@ -172,21 +178,32 @@ async function completePlanRenewalLines(
   }
 }
 
+/**
+ * The catalog price the switch moves the subscription to. It quotes the
+ * renewal when Stripe's renewal preview cannot: that figure is display-only,
+ * and a payable upgrade must not fail on it.
+ */
+function catalogRenewalAmount(target: SwitchTargetPlan, interval: BillingInterval): number {
+  return (target === "max" ? MAX_PRICING_USD : PRO_PRICING_USD)[interval].billedAmount * 100;
+}
+
 async function planRenewalAmount(
   client: StripeClient,
-  invoice: Stripe.Invoice,
-  itemId: string,
+  renewal: Promise<Stripe.Invoice>,
+  change: Pick<Switch, "itemId" | "interval">,
+  target: SwitchTargetPlan,
 ): Promise<number> {
-  let lines: readonly PreviewLine[];
   try {
-    lines = await completePlanRenewalLines(client, invoice, itemId);
+    const lines = await completePlanRenewalLines(client, await renewal, change.itemId);
+    if (lines.length > 0) {
+      return lines.reduce((total, line) =>
+        total + line.amount - sumAmounts(line.discount_amounts) +
+        sumAmounts(line.taxes?.filter((tax) => tax.tax_behavior === "exclusive")), 0);
+    }
   } catch {
-    throw new PlanChangeError("preview_unavailable");
+    // Fall through to the catalog price.
   }
-  if (lines.length === 0) throw new PlanChangeError("preview_unavailable");
-  return lines.reduce((total, line) =>
-    total + line.amount - sumAmounts(line.discount_amounts) +
-    sumAmounts(line.taxes?.filter((tax) => tax.tax_behavior === "exclusive")), 0);
+  return catalogRenewalAmount(target, change.interval);
 }
 
 /**
@@ -213,24 +230,24 @@ export async function previewPersonalPlanChange(
   // invoice: preview it on the new price with no proration and read the plan
   // line from it. A downgrade's prorations land on that renewal, so its one
   // preview is already the renewal.
-  const [invoice, renewal] = await Promise.all([
-    client.invoices.createPreview({
-      customer: change.customerId,
-      subscription: change.subscription.id,
-      subscription_details: {
-        items,
-        proration_behavior: prorationBehavior(change.direction),
-        proration_date: prorationDate,
-      },
-    }),
-    upgrade
-      ? client.invoices.createPreview({
-          customer: change.customerId,
-          subscription: change.subscription.id,
-          subscription_details: { items, proration_behavior: "none" },
-        })
-      : null,
-  ]);
+  const renewal = upgrade
+    ? client.invoices.createPreview({
+        customer: change.customerId,
+        subscription: change.subscription.id,
+        subscription_details: { items, proration_behavior: "none" },
+      })
+    : null;
+  // Only the renewal quote may fail without failing the preview.
+  renewal?.catch(() => undefined);
+  const invoice = await client.invoices.createPreview({
+    customer: change.customerId,
+    subscription: change.subscription.id,
+    subscription_details: {
+      items,
+      proration_behavior: prorationBehavior(change.direction),
+      proration_date: prorationDate,
+    },
+  });
   return {
     plan: input.target,
     direction: change.direction,
@@ -239,7 +256,7 @@ export async function previewPersonalPlanChange(
     credit: upgrade ? 0 : prorationCredit(invoice),
     // The interval is kept, so the billing period (and its end) is unchanged.
     nextRenewalAt: change.periodEnd === null ? null : new Date(change.periodEnd * 1000).toISOString(),
-    nextInvoiceAmount: renewal ? await planRenewalAmount(client, renewal, change.itemId) : invoice.amount_due,
+    nextInvoiceAmount: renewal ? await planRenewalAmount(client, renewal, change, input.target) : invoice.amount_due,
     interval: change.interval,
     prorationDate,
   };

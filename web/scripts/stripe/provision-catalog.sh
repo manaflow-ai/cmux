@@ -278,9 +278,12 @@ price_id_for_lookup_key() {
 #
 # The portal only switches a subscription whose current price is listed here,
 # and every listed price is also a choice any subscriber can pick. So the list
-# is the current Pro and Max catalog (PORTAL_SWITCHABLE_LOOKUP_KEYS in
-# web/services/billing/plans.ts): grandfathered prices and the release-gated
-# Go plan are never listed, and their subscribers switch in the dashboard.
+# is PORTAL_SWITCHABLE_LOOKUP_KEYS in web/services/billing/plans.ts: current
+# Pro monthly and both Max intervals. Yearly subscribers switch in the
+# dashboard, which keeps their interval, so Pro yearly would only let a
+# monthly subscriber (Max included) move onto it. Grandfathered prices and the
+# release-gated Go plan are never listed; their subscribers switch in the
+# dashboard too.
 ensure_personal_plan_switch_portal() {
   local pro_product_id="$1"
   local max_product_id="$2"
@@ -316,10 +319,8 @@ ensure_personal_plan_switch_portal() {
   fi
   configuration_id="${matching_ids[0]:-}"
 
-  local pro_monthly_price_id pro_yearly_price_id max_monthly_price_id
-  local max_yearly_price_id
+  local pro_monthly_price_id max_monthly_price_id max_yearly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
-  pro_yearly_price_id="$(price_id_for_lookup_key "cmux-pro-yearly-480")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
   max_yearly_price_id="$(price_id_for_lookup_key "cmux-max-yearly-1920")"
   local -a feature_args=(
@@ -328,7 +329,6 @@ ensure_personal_plan_switch_portal() {
     -d "features[subscription_update][proration_behavior]=always_invoice"
     -d "features[subscription_update][products][0][product]=${pro_product_id}"
     -d "features[subscription_update][products][0][prices][]=${pro_monthly_price_id}"
-    -d "features[subscription_update][products][0][prices][]=${pro_yearly_price_id}"
     -d "features[subscription_update][products][0][adjustable_quantity][enabled]=false"
     -d "features[subscription_update][products][1][product]=${max_product_id}"
     -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"

@@ -41,14 +41,20 @@ export function PlanPicker({
    */
   /** The current subscription's own Stripe price; null when granted; undefined for the list price. */
   readonly currentPrice?: SubscriptionPrice | null;
-  /** Opens the switch dialog for this plan when its card offers a switch. */
+  /**
+   * Opens the dialog that moves to this plan when its card offers one: the
+   * switch dialog, or, for a Founder returning to Pro, the cancel dialog.
+   */
   readonly initialSwitch?: SwitchPlanId;
 }) {
   const t = useTranslations("dashboard.billing.picker");
   const locale = useLocale();
   const [switchTo, setSwitchTo] = useState<SwitchPlanId | null>(() =>
     cards.some((card) => card.action.kind === "switch" && card.action.plan === initialSwitch) ? initialSwitch ?? null : null);
-  const [cancelling, setCancelling] = useState(false);
+  const [cancelling, setCancelling] = useState(() =>
+    cards.some((card) => card.id === initialSwitch && card.action.kind === "cancel"));
+  // A Founder keeps Pro after cancelling, whichever card offers the cancel.
+  const cancelKeepsPro = cards.some((card) => card.action.kind === "cancel" && card.action.keepsPro === true);
   const resume = useResumePlan();
   const teamId = scope.kind === "team" ? scope.teamId : undefined;
   const periodDate = formatBillingDate(periodEnd, locale);
@@ -98,7 +104,8 @@ export function PlanPicker({
       case "cancel":
         return (
           <button type="button" onClick={() => setCancelling(true)} className={settingsButtonClass("secondary", "sm")}>
-            {t("cancelPlan")}
+            {/* A Founder returns to Pro by ending the plan above it. */}
+            {card.id === "free" ? t("cancelPlan") : t("switchTo", { plan: name })}
           </button>
         );
       case "unavailable":
@@ -141,7 +148,14 @@ export function PlanPicker({
 
       <ChangePlanDialog plan={switchTo} onOpenChange={(open) => { if (!open) setSwitchTo(null); }} />
       {paidCurrent ? (
-        <CancelPlanDialog open={cancelling} onOpenChange={setCancelling} plan={paidCurrent} endsOn={periodDate} teamId={teamId} />
+        <CancelPlanDialog
+          open={cancelling}
+          onOpenChange={setCancelling}
+          plan={paidCurrent}
+          endsOn={periodDate}
+          teamId={teamId}
+          keepsPro={cancelKeepsPro}
+        />
       ) : null}
     </section>
   );

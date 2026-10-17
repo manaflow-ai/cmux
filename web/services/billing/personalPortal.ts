@@ -1,29 +1,27 @@
 import { stripe, resolvePersonalPlanSwitchPortalConfiguration } from "./stripe";
-import { stripeBillingStatusForUser } from "./pro";
-import { isPortalSwitchableLookupKey } from "./plans";
+import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
+import {
+  dashboardChangeURL,
+  existingSubscriptionRoute,
+  hasExistingPersonalSubscription,
+} from "./personalSwitchRoute";
 import { captureBillingPlanSwitchStarted } from "../analytics/stripeBilling";
 import type { CheckoutAttribution } from "../analytics/checkoutAttribution";
+
+type SwitchTarget = "go" | "pro" | "max";
 
 /** The same authenticated portal destination for browser and CLI upgrades. */
 export async function personalPortalSession(input: {
   userId: string;
   origin: string;
-  target: "go" | "pro" | "max";
+  target: SwitchTarget;
   attribution: CheckoutAttribution;
+  /** A billing status the caller already read for this user. */
+  status?: StripeBillingStatus;
 }) {
-  const status = await stripeBillingStatusForUser(input.userId);
+  const status = input.status ?? await stripeBillingStatusForUser(input.userId);
   if (!status.customerId) throw new Error("Billing customer is unavailable");
-  const canSwitch = input.target !== "go" && status.hasRecurringSubscription && status.subscriptionId &&
-    ["active", "trialing"].includes(status.subscriptionStatus ?? "") &&
-    // A switch keeps a scheduled cancellation; the plain portal offers Renew.
-    !status.cancelAtPeriodEnd &&
-    // The shared portal lists both destination intervals. Keep yearly
-    // subscribers in the dashboard's interval-aware flow instead of allowing
-    // a direct switch to a monthly Max price.
-    status.subscriptionInterval !== "year" &&
-    status.activePlanId !== input.target &&
-    // The switch flow fails for a price the portal does not list.
-    isPortalSwitchableLookupKey(status.planLookupKey);
+  const canSwitch = existingSubscriptionRoute(status, input.target) === "portal_switch";
   const session = await stripe().billingPortal.sessions.create({
     customer: status.customerId,
     return_url: new URL("/dashboard/billing", input.origin).toString(),
@@ -37,4 +35,31 @@ export async function personalPortalSession(input: {
     targetPlan: input.target, attribution: input.attribution, livemode: session.livemode,
   });
   return session;
+}
+
+/**
+ * Where a `flow=switch_plan` portal link goes when the hosted switch cannot
+ * do it, or null when the portal handles it. An account with no subscription
+ * to switch (a grant, Founder's Edition, or none) buys the plan through
+ * checkout; a subscription the portal cannot switch opens the dashboard's
+ * dialog. Links like this come from older pages and bookmarks.
+ */
+export function personalSwitchLinkRedirect(input: {
+  status: StripeBillingStatus;
+  origin: string;
+  target: SwitchTarget;
+  /** The link's query, whose attribution parameters checkout keeps. */
+  searchParams: URLSearchParams;
+}): URL | null {
+  if (!hasExistingPersonalSubscription(input.status)) {
+    const checkout = new URL("/api/billing/checkout", input.origin);
+    checkout.searchParams.set("plan", input.target);
+    for (const [key, value] of input.searchParams) {
+      if (key !== "flow" && key !== "plan") checkout.searchParams.append(key, value);
+    }
+    return checkout;
+  }
+  return existingSubscriptionRoute(input.status, input.target) === "dashboard"
+    ? dashboardChangeURL(input.origin, input.target)
+    : null;
 }

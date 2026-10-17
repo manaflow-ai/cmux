@@ -220,6 +220,12 @@ export type StripeBillingStatus = {
   readonly planLookupKey?: string | null;
   /** The recurring interval of the subscription behind `subscriptionId`. */
   readonly subscriptionInterval?: BillingInterval | null;
+  /**
+   * The account owns Founder's Edition, a one-time purchase of Pro for life.
+   * It is never a recurring subscription, so leaving Max returns the account
+   * to Pro without paying for it.
+   */
+  readonly hasFoundersEdition?: boolean;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -717,7 +723,6 @@ export async function stripeBillingStatusForUser(
           isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
-          sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
     // Keep the ordering in the real Drizzle query, while allowing lightweight
@@ -739,7 +744,12 @@ export async function stripeBillingStatusForUser(
       orderedSubscriptionQuery.limit(10),
       activePersonalPlanForUser(stackUserId),
     ]);
+    // Founder rows are read only to report the lifetime purchase; every
+    // subscription decision below uses the recurring rows.
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const hasFoundersEdition = subscriptionRows.some((row) =>
+      isFounderSubscriptionRow(row) && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -751,6 +761,7 @@ export async function stripeBillingStatusForUser(
     ), subscriptionStatus: subscription?.status ?? null,
     planLookupKey: planLookupKeyFromRaw(subscription?.raw),
     subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    hasFoundersEdition,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };

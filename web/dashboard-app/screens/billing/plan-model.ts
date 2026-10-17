@@ -14,11 +14,12 @@ export type PlanCardAction =
   | { readonly kind: "current" }
   | { readonly kind: "checkout"; readonly plan: CheckoutPlanId }
   | { readonly kind: "switch"; readonly plan: SwitchPlanId }
-  | { readonly kind: "cancel" }
+  /** Cancel at period end; `keepsPro` when Founder's Edition keeps Pro after it. */
+  | { readonly kind: "cancel"; readonly keepsPro?: boolean }
   | { readonly kind: "resume" }
   | {
       readonly kind: "unavailable";
-      readonly reason: "cancelScheduled" | "granted" | "grantedNoCancel" | "paymentFailed" | "adminOnly";
+      readonly reason: "cancelScheduled" | "granted" | "grantedNoCancel" | "paymentFailed" | "foundersLifetime" | "adminOnly";
     };
 
 export type PlanCard = {
@@ -28,7 +29,8 @@ export type PlanCard = {
 };
 
 type Subscription = { readonly cancelAtPeriodEnd: boolean };
-type PickerState = "free" | "active" | "pastDue" | "cancelling" | "granted" | "readOnly";
+/** `founders`: Founder's Edition (Pro for life) with no subscription on top. */
+type PickerState = "free" | "active" | "pastDue" | "cancelling" | "granted" | "founders" | "readOnly";
 
 function paidPersonalPlan(value: string | null | undefined): "go" | "pro" | "max" | null {
   return value === "go" || value === "pro" || value === "max" ? value : null;
@@ -50,6 +52,8 @@ function otherAction(state: PickerState, card: PickerPlanId, current: PickerPlan
       return { kind: "unavailable", reason: "cancelScheduled" };
     case "granted":
       return grantedAction(card, current);
+    case "founders":
+      return card === "max" ? { kind: "checkout", plan: "max" } : { kind: "unavailable", reason: "foundersLifetime" };
     case "readOnly":
       return { kind: "unavailable", reason: "adminOnly" };
   }
@@ -65,11 +69,25 @@ function grantedAction(card: PickerPlanId, current: PickerPlanId): PlanCardActio
   return { kind: "unavailable", reason: "granted" };
 }
 
-function cards(ids: readonly PickerPlanId[], current: PickerPlanId, state: PickerState): PlanCard[] {
+/**
+ * Founder's Edition already includes Pro for life. A founder with a
+ * subscription on top returns to Pro by ending that subscription, never by
+ * switching it onto a paid Pro price, and has nothing to cancel below Pro.
+ */
+function foundersSubscriptionAction(state: PickerState, card: PickerPlanId, current: PickerPlanId): PlanCardAction | null {
+  if (state !== "active" && state !== "pastDue") return null;
+  if (card === "pro") return { kind: "cancel", keepsPro: true };
+  if (card !== "free") return null;
+  return current === "pro" ? { kind: "cancel", keepsPro: true } : { kind: "unavailable", reason: "foundersLifetime" };
+}
+
+function cards(ids: readonly PickerPlanId[], current: PickerPlanId, state: PickerState, founders = false): PlanCard[] {
   return ids.map((id) => ({
     id,
     current: id === current,
-    action: id === current ? (state === "cancelling" ? { kind: "resume" } : { kind: "current" }) : otherAction(state, id, current),
+    action: id === current
+      ? (state === "cancelling" ? { kind: "resume" } : { kind: "current" })
+      : (founders ? foundersSubscriptionAction(state, id, current) : null) ?? otherAction(state, id, current),
   }));
 }
 
@@ -81,13 +99,17 @@ export function personalPlanCards(input: {
   readonly planId: string;
   readonly isPro: boolean;
   readonly subscription: (Subscription & { readonly plan: string | null; readonly status?: string }) | null;
+  /** The account owns Founder's Edition (Pro for life, not a subscription). */
+  readonly foundersEdition?: boolean;
   readonly goPlanEnabled: boolean;
 }): PlanCard[] {
   const subscribed = input.subscription ? paidPersonalPlan(input.subscription.plan) ?? paidPersonalPlan(input.planId) : null;
   const current: PickerPlanId = subscribed ?? (input.isPro ? paidPersonalPlan(input.planId) ?? "pro" : "free");
   const showGo = current === "go" || (current === "free" && input.goPlanEnabled);
   const ids: PickerPlanId[] = ["free", ...(showGo ? (["go"] as const) : []), "pro", "max"];
-  return cards(ids, current, personalState(input.subscription, subscribed !== null, current));
+  const founders = input.foundersEdition === true;
+  const state = personalState(input.subscription, subscribed !== null, current);
+  return cards(ids, current, founders && state === "granted" && current === "pro" ? "founders" : state, founders);
 }
 
 function personalState(
