@@ -44,5 +44,6 @@ test("includes Cloud VM prompt templates in traced server output", () => {
   expect(nextConfig.outputFileTracingIncludes?.["/*"]).toEqual([
     "./services/vms/images/devbox/cmux-bashrc",
     "./services/vms/images/devbox/cmux-prompt.bash",
+    "./services/vms/images/devbox/cmux-ghost.bash",
   ]);
 });

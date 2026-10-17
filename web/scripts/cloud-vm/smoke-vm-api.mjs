@@ -14,7 +14,7 @@ import {
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version; a superseded one boots the current default>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");

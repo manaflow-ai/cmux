@@ -48,6 +48,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
+  "cmux-ghost.bash",
   "cmux-devbox-boot",
   "cmux-tui-state-mount",
   "cmux-motd",
@@ -673,8 +674,8 @@ export function devboxIdentityCheckCommand(hostname = DEVBOX_HOSTNAME): string {
 
 /**
  * The bake's identity step, run as root right after the base inventory, before
- * anything records the machine's name (SSH host keys, the ble.sh caches, the
- * daemon, the journal): the static and live hostname (systemd-hostnamed
+ * anything records the machine's name (SSH host keys, the daemon, the
+ * journal): the static and live hostname (systemd-hostnamed
  * activates over D-Bus on demand; an init without it gets the file plus
  * sethostname), the loopback alias, fresh host keys, and the check.
  */

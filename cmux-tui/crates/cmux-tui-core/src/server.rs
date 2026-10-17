@@ -92,6 +92,10 @@ mod image_paste;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
+const ATTACH_OUTPUT_COALESCE_WINDOW: Duration = Duration::from_micros(750);
+/// The longer window for output that stops right after a line erase.
+const ATTACH_OUTPUT_ERASED_LINE_WINDOW: Duration = Duration::from_millis(8);
+const ATTACH_OUTPUT_COALESCE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -14287,24 +14291,34 @@ fn handle_command_with_cancellation(
                     outbound_stream.register_interrupt(&interrupt);
                     attach.lifecycle.register_interrupt(&interrupt);
                     attach.stream.wake_on(&interrupt);
+                    let mut pending_frame: Option<AttachFrame> = None;
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
                     {
-                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
-                            Ok(frame) => frame,
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                attach.lifecycle.cancel();
-                                if writer.is_open() {
-                                    let _ = writer.send_stream_backpressured(
-                                        &json!({"event": "detached", "surface": surface_id}),
-                                        &outbound_stream,
-                                    );
+                        let mut frame = match pending_frame.take() {
+                            Some(frame) => frame,
+                            None => match attach.stream.recv_interruptible(&interrupt, None) {
+                                Ok(frame) => frame,
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    attach.lifecycle.cancel();
+                                    if writer.is_open() {
+                                        let _ = writer.send_stream_backpressured(
+                                            &json!({"event": "detached", "surface": surface_id}),
+                                            &outbound_stream,
+                                        );
+                                    }
+                                    break;
                                 }
-                                break;
-                            }
+                            },
                         };
+                        if matches!(frame, AttachFrame::Output(_)) {
+                            pending_frame =
+                                coalesce_attach_output(&mut frame, Instant::now(), |deadline| {
+                                    attach.stream.recv_interruptible(&interrupt, Some(deadline))
+                                });
+                        }
                         if let Err(error) = writer.send_attach_frame_backpressured(
                             surface_id,
                             &frame,
@@ -14349,6 +14363,81 @@ fn stamped_build_commit() -> Option<&'static str> {
     option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
         .filter(|commit| !commit.is_empty())
+}
+
+/// Appends the output that follows `frame` within the coalesce window, counted
+/// from `start`, and returns the first frame that could not be merged.
+///
+/// `recv` waits for the next frame until the given deadline. Output that ends
+/// with its line erased is the first write of a redraw, so it waits up to the
+/// longer window for the rest rather than paint a blank line on its own, and
+/// is sent as soon as more output arrives.
+fn coalesce_attach_output(
+    frame: &mut AttachFrame,
+    start: Instant,
+    mut recv: impl FnMut(Instant) -> Result<AttachFrame, std::sync::mpsc::RecvTimeoutError>,
+) -> Option<AttachFrame> {
+    let mut deadline = start + ATTACH_OUTPUT_COALESCE_WINDOW;
+    let erased_line_deadline = start + ATTACH_OUTPUT_ERASED_LINE_WINDOW;
+    loop {
+        match recv(deadline) {
+            Ok(next) => {
+                if let Err(next) = try_merge_attach_output(frame, next) {
+                    return Some(next);
+                }
+                if deadline == erased_line_deadline && !attach_output_ends_with_blank_line(frame) {
+                    return None;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                if deadline < erased_line_deadline && attach_output_ends_with_blank_line(frame) =>
+            {
+                deadline = erased_line_deadline;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Whether output stops right after erasing its whole line. Bash's `bind -x`
+/// writes `\r\e[K\r` before running the command and redraws the prompt only
+/// afterwards, so a frame that ends there shows a blank line. An erase after
+/// text on the line (a mid-line edit) leaves the line drawn and does not count.
+fn attach_output_ends_with_blank_line(frame: &AttachFrame) -> bool {
+    let AttachFrame::Output(bytes) = frame else {
+        return false;
+    };
+    let end = bytes.iter().rposition(|&byte| byte != b'\r').map_or(0, |index| index + 1);
+    let bytes = &bytes[..end];
+    bytes.ends_with(b"\x1b[2K")
+        || [b"\r\x1b[K".as_slice(), b"\r\x1b[0K"].iter().any(|erase| bytes.ends_with(erase))
+}
+
+/// Merges a following PTY output chunk without crossing a state transition.
+///
+/// Attach output is normally already coalesced while it is queued. The worker
+/// can pop the first chunk before the producer writes the next one, though, so
+/// the worker uses this bounded merge after the pop as well. Returning `Err`
+/// leaves the caller responsible for preserving `next` as the next frame.
+fn try_merge_attach_output(
+    current: &mut AttachFrame,
+    next: AttachFrame,
+) -> Result<(), AttachFrame> {
+    let AttachFrame::Output(current) = current else {
+        return Err(next);
+    };
+    let mut next = match next {
+        AttachFrame::Output(next) => next,
+        other => return Err(other),
+    };
+    let Some(total) = current.len().checked_add(next.len()) else {
+        return Err(AttachFrame::Output(next));
+    };
+    if total > ATTACH_OUTPUT_COALESCE_MAX_BYTES {
+        return Err(AttachFrame::Output(next));
+    }
+    current.append(&mut next);
+    Ok(())
 }
 
 fn stamped_ghostty_commit() -> Option<&'static str> {
@@ -14558,6 +14647,88 @@ mod tests {
         let mut oversized_line = oversized_payload;
         oversized_line.push('\n');
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
+
+    #[test]
+    fn attach_output_coalescer_merges_only_adjacent_output() {
+        let mut current = AttachFrame::Output(vec![1, 2]);
+        assert!(try_merge_attach_output(&mut current, AttachFrame::Output(vec![3, 4])).is_ok());
+        assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
+
+        let colors = Arc::new(TerminalColors::default());
+        assert!(try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors)).is_err());
+        assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
+
+        let mut oversized = AttachFrame::Output(vec![0; ATTACH_OUTPUT_COALESCE_MAX_BYTES]);
+        assert!(try_merge_attach_output(&mut oversized, AttachFrame::Output(vec![1])).is_err());
+    }
+
+    /// Replays `arrivals` as the attach stream: each entry is the time a frame
+    /// arrives after `start`. Returns the merged frame and every deadline the
+    /// coalescer waited with.
+    fn coalesce_with_arrivals(
+        first: &[u8],
+        arrivals: Vec<(Duration, AttachFrame)>,
+    ) -> (AttachFrame, Option<AttachFrame>, Vec<Duration>) {
+        let start = Instant::now();
+        let mut frame = AttachFrame::Output(first.to_vec());
+        let mut arrivals = VecDeque::from(arrivals);
+        let mut deadlines = Vec::new();
+        let pending = coalesce_attach_output(&mut frame, start, |deadline| {
+            deadlines.push(deadline - start);
+            match arrivals.front() {
+                Some((at, _)) if start + *at <= deadline => Ok(arrivals.pop_front().unwrap().1),
+                _ => Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+            }
+        });
+        (frame, pending, deadlines)
+    }
+
+    #[test]
+    fn attach_output_coalescer_waits_out_a_line_erase() {
+        // Bash's `bind -x` clears the line before the handler's synchronized
+        // redraw starts; a scheduler stall can put that clear alone past the
+        // normal window. The blank line must not be sent as its own frame.
+        let redraw = b"\x1b[?2026h\r$ git status\x1b[?2026l".to_vec();
+        let (frame, pending, deadlines) = coalesce_with_arrivals(
+            b"\r\x1b[K\r",
+            vec![(Duration::from_millis(2), AttachFrame::Output(redraw.clone()))],
+        );
+        assert_eq!(frame, AttachFrame::Output([b"\r\x1b[K\r".as_slice(), &redraw].concat()));
+        assert_eq!(pending, None);
+        // The redraw ends the hold; the frame does not wait out the long window.
+        assert_eq!(
+            deadlines,
+            vec![ATTACH_OUTPUT_COALESCE_WINDOW, ATTACH_OUTPUT_ERASED_LINE_WINDOW]
+        );
+    }
+
+    #[test]
+    fn attach_output_coalescer_does_not_hold_a_mid_line_erase() {
+        // Readline ends a mid-line delete with an erase after the redrawn
+        // text; that line is drawn, so it keeps the short window.
+        let (frame, pending, deadlines) = coalesce_with_arrivals(
+            b"\x08ommit\x1b[K\x1b[6D",
+            vec![(Duration::from_millis(2), AttachFrame::Output(b"x".to_vec()))],
+        );
+        assert_eq!(frame, AttachFrame::Output(b"\x08ommit\x1b[K\x1b[6D".to_vec()));
+        assert_eq!(pending, None);
+        assert_eq!(deadlines, vec![ATTACH_OUTPUT_COALESCE_WINDOW]);
+
+        let (_, _, deadlines) = coalesce_with_arrivals(b"git\x1b[K", Vec::new());
+        assert_eq!(deadlines, vec![ATTACH_OUTPUT_COALESCE_WINDOW]);
+    }
+
+    #[test]
+    fn attach_output_coalescer_does_not_hold_ordinary_output() {
+        // Echoed text gets only the short window (at most 750 us added).
+        let (frame, pending, deadlines) = coalesce_with_arrivals(
+            b"g",
+            vec![(Duration::from_millis(2), AttachFrame::Output(b"it".to_vec()))],
+        );
+        assert_eq!(frame, AttachFrame::Output(b"g".to_vec()));
+        assert_eq!(pending, None);
+        assert_eq!(deadlines, vec![ATTACH_OUTPUT_COALESCE_WINDOW]);
     }
 
     struct TestSocketDir(PathBuf);

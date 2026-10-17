@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { guestPromptInstallCommand, vmPromptIdentity } from "../services/vms/guestPrompt";
+import { guestPromptInstallCommand, guestPromptInstallFiles, vmPromptIdentity } from "../services/vms/guestPrompt";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -61,38 +61,21 @@ describe("Cloud Bash prompt", () => {
     const digest = (name: string) => createHash("sha256")
       .update(readFileSync(path.join(directory, name), "utf8").replaceAll(directory, "/etc/cmux"))
       .digest("hex");
-    expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
-      bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
+    expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash"), ghost: digest("ghost.bash") }).toEqual({
+      bashrc: "af65abc0c445b03b4ee670ad28ba638d336317fcfb9a537e1977d447438d254c",
       prompt: "af6c2d4797c6c6e4ff3ec617b2bfceda66a3efa847d8c5511d6662a3656c8dde",
+      ghost: "3bf5254193eb089cae547d137ed6ba861633e51fa3c06b4a7eec5e3152f758ba",
     });
   });
 
-  test("attaches the line editor after user Bash settings have loaded", async () => {
+  test("installs ghost.bash before the bashrc that sources it", async () => {
+    // A shell that starts while an attach rewrites these files must never
+    // find a bashrc naming a ghost.bash that is not there yet.
+    expect(Object.keys(guestPromptInstallFiles)).toEqual(["ghost.bash", "prompt.bash", "bashrc"]);
     const directory = fixture();
     await install(directory, "brave-blue-otter", 100);
-    const library = path.join(directory, "blesh");
-    mkdirSync(library);
-    // The editor captures PS1 when it attaches. Its prompt-time mode defers
-    // that capture until the rest of the user's startup file has run.
-    writeFileSync(path.join(library, "ble.sh"), `
-      BLE_VERSION=fixture
-      bleopt() { :; }
-      ble-face() { :; }
-      ble-bind() { :; }
-      ble-attach() { printf '%s' "$PS1" > "$HOME/captured-prompt"; }
-      [[ \${1-} == --noattach ]] || PROMPT_COMMAND+=(ble-attach)
-    `);
-    const rcPath = path.join(directory, "bashrc");
-    writeFileSync(rcPath, readFileSync(rcPath, "utf8").replaceAll("/usr/local/share/blesh", library));
-    const result = await runChild("bash", ["--noprofile", "--norc", "-ic", `
-      . '${rcPath}'
-      PS1='custom> '
-      for command in "\${PROMPT_COMMAND[@]}"; do eval "$command"; done
-    `], {
-      env: { NODE_ENV: "test", PATH: process.env.PATH!, HOME: directory, USER: "cmux", TERM: "dumb" },
-    });
-    expect(result.status).toBe(0);
-    expect(readFileSync(path.join(directory, "captured-prompt"), "utf8")).toBe("custom> ");
+    expect(readFileSync(path.join(directory, "bashrc"), "utf8")).toContain(`. ${directory}/ghost.bash`);
+    expect(existsSync(path.join(directory, "ghost.bash"))).toBe(true);
   });
 
   test("uses the generated slug, then a shell-safe renamed label", () => {
@@ -186,8 +169,9 @@ def until(marker):
     while marker not in output:
         if time.monotonic() > deadline: raise AssertionError(repr(output))
         if select.select([master], [], [], 0.1)[0]:
-            # The prompt hook reports the cwd (OSC 7) right before each prompt.
-            output = re.sub(rb"\x1b\]7;[^\x07]*\x07", b"", output + os.read(master, 65536))
+            # The prompt hook reports the cwd (OSC 7) right before each prompt,
+            # and ghost.bash wraps each redraw in a synchronized update.
+            output = re.sub(rb"\x1b\]7;[^\x07]*\x07|\x1b\[\?2026[hl]", b"", output + os.read(master, 65536))
 try:
     until(b"@brave-blue-otter")
     (root / "vm-name").write_text("renamed-box\n")

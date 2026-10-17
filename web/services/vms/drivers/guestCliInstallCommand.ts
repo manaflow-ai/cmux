@@ -22,6 +22,7 @@ const installPaths = [
   ...GUEST_BROWSER_FILES.map(({ path }) => path),
   ...GUEST_CLIPBOARD_FILES.map(({ path }) => path),
   "/etc/cmux/browser-opener-version",
+  "/etc/cmux/ghost.bash",
   "/etc/cmux/prompt.bash",
   "/etc/cmux/bashrc",
   "/etc/cmux/.prompt-identity",

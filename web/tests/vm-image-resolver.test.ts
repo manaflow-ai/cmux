@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   findVmImageKindDefault,
+  listVmImageManifestEntries,
   listVmImageKindDefaults,
   reportVmImageConfigError,
   inferVmProviderForImage,
@@ -243,20 +244,54 @@ describe("VM image resolver: request by kind", () => {
       image: ladder.lg,
       kind: "desktop",
     });
-    // The pre-ladder shared desktop devbox behaves the same way.
-    expect(resolveVmImage("freestyle", legacyDesktopSnapshot, deployed, { kind: "base" })).toMatchObject({
+    // The pre-ladder shared desktop devbox resolves by the requested kind too,
+    // and like every superseded image it now boots that kind's current image.
+    expect(resolveVmImage("freestyle", legacyDesktopSnapshot, deployed, { kind: "base", exactImage: true })).toMatchObject({
       imageVersion: `${legacyDesktopVersion}-base`,
       kind: "base",
       size: null,
     });
-    expect(resolveVmImage("freestyle", legacyDesktopVersion, deployed, { kind: "desktop" })).toMatchObject({
+    expect(resolveVmImage("freestyle", legacyDesktopVersion, deployed, { kind: "desktop", exactImage: true })).toMatchObject({
       image: legacyDesktopSnapshot,
       kind: "desktop",
     });
+    expect(resolveVmImage("freestyle", legacyDesktopSnapshot, deployed, { kind: "base" }).image).toBe(baseLadder.sm);
+    expect(resolveVmImage("freestyle", legacyDesktopVersion, deployed, { kind: "desktop" }).image).toBe(ladder.sm);
     // Without a kind the first listing wins, and a stored image id reads as desktop.
     expect(vmImageKindFor("freestyle", ladder.sm)).toBe("desktop");
     expect(vmImageKindFor("freestyle", baseLadder.sm)).toBe("desktop");
     expect(vmImageKindFor("freestyle", legacyDesktopSnapshot)).toBe("desktop");
+  });
+
+  test("an older manifest image boots the current image of its kind and size", () => {
+    // A promotion keeps earlier entries listed, and clients, scripts and saved
+    // settings keep sending their ids; none of them may boot old guest software.
+    const superseded = listVmImageManifestEntries().filter((entry) =>
+      entry.provider === "freestyle" && entry.defaultForKind !== true && entry.restricted !== true &&
+      entry.size !== undefined && (entry.kind === "desktop" || entry.kind === "base") &&
+      ladderDefaults[entry.kind][entry.size.name] !== undefined
+    );
+    expect(superseded.length).toBeGreaterThan(0);
+    for (const entry of superseded) {
+      const current = ladderDefaults[entry.kind as VmImageKind][entry.size!.name]!;
+      // By id or version, with or without a kind, and whatever the plan's memory.
+      for (const requested of [entry.imageId, entry.version]) {
+        expect(resolveVmImage("freestyle", requested, deployed, { kind: entry.kind, memoryMb: 65536 })).toMatchObject({
+          image: current.imageId,
+          imageVersion: current.version,
+          size: vmImageSize(entry.size!.name),
+        });
+      }
+      // A script measuring one specific image can still pin it.
+      expect(resolveVmImage("freestyle", entry.imageId, deployed, { kind: entry.kind, exactImage: true }).image).toBe(entry.imageId);
+    }
+    // A size-less (pre-ladder) image gets the plan's size.
+    expect(resolveVmImage("freestyle", legacySnapshot, deployed, { kind: "base", memoryMb: vmImageSize("lg").memoryMb })).toMatchObject({
+      image: baseLadder.lg,
+      size: vmImageSize("lg"),
+    });
+    // A current default is served as requested.
+    expect(resolveVmImage("freestyle", ladder.md, deployed, { kind: "desktop", memoryMb: 65536 }).image).toBe(ladder.md);
   });
 
   test("rejects unknown kinds with an actionable error", () => {
