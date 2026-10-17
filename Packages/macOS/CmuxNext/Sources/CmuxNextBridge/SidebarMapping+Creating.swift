@@ -33,19 +33,19 @@ extension SidebarMapping {
     /// The prefix of the daemon's default workspace names.
     public static let defaultNamePrefix = "workspace-"
 
-    /// The names `defaultWorkspaceName` reads from `store`: every listed
-    /// workspace but the home workspace.
-    @MainActor public static func defaultNameInputs(_ store: DaemonStore) -> [String] {
-        store.workspaces.filter { $0.kind != homeKind }.map(\.name)
+    /// `defaultWorkspaceName` for the machine of `store`: its listed
+    /// workspaces but the home workspace.
+    @MainActor public static func nextWorkspaceName(in store: DaemonStore, reserved: [String]) -> String {
+        defaultWorkspaceName(existing: store.workspaces.filter { $0.kind != homeKind }.map(\.name), reserved: reserved)
     }
 
-    /// The row of workspace `id` on `machine` while it is created: titled
-    /// `title`, with `cwd` as its folder line, shortened as the live row
-    /// shortens it (this Mac's home on the local machine, the remote home
-    /// elsewhere).
-    public func creatingRow(id: String, machine: MachineID, title: String, cwd: String?) -> SidebarWorkspace {
-        let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
-        return SidebarWorkspace(id: SidebarWorkspaceID(id), machineID: machine, title: title,
-                                directory: cwd.map(shorten), rowState: .creating)
+    /// The row of workspace `id` on `machine` while it is created, as the
+    /// window first lists it: titled `title`, with no folder line yet (the
+    /// daemon lists a new workspace before its first tab reports a folder),
+    /// an agent row when it opens on the New Tab page (`opensPage`, its first
+    /// tab a conversation), else a terminal row.
+    public func creatingRow(id: String, machine: MachineID, title: String, opensPage: Bool) -> SidebarWorkspace {
+        SidebarWorkspace(id: SidebarWorkspaceID(id), machineID: machine, title: title, rowKind: opensPage ? .agent : .terminal,
+                         kind: opensPage ? .harness : .terminal, rowState: .creating)
     }
 }

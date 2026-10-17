@@ -18,23 +18,29 @@ final class PendingWorkspaceRows {
         let id: String
         let window: String
         let machine: MachineID
-        /// The name the create sends (`face.title`).
-        let name: String
-        /// The row as the window lists it once the daemon has created it.
+        /// The row as the window lists it once the daemon has created it; its title is the name the create sends.
         let face: SidebarWorkspace
         let slot: WorkspaceSlot?
         let byDefault: NewWorkspaceDefaultSlot?
     }
 
     private(set) var rows: [Row] = []
+    /// The names given to creates in flight, by create key, until the create replies or fails (not when the row goes).
+    @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
 
-    func add(_ row: Row) { rows.append(row) }
+    func add(_ row: Row) {
+        rows.append(row)
+        names[row.id] = (row.machine, row.face.title)
+    }
 
     func remove(_ id: String) { rows.removeAll { $0.id == id } }
 
-    /// The names given to `machine`'s creates the daemon has not listed yet.
+    /// The create `id` replied or failed: its name is the daemon's to count now.
+    func release(_ id: String) { names[id] = nil }
+
+    /// The names given to `machine`'s creates in flight.
     func reservedNames(on machine: MachineID) -> [String] {
-        rows.filter { $0.machine == machine }.map(\.name)
+        names.values.filter { $0.machine == machine }.map(\.name)
     }
 
     /// Forgets the rows of `window` that it lists now (`listed`: its own row

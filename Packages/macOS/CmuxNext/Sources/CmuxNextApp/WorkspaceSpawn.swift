@@ -145,15 +145,18 @@ struct WorkspaceSpawner {
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        var named = self
-        named.spawn.name = spawn.name ?? SidebarMapping.defaultWorkspaceName(
-            existing: SidebarMapping.defaultNameInputs(daemon.store), reserved: PendingWorkspaceRows.shared.reservedNames(on: machine))
-        let name = named.spawn.name ?? ""
-        if let windowID {
-            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, title: name, cwd: cwd(in: room))
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, name: name, face: face,
+        // Only a create with a row names itself here; another keeps the daemon's own numbering.
+        let name = spawn.name ?? windowID.map { _ in
+            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine))
+        }
+        let named = renamed(name)
+        if let windowID, let name {
+            let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
+            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, title: name, opensPage: opensPage)
+            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule))
         }
+        defer { PendingWorkspaceRows.shared.release(key.rawValue) }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         do {
             return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
@@ -174,14 +177,10 @@ struct WorkspaceSpawner {
         windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
     }
 
-    /// The room the workspace is born in (its window's, or the one asked for).
-    private var room: ProfileModel? { windows.services.machines.local.store.profile(spawn.profile ?? profile) }
-
-    /// The folder the first terminal starts in: the one asked for, else the
-    /// room's default (local machine only), else the machine's.
-    private func cwd(in room: ProfileModel?) -> String? {
-        let defaults = daemon.isLocal ? room?.defaults : nil
-        return spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+    private func renamed(_ name: String?) -> Self {
+        var copy = self
+        copy.spawn.name = name
+        return copy
     }
 
     private func create(_ key: WorkspaceKey, rule: NewWorkspaceDefaultSlot?) async throws -> String {
@@ -196,7 +195,7 @@ struct WorkspaceSpawner {
         // snapshot shows it in another room; its first terminal gets the
         // room's terminal defaults (data-model.md 3.2, 3.3).
         let home = services.machines.local
-        let room = self.room
+        let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
         }
@@ -214,7 +213,7 @@ struct WorkspaceSpawner {
         let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = cwd(in: room)
+        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in

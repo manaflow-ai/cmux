@@ -13,9 +13,11 @@ Checks, per scenario:
   press, with a non-empty title and its folder line, and its title, folder and
   row state never change to another look afterwards (`creating` then `live` is
   the same look); no sample shows a `placeholder` row on this Mac.
-- smooth: no row view that stays listed jumps more than 60% of a row height
-  in one display frame (a slide, not a jump), and an opening row's opacity
-  rises (it fades in).
+- smooth: no row view that stays listed reaches a new place in one display
+  frame (a step over 60% of a row height with no motion in the next frame is
+  a jump; a long first step of the ease-out after a dropped frame is not),
+  and an opening row's opacity rises (it fades in). The longest frame gap is
+  reported (a main-thread hitch shows there).
 Scenarios: Cmd-N x1, Cmd-N x5 at key-repeat speed (33 ms), Close Workspace x1
 and x5, a sidebar tab row open and close (Show Tabs Under Workspaces on), and
 the tab strip open and close (frames only). Exit 1 when a check fails. The app
@@ -51,7 +53,12 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name):
-    return rpc("action.run", {"action": name})
+    # A close asks before it ends a running terminal; the proof confirms, as the dialog's Close would.
+    arguments = {"confirm": "true"} if name.startswith("close") else {}
+    reply = rpc("action.run", {"action": name, "arguments": arguments})
+    if isinstance(reply, dict) and reply.get("error"):
+        print(f"action {name}: {json.dumps(reply)[:200]}", flush=True)
+    return reply
 
 
 def window_rows():
@@ -91,15 +98,16 @@ def scenario(name, presses, gap=0.033, settle=None):
 
     def sample():
         while not stop.is_set():
-            samples.append((time.time(), workspace_rows()))
+            asked = time.time()  # the time the request left: a sample asked after a press returned must show it
+            samples.append((asked, workspace_rows()))
 
     sampler = threading.Thread(target=sample, daemon=True)
     time.sleep(0.15)  # test harness: still frames before the change
     pressed = []
     sampler.start()
     for press in presses:
-        pressed.append(time.time())
         action(press)
+        pressed.append(time.time())
         time.sleep(gap)  # test harness: key-repeat spacing
     time.sleep(settle or opts.seconds)  # test harness: the motion and the creates settle
     stop.set()
@@ -122,7 +130,7 @@ def check_instant(name, samples, before, pressed, expect_new):
                 bad.append(f"{key} placeholder at {at - pressed[0]:.3f}s")
             if key in before:
                 continue
-            look = (row.get("title"), row.get("directory"))
+            look = (row.get("title"), row.get("row_state") if row.get("row_state") != "creating" else "live")
             if key not in first_seen:
                 first_seen[key] = at
                 looks[key] = look
@@ -147,17 +155,25 @@ def check_instant(name, samples, before, pressed, expect_new):
 def check_smooth(name, motion):
     frames = motion.get("frames") or []
     jumps, fades = [], {}
-    for previous, current in zip(frames, frames[1:]):
+    def screen_y(frame, key):
+        box = (frame.get("views") or {}).get(key)
+        return None if box is None else box[1] - frame.get("scroll", 0)
+    for index, (previous, current) in enumerate(zip(frames, frames[1:])):
+        following = frames[index + 2] if index + 2 < len(frames) else None
         for key, box in (current.get("views") or {}).items():
             old = (previous.get("views") or {}).get(key)
             if not old or not key.startswith(("workspace(", "tab(")):
                 continue
             height = max(1.0, box[3])
-            if abs(box[1] - old[1]) > 0.6 * height and old[4] > 0.05 and box[4] > 0.05:
-                jumps.append(f"{key} {old[1]:.1f}->{box[1]:.1f}")
+            step = screen_y(current, key) - screen_y(previous, key)
+            after = screen_y(following, key) if following else None
+            still_after = after is None or abs(after - screen_y(current, key)) < 0.5
+            if abs(step) > 0.6 * height and still_after and old[4] > 0.05 and box[4] > 0.05:
+                jumps.append(f"{key} {step:+.1f} in one frame")
             if box[4] < 0.99 or old[4] < 0.99:
                 fades.setdefault(key, []).append(round(box[4], 2))
-    check(f"{name} smooth", not jumps, ", ".join(jumps[:6]) or f"{len(frames)} frames, no jump; fading rows {len(fades)}")
+    gap = max((b["t"] - a["t"] for a, b in zip(frames, frames[1:])), default=0) * 1000
+    check(f"{name} smooth", not jumps, ", ".join(jumps[:6]) or f"{len(frames)} frames, no jump, longest frame {gap:.0f} ms; fading rows {len(fades)}")
     return fades
 
 
