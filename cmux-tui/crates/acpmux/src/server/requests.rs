@@ -11,10 +11,19 @@ mod presets;
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
-    if conn.subscribe(id)
-        && let Ok(s) = hub.resolve(id)
-    {
-        hub.attach_count(&s, 1, true);
+    let resolved = hub.resolve(id).ok();
+    if conn.subscribe(id) {
+        if let Some(s) = &resolved {
+            hub.attach_count(s, 1, true);
+        }
+    }
+    if let Some(s) = resolved {
+        conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
+            crate::session_identity::LOCAL_HOST_ID,
+            s.id.clone(),
+            s.meta().agent_session_id,
+            hub.started_at,
+        ));
     }
 }
 
