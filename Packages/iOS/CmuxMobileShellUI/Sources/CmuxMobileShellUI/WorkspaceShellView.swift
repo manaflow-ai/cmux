@@ -85,6 +85,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    let openChief: (() -> Void)? = nil
     let title: String
     let isLoading: Bool
     let selection: WorkspaceMacSelection
@@ -160,6 +161,15 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+        if let openChief {
+            ToolbarItem(id: "workspace-list-chief", placement: .topBarTrailing) {
+                Button(action: openChief) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                }
+                .accessibilityLabel("Chief")
+                .accessibilityIdentifier("MobileWorkspaceChiefButton")
+            }
+        }
     }
 }
 
@@ -168,6 +178,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
+    let openChief: (() -> Void)? = nil
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
@@ -177,6 +188,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
         WorkspaceRootToolbarContent(
             openSettings: openSettings,
             openDevices: openDevices,
+            openChief: openChief,
             title: renderContext.title,
             isLoading: pendingSelection != nil,
             selection: pendingSelection ?? renderContext.visibleSelection,
@@ -230,6 +242,7 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var showsChiefSheet = false
     /// One-time What's New notice: the unseen-page snapshot captured when the
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
@@ -355,6 +368,17 @@ struct WorkspaceShellView: View {
                     : geometry.size.width
             )
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .sheet(isPresented: $showsChiefSheet) {
+                if let client = store.makeChiefClient() {
+                    ChiefHomeView(client: client)
+                } else {
+                    ContentUnavailableView(
+                        "Chief unavailable",
+                        systemImage: "bubble.left.and.bubble.right",
+                        description: Text("Connect to a Mac that supports Chief.")
+                    )
+                }
+            }
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(
                     isPresented ? .searchPresented : .searchDismissed,
@@ -1401,6 +1425,7 @@ struct WorkspaceShellView: View {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
             openDevices: showComputers,
+            openChief: store.supportsChief ? { showsChiefSheet = true } : nil,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
