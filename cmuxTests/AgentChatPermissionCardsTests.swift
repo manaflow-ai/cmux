@@ -101,7 +101,7 @@ struct AgentChatPermissionCardsTests {
             if case .updated = $0.event { return true }
             return false
         }
-        #expect(updated.count == 1)
+        #expect(updated.count == 2)
     }
 
     @MainActor
@@ -122,7 +122,7 @@ struct AgentChatPermissionCardsTests {
         service.noteHookEvent(WorkstreamEvent(
             sessionId: sessionID,
             hookEventName: .permissionRequest,
-            source: "codex",
+            source: "claude",
             surfaceId: surfaceID,
             toolName: "Write",
             toolInputJSON: #"{"file_path":"/tmp/a"}"#,
