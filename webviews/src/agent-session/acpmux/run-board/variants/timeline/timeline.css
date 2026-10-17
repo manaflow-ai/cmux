@@ -76,7 +76,7 @@
 .timeline-events::before { content: ""; position: absolute; top: 10px; bottom: 14px; left: 10px; width: 1px; background: var(--timeline-line); }
 .timeline-event { position: relative; display: grid; grid-template-columns: 21px 1fr; gap: 12px; padding: 0 0 19px; }
 .timeline-event:last-child { padding-bottom: 4px; }
-.timeline-event-marker { z-index: 1; display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--page-separator); border-radius: 50%; background: var(--cmux-surface-background, Canvas); color: var(--page-text-3); font-size: 13px; }
+.timeline-event-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--page-separator); border-radius: 50%; background: var(--cmux-surface-background, Canvas); color: var(--page-text-3); font-size: 13px; }
 .timeline-event-marker-prompt { color: var(--page-text); }
 .timeline-event-marker-tool { color: var(--timeline-ok); }
 .timeline-event-body { min-width: 0; padding: 1px 0 0; }
