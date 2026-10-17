@@ -5,7 +5,11 @@ use super::driver::Inner;
 use super::keys::{implied_text, modifier_bits, mouse_button, virtual_key_code};
 use crate::protocol::{DriverError, required_str, timeout_of};
 use serde_json::{Value, json};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// At most this long for the page's touch probe before a press (a busy page
+/// answers later; then the press goes as mouse, as before cx-3ny35).
+const TOUCH_PROBE_WAIT: Duration = Duration::from_secs(2);
 
 impl Inner {
     pub(super) fn mouse(&self, params: &Value) -> Result<Value, DriverError> {
@@ -33,7 +37,7 @@ impl Inner {
         };
         // The tab keeps CSS px (`tab.mouse`); Chromium gets view points.
         let (x, y) = self.input_point((x, y));
-        if kind != "wheel" && self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed) {
+        if kind != "wheel" && self.touch_input(&session, kind, deadline) {
             return self.touch(&session, kind, (x, y), buttons, modifiers, deadline);
         }
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
@@ -66,6 +70,39 @@ impl Inner {
         }
         self.send_until(&session, "Input.dispatchMouseEvent", event, deadline)?;
         Ok(Value::Null)
+    }
+
+    /// Whether this pointer event goes as touch: the app announced touch
+    /// emulation, or (DevTools device mode, which the app is not told about)
+    /// the page reports touch points at the press. A press decides for its
+    /// moves and its release; a hover move between presses follows the last one.
+    fn touch_input(&self, session: &super::driver::Session, kind: &str, deadline: Instant) -> bool {
+        let announced = self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed);
+        if kind != "down" {
+            return announced
+                || self.lock().tabs.get(&session.target_id).is_some_and(|tab| tab.touch_press);
+        }
+        let touch = announced || self.page_has_touch(session, deadline);
+        if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
+            tab.touch_press = touch;
+        }
+        touch
+    }
+
+    /// `navigator.maxTouchPoints` above 0: Chromium's touch emulation is on
+    /// (whoever set it). Any error reads as no touch, the mouse path.
+    fn page_has_touch(&self, session: &super::driver::Session, deadline: Instant) -> bool {
+        let wait = deadline.saturating_duration_since(Instant::now()).min(TOUCH_PROBE_WAIT);
+        self.conn
+            .call(
+                Some(&session.session_id),
+                "Runtime.evaluate",
+                json!({"expression": "navigator.maxTouchPoints", "returnByValue": true}),
+                wait,
+            )
+            .ok()
+            .and_then(|reply| reply["result"]["value"].as_i64())
+            .is_some_and(|points| points > 0)
     }
 
     /// Pointer input on a touch-emulating tab (cx-3ny35): a press is a
@@ -191,7 +228,10 @@ impl Inner {
             });
             self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
         }
-        if buttons != 0 && self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed) {
+        let touch_press = self.lock().tabs.get(target_id).is_some_and(|tab| tab.touch_press);
+        if buttons != 0
+            && (touch_press || self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed))
+        {
             let event = json!({"type": "touchCancel", "touchPoints": []});
             self.send_until(&session, "Input.dispatchTouchEvent", event, deadline)?;
             return Ok(());

@@ -78,6 +78,8 @@ pub struct TabState {
     pub failed_loaders: std::collections::VecDeque<String>,
     pub last_nav_same_document: bool,
     pub buttons: i64,
+    /// The held press went as touch (a touch-emulating page, cx-3ny35): its moves and release follow.
+    pub touch_press: bool,
     /// Keys pressed and not released, oldest first: (key, code, location).
     /// Released when the last session leaves the tab.
     pub held_keys: Vec<(String, String, i64)>,
@@ -163,6 +165,7 @@ impl TabState {
             failed_loaders: std::collections::VecDeque::new(),
             last_nav_same_document: false,
             buttons: 0,
+            touch_press: false,
             held_keys: Vec::new(),
             overrides: None,
             context: None,
