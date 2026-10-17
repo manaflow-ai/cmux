@@ -69,7 +69,14 @@ final class AgentChatModeModel {
     private var sessionTasks: [String: Task<Void, Never>] = [:]
     private var historyCursors: [String: Int] = [:]
     private var historyHasMore: [String: Bool] = [:]
+    private var transcriptRevisions: [String: Int] = [:]
+    private var historyResetTokens: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
+    /// Answer cards can remain visually pending until the host republishes the
+    /// resolved transcript message. Keep a local guard so a double tap cannot
+    /// submit the same decision twice during that window.
+    private var answeringRequestKeys: Set<String> = []
+    private var answeredRequestKeysBySession: [String: Set<String>] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
 
@@ -146,8 +153,13 @@ final class AgentChatModeModel {
         attachments = []
         historyCursors = [:]
         historyHasMore = [:]
+        transcriptRevisions = [:]
+        historyResetTokens = [:]
         pendingSendsBySession = [:]
+        answeringRequestKeys = []
+        answeredRequestKeysBySession = [:]
         removedSessionVersions = [:]
+        loadingSessionIDs = []
         sendingSessionIDs = []
         interruptingSessionIDs = []
         guard let next else { return }
@@ -159,6 +171,16 @@ final class AgentChatModeModel {
     func refresh() async {
         guard let source else { return }
         let generation = sourceGeneration
+        // Host streams finish when the transport closes. Re-open the stream
+        // as part of an explicit refresh so a recovered connection resumes
+        // receiving live session updates.
+        if connectionState == .reconnecting {
+            sourceTask?.cancel()
+            connectionState = .connecting
+            sourceTask = Task { [weak self] in
+                await self?.observeHostEvents(source: source, generation: generation)
+            }
+        }
         await loadSessions(source: source, generation: generation)
         guard !Task.isCancelled, generation == sourceGeneration else { return }
         if let selectedSessionID {
@@ -307,11 +329,25 @@ final class AgentChatModeModel {
         }
     }
 
-    func answer(optionIndex: Int) async {
+    func answer(optionIndex: Int, requestID: String? = nil) async {
         guard let selectedSessionID, let source else { return }
+        let requestKey = selectedSessionID + ":" + (requestID ?? "__default__")
+        guard !answeringRequestKeys.contains(requestKey),
+              !answeredRequestKeysBySession[selectedSessionID, default: []].contains(requestKey)
+        else { return }
+        answeringRequestKeys.insert(requestKey)
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                answeringRequestKeys.remove(requestKey)
+            }
+        }
         do {
             try await source.answer(optionIndex: optionIndex, sessionID: selectedSessionID)
+            guard generation == sourceGeneration else { return }
+            answeredRequestKeysBySession[selectedSessionID, default: []].insert(requestKey)
         } catch {
+            guard generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -321,6 +357,11 @@ final class AgentChatModeModel {
     private func loadAndObserve(source: any AgentChatSessionSource, generation: Int) async {
         guard !Task.isCancelled, generation == sourceGeneration else { return }
         await loadSessions(source: source, generation: generation)
+        guard !Task.isCancelled, generation == sourceGeneration else { return }
+        await observeHostEvents(source: source, generation: generation)
+    }
+
+    private func observeHostEvents(source: any AgentChatSessionSource, generation: Int) async {
         guard !Task.isCancelled, generation == sourceGeneration else { return }
         let stream = await source.sessionEvents()
         guard !Task.isCancelled, generation == sourceGeneration else { return }
@@ -344,10 +385,26 @@ final class AgentChatModeModel {
             let loaded = try await source.sessions(workspaceID: nil)
             guard !Task.isCancelled,
                   generation.map({ $0 == sourceGeneration }) ?? true else { return }
-            sessions = loaded.sorted(by: Self.sortSessions)
-            for descriptor in loaded {
-                removedSessionVersions.removeValue(forKey: descriptor.id)
+            let currentByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+            let reconciled = loaded.filter { descriptor in
+                if let removedVersion = removedSessionVersions[descriptor.id],
+                   descriptor.version <= removedVersion {
+                    return false
+                }
+                // A snapshot can have started before a newer live descriptor
+                // event arrived. Keep the newer in-memory value in that case.
+                if let current = currentByID[descriptor.id], current.version > descriptor.version {
+                    return false
+                }
+                return true
             }
+            for descriptor in reconciled {
+                if let removedVersion = removedSessionVersions[descriptor.id],
+                   descriptor.version > removedVersion {
+                    removedSessionVersions.removeValue(forKey: descriptor.id)
+                }
+            }
+            sessions = reconciled.sorted(by: Self.sortSessions)
             if selectedSessionID == nil, let first = sessions.first {
                 select(first)
             } else if let selectedSessionID,
@@ -378,25 +435,57 @@ final class AgentChatModeModel {
         loadingSessionIDs.insert(sessionID)
         defer { loadingSessionIDs.remove(sessionID) }
         do {
-            let before = reset ? nil : historyCursors[sessionID]
-            let page = try await source.history(sessionID: sessionID, beforeSeq: before, limit: 80)
-            guard !Task.isCancelled,
-                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
-            if reset {
-                messagesBySession[sessionID] = page.messages
-                terminalBlocksBySession[sessionID] = page.terminalBlocks ?? []
-            } else {
-                let current = messagesBySession[sessionID] ?? []
-                let ids = Set(current.map(\.id))
-                messagesBySession[sessionID] = page.messages.filter { !ids.contains($0.id) } + current
-                if let blocks = page.terminalBlocks {
-                    let currentBlocks = terminalBlocksBySession[sessionID] ?? []
-                    let ids = Set(currentBlocks.map(\.id))
-                    terminalBlocksBySession[sessionID] = blocks.filter { !ids.contains($0.id) } + currentBlocks
+            var resetRequest = reset
+            while true {
+                let before = resetRequest ? nil : historyCursors[sessionID]
+                let revisionAtStart = transcriptRevisions[sessionID, default: 0]
+                let resetTokenAtStart = historyResetTokens[sessionID, default: 0]
+                let page = try await source.history(sessionID: sessionID, beforeSeq: before, limit: 80)
+                guard !Task.isCancelled,
+                      generation.map({ $0 == sourceGeneration }) ?? true else { return }
+                // A removal can race this RPC. The session's transcript was
+                // purged in that case, so do not retry the request or restore
+                // state for a session that is no longer in the live list.
+                guard sessions.contains(where: { $0.id == sessionID }) else { return }
+
+                // A reset can arrive while this RPC is in flight. Re-anchor
+                // the request to the new sequence space instead of applying a
+                // page from the old transcript over the reset state.
+                if resetTokenAtStart != historyResetTokens[sessionID, default: 0] {
+                    resetRequest = true
+                    continue
                 }
+
+                if resetRequest {
+                    let current = messagesBySession[sessionID] ?? []
+                    if revisionAtStart != transcriptRevisions[sessionID, default: 0] {
+                        // Live events delivered during the RPC win over stale
+                        // duplicate values from the history response.
+                        messagesBySession[sessionID] = mergeMessages(page.messages, current)
+                        terminalBlocksBySession[sessionID] = mergeTerminalBlocks(
+                            page.terminalBlocks ?? [],
+                            terminalBlocksBySession[sessionID] ?? []
+                        )
+                    } else {
+                        messagesBySession[sessionID] = page.messages
+                        terminalBlocksBySession[sessionID] = page.terminalBlocks ?? []
+                    }
+                } else {
+                    messagesBySession[sessionID] = mergeMessages(
+                        page.messages,
+                        messagesBySession[sessionID] ?? []
+                    )
+                    if let blocks = page.terminalBlocks {
+                        terminalBlocksBySession[sessionID] = mergeTerminalBlocks(
+                            blocks,
+                            terminalBlocksBySession[sessionID] ?? []
+                        )
+                    }
+                }
+                historyCursors[sessionID] = page.messages.first?.seq
+                historyHasMore[sessionID] = page.hasMore
+                break
             }
-            historyCursors[sessionID] = page.messages.first?.seq
-            historyHasMore[sessionID] = page.hasMore
         } catch is CancellationError {
             return
         } catch {
@@ -451,7 +540,11 @@ final class AgentChatModeModel {
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
+            transcriptRevisions[sessionID] = nil
+            historyResetTokens[sessionID] = nil
             pendingSendsBySession[sessionID] = nil
+            answeredRequestKeysBySession[sessionID] = nil
+            answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
             if selectedSessionID == sessionID {
@@ -463,6 +556,7 @@ final class AgentChatModeModel {
             }
         case .terminalBlocks:
             if case .terminalBlocks(let blocks) = event {
+                transcriptRevisions[sessionID, default: 0] &+= 1
                 var byID = Dictionary(
                     uniqueKeysWithValues: (terminalBlocksBySession[sessionID] ?? []).map { ($0.id, $0) }
                 )
@@ -470,17 +564,31 @@ final class AgentChatModeModel {
                 terminalBlocksBySession[sessionID] = byID.values.sorted { $0.id < $1.id }
             }
         case .reset:
+            transcriptRevisions[sessionID, default: 0] &+= 1
+            historyResetTokens[sessionID, default: 0] &+= 1
             messagesBySession[sessionID] = []
             terminalBlocksBySession[sessionID] = []
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
+            if selectedSessionID == sessionID, let source {
+                let generation = sourceGeneration
+                Task { [weak self] in
+                    await self?.loadHistory(
+                        sessionID: sessionID,
+                        source: source,
+                        reset: true,
+                        generation: generation
+                    )
+                }
+            }
         case .unknown:
             break
         }
     }
 
     private func upsertMessages(_ messages: [ChatMessage], sessionID: String) {
+        transcriptRevisions[sessionID, default: 0] &+= 1
         var current = messagesBySession[sessionID] ?? []
         var byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
         for message in messages { byID[message.id] = message }
@@ -537,6 +645,21 @@ final class AgentChatModeModel {
     private static func sortSessions(_ lhs: ChatSessionDescriptor, _ rhs: ChatSessionDescriptor) -> Bool {
         if lhs.state.needsAttention != rhs.state.needsAttention { return lhs.state.needsAttention }
         return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+    }
+
+    private func mergeMessages(_ page: [ChatMessage], _ current: [ChatMessage]) -> [ChatMessage] {
+        var byID = Dictionary(uniqueKeysWithValues: page.map { ($0.id, $0) })
+        for message in current { byID[message.id] = message }
+        return byID.values.sorted { $0.seq < $1.seq }
+    }
+
+    private func mergeTerminalBlocks(
+        _ page: [TerminalCommandBlock],
+        _ current: [TerminalCommandBlock]
+    ) -> [TerminalCommandBlock] {
+        var byID = Dictionary(uniqueKeysWithValues: page.map { ($0.id, $0) })
+        for block in current { byID[block.id] = block }
+        return byID.values.sorted { $0.id < $1.id }
     }
 
 }
