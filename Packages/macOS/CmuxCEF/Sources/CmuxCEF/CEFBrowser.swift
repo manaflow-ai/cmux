@@ -344,8 +344,14 @@ public final class CEFBrowser {
         browserID = nil
         if contentRelease.isReleasing, !isClosed { return finishContentRelease() }
         contentRelease = CEFContentRelease()
+        // Chromium destroyed a page cmux did not close (`window.close()` in
+        // a popup, the opener's `popup.close()`): its owner closes its tab or
+        // popup window, as a WebKit page's `webViewDidClose` does.
+        let closedByChromium = !isClosed && !runtime.isShuttingDown
         isClosed = true
-        if !isPlaceholder { emitClosedOnce() }
+        guard !isPlaceholder else { return }
+        if closedByChromium { emit(.closeRequested) }
+        emitClosedOnce()
     }
 
     private func emitClosedOnce() {
