@@ -148,7 +148,8 @@ struct ChromiumBrowserPageAutomationTests {
         page.reply("Page.captureScreenshot", .success(#"{"data":"\#(png.base64EncodedString())"}"#))
 
         #expect(try await BrowserPageAutomation(page: page).captureViewportPNG() == png)
-        #expect(page.calls.first?.params["format"] as? String == "png")
+        // Page.enable runs first (CEF drops captures without it).
+        #expect(page.calls.first { $0.method == "Page.captureScreenshot" }?.params["format"] as? String == "png")
         // The capture ran with the page made visible to its engine (a hidden
         // page draws no frames), and the page is hidden again afterwards.
         #expect(page.visibleForCaptureMethods == ["Page.enable", "Page.captureScreenshot"])
@@ -158,10 +159,12 @@ struct ChromiumBrowserPageAutomationTests {
     @Test("Cookies read from Network.getAllCookies keep host-only and session semantics")
     func cookiesRead() async throws {
         let page = ScriptedChromiumPage()
+        // Within macOS's 400-day cookie lifetime cap, which HTTPCookie applies.
+        let expires = (Date().timeIntervalSince1970 + 30 * 86_400).rounded()
         page.reply("Network.getAllCookies", .success(#"""
         {"cookies":[
           {"name":"host","value":"1","domain":"example.com","path":"/","expires":-1,"session":true,"secure":false,"httpOnly":false},
-          {"name":"wide","value":"2","domain":".example.com","path":"/app","expires":2000000000,"session":false,"secure":true,"httpOnly":true}
+          {"name":"wide","value":"2","domain":".example.com","path":"/app","expires":\#(Int(expires)),"session":false,"secure":true,"httpOnly":true}
         ]}
         """#))
 
@@ -176,7 +179,7 @@ struct ChromiumBrowserPageAutomationTests {
         #expect(wide.path == "/app")
         #expect(wide.isSecure)
         #expect(wide.isHTTPOnly)
-        #expect(wide.expiresDate == Date(timeIntervalSince1970: 2_000_000_000))
+        #expect(wide.expiresDate == Date(timeIntervalSince1970: expires))
     }
 
     @Test("A host-only cookie is set by URL, a domain cookie by its dotted domain")
