@@ -189,7 +189,7 @@ SHAKA = """<!doctype html><meta charset=utf-8><title>widevine status</title>
 <video id=v muted autoplay playsinline width=640 height=360 style="background:#000"></video><pre id=o></pre><script>
 window.__s={state:'init',errors:[]};
 (async()=>{const v=document.getElementById('v');shaka.polyfill.installAll();if(!shaka.Player.isBrowserSupported()){__s.state='unsupported';return}
- const p=new shaka.Player();await p.attach(v);p.configure({drm:{servers:{'com.widevine.alpha':'https://cwip-shaka-proxy.appspot.com/no_auth'}}});
+ const p=new shaka.Player();await p.attach(v);p.configure({drm:{servers:{'com.widevine.alpha':'https://cwip-shaka-proxy.appspot.com/no_auth'}},preferredVideoCodecs:(new URLSearchParams(location.search).get('codec')||'').split(',').filter(Boolean)});
  p.addEventListener('error',e=>__s.errors.push(e.detail.code));
  try{await p.load(new URLSearchParams(location.search).get('mpd'));__s.state='loaded';const t=p.getVariantTracks().find(t=>t.active);
   __s.variant=t&&{v:t.videoCodec,a:t.audioCodec,h:t.height};__s.keySystem=p.keySystem();await v.play().catch(e=>__s.errors.push(String(e)))}
@@ -282,12 +282,16 @@ def suite(br, page, front):
     if shot:
         open(os.path.join(opts.out, "%s-page-iphone.png" % br.name), "wb").write(base64.b64decode(shot))
     out["rotate"] = (fe("device", {"title": "iPhone 14 Pro Max", "orientation": "horizontal"}), probe())
+    if br.name == "cmux":
+        out["rotate_frames"] = [{k: d.get(k) for k in ("page_frame", "devtools_frame")} for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")]
     out["pixel7"] = (fe("device", {"title": "Pixel 7"}), None)
     br.cdp.call("Page.reload", {}, page); wait_for(lambda: br.cdp.eval("typeof probe", page, 5) == "function", 20)
     out["pixel7"] = (out["pixel7"][0], probe())
     fe("media", {"features": [{"name": "prefers-color-scheme", "value": "dark"}, {"name": "prefers-reduced-motion", "value": "reduce"}]})
     out["media"] = (None, probe()); fe("media", {"features": []})
     out["responsive"] = (fe("responsive", {"w": 500, "h": 700}), probe())
+    if br.name == "cmux":
+        out["responsive_frames"] = [{k: d.get(k) for k in ("page_frame", "devtools_frame")} for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")]
     out["zoom"] = (fe("scale", {"scale": 0.5}), probe()); fe("scale", {"scale": 1})
     fe("geo", {"latitude": 37.7749, "longitude": -122.4194, "accuracy": 10})
     br.cdp.call("Browser.grantPermissions", {"origin": ORIGIN, "permissions": ["geolocation"]})
@@ -349,7 +353,7 @@ def main():
             reference = suite(chrome, page, front)
             RESULTS["chrome"] = {"version": chrome.version, "suite": reference}
         port = 9300 + random.randint(0, 600)
-        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, ":component-updater=fast-update" if opts.widevine else ""), opts.app], check=True)
+        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, (":component-updater=fast-update" if opts.widevine else "") + (":" + os.environ["CMUX_LIVE_EXTRA_SWITCHES"] if os.environ.get("CMUX_LIVE_EXTRA_SWITCHES") else "")), opts.app], check=True)
         wait_for(lambda: "error" not in (rpc("system.ping") or {"error": 1}), 120, 1)
         ident = rpc("system.identify") or {}; app_cli = ident.get("app_cli_path"); pid = ident.get("pid"); started = time.time()
         rpc("debug.window_frame", {"frame": [40, 60, 1400, 1000]}); rpc("debug.focus")
@@ -445,7 +449,7 @@ def main():
             give = max(0, 90 - (time.time() - started))
             wait_for(lambda: False, give, 5)  # the component updater's download window
             status = {"eme": cmux.cdp.eval(WV_JS, page, 30), "playback": {}}
-            for name, mpd in (("angel-one", "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd"),
+            for name, mpd in (("angel-one", "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd&codec=avc1"),
                               ("sintel-vp9", "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd")):
                 target = cmux.cdp.call("Target.createTarget", {"url": "%s/widevine-%s?mpd=%s" % (ORIGIN, RUN, mpd)}).get("result", {}).get("targetId")
                 session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
@@ -478,7 +482,8 @@ def main():
                 check("W_mp4_h264_aac", ((status["mp4"] or {}).get("t") or 0) > 3 and (status["mp4"] or {}).get("frames", 0) > 0
                       and (status["mp4"] or {}).get("audioBytes", 0) > 0, mp4=status["mp4"])
                 check("W_eme_h264_aac", status["eme"] and status["eme"].get("mp4-avc1-aac") is True, eme=status["eme"])
-                check("W_playback_h264_sd", ((status["playback"].get("angel-one") or {}).get("t") or 0) > 3, playback=status["playback"].get("angel-one"))
+                angel = status["playback"].get("angel-one") or {}
+                check("W_playback_h264_sd", (angel.get("t") or 0) > 3 and str((angel.get("variant") or {}).get("v", "")).startswith("avc1"), playback=angel)
                 check("W_playback_vp9", ((status["playback"].get("sintel-vp9") or {}).get("t") or 0) > 3, playback=status["playback"].get("sintel-vp9"))
 
         if not pid:
