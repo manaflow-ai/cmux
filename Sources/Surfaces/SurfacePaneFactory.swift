@@ -41,22 +41,33 @@ enum SurfacePaneFactory {
         try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, at: destination, focus: focus)
     }
 
-    /// A browser pane loading `url` at the destination.
+    /// A browser pane loading `url` at the destination. Every caller opens it for a
+    /// sidebar resource, so it is created unfocused and marked as linked content
+    /// before it takes focus; a blank pane would otherwise focus its address bar.
     static func makeBrowserPane(
         url: URL?,
         at destination: SurfaceDestination,
         focus: Bool,
         creationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(
+        let created = try create(
             typeRaw: "browser",
             url: url?.absoluteString,
             initialCommand: nil,
             workingDirectory: nil,
             at: destination,
-            focus: focus,
+            focus: false,
             browserCreationPolicy: creationPolicy
         )
+        browserPanel(panelID: created.panelID, in: created.workspaceID)?.opensLinkedContent = true
+        // A socket command that may not move focus still wins, and activation stays
+        // suppressed, as in `create`.
+        if focus, TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true {
+            TerminalController.withSocketCommandPolicyStack([true]) {
+                self.focus(panelID: created.panelID, in: created.workspaceID)
+            }
+        }
+        return created
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
