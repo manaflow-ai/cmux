@@ -80,6 +80,29 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 ## CI, review and merge
 
+### Keep CI evidence attached to the exact head
+
+Every CI or review receipt must identify the PR URL, owner/login, base SHA,
+branch, and `git rev-parse HEAD`. A rebase or force-push invalidates earlier
+CI, review, build, and screenshot claims until the new head has its own
+receipt. For each red, pending, cancelled, or skipped check, record the run/job
+ID and classify it as one of:
+
+- **Changed-file defect:** the failure reaches a file or rule changed by the PR.
+- **Base finding:** the same check fails on the parent/base SHA; link that run
+  before asking an unrelated PR to repair it.
+- **Derived aggregator:** a wrapper such as `Web status` reports another
+  check's failure; fix and cite the root check.
+- **Superseded or infrastructure run:** the run was cancelled by a newer head,
+  queued behind capacity, or blocked by coordinator state. Retry the same exact
+  SHA after the infrastructure issue changes.
+
+Required source, compile, security, and repository gate checks block a merge.
+Visual gallery captures and full webview sweeps are advisory unless the PR
+explicitly makes them required; retain their exact-head artifacts and links.
+Prefer a fast touched-file smoke lane for required feedback and shard or move
+full webview/gallery coverage to advisory or nightly jobs.
+
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
