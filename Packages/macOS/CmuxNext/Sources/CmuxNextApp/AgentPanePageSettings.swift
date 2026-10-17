@@ -14,8 +14,7 @@ final class AgentPanePageSettings {
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
-    private(set) var diffColors = "theme"
-    private let debugSettings = AgentPaneDebugSettings()
+    private(set) var diffColors = "theme"; private let debugSettings = AgentPaneDebugSettings()
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
@@ -30,8 +29,7 @@ final class AgentPanePageSettings {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         debugSettings.follow(setComposer: { [weak self] slider, style in
-            self?.composer.reasoningSlider = slider
-            self?.composer.reasoningSliderStyle = style
+            self?.composer.reasoningSlider = slider; self?.composer.reasoningSliderStyle = style
         }, push: push)
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
@@ -64,8 +62,7 @@ final class AgentPanePageSettings {
                 let reasoningSlider = composer.reasoningSlider
                 let reasoningSliderStyle = composer.reasoningSliderStyle
                 composer = value
-                composer.reasoningSlider = reasoningSlider
-                composer.reasoningSliderStyle = reasoningSliderStyle
+                composer.reasoningSlider = reasoningSlider; composer.reasoningSliderStyle = reasoningSliderStyle
                 push()
             }
         }
@@ -91,8 +88,7 @@ final class AgentPanePageSettings {
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
-        view.zoom = zoom
-        debugSettings.apply(to: view)
+        view.zoom = zoom; debugSettings.apply(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
     }
