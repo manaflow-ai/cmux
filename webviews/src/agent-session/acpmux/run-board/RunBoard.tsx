@@ -229,7 +229,7 @@ export function RunBoard({
       active = false;
       if (timer) clearInterval(timer);
     };
-  }, [client, disconnected, pollMs]);
+  }, [client, disconnected, pollMs, snapshot]);
 
   const attempt = selectedAttempt(state);
   const approved = state.snapshot.attempts.find((item) => item.id === state.approval?.attemptId);
@@ -379,14 +379,14 @@ export function RunBoard({
             </button>
           </div>
           {attachState === "expired" && (
-            <p className="run-board-attach-status" role="status">
+            <output className="run-board-attach-status">
               The one-use attach ticket expired. Requesting a new ticket is safe.
-            </p>
+            </output>
           )}
           {attachState === "replayed" && (
-            <p className="run-board-attach-status" role="status">
+            <output className="run-board-attach-status">
               That attach ticket was already consumed. Request a fresh ticket to reconnect.
-            </p>
+            </output>
           )}
           {attachState === "error" && (
             <p className="run-board-attach-status" role="alert">

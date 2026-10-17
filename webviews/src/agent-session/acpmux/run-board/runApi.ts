@@ -207,7 +207,13 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
 export function createRunApiClient(options: RunApiClientOptions = {}): RunApiClient {
   const request = options.fetch ?? globalThis.fetch;
   const baseUrl = apiOrigin(options.baseUrl);
-  const headers = { Accept: "application/json", ...options.headers };
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  const jsonHeaders = () => {
+    const result = new Headers(headers);
+    result.set("Content-Type", "application/json");
+    return result;
+  };
   return {
     async getSnapshot(runId) {
       const response = await request(apiUrl(baseUrl, `/api/runs/${encodeURIComponent(runId)}`), {
@@ -248,7 +254,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       const response = await request(apiUrl(baseUrl, path), {
         method: "POST",
         credentials: "same-origin",
-        headers: { ...headers, "Content-Type": "application/json" },
+        headers: jsonHeaders(),
         body: JSON.stringify({ sessionId: intent.sessionId, cursor: intent.cursor }),
       });
       const body = await readJson(response);
@@ -264,7 +270,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       const redeemedResponse = await request(apiUrl(baseUrl, path), {
         method: "POST",
         credentials: "same-origin",
-        headers: { ...headers, "Content-Type": "application/json" },
+        headers: jsonHeaders(),
         body: JSON.stringify({ ticket: minted.ticket }),
       });
       const redeemedBody = await readJson(redeemedResponse);
