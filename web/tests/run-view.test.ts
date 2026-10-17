@@ -54,7 +54,6 @@ describe("Run public views", () => {
 
   test("keeps Huge Blue explicitly unavailable until its adapter is configured", () => {
     const view = toRunSnapshotView(snapshot(), {
-      backendProvider: "huge-blue",
       routing: { requestedProvider: "huge-blue", accountClass: "team" },
     });
     expect(view.run.backendProvider).toBe("huge-blue");

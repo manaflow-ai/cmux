@@ -178,7 +178,9 @@ function artifactView(artifact: typeof runArtifacts.$inferSelect): RunArtifactVi
 }
 
 export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOptions = {}): RunSnapshotView {
-  const backendProvider = options.backendProvider ?? backendForExecutionProvider(snapshot.run.provider);
+  const backendProvider = options.backendProvider
+    ?? options.routing?.requestedProvider
+    ?? backendForExecutionProvider(snapshot.run.provider);
   const routing = runRoutingFor({ routing: options.routing, backendProvider, accountClass: options.accountClass });
   const admission = runAdmissionFor({
     backendProvider,
