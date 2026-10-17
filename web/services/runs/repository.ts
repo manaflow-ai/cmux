@@ -1,11 +1,13 @@
 import { randomUUID, createHash } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import {
   DEFAULT_LEASE_TTL_MS,
+  DEFAULT_TERMINAL_RETENTION_MS,
   MAX_ARTIFACT_BYTES,
   MAX_EVENT_PAYLOAD_BYTES,
+  TERMINAL_CLEANUP_LEASE_MS,
   assertArtifactDigest,
   jsonByteLength,
   type AttemptStatus,
@@ -196,6 +198,56 @@ export async function renewAttemptLease(input: {
   return { attempt, leaseToken: input.leaseToken, leaseGeneration: input.leaseGeneration, leaseExpiresAt: expiresAt };
 }
 
+/** Persist the provider handles before a worker starts streaming terminal events. */
+export async function recordAttemptProviderHandle(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly providerVmId: string;
+  readonly providerWorkspaceId: string;
+  readonly providerTerminalId: string;
+}): Promise<typeof runAttempts.$inferSelect> {
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    await checkLease(tx, input);
+    const attempt = (await tx.update(runAttempts).set({
+      providerVmId: input.providerVmId,
+      providerWorkspaceId: input.providerWorkspaceId,
+      providerTerminalId: input.providerTerminalId,
+      updatedAt: now(),
+    }).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      eq(runAttempts.leaseToken, input.leaseToken),
+      eq(runAttempts.leaseGeneration, input.leaseGeneration),
+    )).returning())[0];
+    if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
+    return attempt;
+  });
+}
+
+/** Keep a provider VM around after a terminal event so the terminal can be attached. */
+export async function scheduleAttemptRetention(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly providerVmId?: string;
+  readonly retentionMs?: number;
+}): Promise<typeof runAttempts.$inferSelect> {
+  const retentionMs = Math.max(1_000, Math.min(input.retentionMs ?? DEFAULT_TERMINAL_RETENTION_MS, 60 * 60_000));
+  const attempt = (await cloudDb().update(runAttempts).set({
+    ...(input.providerVmId ? { providerVmId: input.providerVmId } : {}),
+    terminalRetainUntil: new Date(Date.now() + retentionMs),
+    cleanupLeaseToken: null,
+    cleanupLeaseExpiresAt: null,
+    updatedAt: now(),
+  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).returning())[0];
+  if (!attempt) throw new RunAttemptNotFoundError("attempt not found");
+  return attempt;
+}
+
 async function checkLease(db: RunQueryDb, input: { runId: string; attemptId: string; leaseToken: string; leaseGeneration: number }): Promise<typeof runAttempts.$inferSelect> {
   const attempt = (await db.select().from(runAttempts).where(and(
     eq(runAttempts.id, input.attemptId),
@@ -270,15 +322,24 @@ export async function ingestRunEvent(input: {
       payload,
     }).returning())[0];
     if (!event) throw new Error("event insert returned no row");
-    const status: AttemptStatus | undefined = input.kind === "attempt.started" ? "running"
+    const currentRun = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+    const requestedStatus: AttemptStatus | undefined = input.kind === "attempt.started" ? "running"
       : input.kind === "attempt.succeeded" ? "succeeded"
         : input.kind === "attempt.failed" ? "failed" : undefined;
-    const terminal = status === "succeeded" || status === "failed";
+    // A provider receipt can race the cancel request. Once the Run is
+    // cancelling, the receipt is still journaled for replay but cannot
+    // resurrect a successful/failed attempt or leave the Run stuck.
+    const status: AttemptStatus | undefined = currentRun?.status === "cancelling"
+      && (requestedStatus === "succeeded" || requestedStatus === "failed")
+      ? "cancelled"
+      : requestedStatus;
+    const terminal = status === "succeeded" || status === "failed" || status === "cancelled";
     if (status) await tx.update(runAttempts).set({
       status,
       ...(typeof payload.providerVmId === "string" ? { providerVmId: payload.providerVmId } : {}),
       ...(terminal ? { finishedAt: now() } : { startedAt: status === "running" ? now() : undefined }),
       ...(terminal ? { leaseExpiresAt: null, leaseToken: null } : {}),
+      ...(terminal ? { terminalRetainUntil: new Date(Date.now() + DEFAULT_TERMINAL_RETENTION_MS) } : {}),
       updatedAt: now(),
     }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.leaseToken, input.leaseToken), eq(runAttempts.leaseGeneration, input.leaseGeneration)));
     if (terminal) {
@@ -288,7 +349,6 @@ export async function ingestRunEvent(input: {
       )).limit(1);
       if (active.length === 0) {
         const failed = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(eq(runAttempts.runId, input.runId), eq(runAttempts.status, "failed"))).limit(1);
-        const currentRun = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
         const finalStatus: RunStatus = currentRun?.status === "cancelling" ? "cancelled" : failed.length > 0 ? "failed" : "succeeded";
         await tx.update(runs).set({ status: finalStatus, completedAt: now(), updatedAt: now() }).where(eq(runs.id, input.runId));
         await tx.insert(runEvents).values({
@@ -381,6 +441,162 @@ export async function cancelRun(runId: string, userId: string): Promise<RunSnaps
     }
     return readSnapshot(tx, runId, userId);
   });
+}
+
+/** Active provider handles that a cancellation worker should close. */
+export async function listActiveCloudVmAttempts(runId: string, userId: string) {
+  const rows = await cloudDb().select({
+    attempt: runAttempts,
+    userId: runs.userId,
+    billingTeamId: runs.billingTeamId,
+  }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+    eq(runAttempts.runId, runId),
+    eq(runs.userId, userId),
+    inArray(runAttempts.status, ["leased", "running"]),
+  ));
+  if (rows.length === 0) {
+    const visible = await cloudDb().select({ id: runs.id }).from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).limit(1);
+    if (visible.length === 0) throw new RunNotFoundError("run not found");
+  }
+  return rows;
+}
+
+/** Fence a cancelled worker and complete the Run when no active attempt remains. */
+export async function finalizeAttemptCancellation(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken?: string | null;
+  readonly leaseGeneration?: number | null;
+}): Promise<typeof runAttempts.$inferSelect> {
+  return cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const current = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
+    if (!current) throw new RunAttemptNotFoundError("attempt not found");
+    const isActive = ["queued", "leased", "running"].includes(current.status);
+    let attempt = current;
+    if (isActive) {
+      const conditions = [eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId)];
+      if (input.leaseToken) conditions.push(eq(runAttempts.leaseToken, input.leaseToken));
+      if (input.leaseGeneration !== undefined && input.leaseGeneration !== null) conditions.push(eq(runAttempts.leaseGeneration, input.leaseGeneration));
+      attempt = (await tx.update(runAttempts).set({
+        status: "cancelled",
+        leaseToken: null,
+        leaseExpiresAt: null,
+        leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
+        finishedAt: now(),
+        terminalRetainUntil: current.providerVmId ? new Date(Date.now() + DEFAULT_TERMINAL_RETENTION_MS) : null,
+        updatedAt: now(),
+      }).where(and(...conditions)).returning())[0] ?? current;
+    }
+    const active = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(
+      eq(runAttempts.runId, input.runId),
+      inArray(runAttempts.status, ["queued", "leased", "running"]),
+    )).limit(1);
+    if (active.length === 0) {
+      const completed = (await tx.update(runs).set({ status: "cancelled", completedAt: now(), updatedAt: now() }).where(and(eq(runs.id, input.runId), eq(runs.status, "cancelling"))).returning())[0];
+      if (completed) {
+        await tx.insert(runEvents).values({
+          runId: input.runId,
+          sequence: await nextSequence(tx, input.runId),
+          externalId: "run-completed",
+          kind: "run.completed",
+          payload: { status: "cancelled" },
+        });
+      }
+    }
+    return attempt;
+  });
+}
+
+/** Final safety net for a cancellation request whose provider worker vanished. */
+export async function forceFinalizeRunCancellation(runId: string, userId: string): Promise<void> {
+  await cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
+    const run = (await tx.select({ status: runs.status }).from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).for("update").limit(1))[0];
+    if (!run) throw new RunNotFoundError("run not found");
+    if (run.status !== "cancelling") return;
+    await tx.update(runAttempts).set({
+      status: "cancelled",
+      leaseToken: null,
+      leaseExpiresAt: null,
+      leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
+      finishedAt: now(),
+      terminalRetainUntil: sql`case when ${runAttempts.providerVmId} is null then null else coalesce(${runAttempts.terminalRetainUntil}, now() + interval '10 minutes') end`,
+      updatedAt: now(),
+    }).where(and(eq(runAttempts.runId, runId), inArray(runAttempts.status, ["queued", "leased", "running"])));
+    const completed = (await tx.update(runs).set({ status: "cancelled", completedAt: now(), updatedAt: now() }).where(and(eq(runs.id, runId), eq(runs.status, "cancelling"))).returning())[0];
+    if (completed) {
+      await tx.insert(runEvents).values({
+        runId,
+        sequence: await nextSequence(tx, runId),
+        externalId: "run-completed",
+        kind: "run.completed",
+        payload: { status: "cancelled" },
+      });
+    }
+  });
+}
+
+export type ExpiredAttemptCleanup = {
+  readonly attempt: typeof runAttempts.$inferSelect;
+  readonly userId: string;
+  readonly billingTeamId: string | null;
+  readonly cleanupLeaseToken: string;
+};
+
+/** Claim expired VM rows for a bounded provider reaper. Claims are recoverable. */
+export async function claimExpiredAttemptCleanups(input: { readonly limit?: number; readonly now?: Date } = {}): Promise<ExpiredAttemptCleanup[]> {
+  const nowAt = input.now ?? now();
+  const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+  return cloudDb().transaction(async (tx) => {
+    const candidates = await tx.select({
+      attempt: runAttempts,
+      userId: runs.userId,
+      billingTeamId: runs.billingTeamId,
+    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+      isNotNull(runAttempts.providerVmId),
+      isNotNull(runAttempts.terminalRetainUntil),
+      lte(runAttempts.terminalRetainUntil, nowAt),
+      or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
+    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update");
+    const claimed: ExpiredAttemptCleanup[] = [];
+    for (const candidate of candidates) {
+      const token = randomUUID();
+      const attempt = (await tx.update(runAttempts).set({
+        cleanupLeaseToken: token,
+        cleanupLeaseExpiresAt: new Date(nowAt.getTime() + TERMINAL_CLEANUP_LEASE_MS),
+        updatedAt: nowAt,
+      }).where(and(
+        eq(runAttempts.id, candidate.attempt.id),
+        or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
+      )).returning())[0];
+      if (attempt) claimed.push({ attempt, userId: candidate.userId, billingTeamId: candidate.billingTeamId, cleanupLeaseToken: token });
+    }
+    return claimed;
+  });
+}
+
+export async function finishAttemptCleanup(input: {
+  readonly attemptId: string;
+  readonly cleanupLeaseToken: string;
+  readonly succeeded: boolean;
+}): Promise<void> {
+  await cloudDb().update(runAttempts).set(input.succeeded ? {
+    providerVmId: null,
+    providerWorkspaceId: null,
+    providerTerminalId: null,
+    terminalRetainUntil: null,
+    cleanupLeaseToken: null,
+    cleanupLeaseExpiresAt: null,
+    updatedAt: now(),
+  } : {
+    cleanupLeaseToken: null,
+    cleanupLeaseExpiresAt: null,
+    updatedAt: now(),
+  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.cleanupLeaseToken, input.cleanupLeaseToken)));
 }
 
 export async function waitForRun(runId: string, userId: string, waitMs = 0): Promise<RunSnapshot> {

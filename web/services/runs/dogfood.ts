@@ -7,8 +7,15 @@ import type { AuthedUser } from "../vms/auth";
 import { CloudVmRunAdapter } from "../vms/cloudVmRunAdapter";
 import {
   claimAttemptLease,
+  claimExpiredAttemptCleanups,
+  finishAttemptCleanup,
+  finalizeAttemptCancellation,
+  forceFinalizeRunCancellation,
   ingestRunEvent,
+  listActiveCloudVmAttempts,
+  recordAttemptProviderHandle,
   renewAttemptLease,
+  scheduleAttemptRetention,
   type RunSource,
 } from "./repository";
 
@@ -78,6 +85,15 @@ export async function launchCloudVmAttempt(input: {
       lease: { leaseId: lease.leaseToken, leaseEpoch: lease.leaseGeneration },
     });
     const attempt = await adapter.start(prepared);
+    await recordAttemptProviderHandle({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      leaseToken: lease.leaseToken,
+      leaseGeneration: lease.leaseGeneration,
+      providerVmId: createdVmId,
+      providerWorkspaceId: attempt.workspaceId,
+      providerTerminalId: attempt.terminalId,
+    });
     for await (const event of adapter.events(attempt)) {
       lastAttemptSequence = Math.max(lastAttemptSequence, event.seq);
       const currentLease = await renewAttemptLease({
@@ -122,19 +138,85 @@ export async function launchCloudVmAttempt(input: {
   } finally {
     if (vmId) {
       try {
-        await runVmWorkflow(destroyVm({
-          userId: input.user.id,
-          billingTeamId: input.entitlements.billingTeamId,
-          teamIds: input.user.teamIds,
-          providerVmId: vmId,
-          modelPlane: vmModelPlaneRevoker(),
-          source: "user_request",
-        }));
-      } catch (cleanupError) {
-        console.error("[runs] cloud VM attempt cleanup failed", cleanupError);
+        // Keep the VM and terminal attachable for a short, durable window.
+        // A cron reaper claims the row after terminalRetainUntil and performs
+        // provider teardown. This survives process restarts and deploys.
+        await scheduleAttemptRetention({ runId: input.runId, attemptId: input.attemptId, providerVmId: vmId });
+      } catch (retentionError) {
+        console.error("[runs] cloud VM attempt retention scheduling failed", retentionError);
       }
     }
   }
+}
+
+/** Close active cloud terminals, fence their leases, and finish cancellation. */
+export async function cancelActiveCloudVmAttempts(input: {
+  readonly runId: string;
+  readonly userId: string;
+}): Promise<void> {
+  const active = await listActiveCloudVmAttempts(input.runId, input.userId);
+  const provider = defaultProviderId();
+  await Promise.allSettled(active.map(async ({ attempt }) => {
+    try {
+      if (attempt.providerVmId && attempt.providerWorkspaceId && attempt.providerTerminalId && attempt.leaseToken !== null) {
+        const adapter = new CloudVmRunAdapter(getProvider(provider));
+        await adapter.cancel({
+          provider: "cloud-vm",
+          vmId: attempt.providerVmId,
+          runId: input.runId,
+          attemptId: attempt.id,
+          index: attempt.ordinal,
+          workspaceId: attempt.providerWorkspaceId,
+          terminalId: attempt.providerTerminalId,
+          workspaceKey: `cmux-run:${input.runId}:${attempt.id}:workspace`,
+          terminalKey: `cmux-run:${input.runId}:${attempt.id}:terminal`,
+          lease: { leaseId: attempt.leaseToken, leaseEpoch: attempt.leaseGeneration },
+          replayed: false,
+        });
+      }
+    } catch (error) {
+      // Provider cancellation is best effort; the DB fence below must still
+      // complete the Run so a lost guest never leaves it in cancelling.
+      console.error("[runs] cloud VM attempt cancellation failed", error);
+    } finally {
+      await finalizeAttemptCancellation({
+        runId: input.runId,
+        attemptId: attempt.id,
+        leaseToken: attempt.leaseToken,
+        leaseGeneration: attempt.leaseGeneration,
+      });
+    }
+  }));
+  await forceFinalizeRunCancellation(input.runId, input.userId);
+}
+
+/** Reap completed cloud VMs after their terminal attach window expires. */
+export async function reapExpiredCloudVmAttempts(input: { readonly limit?: number } = {}): Promise<{ claimed: number; cleaned: number; errors: number }> {
+  const claims = await claimExpiredAttemptCleanups(input);
+  let cleaned = 0;
+  let errors = 0;
+  await Promise.allSettled(claims.map(async (claim) => {
+    let succeeded = false;
+    try {
+      if (!claim.attempt.providerVmId) throw new Error("retained attempt has no provider VM id");
+      await runVmWorkflow(destroyVm({
+        userId: claim.userId,
+        billingTeamId: claim.billingTeamId,
+        teamIds: claim.billingTeamId ? [claim.billingTeamId] : undefined,
+        providerVmId: claim.attempt.providerVmId,
+        modelPlane: vmModelPlaneRevoker(),
+        source: "user_request",
+      }));
+      succeeded = true;
+      cleaned += 1;
+    } catch (error) {
+      errors += 1;
+      console.error("[runs] retained cloud VM cleanup failed", error);
+    } finally {
+      await finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded });
+    }
+  }));
+  return { claimed: claims.length, cleaned, errors };
 }
 
 export async function launchQueuedCloudVmAttempts(input: {
