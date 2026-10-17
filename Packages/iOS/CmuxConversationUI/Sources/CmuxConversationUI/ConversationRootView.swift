@@ -102,6 +102,11 @@ private struct ConversationDetailView: View {
             Button(ConversationL10n.value("conversation.refresh", "Refresh task")) { model.refreshSessions() }
             Button(ConversationL10n.value("conversation.close_task", "Close task"), role: .cancel) { model.selectSession(id: nil) }
         }
+        // Keep the detail landmark while preserving the explicit identifiers
+        // on its controls and transcript descendants for VoiceOver and UI
+        // automation. Without containment, iPadOS propagates this identifier
+        // to every descendant and hides the child targets.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ConversationDetail")
     }
 }

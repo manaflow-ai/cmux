@@ -47,6 +47,7 @@ struct ConversationTaskListView: View {
                 Button(action: onNewTask) {
                     Image(systemName: "plus")
                 }
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel(ConversationL10n.value("conversation.new_task", "New task"))
                 .accessibilityIdentifier("ConversationNewTaskButton")
             }
@@ -82,6 +83,7 @@ struct ConversationTaskListView: View {
         } message: {
             Text(ConversationL10n.value("conversation.archive.message", "This removes the task from the remote task list."))
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ConversationTaskList")
     }
 

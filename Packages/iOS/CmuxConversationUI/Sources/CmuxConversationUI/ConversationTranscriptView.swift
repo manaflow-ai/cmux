@@ -38,8 +38,9 @@ struct ConversationTranscriptView: View {
             .onChange(of: model.items.count) { _, _ in
                 if let id = model.items.last?.id { withAnimation(.snappy) { proxy.scrollTo(id, anchor: .bottom) } }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("ConversationTranscript")
         }
-        .accessibilityIdentifier("ConversationTranscript")
     }
 }
 

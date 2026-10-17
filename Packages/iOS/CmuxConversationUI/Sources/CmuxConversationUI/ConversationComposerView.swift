@@ -99,6 +99,7 @@ struct ConversationComposerArea: View {
         .padding(.bottom, 8)
         .background(.bar)
         .animation(.snappy, value: model.blockingRequest?.id)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ConversationComposer")
     }
 }
@@ -140,6 +141,7 @@ private struct ConversationRequestCard: View {
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ConversationBlockingRequest-\(request.id.rawValue)")
         .id(request.id.rawValue)
     }
@@ -213,6 +215,7 @@ struct ConversationQuestionCard: View {
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(isBlocking ? "ConversationBlockingQuestion" : "ConversationAsyncQuestion")
         .id(request.id.rawValue)
     }
