@@ -12,6 +12,8 @@ import Foundation
 struct ChiefTurnContextBuilder: Sendable {
     /// The settings of the brain that will answer (the prompt names it).
     let engine: @Sendable () async -> ChiefEngineSettings
+    /// The user's login-shell `PATH`, nil when it could not be read.
+    var loginShellPath: @Sendable () async -> String? = { await ChiefLoginShellPath.shared.value() }
     /// The memory state each conversation's brain session started with.
     let freshness = ChiefMemoryFreshness()
 
@@ -21,7 +23,7 @@ struct ChiefTurnContextBuilder: Sendable {
             (Self.activeSocketPath(), Self.workspacesSummary(), Self.chiefTarget(conversation: input.conversation))
         }
         let settings = await engine()
-        let loginShellPath = await ChiefLoginShellPath.shared.value()
+        let loginShellPath = await loginShellPath()
         let memory = ChiefMemory(paths: ChiefMemoryPaths(home: input.home))
         // Missing profile files are written once; a failure leaves the prompt without them.
         try? memory.ensureDefaults()
