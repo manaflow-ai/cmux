@@ -16,7 +16,11 @@ protocol FocusEffectApplying: AnyObject {
 /// re-entered. While effects run, `isApplying` is true and responder
 /// reports caused by the applier's own `makeFirstResponder` are dropped.
 final class FocusCoordinator {
+    /// The read view of the machine's state (refreshed from each reply).
     private(set) var state = FocusState()
+    /// The state and rules (`cmux-focus-core`); the view above mirrors it.
+    private let machine = FocusMachine()
+    private var appliedCloseFocus: CloseFocusPolicy?
     /// The close-focus setting (tests inject one).
     var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }
     weak var applier: (any FocusEffectApplying)?
@@ -30,8 +34,9 @@ final class FocusCoordinator {
     /// What the coordinator did, for the input journal and the invariant
     /// monitor (plans/cmux-next/input-spec.md).
     enum Observation {
-        /// `event` took `before` to `after`; its effects run next.
-        case reduced(FocusEvent, before: FocusState, after: FocusState)
+        /// `event` took `before` to `after`; its effects run next. `changed`:
+        /// the focus changed or the event had effects (else it was a no-op).
+        case reduced(FocusEvent, before: FocusState, after: FocusState, changed: Bool)
         /// A responder report dropped as the echo of the applier's own change.
         case suppressedResponder(FocusEvent.Responder)
         /// A focus or selection change dropped: the action run sending it
@@ -60,21 +65,47 @@ final class FocusCoordinator {
         defer { isRunning = false }
         while !queue.isEmpty {
             let event = queue.removeFirst()
+            // A topology equal to the one the machine holds is not an event:
+            // nothing is sent, recorded or applied (the window re-reports
+            // its panes after every daemon delta and selection echo).
+            if case .topology(let topology) = event, topology == state.topology { continue }
             // `layout.closeFocus` is read per event: a settings change
             // applies to the next close.
-            if state.closeFocus != closeFocus() { state.closeFocus = closeFocus() }
+            let policy = closeFocus()
+            if appliedCloseFocus != policy {
+                appliedCloseFocus = policy
+                machine.setCloseFocus(policy)
+            }
             let previous = state
-            let (next, effects) = FocusReducer.reduce(previous, event)
-            state = next
+            guard let result = machine.send(event, into: &state) else {
+                // The ABI refused the event: a wire mismatch between the app
+                // and the linked FFI. Keep the state rather than lose focus.
+                assertionFailure("focus machine refused \(event)")
+                continue
+            }
+            let effects = result.effects
             record(event)
-            observer?(.reduced(event, before: previous, after: next))
+            observer?(.reduced(event, before: previous, after: state, changed: result.changed || !effects.isEmpty))
             guard !effects.isEmpty, let applier else { continue }
             isApplying = true
-            applier.apply(effects, state: next)
+            applier.apply(effects, state: state)
             isApplying = false
         }
         settledObserver?(state)
     }
+
+    /// The focus history of `workspace` (nil: the shown one), newest first:
+    /// the successor of a closed pane and the tie-breaker of directional
+    /// focus (focus.md section 4a). Read from the machine on request.
+    func recentPanes(in workspace: String? = nil) -> [String] {
+        machine.recentPanes(in: workspace)
+    }
+
+    /// The last focused pane of each workspace (restored on switching back).
+    func rememberedPanes() -> [String: String] { machine.remembered() }
+
+    /// The machine's whole state, for the input journal's checkpoints.
+    func checkpoint() -> FocusCheckpoint { machine.checkpoint() }
 
     /// Starts a user intent that lands later (split, new tab). Pass the
     /// returned generation to `expect`.

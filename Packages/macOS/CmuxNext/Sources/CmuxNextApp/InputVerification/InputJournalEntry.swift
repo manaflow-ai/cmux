@@ -25,8 +25,9 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         case appActive(Bool)
         /// A focus state machine input and the state it produced.
         case focus(FocusEvent, after: FocusDigest)
-        /// The window's full focus state, so replay can start mid-ring.
-        case focusCheckpoint(FocusState)
+        /// The window's full focus state (the machine's JSON), so replay can
+        /// start mid-ring.
+        case focusCheckpoint(FocusCheckpoint)
         /// An AppKit responder report; `suppressed` when it was the echo of
         /// the applier's own `makeFirstResponder` (not reduced).
         case responder(FocusEvent.Responder, suppressed: Bool)

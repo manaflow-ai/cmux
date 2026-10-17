@@ -7,11 +7,13 @@ import CmuxNextDesign
 /// WebKit/CEF page focus, `LayoutModel.focusedPane` and the registry
 /// context are outputs of it (`FocusEffectApplier`).
 ///
-/// A value mirror of `cmux-focus-core`'s state (cmux-tui/crates/cmux-focus-core):
-/// the rules, including what the state resolves to (`derived`), run there,
-/// through `FocusReducer` over the app FFI. Its synthesized `Codable` shape
-/// is the wire shape.
-nonisolated struct FocusState: Hashable, Sendable, Codable {
+/// The app's read view of `cmux-focus-core`'s state
+/// (cmux-tui/crates/cmux-focus-core). The state itself, with the per
+/// workspace memory and history, lives in the window's `FocusMachine`; the
+/// rules, including what the state resolves to, run there. This view holds
+/// only what the app reads, refreshed from each typed reply, plus the
+/// topology the app last sent (kept equal to the machine's).
+nonisolated struct FocusState: Hashable, Sendable {
     /// What inside (or outside) the focused pane has the keyboard.
     enum Target: Hashable, Sendable, Codable {
         /// The focused pane's selected tab content (terminal or page).
@@ -76,20 +78,6 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         /// The user-intent generation that asked for it; a newer intent
         /// drops it (no focus steal after the user moved on).
         var generation: UInt64
-    }
-
-    /// Where focus returns when a drag is cancelled.
-    struct DragRestore: Hashable, Sendable, Codable {
-        var tabs: [String]
-        var sourcePane: String
-        var pane: String?
-        var target: Target
-        /// The focused pane's selected tab when the drag began (chrome
-        /// targets belong to it).
-        var tab: String?
-        /// A keyboard, CLI or palette intent happened during the drag (mouse
-        /// events during it belong to the drag): it wins over the restore.
-        var overridden = false
     }
 
     /// The one keyboard target the state implies.
@@ -174,60 +162,44 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var agent = false
     }
 
-    /// What the state resolves to, computed by the Rust reducer on every
-    /// reduction (`cmux-focus-core` `Derived`).
-    struct Derived: Hashable, Sendable, Codable {
-        /// The keyboard target, the top overlay first.
-        var resolved: Resolved = .none
-        /// The target below any overlay.
-        var underlying: Resolved = .none
-        var context = Context()
-        var browserFocusModeActive = false
-        /// The shown workspace's focus history, newest first.
-        var recentPanes: [String] = []
-    }
-
     var windowKey = false
     var appActive = false
+    /// The topology the window last sent, with the machine's own selection
+    /// changes (`select` effects) applied: equal to the machine's topology.
     var topology = FocusTopology()
     var pane: String?
     var target: Target = .content
     var overlays: [Overlay] = []
-    /// Last focused pane per workspace (restored on switching back).
-    var remembered: [String: String] = [:]
-    /// Recently focused panes per workspace, newest first, from every
-    /// source (click, keyboard, CLI, palette, app-driven landing). The
-    /// successor of a closed pane and the tie-breaker of directional focus
-    /// (focus.md section 4a). Closed panes are dropped when the workspace's
-    /// topology arrives; in memory only.
-    var history: [String: [String]] = [:]
     var expectation: Expectation?
-    var drag: DragRestore?
-    /// Browser tabs in browser focus mode (all keys but tier 0 go to the page).
+    /// A tab drag is in flight (its restore point is the machine's).
+    var isDragging = false
+    /// Browser tabs in browser focus mode (from the machine's effects).
     var browserFocusMode: Set<String> = []
     /// Bumped by every user intent.
     var generation: UInt64 = 0
     /// The sidebar is hidden: it cannot be a focus target.
     var sidebarHidden = false
-    /// `layout.closeFocus`: the successor rule when the focused pane closes
-    /// (close-focus.md). The coordinator copies the setting in.
-    var closeFocus: CloseFocusPolicy = .previousNeighbor
-    /// Filled by the reducer; the rest of the state never changes outside it.
-    private(set) var derived = Derived()
-
-    /// The shown workspace's focus history, newest first.
-    var recentPanes: [String] { derived.recentPanes }
-
-    var resolved: Resolved { derived.resolved }
-
+    /// The keyboard target, the top overlay first.
+    var resolved: Resolved = .none
     /// The target below any overlay (what closing the overlays restores,
     /// and what the palette's commands act on).
-    var underlying: Resolved { derived.underlying }
-
+    var underlying: Resolved = .none
     /// The registry context bits: the sidebar, other text fields, sheets and
     /// rename prompts clear them; the palette keeps the bits of what is below.
-    var context: Context { derived.context }
-
+    var context = Context()
     /// The focused page is in browser focus mode.
-    var isBrowserFocusModeActive: Bool { derived.browserFocusModeActive }
+    var isBrowserFocusModeActive = false
+
+    /// What the settle observers act on: they run only when it changed.
+    struct SettleKey: Hashable {
+        var windowKey: Bool
+        var appActive: Bool
+        var workspace: String?
+        var target: Target
+        var resolved: Resolved
+    }
+
+    var settleKey: SettleKey {
+        SettleKey(windowKey: windowKey, appActive: appActive, workspace: topology.workspace, target: target, resolved: resolved)
+    }
 }
