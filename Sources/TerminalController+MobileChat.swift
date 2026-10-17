@@ -9,6 +9,23 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
+    /// Keeps the native Chats attention overlay in sync with the shared Feed
+    /// reply coordinator. Feed remains the host's single structured-reply
+    /// authority; this is only the chat projection's immediate acknowledgement.
+    nonisolated func noteAgentChatStructuredReply(
+        requestID: String,
+        resolution: ChatPermissionRequest.Resolution,
+        selection: String? = nil
+    ) {
+        Task { @MainActor [weak self] in
+            self?.agentChatTranscriptService?.noteStructuredReply(
+                requestID: requestID,
+                resolution: resolution,
+                selection: selection
+            )
+        }
+    }
+
     /// Advances both classic Feed attention and mobile agent-chat state from
     /// the shared accepted-terminal-input seam.
     @MainActor
@@ -117,9 +134,39 @@ extension TerminalController {
                 cmuxDebugLog("agentChat.list observeTimedOut workspace=nil")
             }
             #endif
+            // The unscoped chat workspace is also the history view. Keep
+            // ended, transcript-backed sessions visible even though they no
+            // longer have a live agent PID/terminal binding; only live rows
+            // need the process/binding check that prevents stale sessions
+            // from being shown or targeted.
             let descriptors = service.sessionRecords(workspaceID: nil)
-                .filter { mobileChatBindingIsCurrentAgent($0) }
-                .map(\.descriptor)
+                .compactMap { record -> ChatSessionDescriptor? in
+                    if record.state == .ended {
+                        return service.shouldListEndedSession(record) ? record.descriptor : nil
+                    }
+                    // The record's workspace id is durable hook metadata, but
+                    // cmux workspace ids are regenerated on relaunch. Resolve
+                    // the stable surface through the live ownership map so a
+                    // session from before relaunch is still listed and its
+                    // descriptor is re-stamped to the current workspace.
+                    guard let surfaceID = record.surfaceID,
+                          let surfaceUUID = UUID(uuidString: surfaceID),
+                          let owner = AppDelegate.shared?.liveSurfaceOwner(
+                              surfaceID: surfaceUUID,
+                              preferredTabID: record.workspaceID.flatMap(UUID.init(uuidString:))
+                          ) else {
+                        return nil
+                    }
+                    let currentWorkspaceID = owner.tabID.uuidString
+                    if record.workspaceID != currentWorkspaceID {
+                        service.updateSessionWorkspace(
+                            sessionID: record.sessionID,
+                            workspaceID: currentWorkspaceID
+                        )
+                    }
+                    guard mobileChatRecordMatchesAgent(record) else { return nil }
+                    return service.sessionRecord(sessionID: record.sessionID)?.descriptor ?? record.descriptor
+                }
             let encoded = descriptors.compactMap { service.wirePayload($0) }
             #if DEBUG
             cmuxDebugLog("agentChat.list workspace=nil records=\(service.sessionRecords(workspaceID: nil).count) returned=\(encoded.count)")
@@ -413,23 +460,44 @@ extension TerminalController {
     /// rather than redirect the prompt to some other terminal.
     private func mobileChatTerminalParams(sessionID: String) async -> [String: Any]? {
         guard let service = agentChatTranscriptService else { return nil }
-        guard let record = service.sessionRecord(sessionID: sessionID),
-              let workspaceID = record.workspaceID else {
+        guard let initialRecord = service.sessionRecord(sessionID: sessionID) else {
             return nil
         }
+        var record = initialRecord
+
+        // Surface ids survive a cmux relaunch while workspace ids do not.
+        // Resolve the current owner first so a chat opened from an
+        // unscoped/history list can still send to the same terminal after a
+        // relaunch, without trusting stale hook-store workspace metadata.
         if let surfaceID = record.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
-           mobileChatBindingIsCurrentAgent(record) {
-            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+           let surfaceUUID = UUID(uuidString: surfaceID),
+           let owner = AppDelegate.shared?.liveSurfaceOwner(
+               surfaceID: surfaceUUID,
+               preferredTabID: record.workspaceID.flatMap(UUID.init(uuidString:))
+           ) {
+            let workspaceID = owner.tabID.uuidString
+            if record.workspaceID != workspaceID {
+                service.updateSessionWorkspace(sessionID: sessionID, workspaceID: workspaceID)
+                record = service.sessionRecord(sessionID: sessionID) ?? record
+            }
+            if mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+               mobileChatRecordMatchesAgent(record) {
+                return ["workspace_id": workspaceID, "surface_id": surfaceID]
+            }
+        }
+
+        guard let workspaceID = record.workspaceID else {
+            return nil
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
         if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
-           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
+           let refreshedWorkspaceID = refreshed.workspaceID ?? record.workspaceID,
+           mobileChatBindingResolves(workspaceID: refreshedWorkspaceID, surfaceID: surfaceID),
            mobileChatBindingIsCurrentAgent(refreshed) {
-            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+            return ["workspace_id": refreshedWorkspaceID, "surface_id": surfaceID]
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")

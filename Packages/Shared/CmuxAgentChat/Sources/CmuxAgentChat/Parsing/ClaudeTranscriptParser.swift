@@ -376,7 +376,11 @@ public struct ClaudeTranscriptParser: Sendable {
             guard let prompt = question["question"]?.string else { return nil }
             let options = (question["options"]?.array ?? []).compactMap { option in
                 option["label"]?.string.map {
-                    ChatQuestion.Option(label: $0, detail: option["description"]?.string)
+                    ChatQuestion.Option(
+                        label: $0,
+                        detail: option["description"]?.string,
+                        id: option["id"]?.string
+                    )
                 }
             }
             return .question(ChatQuestion(prompt: prompt, options: options))

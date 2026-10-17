@@ -35,6 +35,12 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
+    /// Actionable hook prompts are not part of provider transcripts. Keep a
+    /// small durable-in-process overlay so the native chat view can render and
+    /// answer Claude/Codex/OpenCode permission and question requests alongside
+    /// transcript messages.
+    private var pendingAttentionMessages: [String: [String: ChatMessage]] = [:]
+    private var nextAttentionSequence = Int.max / 2
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -284,6 +290,7 @@ final class AgentChatTranscriptService {
     func noteHookEvent(_ event: WorkstreamEvent) {
         guard !didShutdown else { return }
         let record = registry.noteHookEvent(event)
+        noteAttentionMessages(for: event, sessionID: record.sessionID)
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -322,6 +329,67 @@ final class AgentChatTranscriptService {
             endProseTurn(sessionID: record.sessionID)
         default:
             break
+        }
+    }
+
+    /// Applies a structured Feed reply to the in-process attention overlay so
+    /// the Chats surface acknowledges it immediately. The provider hook may
+    /// take a moment to emit its follow-up event; that event still remains the
+    /// authoritative reconciliation path.
+    func noteStructuredReply(
+        requestID: String,
+        resolution: ChatPermissionRequest.Resolution,
+        selection: String? = nil
+    ) {
+        for sessionID in Array(pendingAttentionMessages.keys) {
+            guard var messages = pendingAttentionMessages[sessionID] else { continue }
+            var updated: [ChatMessage] = []
+            for (id, message) in messages {
+                guard Self.attentionRequestID(for: message) == requestID else { continue }
+                let replacement: ChatMessage?
+                switch message.kind {
+                case .permissionRequest(let request) where request.resolution == nil:
+                    replacement = ChatMessage(
+                        id: message.id,
+                        seq: message.seq,
+                        role: message.role,
+                        timestamp: message.timestamp,
+                        kind: .permissionRequest(ChatPermissionRequest(
+                            title: request.title,
+                            subject: request.subject,
+                            resolution: resolution,
+                            requestID: request.requestID
+                        ))
+                    )
+                case .question(let question) where question.selectedOptionLabel == nil:
+                    let selectedLabel = selection.flatMap { value in
+                        question.options.first(where: { $0.id == value })?.label
+                    } ?? selection
+                    replacement = ChatMessage(
+                        id: message.id,
+                        seq: message.seq,
+                        role: message.role,
+                        timestamp: message.timestamp,
+                        kind: .question(ChatQuestion(
+                            prompt: question.prompt,
+                            options: question.options,
+                            selectedOptionLabel: selectedLabel ?? resolution.rawValue.capitalized,
+                            questionID: question.questionID,
+                            requestID: question.requestID
+                        ))
+                    )
+                default:
+                    replacement = nil
+                }
+                if let replacement {
+                    messages[id] = replacement
+                    updated.append(replacement)
+                }
+            }
+            pendingAttentionMessages[sessionID] = messages
+            if !updated.isEmpty {
+                emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(updated)))
+            }
         }
     }
 
@@ -477,10 +545,17 @@ final class AgentChatTranscriptService {
         }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
+        let overlay = pendingAttentionMessages[sessionID, default: [:]].values.filter { message in
+            beforeSeq.map { message.seq < $0 } ?? true
+        }
+        let merged = (page.messages + overlay).sorted { lhs, rhs in
+            if lhs.seq != rhs.seq { return lhs.seq < rhs.seq }
+            return lhs.id < rhs.id
+        }
         if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
-        return page
+        return ChatHistoryPage(messages: merged, hasMore: page.hasMore, terminalBlocks: page.terminalBlocks)
     }
 
     /// Debug-socket dump of every registry record plus tailer liveness.
@@ -685,6 +760,224 @@ final class AgentChatTranscriptService {
         endedListability.remove(sessionID: record.sessionID)
         guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
+    }
+
+    /// Converts structured hook prompts into the same typed rows used by
+    /// transcript parsers. The hook payload is intentionally treated as
+    /// provider-shaped JSON: unknown fields degrade to a readable subject,
+    /// while a malformed payload never prevents normal session tracking.
+    private func noteAttentionMessages(for event: WorkstreamEvent, sessionID: String) {
+        // Codex's PermissionRequest hook is telemetry for its own native
+        // approval reviewer. Creating a second actionable card would bypass
+        // Codex's approval modes and leave two independent answers for one
+        // tool call. The feed classifier maps that event to PreToolUse, but
+        // keep this guard for direct/legacy hook frames too.
+        let isQuestion = event.hookEventName == .askUserQuestion
+            || event.hookEventName == .exitPlanMode
+            || (event.hookEventName == .preToolUse
+                && event.toolName?.caseInsensitiveCompare("AskUserQuestion") == .orderedSame)
+        let isPermission = event.hookEventName == .permissionRequest
+            && event.source.caseInsensitiveCompare("codex") != .orderedSame
+
+        if isQuestion || isPermission {
+            let root = Self.jsonObject(event.toolInputJSON) ?? [:]
+            // `_opencode_request_id` is the cmux Feed waiter identity. The
+            // provider's own request_id/tool_use_id is retained as a fallback
+            // for older hook bridges that did not stamp that field, but must
+            // never displace the Feed id when both are present: reply RPCs
+            // resolve FeedCoordinator by the cmux id.
+            let requestID = Self.attentionRequestID(for: event)
+            let eventID = Self.attentionEventID(for: event)
+            let key = requestID ?? eventID ?? "\(event.hookEventName.rawValue)-\(event.receivedAt.timeIntervalSince1970)-\(event.toolName ?? "request")"
+            let messages: [ChatMessage]
+            if isPermission {
+                let subject = Self.readableJSON(event.toolInputJSON) ?? event.toolName ?? "Agent action"
+                messages = [makeAttentionMessage(
+                    sessionID: sessionID,
+                    key: key,
+                    kind: .permissionRequest(ChatPermissionRequest(
+                        title: "\(event.source.capitalized) needs permission",
+                        subject: subject,
+                        requestID: requestID
+                    ))
+                )]
+            } else {
+                messages = Self.questionPayloads(root: root, event: event).enumerated().map { index, question in
+                    makeAttentionMessage(
+                        sessionID: sessionID,
+                        key: "\(key)-\(index)",
+                        kind: .question(ChatQuestion(
+                            prompt: question.prompt,
+                            options: question.options,
+                            selectedOptionLabel: question.selectedOptionLabel,
+                            questionID: question.questionID,
+                            requestID: requestID
+                        ))
+                    )
+                }
+            }
+            guard !messages.isEmpty else { return }
+            var sessionMessages = pendingAttentionMessages[sessionID, default: [:]]
+            var appended: [ChatMessage] = []
+            for message in messages where sessionMessages[message.id] == nil {
+                sessionMessages[message.id] = message
+                appended.append(message)
+            }
+            pendingAttentionMessages[sessionID] = sessionMessages
+            if !appended.isEmpty {
+                emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(appended)))
+            }
+            return
+        }
+
+        let resolves = event.hookEventName == .postToolUse
+            || event.hookEventName == .postToolUseFailure
+            || event.hookEventName == .stop
+            || event.hookEventName == .sessionEnd
+        guard resolves, var sessionMessages = pendingAttentionMessages[sessionID], !sessionMessages.isEmpty else { return }
+        let resolution: ChatPermissionRequest.Resolution = event.hookEventName == .postToolUse
+            ? .approved
+            : event.hookEventName == .postToolUseFailure ? .denied : .expired
+        let targetRequestID = Self.attentionRequestID(for: event)
+        let pendingRequestIDs = Set(sessionMessages.values.compactMap { message -> String? in
+            Self.attentionRequestID(for: message)
+        })
+        // Every feed hook receives a fresh `_opencode_request_id`, so a
+        // PostToolUse frame normally cannot carry the request id from the
+        // earlier PermissionRequest. If no pending card matches this frame's
+        // id, the completed tool is still authoritative evidence that the
+        // provider accepted the pending decision; resolve the session's
+        // outstanding cards as a group. Exact matching remains preferred for
+        // providers that echo their request identity.
+        let targetMatchesPending = targetRequestID.map { pendingRequestIDs.contains($0) } ?? false
+        var updated: [ChatMessage] = []
+        for (id, message) in sessionMessages {
+            let shouldResolve = targetMatchesPending
+                ? (targetRequestID == Self.attentionRequestID(for: message))
+                : event.hookEventName == .postToolUse
+                    || event.hookEventName == .postToolUseFailure
+                    || event.hookEventName == .stop
+                    || event.hookEventName == .sessionEnd
+            guard shouldResolve else { continue }
+            let replacement: ChatMessage?
+            switch message.kind {
+            case .permissionRequest(let request):
+                guard request.resolution == nil else { continue }
+                replacement = ChatMessage(
+                    id: message.id, seq: message.seq, role: message.role, timestamp: message.timestamp,
+                    kind: .permissionRequest(ChatPermissionRequest(title: request.title, subject: request.subject, resolution: resolution, requestID: request.requestID))
+                )
+            case .question(let question):
+                guard question.selectedOptionLabel == nil else { continue }
+                replacement = ChatMessage(
+                    id: message.id, seq: message.seq, role: message.role, timestamp: message.timestamp,
+                    kind: .question(ChatQuestion(prompt: question.prompt, options: question.options, selectedOptionLabel: resolution == .approved ? question.options.first?.label : "Dismissed", questionID: question.questionID, requestID: question.requestID))
+                )
+            default:
+                replacement = nil
+            }
+            if let replacement {
+                sessionMessages[id] = replacement
+                updated.append(replacement)
+            }
+        }
+        pendingAttentionMessages[sessionID] = sessionMessages
+        if !updated.isEmpty {
+            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(updated)))
+        }
+    }
+
+    private func makeAttentionMessage(sessionID: String, key: String, kind: ChatMessageKind) -> ChatMessage {
+        nextAttentionSequence += 1
+        return ChatMessage(
+            id: "attention-\(sessionID)-\(key)",
+            seq: nextAttentionSequence,
+            role: .agent,
+            timestamp: now(),
+            kind: kind
+        )
+    }
+
+    private static func jsonObject(_ raw: String?) -> [String: Any]? {
+        guard let raw, let data = raw.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func readableJSON(_ raw: String?) -> String? {
+        guard let raw, let data = raw.data(using: .utf8) else { return nil }
+        if let object = try? JSONSerialization.jsonObject(with: data),
+           JSONSerialization.isValidJSONObject(object),
+           let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+           let text = String(data: pretty, encoding: .utf8) {
+            return String(text.prefix(8_000))
+        }
+        return raw.isEmpty ? nil : String(raw.prefix(8_000))
+    }
+
+    private static func questionPayloads(root: [String: Any], event: WorkstreamEvent) -> [ChatQuestion] {
+        if event.hookEventName == .exitPlanMode {
+            return [ChatQuestion(
+                prompt: "Review the agent's plan before it continues.",
+                options: [ChatQuestion.Option(label: "Approve plan"), ChatQuestion.Option(label: "Revise plan")],
+                questionID: "__cmux_exit_plan__"
+            )]
+        }
+        let rawQuestions = root["questions"] as? [[String: Any]] ?? [root]
+        return rawQuestions.compactMap { item in
+            let prompt = (item["question"] as? String) ?? (item["prompt"] as? String) ?? (item["text"] as? String)
+            guard let prompt, !prompt.isEmpty else { return nil }
+            let options = (item["options"] as? [[String: Any]] ?? []).compactMap { option -> ChatQuestion.Option? in
+                guard let label = option["label"] as? String, !label.isEmpty else { return nil }
+                return ChatQuestion.Option(
+                    label: label,
+                    detail: option["description"] as? String,
+                    id: option["id"] as? String
+                )
+            }
+            return ChatQuestion(prompt: prompt, options: options, questionID: item["id"] as? String)
+        }
+    }
+
+    /// Returns the id a mobile reply must send to the Feed coordinator. Hook
+    /// payloads from current bridges carry `_opencode_request_id`; older
+    /// bridges and provider-native frames may only expose one of the aliases
+    /// below in the dynamic fields. A missing id disables structured replies,
+    /// while transcript tracking continues normally.
+    private static func attentionRequestID(for event: WorkstreamEvent) -> String? {
+        if let requestID = normalizedAttentionID(event.requestId) {
+            return requestID
+        }
+        guard let extra = jsonObject(event.extraFieldsJSON) else { return nil }
+        for key in [
+            "_opencode_request_id", "cmux_request_id", "feed_request_id",
+            "request_id", "requestId", "tool_use_id", "toolUseId",
+            "tool_call_id", "toolCallId"
+        ] {
+            if let requestID = normalizedAttentionID(extra[key] as? String) {
+                return requestID
+            }
+        }
+        return nil
+    }
+
+    private static func attentionEventID(for event: WorkstreamEvent) -> String? {
+        guard let extra = jsonObject(event.extraFieldsJSON) else { return nil }
+        return normalizedAttentionID(extra["event_id"] as? String)
+            ?? normalizedAttentionID(extra["eventId"] as? String)
+    }
+
+    private static func attentionRequestID(for message: ChatMessage) -> String? {
+        switch message.kind {
+        case .permissionRequest(let request): return request.requestID
+        case .question(let question): return question.requestID
+        default: return nil
+        }
+    }
+
+    private static func normalizedAttentionID(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(512))
     }
 
     private func emit(frame: ChatSessionEventFrame) {

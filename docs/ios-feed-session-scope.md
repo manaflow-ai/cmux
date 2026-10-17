@@ -1,5 +1,9 @@
 # iOS Feed: session scope and decisions
 
+> The former mobile Agent Feed UI was retired in favor of the native Chats
+> surface. This document remains as the historical scope record for the Feed
+> backend and migration decisions.
+
 This is the living scope record for the Feed work continued in this session. It includes the existing feature carried forward, subsequent user requests, implementation decisions, evidence, and unfinished work. Code being present does not mean the feature has passed a real phone check.
 
 - Updated: 2026-09-24. Markdown and multi-question handling are implemented; final visual and device verification are recorded separately below.
@@ -217,10 +221,9 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 ## Source map
 
 - [Feed overview and existing provider integration semantics](feed.md).
-- [Full-text reader](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedFullTextView.swift), [retained content and paging](../Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamFullText.swift).
-- [Timeline, filtering, and swipe actions](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedView.swift).
-- [Row controls and reply states](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedRow.swift), [composer](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedReplyComposer.swift).
-- [Multi-question answer composition](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedQuestionAnswerComposer.swift), [pager tests](../Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/AgentFeedQuestionAnswerComposerTests.swift).
+- [Native Chats surface](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentChatGUI.swift), [retained content and paging](../Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamFullText.swift).
+- [Chat transcript and structured attention rows](../Sources/Mobile/AgentChat/AgentChatTranscriptService.swift).
+- [Chat synchronization, routing, submission, and provider replies](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileChatEventSource.swift).
 - [Feed synchronization, routing, submission, and stop matching](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+AgentFeed.swift).
 - [Item identity, reply eligibility, and triage semantics](../Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileAgentFeedItem.swift).
 - [Mac terminal submission](../Sources/TerminalController.swift), [active-provider submit-key selection](../Sources/TextBoxAgentDetection.swift).

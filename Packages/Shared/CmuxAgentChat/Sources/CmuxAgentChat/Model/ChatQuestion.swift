@@ -6,8 +6,11 @@
 public struct ChatQuestion: Sendable, Equatable, Codable {
     /// One selectable answer.
     public struct Option: Sendable, Equatable, Codable, Identifiable {
-        /// Stable identity within the question (the option's index as text).
-        public var id: String { label }
+        /// Stable provider identity within the question. Older payloads may
+        /// omit it; those safely fall back to the display label.
+        public let optionID: String?
+
+        public var id: String { optionID ?? label }
 
         /// The display text of the option.
         public let label: String
@@ -20,12 +23,14 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
         /// - Parameters:
         ///   - label: Display text.
         ///   - detail: Optional longer explanation.
-        public init(label: String, detail: String? = nil) {
+        public init(label: String, detail: String? = nil, id: String? = nil) {
+            self.optionID = id
             self.label = label
             self.detail = detail
         }
 
         private enum CodingKeys: String, CodingKey {
+            case optionID = "id"
             case label
             case detail
         }
@@ -45,6 +50,7 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
     /// so this is `nil` there). Lets a multi-question call resolve each card to
     /// its own answer.
     public let questionID: String?
+    public let requestID: String?
 
     /// Creates a question.
     ///
@@ -58,12 +64,14 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
         prompt: String,
         options: [Option],
         selectedOptionLabel: String? = nil,
-        questionID: String? = nil
+        questionID: String? = nil,
+        requestID: String? = nil
     ) {
         self.prompt = prompt
         self.options = options
         self.selectedOptionLabel = selectedOptionLabel
         self.questionID = questionID
+        self.requestID = requestID
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -71,5 +79,6 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
         case options
         case selectedOptionLabel = "selected_option_label"
         case questionID = "question_id"
+        case requestID = "request_id"
     }
 }

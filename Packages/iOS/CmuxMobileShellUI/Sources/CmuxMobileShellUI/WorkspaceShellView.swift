@@ -370,12 +370,21 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
                 // A hidden destination cannot stay selected; the Feed is its
-                // replacement.
+                // replacement. The legacy Feed is retired; keep old settings
+                // snapshots from selecting a destination that is no longer
+                // exposed in production navigation.
                 if replaces, selectedPrimaryTab == .notifications {
-                    selectedPrimaryTab = .feed
+                    selectedPrimaryTab = .workspaces
                 }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                if newValue == .feed {
+                    // The legacy Feed destination is retired. Redirect a
+                    // persisted selection from an older app build before the
+                    // tab scaffold tries to render a hidden tab.
+                    selectedPrimaryTab = .workspaces
+                    return
+                }
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
@@ -434,12 +443,9 @@ struct WorkspaceShellView: View {
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
-            feedNeedsInputCountProvider: {
-                presentation.selectionScope.agentFeedNeedsInputCount(
-                    from: store.agentFeedItems
-                )
-            },
+            feedNeedsInputCountProvider: nil,
             showsNotificationsTab: !displaySettings.feedReplacesNotifications,
+            showsFeedTab: false,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
                 : taskComposerAction
@@ -448,28 +454,7 @@ struct WorkspaceShellView: View {
                 presentation: presentation
             )
         } feed: {
-            NavigationStack(path: $feedNavigationPath) {
-                agentFeedStoreView(
-                    for: presentation,
-                    isActive: selectedPrimaryTab == .feed
-                )
-                    .toolbar {
-                        if feedNavigationPath.isEmpty {
-                            rootToolbarContent
-                        }
-                    }
-                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                        workspaceDestination(
-                            for: workspaceID,
-                            createWorkspace: createWorkspaceInCompactStack,
-                            canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                        )
-                        .mobileToolbarVisibility(.hidden, for: .tabBar)
-                    }
-            }
-            // The root stack owns the shared picker toolbar. Keep its title
-            // region inline so the list and Feed start directly below it.
-            .mobileInlineNavigationTitle()
+            AgentChatRootView(source: store.makeChatEventSource())
         } notifications: {
             if !usesCompactStack {
                 workspaceTabContent(presentation: presentation)
@@ -571,7 +556,7 @@ struct WorkspaceShellView: View {
                             )
                         }
                     case .feed:
-                        agentFeedStoreView(for: presentation)
+                        AgentChatRootView(source: store.makeChatEventSource())
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -1005,7 +990,7 @@ struct WorkspaceShellView: View {
         return Group {
             switch splitSidebarDestination {
             case .feed:
-                agentFeedStoreView(for: presentation)
+                AgentChatRootView(source: store.makeChatEventSource())
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -1057,7 +1042,7 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
-            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+            Text("Chats")
                 .tag(MobilePrimarySearchScope.feed)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
@@ -1098,7 +1083,8 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Chats"),
+                showsFeed: false,
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
                 showsNotifications: !displaySettings.feedReplacesNotifications,
                 cloudTitle: cloudTabContent == nil
@@ -1129,6 +1115,7 @@ struct WorkspaceShellView: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
         let feedTitle: String
+        let showsFeed: Bool
         let notificationsTitle: String
         let showsNotifications: Bool
         /// Nil in a build without Cloud, which omits the destination.
@@ -1141,11 +1128,13 @@ struct WorkspaceShellView: View {
                     title: workspacesTitle,
                     accessibilityID: "MobileSplitSidebarWorkspaces"
                 )
-                destinationButton(
-                    .feed,
-                    title: feedTitle,
-                    accessibilityID: "MobileSplitSidebarFeed"
-                )
+                if showsFeed {
+                    destinationButton(
+                        .feed,
+                        title: feedTitle,
+                        accessibilityID: "MobileSplitSidebarFeed"
+                    )
+                }
                 if showsNotifications {
                     destinationButton(
                         .notifications,
@@ -1277,7 +1266,7 @@ struct WorkspaceShellView: View {
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
         case .feed:
-            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
+            Text("Search chats")
         case .workspaces:
             Text(
                 L10n.string(
@@ -1505,18 +1494,6 @@ struct WorkspaceShellView: View {
         )
     }
 
-    private func agentFeedStoreView(
-        for presentation: WorkspaceShellRenderPresentation,
-        isActive: Bool = true
-    ) -> AgentFeedStoreView {
-        AgentFeedStoreView(
-            store: store,
-            selectionScope: presentation.selectionScope,
-            isActive: isActive,
-            searchCoordinator: primarySearchCoordinator
-        )
-    }
-
     private func rootToolbarRenderContext(
         for presentation: WorkspaceShellRenderPresentation
     ) -> WorkspaceRootToolbarRenderContext {
@@ -1620,14 +1597,6 @@ struct WorkspaceShellView: View {
                 if notificationNavigationPath.last != workspaceID {
                     notificationNavigationPath = [workspaceID]
                 }
-            }
-            return
-        }
-        if request.origin == .agentFeed,
-           selectedPrimaryTab == .feed,
-           !primarySearchCoordinator.isPresented {
-            if feedNavigationPath.last != workspaceID {
-                feedNavigationPath = [workspaceID]
             }
             return
         }

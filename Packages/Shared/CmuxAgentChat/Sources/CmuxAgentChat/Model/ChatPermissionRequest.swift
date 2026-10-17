@@ -22,6 +22,7 @@ public struct ChatPermissionRequest: Sendable, Equatable, Codable {
 
     /// The decision, or `nil` while the request is pending.
     public let resolution: Resolution?
+    public let requestID: String?
 
     /// Creates a permission request.
     ///
@@ -29,15 +30,17 @@ public struct ChatPermissionRequest: Sendable, Equatable, Codable {
     ///   - title: Short card title.
     ///   - subject: The gated command or tool, as text.
     ///   - resolution: The decision, or `nil` while pending.
-    public init(title: String, subject: String, resolution: Resolution? = nil) {
+    public init(title: String, subject: String, resolution: Resolution? = nil, requestID: String? = nil) {
         self.title = title
         self.subject = subject
         self.resolution = resolution
+        self.requestID = requestID
     }
 
     private enum CodingKeys: String, CodingKey {
         case title
         case subject
         case resolution
+        case requestID = "request_id"
     }
 }

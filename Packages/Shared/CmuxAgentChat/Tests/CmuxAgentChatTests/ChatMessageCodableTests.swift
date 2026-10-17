@@ -67,7 +67,7 @@ struct ChatMessageCodableTests {
                     prompt: "Which approach?",
                     options: [
                         ChatQuestion.Option(label: "Fast", detail: "less safe"),
-                        ChatQuestion.Option(label: "Safe"),
+                        ChatQuestion.Option(label: "Safe", id: "safe-option"),
                     ],
                     selectedOptionLabel: "Safe"
                 )

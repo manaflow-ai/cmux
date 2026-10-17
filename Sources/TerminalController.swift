@@ -6862,6 +6862,12 @@ class TerminalController {
             requestId: requestId,
             decision: .permission(mode)
         )
+        Task { @MainActor in
+            TerminalController.shared.noteAgentChatStructuredReply(
+                requestID: requestId,
+                resolution: mode == .deny ? .denied : .approved
+            )
+        }
         return .ok(["delivered": true])
     }
 
@@ -6884,6 +6890,13 @@ class TerminalController {
             requestId: requestId,
             decision: .question(selections: selections)
         )
+        Task { @MainActor in
+            TerminalController.shared.noteAgentChatStructuredReply(
+                requestID: requestId,
+                resolution: .approved,
+                selection: selections.first
+            )
+        }
         return .ok(["delivered": true])
     }
 
@@ -6909,6 +6922,12 @@ class TerminalController {
             requestId: requestId,
             decision: .exitPlan(mode, feedback: feedback)
         )
+        Task { @MainActor in
+            TerminalController.shared.noteAgentChatStructuredReply(
+                requestID: requestId,
+                resolution: mode == .deny || mode == .manual ? .denied : .approved
+            )
+        }
         return .ok(["delivered": true])
     }
 

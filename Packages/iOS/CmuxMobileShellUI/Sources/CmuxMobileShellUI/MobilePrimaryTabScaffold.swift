@@ -19,6 +19,10 @@ struct MobilePrimaryTabScaffold<
     let feedNeedsInputCountProvider: (@MainActor () -> Int)?
     /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
+    /// Whether the legacy agent Feed destination is exposed in primary navigation.
+    /// The native Chats surface owns agent conversations; production hides the
+    /// retired Feed while previews may continue to exercise it explicitly.
+    let showsFeedTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let feed: Feed
@@ -33,6 +37,7 @@ struct MobilePrimaryTabScaffold<
         feedNeedsInputCount: Int = 0,
         feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
+        showsFeedTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder feed: () -> Feed,
@@ -46,6 +51,7 @@ struct MobilePrimaryTabScaffold<
         self.feedNeedsInputCount = feedNeedsInputCount
         self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
+        self.showsFeedTab = showsFeedTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.feed = feed()
@@ -102,10 +108,12 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                feed
-                    .tabItem { feedLabel }
-                    .tag(MobilePrimaryTab.feed)
-                    .badge(resolvedFeedNeedsInputCount)
+                if showsFeedTab {
+                    feed
+                        .tabItem { feedLabel }
+                        .tag(MobilePrimaryTab.feed)
+                        .badge(resolvedFeedNeedsInputCount)
+                }
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
@@ -162,12 +170,14 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        Tab(value: MobilePrimaryTab.feed) {
-            feed
-        } label: {
-            feedLabel
+        if showsFeedTab {
+            Tab(value: MobilePrimaryTab.feed) {
+                feed
+            } label: {
+                feedLabel
+            }
+            .badge(resolvedFeedNeedsInputCount)
         }
-        .badge(resolvedFeedNeedsInputCount)
 
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {

@@ -341,8 +341,18 @@ public actor AgentChatTranscriptTailer {
                 status: output == nil ? .running : .succeeded
             ))
         case "patch":
-            let path = (object["path"] as? String) ?? (object["file"] as? String) ?? "Changed file"
-            return .fileEdit(ChatFileEdit(filePath: path, operation: .edit, unifiedDiff: openCodeText(object)))
+            // OpenCode's persisted patch parts carry their changed paths in a
+            // `files` array (the older bridge used `path`/`file`). Preserve
+            // that useful identity in the card even when no unified diff was
+            // persisted alongside the patch hash.
+            let files = (object["files"] as? [Any])?.compactMap { $0 as? String } ?? []
+            let path = (object["path"] as? String)
+                ?? (object["file"] as? String)
+                ?? files.first
+                ?? "Changed file"
+            let diff = openCodeText(object)
+                ?? (files.isEmpty ? nil : files.joined(separator: "\n"))
+            return .fileEdit(ChatFileEdit(filePath: path, operation: .edit, unifiedDiff: diff))
         case "file":
             let path = (object["filename"] as? String) ?? (object["path"] as? String) ?? "File"
             return .fileEdit(ChatFileEdit(filePath: path, operation: .write, unifiedDiff: openCodeText(object)))

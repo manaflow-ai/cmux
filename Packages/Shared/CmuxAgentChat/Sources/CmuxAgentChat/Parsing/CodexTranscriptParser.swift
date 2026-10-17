@@ -375,7 +375,11 @@ public struct CodexTranscriptParser: Sendable {
             guard let prompt = question["question"]?.string else { return nil }
             let options = (question["options"]?.array ?? []).compactMap { option in
                 option["label"]?.string.map {
-                    ChatQuestion.Option(label: $0, detail: option["description"]?.string)
+                    ChatQuestion.Option(
+                        label: $0,
+                        detail: option["description"]?.string,
+                        id: option["id"]?.string
+                    )
                 }
             }
             guard !options.isEmpty else { return nil }

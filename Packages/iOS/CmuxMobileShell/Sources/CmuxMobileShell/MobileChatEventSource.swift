@@ -270,6 +270,36 @@ public actor MobileChatEventSource: ChatEventSource {
         _ = try await client.sendRequest(request)
     }
 
+    /// Delivers a structured permission decision to the host's blocking hook.
+    /// Terminal-key answering remains available for prompts without a request id.
+    public func replyPermission(requestID: String, mode: String) async throws {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "feed.permission.reply",
+            params: ["request_id": requestID, "mode": mode]
+        )
+        _ = try await client.sendRequest(request)
+    }
+
+    /// Delivers one or more structured question selections to the host.
+    public func replyQuestion(requestID: String, selections: [String]) async throws {
+        guard !selections.isEmpty else { return }
+        let request = try MobileCoreRPCClient.requestData(
+            method: "feed.question.reply",
+            params: ["request_id": requestID, "selections": selections]
+        )
+        _ = try await client.sendRequest(request)
+    }
+
+    /// Delivers an ExitPlanMode decision to the host.
+    public func replyExitPlan(requestID: String, mode: String, feedback: String? = nil) async throws {
+        var params: [String: Any] = ["request_id": requestID, "mode": mode]
+        if let feedback, !feedback.isEmpty {
+            params["feedback"] = feedback
+        }
+        let request = try MobileCoreRPCClient.requestData(method: "feed.exit_plan.reply", params: params)
+        _ = try await client.sendRequest(request)
+    }
+
     public func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
         try await artifactCall(
             method: "mobile.chat.artifact.stat",
