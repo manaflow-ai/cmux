@@ -46,8 +46,10 @@ extension ChatColumnPlacement {
             ? screen.column(containing: pane).map { [$0] } ?? [] : screen.layout.columns
     }
 
-    /// What a person's new tab from `controller`'s pane becomes.
-    @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
+    /// What a person's new tab from `controller`'s pane becomes. `sharing`: a chat that shares its
+    /// pane with other tabs counts as lone too (Debug Settings `agentChat.dockBesideTabs`).
+    @MainActor static func resolve(from controller: PaneController, services: AppServices,
+                                   sharing: Bool = false) -> ChatColumnPlacement {
         guard let content = controller.workspace,
               content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
@@ -58,8 +60,8 @@ extension ChatColumnPlacement {
         }
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
             guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
-                  tabs.count == 1 else { return false }
-            return isChat(tabs[0], services: services)
+                  sharing || tabs.count == 1 else { return false }
+            return sharing ? tabs.contains { isChat($0, services: services) } : isChat(tabs[0], services: services)
         }
     }
 

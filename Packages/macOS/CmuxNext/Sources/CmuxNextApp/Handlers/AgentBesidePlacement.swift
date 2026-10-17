@@ -45,9 +45,15 @@ enum AgentBesidePlacement {
         // Panels as tabs on the right (Debug Settings `agentChat.panelTabs`): the chat keeps its place
         // and the tab moves into a column on its right, as every panel beside the chat does (Lucas
         // 2026-10-17: Files docked the chat left and took its pane).
+        // `agentChat.dockBesideTabs`: a chat sharing its pane with other tabs docks too, and they stay
+        // with the new tab, instead of the new tab taking a column of its own that filled the screen
+        // and scrolled the chat out of view (Lucas 2026-10-17).
+        let sharing = AgentPaneTunables.dockBesideTabs.value
         let lone = AgentPaneTunables.panelTabs.value ? nil
-            : controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
-        let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
+            : controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services, sharing: sharing) == .dockChat ? $0 : nil }
+        let caller = invocation.target?.id
+        let chat = lone?.pane.tabs.first { $0.id == caller && ChatColumnPlacement.isChat($0, services: services) }
+            ?? lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
