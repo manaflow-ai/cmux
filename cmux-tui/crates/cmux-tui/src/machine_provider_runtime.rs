@@ -3955,11 +3955,8 @@ mod tests {
                 panic!("client capability negotiation did not immediately follow hello");
             };
             assert_eq!(
-                params.capabilities,
-                [
-                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
-                    protocol::CONNECTION_PROGRESS_CLIENT_CAPABILITY,
-                ]
+                params.capabilities.join(","),
+                "provider-action-targets-v1,connection-progress-v1,machine-metadata-v1"
             );
             write_frame(
                 &mut stream,

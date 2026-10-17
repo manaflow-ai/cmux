@@ -30,16 +30,17 @@ use cmux_tui_machine_protocol::{
     ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
     CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
     EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
-    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
-    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
-    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
-    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
-    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
-    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
-    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
-    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
-    WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
-    WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MACHINE_METADATA_CLIENT_CAPABILITY,
+    MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult, MachineMutationParams,
+    MachineMutationResult, NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult,
+    NoticeDelivery, OpaqueId, OpenMachineParams, OpenMachineResult,
+    PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError, ProviderEvent,
+    ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams, RequestEnvelope,
+    ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams, SnapshotResult,
+    SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WORKSPACE_LIFECYCLE_CAPABILITY,
+    WorkspaceCreateMode, WorkspaceMutationParams, WorkspaceMutationResult, WorkspaceSnapshotParams,
+    WorkspaceSnapshotResult,
 };
 #[cfg(unix)]
 use serde::Serialize;
@@ -708,14 +709,14 @@ impl ProviderClient {
     pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
         let mut snapshot =
             self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))?;
-        self.retain_negotiated_actions(&mut snapshot)?;
+        self.retain_negotiated_snapshot(&mut snapshot)?;
         Ok(snapshot)
     }
 
     pub(crate) fn select_scope(&self, scope_id: OpaqueId) -> ProviderResult<SelectScopeResult> {
         let mut result: SelectScopeResult =
             self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))?;
-        self.retain_negotiated_actions(&mut result.snapshot)?;
+        self.retain_negotiated_snapshot(&mut result.snapshot)?;
         Ok(result)
     }
 
@@ -1065,6 +1066,7 @@ impl ProviderClient {
         let requested = vec![
             PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
             CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+            MACHINE_METADATA_CLIENT_CAPABILITY.to_string(),
         ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
@@ -1084,7 +1086,7 @@ impl ProviderClient {
         Ok(())
     }
 
-    fn retain_negotiated_actions(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
+    fn retain_negotiated_snapshot(&self, snapshot: &mut SnapshotResult) -> ProviderResult<()> {
         let capabilities = self
             .inner
             .negotiated_client_capabilities

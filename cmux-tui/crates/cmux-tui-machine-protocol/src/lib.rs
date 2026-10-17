@@ -15,6 +15,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+mod machine_metadata;
+pub use machine_metadata::{
+    MACHINE_METADATA_CLIENT_CAPABILITY, MachineDescriptor, MachinePlatform,
+};
+
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
 /// Gates provider-owned external-machine enrollment.
@@ -584,10 +589,17 @@ pub struct SnapshotResult {
 }
 
 impl SnapshotResult {
-    /// Removes action shapes that are unsafe for a strict pre-negotiation v1
-    /// decoder. Providers call this before every snapshot-shaped response,
+    /// Removes unnegotiated additive fields and action shapes for strict v1
+    /// decoders. The name is kept for source compatibility. Providers call this
+    /// before every snapshot-shaped response,
     /// using the capabilities accepted for that control generation.
     pub fn retain_actions_for_client_capabilities(&mut self, capabilities: &[String]) {
+        if !capabilities.iter().any(|capability| capability == MACHINE_METADATA_CLIENT_CAPABILITY) {
+            for machine in &mut self.machines {
+                machine.platform = None;
+                machine.capabilities.clear();
+            }
+        }
         if !capabilities
             .iter()
             .any(|capability| capability == PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY)
@@ -611,33 +623,6 @@ pub struct ScopeDescriptor {
 pub enum ScopeKind {
     Personal,
     Team,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MachineDescriptor {
-    pub id: OpaqueId,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub subtitle: String,
-    pub status: MachineStatus,
-    pub connectable: bool,
-    pub workspace_create: WorkspaceCreatePolicy,
-    /// Optional non-secret host metadata for agent and machine surfaces.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platform: Option<MachinePlatform>,
-    /// Stable capability names; credentials and account data stay outside the catalog.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MachinePlatform {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub os: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
