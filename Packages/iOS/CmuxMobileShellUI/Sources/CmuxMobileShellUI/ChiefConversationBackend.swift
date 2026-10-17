@@ -351,7 +351,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             state.pendingSends = state.pendingSends.filter { $0.value.startedAt >= cutoff }
             let pendingClientMessageIDs = Set(state.pendingSends.keys)
             state.correlatedMessagesByClientID = state.correlatedMessagesByClientID.filter {
-                pendingClientMessageIDs.contains($0.key)
+                pendingClientMessageIDs.contains($0.key) || $0.value.at >= cutoff
             }
             if let clientMessageID = message.clientMessageID,
                state.pendingSends[clientMessageID] != nil {
