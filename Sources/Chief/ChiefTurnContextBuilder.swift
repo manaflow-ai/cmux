@@ -161,9 +161,8 @@ struct ChiefTurnContextBuilder: Sendable {
         if let workspaceID { environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString }
         if let surfaceID { environment["CMUX_SURFACE_ID"] = surfaceID.uuidString }
         if base["CMUX_SOCKET"] != nil { environment["CMUX_SOCKET"] = socketPath }
-        var path = ChiefSearchPath.merged(base: base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
-                                          loginShell: loginShellPath,
-                                          home: FileManager.default.homeDirectoryForCurrentUser.path)
+        var path = ChiefSearchPath(home: FileManager.default.homeDirectoryForCurrentUser.path)
+            .merged(base: base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin", loginShell: loginShellPath)
             .split(separator: ":").map(String.init)
         if let cli = bundledCLI {
             environment["CMUX_BUNDLED_CLI_PATH"] = cli.path

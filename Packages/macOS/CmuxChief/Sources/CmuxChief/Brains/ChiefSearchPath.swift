@@ -8,12 +8,19 @@ import Foundation
 /// such as `gh` from Homebrew, would be "command not found" for the brain.
 /// The login shell's `PATH` comes first, as in the user's terminal, then the
 /// app's, then the usual install places.
-public enum ChiefSearchPath {
-    /// Install places searched when neither `PATH` names them.
+public struct ChiefSearchPath: Sendable, Equatable {
+    /// The user's home directory.
+    public let home: String
+
+    /// Creates the search path for a user.
     ///
     /// - Parameter home: The user's home directory.
-    /// - Returns: The directories, most specific first.
-    static func fallbackDirectories(home: String) -> [String] {
+    public init(home: String) {
+        self.home = home
+    }
+
+    /// Install places searched when neither `PATH` names them, most specific first.
+    var fallbackDirectories: [String] {
         ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin"]
     }
 
@@ -22,15 +29,14 @@ public enum ChiefSearchPath {
     /// - Parameters:
     ///   - base: The app's `PATH`.
     ///   - loginShell: The login shell's `PATH`, nil when it could not be read.
-    ///   - home: The user's home directory.
     /// - Returns: A `PATH` with each absolute directory once; relative or
     ///   unexpanded entries (`.`, `$PATH`) are dropped.
-    public static func merged(base: String, loginShell: String?, home: String) -> String {
+    public func merged(base: String, loginShell: String?) -> String {
         var seen = Set<String>()
         var directories: [String] = []
         let candidates = (loginShell ?? "").split(separator: ":").map(String.init)
             + base.split(separator: ":").map(String.init)
-            + fallbackDirectories(home: home)
+            + fallbackDirectories
         for directory in candidates where directory.hasPrefix("/") && seen.insert(directory).inserted {
             directories.append(directory)
         }

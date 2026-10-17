@@ -6,12 +6,11 @@ import Testing
 /// gets launchd's minimal `PATH`, so tools the user runs in Terminal (`gh`,
 /// Homebrew installs) must still be found by the brain's shell commands.
 @Suite struct ChiefSearchPathTests {
-    let home = "/Users/test"
+    let searchPath = ChiefSearchPath(home: "/Users/test")
 
     @Test func aMinimalAppPathGainsTheLoginShellPath() {
-        let path = ChiefSearchPath.merged(base: "/usr/bin:/bin:/usr/sbin:/sbin",
-                                          loginShell: "/opt/homebrew/bin:/usr/bin:/bin:/custom/tools",
-                                          home: home)
+        let path = searchPath.merged(base: "/usr/bin:/bin:/usr/sbin:/sbin",
+                                     loginShell: "/opt/homebrew/bin:/usr/bin:/bin:/custom/tools")
         let entries = path.split(separator: ":").map(String.init)
         #expect(Array(entries.prefix(4)) == ["/opt/homebrew/bin", "/usr/bin", "/bin", "/custom/tools"])
         #expect(entries.contains("/usr/sbin"))
@@ -19,7 +18,7 @@ import Testing
     }
 
     @Test func withoutALoginShellTheUsualInstallPlacesAreStillSearched() {
-        let path = ChiefSearchPath.merged(base: "/usr/bin:/bin:/usr/sbin:/sbin", loginShell: nil, home: home)
+        let path = searchPath.merged(base: "/usr/bin:/bin:/usr/sbin:/sbin", loginShell: nil)
         let entries = path.split(separator: ":").map(String.init)
         #expect(Array(entries.prefix(4)) == ["/usr/bin", "/bin", "/usr/sbin", "/sbin"])
         for directory in ["/Users/test/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"] {
@@ -28,7 +27,7 @@ import Testing
     }
 
     @Test func relativeAndUnexpandedEntriesAreDropped() {
-        let path = ChiefSearchPath.merged(base: "/usr/bin:.", loginShell: "$PATH:bin:/opt/homebrew/bin", home: home)
+        let path = searchPath.merged(base: "/usr/bin:.", loginShell: "$PATH:bin:/opt/homebrew/bin")
         let entries = path.split(separator: ":").map(String.init)
         #expect(entries.allSatisfy { $0.hasPrefix("/") })
         #expect(entries.first == "/opt/homebrew/bin")

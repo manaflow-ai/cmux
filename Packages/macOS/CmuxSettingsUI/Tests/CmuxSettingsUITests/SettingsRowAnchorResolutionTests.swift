@@ -63,6 +63,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.warnBeforeClosingWorkspace",
         "app.workspaceInheritWorkingDirectory",
         "agentMessages.enabled",
+        "chief.dangerouslySkipPermissions",
         "chief.effort",
         "chief.enabled",
         "chief.harness",
