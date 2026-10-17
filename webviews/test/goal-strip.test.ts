@@ -30,10 +30,16 @@ test("projects a quiet running run as stalled", () => {
 
   const stalled = projectGoal([entry(run({ title: "Recover the owner", updatedAt: 1 }))], 30 * 60_000 + 2);
   expect(stalled?.state).toBe("stalled");
+  expect(stalled?.detail).toBeUndefined();
 });
 
 test("keeps failed work visible and completed work folded away", () => {
   const failed = projectGoal([entry(run({ status: "failed", error: "Owner stopped" }))], 2_001);
   expect(failed?.state).toBe("failed");
   expect(projectGoal([entry(run({ status: "done" }))], 2_001)).toBeUndefined();
+});
+
+test("does not expose an answer message id as the goal title", () => {
+  const goal = projectGoal([entry(run({ answers: ["message-internal-id"] }))], 2_001);
+  expect(goal?.title).toBe("");
 });
