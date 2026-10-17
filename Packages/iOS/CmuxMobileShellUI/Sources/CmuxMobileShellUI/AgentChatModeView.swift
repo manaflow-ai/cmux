@@ -26,7 +26,8 @@ struct AgentChatModeView: View {
                 model: model,
                 searchText: $searchText,
                 isLoading: isLoading,
-                isConnected: store.connectionState == .connected,
+                isConnected: store.connectionState == .connected
+                    && model.connectionState == .connected,
                 selectSession: selectSession,
                 showNewSessionGuide: { isShowingNewSessionGuide = true },
                 refresh: { await refresh() }
@@ -37,7 +38,8 @@ struct AgentChatModeView: View {
             AgentChatDetail(
                 model: model,
                 isLoading: isLoading,
-                isConnected: store.connectionState == .connected,
+                isConnected: store.connectionState == .connected
+                    && model.connectionState == .connected,
                 showSidebar: { columnVisibility = .all },
                 refresh: { await refresh() }
             )

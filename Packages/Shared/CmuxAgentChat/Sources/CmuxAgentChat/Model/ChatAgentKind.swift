@@ -38,6 +38,7 @@ public enum ChatAgentKind: Sendable, Equatable, Hashable {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
+        case .other("opencode"): return "OpenCode"
         case .other(let source): return source.capitalized
         }
     }
