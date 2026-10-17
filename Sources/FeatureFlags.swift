@@ -172,7 +172,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-11-12, defaultWhenUnavailable: false)
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
     // Keeps the agent inbox quick view behind an explicit rollout while the
     // placement and cross-agent attention model are evaluated.
     static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(

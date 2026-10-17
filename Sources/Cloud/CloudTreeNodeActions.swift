@@ -108,6 +108,8 @@ struct CloudTreeNodeActions {
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
+    /// Moves an exact Cloud browser tab into another workspace on the same machine.
+    var moveCloudBrowser: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ remoteWorkspaceID: String) -> Void = { _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -646,6 +648,24 @@ struct CloudTreeNodeActions {
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
+        actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
+            // `run` owns progress, cancellation and failure presentation for every Cloud action.
+            run(openingLabel(resource.machine)) { catalog in
+                guard let provider = catalog.provider(for: resource.machine) else {
+                    throw SurfaceCatalogError.noProvider(resource.machine)
+                }
+                var failure: Error?
+                await catalog.cloudPlacementCoordinator.moveRemoteTab(
+                    resource: resource,
+                    tabID: view.tabID,
+                    intoRemoteWorkspace: remoteWorkspaceID,
+                    catalog: catalog,
+                    provider: provider,
+                    onFailure: { failure = $0 }
+                ).value
+                if let failure { throw failure }
+            }
+        }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }
