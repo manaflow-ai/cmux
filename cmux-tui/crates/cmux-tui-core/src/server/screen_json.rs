@@ -24,10 +24,24 @@ pub(super) fn screen_json(
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "group": group,
         "active": active,
+        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
+    });
+    if let (Value::Object(value), Value::Object(layout)) = (&mut value, screen_layout_json(screen))
+    {
+        value.extend(layout);
+    }
+    value
+}
+
+/// The layout fields of one `Screen` (`active_pane`, `zoomed_pane`,
+/// `layout`, `viewport_splits`, `viewport_base_width`, `columns`): what a
+/// `layout-delta-v1` `layout-changed` carries. O(the screen's split tree):
+/// no panes, tabs or tree decorations.
+pub(crate) fn screen_layout_json(screen: &Screen) -> Value {
+    let mut value = json!({
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root, screen.active_pane),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     });
     if !screen.viewport_splits.is_empty() {
         value["viewport_splits"] = json!(
