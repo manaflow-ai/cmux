@@ -29,6 +29,22 @@ struct CEFBrowserPageMappingTests {
         #expect(state.processExit == nil)
     }
 
+    @Test func tabPastThePageEdgeLeavesThePage() {
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .takeFocus(browser: 1, forward: true)) == .focusLeftPage(forward: true))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .takeFocus(browser: 1, forward: false)) == .focusLeftPage(forward: false))
+    }
+
+    @Test func passThroughShimEventsMap() {
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .devToolsOpened(browser: 1, devTools: 2, docked: true))
+            == .devToolsVisibilityChanged(true))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .devToolsClosed(browser: 1, devTools: 2))
+            == .devToolsVisibilityChanged(false))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .fullscreen(browser: 1, entering: true)) == .contentFullscreenChanged(true))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .renderUnresponsive(browser: 1)) == .unresponsiveChanged(true))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .renderResponsive(browser: 1)) == .unresponsiveChanged(false))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .closeRequested(browser: 1)) == nil)
+    }
+
     @Test func emptyTitleIsNil() {
         #expect(CEFBrowserPage.pageState(CEFBrowserState()).title == nil)
     }
