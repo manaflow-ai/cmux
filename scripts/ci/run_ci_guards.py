@@ -88,10 +88,8 @@ PORTABLE_SUBSTITUTES = {
 # this form for the one step that is skipped when the fast guard already
 # failed; stripping only the matrix comparison leaves the `&&` clause as an
 # unexplained condition and rejects the whole plan.
-GROUP_CONDITION = re.compile(
-    r"\$\{\{\s*matrix\.group\s*==\s*'([a-z0-9-]+)'\s*"
-    r"(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}"
-)
+GROUP_TERM = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
+FAST_GUARD_TERM = re.compile(r"steps\.fast-guard\.outputs\.skip\s*!=\s*'true'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -155,10 +153,17 @@ def load_yaml(path: Path):
 
 
 def step_groups(condition: str) -> tuple[set[str], bool]:
-    """Groups named by a step `if:`, and whether anything else is in it."""
-    groups = set(GROUP_CONDITION.findall(condition))
-    rest = GROUP_CONDITION.sub("", condition)
-    rest = re.sub(r"[\s${}()|]", "", rest)
+    """Groups named by a step `if:`, and whether anything else is in it.
+
+    GitHub guard steps commonly share one step between two matrix groups with
+    ``matrix.group == 'a' || matrix.group == 'b'``. Keep accepting only
+    matrix-group terms plus the optional fast-guard predicate; any other
+    expression remains an explicit plan error.
+    """
+    groups = set(GROUP_TERM.findall(condition))
+    rest = GROUP_TERM.sub("", condition)
+    rest = FAST_GUARD_TERM.sub("", rest)
+    rest = re.sub(r"[\s${}()|&!]", "", rest)
     return groups, bool(rest)
 
 
