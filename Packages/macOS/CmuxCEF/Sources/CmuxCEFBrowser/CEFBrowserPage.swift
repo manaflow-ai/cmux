@@ -65,6 +65,8 @@ public final class CEFBrowserPage: BrowserPage {
     /// The page's extension side (toolbar actions, extension calls); nil
     /// when the engine was created without extension support.
     public let extensionSupport: CEFExtensionPageSupport?
+    /// The engine's extension stores, handed to the pages this page opens.
+    private let extensionStores: CEFExtensionStores?
 
     /// Wraps a CEF browser and starts receiving its events.
     /// - Parameters:
@@ -81,6 +83,7 @@ public final class CEFBrowserPage: BrowserPage {
         self.browser = browser
         self.shimProvider = shim
         self.devToolsLayoutStore = devToolsLayoutStore
+        extensionStores = extensions
         features = CEFPageFeatures(
             shim: CEFShimPageFeatures(library: shim),
             browserID: { [weak browser] in browser?.browserID },
@@ -586,12 +589,21 @@ public final class CEFBrowserPage: BrowserPage {
         let request = BrowserPageOpenRequest(url: popup.state.url, placement: placement, isUserGesture: userGesture)
         switch uiDelegate.page(self, openNewPage: request) {
         case .allowPopup:
-            let popupPage = CEFBrowserPage(browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore)
-            popupPage.rendererProcesses = rendererProcesses
+            let popupPage = makePopupPage(for: popup)
             uiDelegate.page(self, didCreatePopup: popupPage, for: request)
         case .handled, .block:
             popup.close()
         }
+    }
+
+    /// The page for a tab Chromium opened from this one: the same profile, so
+    /// it hosts the same extensions (toolbar, popups, extension commands).
+    func makePopupPage(for popup: CEFBrowser) -> CEFBrowserPage {
+        let page = CEFBrowserPage(
+            browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore, extensions: extensionStores
+        )
+        page.rendererProcesses = rendererProcesses
+        return page
     }
 
     /// Publishes the page's favicon as PNG data (`faviconChanged`): nil for
