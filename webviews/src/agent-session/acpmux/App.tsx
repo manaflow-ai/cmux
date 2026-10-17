@@ -190,6 +190,7 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
+import { configureHeaderStyle } from "./header/headerStyle";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -3547,6 +3548,7 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
+          configureHeaderStyle(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },
