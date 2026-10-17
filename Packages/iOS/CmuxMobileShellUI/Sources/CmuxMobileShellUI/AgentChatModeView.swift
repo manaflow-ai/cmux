@@ -736,8 +736,7 @@ private struct AgentProseBubble: View {
 }
 
 /// Lightweight Markdown rendering owned by Agent mode. Keeping this local
-/// means the transcript does not inherit presentation decisions from the
-/// legacy Feed surface.
+/// keeps transcript presentation decisions self-contained.
 private struct AgentChatMarkdownText: View {
     let markdown: String
     let color: Color
