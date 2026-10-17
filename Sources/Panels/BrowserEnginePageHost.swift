@@ -128,6 +128,8 @@ final class BrowserEnginePageContainerView: NSView {
         super.viewDidMoveToWindow()
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
         guard window != nil else { return }
         onMovedToWindow?()
         keyObserver = NotificationCenter.default.addObserver(
@@ -156,11 +158,20 @@ final class BrowserEnginePageContainerView: NSView {
         onLayout?(subviews.first ?? self)
     }
 
+    /// Whether this container's page is the one on screen. A pane keeps the
+    /// containers of its other tabs mounted at the same rect with only their
+    /// page hidden (`isVisible` false), so the container's own visibility
+    /// does not tell: without this, a click into the shown tab's page also
+    /// chose every hidden tab of the pane, and the last one took the pane.
+    var showsPage: Bool {
+        reportedVisible == true && !isHiddenOrHasHiddenAncestor
+    }
+
     private func pageMouseDown(_ event: NSEvent) {
         guard let window, let eventWindow = event.window,
               eventWindow !== window, eventWindow.isChromiumPageWindow,
               eventWindow.chromiumActingWindow(fallback: nil) === window,
-              !isHiddenOrHasHiddenAncestor else { return }
+              showsPage else { return }
         let pagePoint = event.locationInWindow
         let screenPoint = eventWindow.convertPoint(toScreen: pagePoint)
         let paneRect = window.convertToScreen(convert(bounds, to: nil))
@@ -178,7 +189,7 @@ final class BrowserEnginePageContainerView: NSView {
 
     private func pageWindowBecameKey(_ keyWindow: NSWindow?) {
         guard let keyWindow, let window, keyWindow !== window, keyWindow.isChromiumPageWindow,
-              !isHiddenOrHasHiddenAncestor else { return }
+              showsPage else { return }
         let parent: ChromiumKeyWindowFacts.Parent
         if keyWindow.parent == nil {
             parent = .none
@@ -224,7 +235,7 @@ final class BrowserEnginePageContainerView: NSView {
     private func reclaimKeyFromPageWindowIfOverPane() {
         // A hidden tab's container shares the pane rect with the tab shown
         // in its place; it must not take the keys from that tab's page.
-        guard let window, !isHiddenOrHasHiddenAncestor, let keyWindow = NSApp.keyWindow, keyWindow !== window,
+        guard let window, showsPage, let keyWindow = NSApp.keyWindow, keyWindow !== window,
               keyWindow.isChromiumPageWindow,
               keyWindow.chromiumActingWindow(fallback: NSApp.mainWindow) === window else { return }
         let paneRect = window.convertToScreen(convert(bounds, to: nil))
