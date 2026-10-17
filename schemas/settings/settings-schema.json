@@ -2250,7 +2250,7 @@
       "range" : {
         "max" : 200,
         "min" : 32,
-        "placeholder" : 96,
+        "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
@@ -2314,7 +2314,7 @@
       "range" : {
         "max" : 120,
         "min" : 16,
-        "placeholder" : 76,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -10400,7 +10400,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "138b04109ebc092b88f8ae012bcce9abaf1d8f4dd7ac31297eb818a9251d2d1d",
+  "schema_hash" : "3f4459dab9f959268fda4cc01f14d693863ebc3e7aa92ce138546dc0b0cb8ef4",
   "sections" : [
     {
       "id" : "general",

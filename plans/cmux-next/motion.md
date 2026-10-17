@@ -85,9 +85,8 @@ would do it, spring curves", "proper physics". Design:
   on `tabMove` when released. Widths: max 200 compact / 240 comfortable (today's
   maxima, appearance tabMaxWidth), every tab
   shrinks evenly to the selected minimum, then the inactive ones to theirs, pinned 64
-  (`motion.tabStrip`). The minimums are wider than Chrome's 56/32 so a shrunk tab keeps part of its
-  title (cx-kp9b4, Lawrence 2026-10-15 "bigger tabs min width"): 76 inactive / 96 selected compact,
-  80 / 100 comfortable (`MetricTunables`); `tabs.overflow` scroll keeps every tab at
+  (`motion.tabStrip`). The minimums are Chrome's 56 selected / 32 inactive
+  (Lawrence 2026-10-16 "chrome 32"; 76/96 for a readable title was tried in cx-kp9b4 and reverted); `tabs.overflow` scroll keeps every tab at
   `TabTunables.scrollTabMinWidth` (7/10 of the max: 140 compact) and scrolls sooner. All four widths
   are settings (Tabs group, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
   `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15 "keep chrome's minimums but needs to
