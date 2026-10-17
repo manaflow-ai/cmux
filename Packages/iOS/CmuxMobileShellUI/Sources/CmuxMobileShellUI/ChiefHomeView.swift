@@ -130,7 +130,14 @@ struct ChiefHomeView: View {
             var rows = try await client.conversations()
             if rows.isEmpty {
                 let status = try? await client.status()
-                if let id = status?.defaultConversation, !id.isEmpty {
+                if let failure = status?.startFailure, !failure.isEmpty {
+                    // Do not manufacture a tappable conversation when the
+                    // Mac could not open Chief's home. The transcript would
+                    // only fail later and hide the useful startup error.
+                    errorMessage = failure
+                } else if status?.started == true,
+                          let id = status?.defaultConversation,
+                          !id.isEmpty {
                     rows = [MobileChiefConversation(id: id, title: "Chief", pinned: true)]
                 }
             }

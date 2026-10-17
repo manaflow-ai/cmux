@@ -328,9 +328,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     for message in result.messages {
                         _ = clientMessageID(for: message)
                     }
+                    // History may have loaded an older page before the first
+                    // poll completes. Merge the newest page so a pending card
+                    // from that page remains answerable and can be reread by
+                    // `before_seq` after the RPC commits.
                     withState { state in
-                        state.previousMessagesByID = Dictionary(
-                            uniqueKeysWithValues: result.messages.map { ($0.id, $0) }
+                        state.previousMessagesByID.merge(
+                            result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
+                            uniquingKeysWith: { _, new in new }
                         )
                     }
                     lastSeq = result.messages.map(\.seq).max() ?? 0
@@ -369,9 +374,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                             eventSeq: eventSeq
                         ))
                     }
+                    // Keep messages loaded from older history pages. A user
+                    // can answer a card after polling has advanced past its
+                    // newest-page window, and `votePoll` needs its sequence to
+                    // perform the targeted reread.
                     withState { state in
-                        state.previousMessagesByID = Dictionary(
-                            uniqueKeysWithValues: result.messages.map { ($0.id, $0) }
+                        state.previousMessagesByID.merge(
+                            result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
+                            uniquingKeysWith: { _, new in new }
                         )
                     }
                     lastSeq = max(lastSeq, result.messages.map(\.seq).max() ?? 0)
