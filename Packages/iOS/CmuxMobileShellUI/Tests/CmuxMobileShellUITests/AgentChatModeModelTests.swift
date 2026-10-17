@@ -74,6 +74,7 @@ import Testing
         await settle()
 
         model.sessionSearchQuery = "deployment token"
+        await model.searchTranscripts()
         #expect(model.visibleSessions.map(\.id) == ["session"])
     }
 
@@ -96,8 +97,7 @@ import Testing
         // older session must be fetched by the explicit transcript search.
         #expect(model.messagesBySession["older"] == nil)
         model.sessionSearchQuery = "remote transcript"
-        model.beginTranscriptSearch()
-        await settle(100)
+        await model.searchTranscripts()
 
         #expect(model.visibleSessions.map(\.id) == ["older"])
         #expect((await source.historyRequests).contains { $0.sessionID == "older" })

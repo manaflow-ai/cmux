@@ -344,38 +344,49 @@ final class AgentChatModeModel {
         let searchGeneration = transcriptSearchGeneration
         transcriptSearchTask?.cancel()
         transcriptSearchTask = nil
+        transcriptSearchTask = Task { [weak self] in
+            await self?.hydrateTranscriptSearch(generation: searchGeneration)
+        }
+    }
+
+    /// Deterministic form used by non-UI callers and tests that need to wait
+    /// until transcript content is available for a query.
+    func searchTranscripts() async {
+        transcriptSearchTask?.cancel()
+        transcriptSearchGeneration &+= 1
+        await hydrateTranscriptSearch(generation: transcriptSearchGeneration)
+    }
+
+    private func hydrateTranscriptSearch(generation searchGeneration: Int) async {
         let query = sessionSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, let source else { return }
-        let generation = sourceGeneration
+        let sourceGeneration = self.sourceGeneration
         let sessionIDs = sessions.map(\.id)
-        transcriptSearchTask = Task { [weak self] in
-            guard let self else { return }
-            for sessionID in sessionIDs {
+        for sessionID in sessionIDs {
+            guard !Task.isCancelled,
+                  transcriptSearchGeneration == searchGeneration,
+                  sourceGeneration == self.sourceGeneration else { return }
+            await loadHistory(
+                sessionID: sessionID,
+                source: source,
+                reset: messagesBySession[sessionID] == nil,
+                generation: sourceGeneration
+            )
+            // A search needs the complete transcript, not just the newest
+            // page. The cursor/hasMore guard also prevents a malformed
+            // host page from causing an infinite request loop.
+            while historyHasMore[sessionID] == true {
                 guard !Task.isCancelled,
-                      self.transcriptSearchGeneration == searchGeneration,
-                      generation == self.sourceGeneration else { return }
-                await self.loadHistory(
+                      transcriptSearchGeneration == searchGeneration,
+                      sourceGeneration == self.sourceGeneration else { return }
+                let cursor = historyCursors[sessionID]
+                await loadHistory(
                     sessionID: sessionID,
                     source: source,
-                    reset: self.messagesBySession[sessionID] == nil,
-                    generation: generation
+                    reset: false,
+                    generation: sourceGeneration
                 )
-                // A search needs the complete transcript, not just the newest
-                // page. The cursor/hasMore guard also prevents a malformed
-                // host page from causing an infinite request loop.
-                while self.historyHasMore[sessionID] == true {
-                    guard !Task.isCancelled,
-                          self.transcriptSearchGeneration == searchGeneration,
-                          generation == self.sourceGeneration else { return }
-                    let cursor = self.historyCursors[sessionID]
-                    await self.loadHistory(
-                        sessionID: sessionID,
-                        source: source,
-                        reset: false,
-                        generation: generation
-                    )
-                    guard self.historyCursors[sessionID] != cursor else { break }
-                }
+                guard historyCursors[sessionID] != cursor else { break }
             }
         }
     }
