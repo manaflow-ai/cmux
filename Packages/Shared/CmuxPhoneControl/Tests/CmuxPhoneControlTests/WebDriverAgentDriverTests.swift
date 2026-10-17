@@ -21,6 +21,7 @@ struct WebDriverAgentDriverTests {
         #expect(device.geometry.width == 428)
         #expect(device.geometry.height == 926)
         #expect(device.capabilities.tap)
+        #expect(!device.capabilities.screenStream)
 
         let frame = try await driver.snapshot()
         #expect(frame.data == Data("fake-png".utf8))
@@ -44,15 +45,36 @@ struct WebDriverAgentDriverTests {
         let requests = StubWDAURLProtocol.recorder.requests
         #expect(requests.map { $0.request.url?.path } == [
             "/status",
-            "/window/size",
-            "/screenshot",
-            "/source",
-            "/wda/tap",
+            "/session",
+            "/session/session-1/window/size",
+            "/session/session-1/screenshot",
+            "/session/session-1/source",
+            "/session/session-1/wda/tap",
         ])
         let tapBody = try #require(requests.last?.body)
         let tapJSON = try #require(JSONSerialization.jsonObject(with: tapBody) as? [String: Any])
         #expect((tapJSON["x"] as? Double) == 214)
         #expect((tapJSON["y"] as? Double) == 231.5)
+    }
+
+    @Test
+    func unreadyWDAIsReportedBeforeSessionCreation() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubWDAURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        StubWDAURLProtocol.recorder.reset()
+        StubWDAURLProtocol.recorder.setReady(false)
+        defer { StubWDAURLProtocol.recorder.setReady(true) }
+
+        let driver = WebDriverAgentDriver(
+            configuration: .init(baseURL: URL(string: "http://127.0.0.1:8100")!),
+            urlSession: session
+        )
+
+        await #expect(throws: PhoneDriverError.unavailable("WebDriverAgent is not ready")) {
+            _ = try await driver.device()
+        }
+        #expect(StubWDAURLProtocol.recorder.requests.map { $0.request.url?.path } == ["/status"])
     }
 
     @Test
@@ -91,12 +113,15 @@ private final class StubWDAURLProtocol: URLProtocol, @unchecked Sendable {
         let body: Data
         switch path {
         case "/status":
-            body = Data(#"{"value":{"ready":true}}"#.utf8)
-        case "/window/size":
+            let status = Self.recorder.isReady ? "true" : "false"
+            body = Data("{\"value\":{\"ready\":\(status)}}".utf8)
+        case "/session":
+            body = Data(#"{"value":{"sessionId":"session-1"},"sessionId":"session-1"}"#.utf8)
+        case "/session/session-1/window/size":
             body = Data(#"{"value":{"width":428,"height":926}}"#.utf8)
-        case "/screenshot":
+        case "/session/session-1/screenshot":
             body = Data(#"{"value":"ZmFrZS1wbmc="}"#.utf8)
-        case "/source":
+        case "/session/session-1/source":
             body = Data(
                 #"{"value":{"type":"XCUIElementTypeApplication","label":"Demo","frame":{"x":0,"y":0,"width":428,"height":926},"children":[{"type":"XCUIElementTypeButton","label":"Continue","frame":{"x":42,"y":100,"width":200,"height":48}}]}}"#.utf8
             )
@@ -125,6 +150,11 @@ private final class WDARequestRecorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var storedRequests: [Capture] = []
+    private var ready = true
+
+    var isReady: Bool {
+        lock.withLock { ready }
+    }
 
     var requests: [Capture] {
         lock.withLock { storedRequests }
@@ -136,7 +166,14 @@ private final class WDARequestRecorder: @unchecked Sendable {
     }
 
     func reset() {
-        lock.withLock { storedRequests.removeAll() }
+        lock.withLock {
+            storedRequests.removeAll()
+            ready = true
+        }
+    }
+
+    func setReady(_ value: Bool) {
+        lock.withLock { ready = value }
     }
 
     private static func read(_ stream: InputStream) -> Data? {

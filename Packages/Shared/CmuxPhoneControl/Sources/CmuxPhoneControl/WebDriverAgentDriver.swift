@@ -32,6 +32,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     private let configuration: Configuration
     private let urlSession: URLSession
     private var currentGeometry: PhoneDisplayGeometry
+    private var wdaSessionID: String?
     private var sequence: UInt64 = 0
 
     public init(configuration: Configuration, urlSession: URLSession? = nil) {
@@ -45,8 +46,15 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func device() async throws -> PhoneDevice {
-        _ = try await request(path: "/status", method: "GET")
-        if let sizeResponse = try? await request(path: "/window/size", method: "GET") {
+        let status = try await request(path: "/status", method: "GET")
+        guard let ready = status["value"]?["ready"]?.boolValue else {
+            throw PhoneDriverError.malformedResponse("WDA status did not contain a ready flag")
+        }
+        guard ready else {
+            throw PhoneDriverError.unavailable("WebDriverAgent is not ready")
+        }
+        _ = try await ensureSession()
+        if let sizeResponse = try? await sessionRequest(path: "/window/size", method: "GET") {
             guard let widthValue = sizeResponse["value"]?["width"]?.doubleValue,
                   let heightValue = sizeResponse["value"]?["height"]?.doubleValue,
                   let width = Self.validatedDimension(widthValue),
@@ -72,7 +80,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             geometry: currentGeometry,
             capabilities: .init(
                 screenSnapshot: true,
-                screenStream: true,
+                screenStream: false,
                 accessibilityTree: true,
                 tap: true,
                 swipe: true,
@@ -90,7 +98,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func snapshot() async throws -> PhoneScreenFrame {
-        let response = try await request(path: "/screenshot", method: "GET")
+        let response = try await sessionRequest(path: "/screenshot", method: "GET")
         guard let base64 = response["value"]?.stringValue,
               let data = Data(base64Encoded: base64)
         else {
@@ -107,7 +115,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func accessibilityTree() async throws -> PhoneUIElement? {
-        let response = try await request(path: "/source?format=json", method: "GET")
+        let response = try await sessionRequest(path: "/source?format=json", method: "GET")
         guard let value = response["value"] else {
             throw PhoneDriverError.malformedResponse("WDA source did not contain a value")
         }
@@ -122,7 +130,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             guard let point = action.point else {
                 throw PhoneError(code: "invalid_action", message: "tap requires point")
             }
-            response = try await request(
+            response = try await sessionRequest(
                 path: "/wda/tap",
                 method: "POST",
                 body: .object([
@@ -134,7 +142,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             guard let start = action.point, let end = action.endPoint else {
                 throw PhoneError(code: "invalid_action", message: "swipe requires point and end_point")
             }
-            response = try await request(
+            response = try await sessionRequest(
                 path: "/wda/dragfromtoforduration",
                 method: "POST",
                 body: .object([
@@ -149,7 +157,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             guard let point = action.point else {
                 throw PhoneError(code: "invalid_action", message: "long_press requires point")
             }
-            response = try await request(
+            response = try await sessionRequest(
                 path: "/wda/touchAndHold",
                 method: "POST",
                 body: .object([
@@ -162,7 +170,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             guard let text = action.text, !text.isEmpty else {
                 throw PhoneError(code: "invalid_action", message: "type requires text")
             }
-            response = try await request(
+            response = try await sessionRequest(
                 path: "/wda/keys",
                 method: "POST",
                 body: .object(["value": .array([.string(text)])])
@@ -171,7 +179,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             guard let button = action.button else {
                 throw PhoneError(code: "invalid_action", message: "press requires button")
             }
-            response = try await request(
+            response = try await sessionRequest(
                 path: "/wda/pressButton",
                 method: "POST",
                 body: .object(["name": .string(button)])
@@ -185,6 +193,45 @@ public actor WebDriverAgentDriver: PhoneDriver {
             screenSequence: sequence,
             detail: "WebDriverAgent accepted the action"
         )
+    }
+
+    private func ensureSession() async throws -> String {
+        if let wdaSessionID { return wdaSessionID }
+        let response = try await request(
+            path: "/session",
+            method: "POST",
+            body: .object([
+                "capabilities": .object([
+                    "alwaysMatch": .object([
+                        "platformName": .string("iOS"),
+                        "automationName": .string("XCUITest"),
+                        "deviceName": .string(configuration.name),
+                    ])
+                ])
+            ])
+        )
+        let sessionID = response["sessionId"]?.stringValue
+            ?? response["session_id"]?.stringValue
+            ?? response["value"]?["sessionId"]?.stringValue
+            ?? response["value"]?["session_id"]?.stringValue
+        guard let sessionID, !sessionID.isEmpty, sessionID.utf8.count <= 256 else {
+            throw PhoneDriverError.malformedResponse("WDA session response did not contain a valid session id")
+        }
+        wdaSessionID = sessionID
+        return sessionID
+    }
+
+    private func sessionRequest(
+        path: String,
+        method: String,
+        body: PhoneJSONValue? = nil
+    ) async throws -> PhoneJSONValue {
+        let sessionID = try await ensureSession()
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        guard let escaped = sessionID.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw PhoneDriverError.transport("invalid WDA session id")
+        }
+        return try await request(path: "/session/\(escaped)\(path)", method: method, body: body)
     }
 
     private func request(

@@ -75,6 +75,33 @@ struct PhoneProtocolTests {
     }
 
     @Test
+    func unknownEnvelopeAndErrorFieldsAreRejected() throws {
+        let codec = PhoneWireCodec()
+        let unknownEnvelope = Data("{\"protocol\":\"cmux.phone\",\"version\":1,\"type\":\"request\",\"id\":\"1\",\"method\":\"device.list\",\"extra\":true}\n".utf8)
+        #expect(throws: PhoneWireCodecError.invalidJSON) {
+            try codec.decode(unknownEnvelope)
+        }
+        let unknownError = Data("{\"protocol\":\"cmux.phone\",\"version\":1,\"type\":\"error\",\"error\":{\"code\":\"x\",\"message\":\"m\",\"retryable\":false,\"extra\":true}}\n".utf8)
+        #expect(throws: PhoneWireCodecError.invalidJSON) {
+            try codec.decode(unknownError)
+        }
+    }
+
+    @Test
+    func defaultDecodeLimitIsTheRequestLimit() throws {
+        let codec = PhoneWireCodec()
+        let response = PhoneEnvelope.response(
+            id: "frame",
+            result: .object(["data": .string(String(repeating: "x", count: PhoneProtocol.maxRequestLineBytes))])
+        )
+        let encoded = try PhoneWireCodec().encode(response)
+        #expect(throws: PhoneWireCodecError.lineTooLarge) {
+            try codec.decode(encoded)
+        }
+        #expect(try codec.decode(encoded, maxLineBytes: PhoneProtocol.maxResponseLineBytes) == response)
+    }
+
+    @Test
     func malformedProtocolIsRejected() throws {
         let codec = PhoneWireCodec()
         let data = Data("{\"protocol\":\"other\",\"version\":1,\"type\":\"request\"}\n".utf8)

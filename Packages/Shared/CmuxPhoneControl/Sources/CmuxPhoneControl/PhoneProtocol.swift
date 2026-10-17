@@ -1,5 +1,20 @@
 import Foundation
 
+private struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
 /// lint:allow namespace-type — versioned wire limits are dependency-free protocol constants.
 public enum PhoneProtocol {
     public static let name = "cmux.phone"
@@ -36,6 +51,31 @@ public struct PhoneError: Codable, Equatable, Sendable, Error {
         self.message = message
         self.retryable = retryable
         self.details = details
+    }
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case code
+        case message
+        case retryable
+        case details
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
+        let unknownKeys = try decoder.container(keyedBy: AnyCodingKey.self).allKeys.filter {
+            !knownKeys.contains($0.stringValue)
+        }
+        if !unknownKeys.isEmpty {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath + [unknownKeys[0]],
+                debugDescription: "unknown error field \(unknownKeys[0].stringValue)"
+            ))
+        }
+        code = try container.decode(String.self, forKey: .code)
+        message = try container.decode(String.self, forKey: .message)
+        retryable = try container.decode(Bool.self, forKey: .retryable)
+        details = try container.decodeIfPresent(PhoneJSONValue.self, forKey: .details)
     }
 }
 
@@ -80,7 +120,7 @@ public struct PhoneEnvelope: Codable, Equatable, Sendable {
         self.error = error
     }
 
-    enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case protocolName = "protocol"
         case version
         case type
@@ -92,6 +132,31 @@ public struct PhoneEnvelope: Codable, Equatable, Sendable {
         case params
         case result
         case error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
+        let unknownKeys = try decoder.container(keyedBy: AnyCodingKey.self).allKeys.filter {
+            !knownKeys.contains($0.stringValue)
+        }
+        if let unknownKey = unknownKeys.first {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath + [unknownKey],
+                debugDescription: "unknown envelope field \(unknownKey.stringValue)"
+            ))
+        }
+        protocolName = try container.decode(String.self, forKey: .protocolName)
+        version = try container.decode(Int.self, forKey: .version)
+        type = try container.decode(PhoneMessageType.self, forKey: .type)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        method = try container.decodeIfPresent(String.self, forKey: .method)
+        sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
+        sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
+        timestamp = try container.decodeIfPresent(Double.self, forKey: .timestamp)
+        params = try container.decodeIfPresent(PhoneJSONValue.self, forKey: .params)
+        result = try container.decodeIfPresent(PhoneJSONValue.self, forKey: .result)
+        error = try container.decodeIfPresent(PhoneError.self, forKey: .error)
     }
 
     public static func request(
@@ -170,7 +235,7 @@ public struct PhoneWireCodec: Sendable {
 
     public func decode(
         _ data: Data,
-        maxLineBytes: Int = PhoneProtocol.maxResponseLineBytes
+        maxLineBytes: Int = PhoneProtocol.maxRequestLineBytes
     ) throws -> PhoneEnvelope {
         guard data.last == 0x0A else { throw PhoneWireCodecError.missingNewline }
         guard data.count <= maxLineBytes else {

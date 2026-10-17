@@ -17,17 +17,23 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
         public let name: String
         public let model: String
         public let osVersion: String
+        /// Insets, in window points, around the actual mirrored phone surface.
+        /// iPhone Mirroring includes host window chrome; callers should provide
+        /// the measured content insets when the window is decorated.
+        public let contentInsets: PhoneDisplayGeometry.Insets
 
         public init(
             deviceID: String = "iphone-mirroring",
             name: String = "Mirrored iPhone",
             model: String = "iPhone",
-            osVersion: String = "unknown"
+            osVersion: String = "unknown",
+            contentInsets: PhoneDisplayGeometry.Insets = .zero
         ) {
             self.deviceID = deviceID
             self.name = name
             self.model = model
             self.osVersion = osVersion
+            self.contentInsets = contentInsets
         }
     }
 
@@ -66,14 +72,18 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
         let window = try await mirroredWindow()
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let configuration = SCStreamConfiguration()
-        configuration.width = max(Int(window.frame.width), 1)
-        configuration.height = max(Int(window.frame.height), 1)
+        let fullWidth = max(Int(window.frame.width.rounded()), 1)
+        let fullHeight = max(Int(window.frame.height.rounded()), 1)
+        configuration.width = fullWidth
+        configuration.height = fullHeight
         configuration.showsCursor = false
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: filter,
             configuration: configuration
         )
-        guard let data = pngData(image) else {
+        let content = contentFrame(for: window)
+        guard let cropped = crop(image, to: content, in: window.frame),
+              let data = pngData(cropped) else {
             throw PhoneDriverError.malformedResponse("ScreenCaptureKit returned an unencodable image")
         }
         sequence += 1
@@ -111,19 +121,19 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
             guard let point = action.point else {
                 throw PhoneError(code: "invalid_action", message: "tap requires point")
             }
-            postMouse(.leftMouseDown, at: screenPoint(point, in: window, geometry: geometry), to: processID)
-            postMouse(.leftMouseUp, at: screenPoint(point, in: window, geometry: geometry), to: processID)
+            try postMouse(.leftMouseDown, at: screenPoint(point, in: window, geometry: geometry), to: processID)
+            try postMouse(.leftMouseUp, at: screenPoint(point, in: window, geometry: geometry), to: processID)
         case .swipe:
             guard let start = action.point, let end = action.endPoint else {
                 throw PhoneError(code: "invalid_action", message: "swipe requires point and end_point")
             }
             let startPoint = screenPoint(start, in: window, geometry: geometry)
             let endPoint = screenPoint(end, in: window, geometry: geometry)
-            postMouse(.leftMouseDown, at: startPoint, to: processID)
+            try postMouse(.leftMouseDown, at: startPoint, to: processID)
             let steps = max(action.durationMilliseconds ?? 250, 1) / 16
             for step in 1...max(steps, 1) {
                 let fraction = Double(step) / Double(max(steps, 1))
-                postMouse(
+                try postMouse(
                     .leftMouseDragged,
                     at: CGPoint(
                         x: startPoint.x + ((endPoint.x - startPoint.x) * fraction),
@@ -132,7 +142,7 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
                     to: processID
                 )
             }
-            postMouse(.leftMouseUp, at: endPoint, to: processID)
+            try postMouse(.leftMouseUp, at: endPoint, to: processID)
         case .longPress, .type, .press:
             throw PhoneDriverError.unsupported("\(action.kind.rawValue) is unavailable for host mirroring")
         }
@@ -164,12 +174,26 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
         return candidate
     }
 
+    private func contentFrame(for window: SCWindow) -> CGRect {
+        let frame = window.frame.standardized
+        let insets = configuration.contentInsets
+        let width = max(frame.width - insets.left - insets.right, 1)
+        let height = max(frame.height - insets.top - insets.bottom, 1)
+        return CGRect(
+            x: frame.minX + insets.left,
+            y: frame.minY + insets.top,
+            width: width,
+            height: height
+        )
+    }
+
     private func geometry(for window: SCWindow) -> PhoneDisplayGeometry {
-        PhoneDisplayGeometry(
-            width: max(Int(window.frame.width), 1),
-            height: max(Int(window.frame.height), 1),
+        let content = contentFrame(for: window)
+        return PhoneDisplayGeometry(
+            width: max(Int(content.width.rounded()), 1),
+            height: max(Int(content.height.rounded()), 1),
             scale: 1,
-            orientation: window.frame.height >= window.frame.width ? .portrait : .landscapeLeft
+            orientation: content.height >= content.width ? .portrait : .landscapeLeft
         )
     }
 
@@ -178,22 +202,38 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
         in window: SCWindow,
         geometry: PhoneDisplayGeometry
     ) -> CGPoint {
-        let x = window.frame.minX + (point.x * Double(geometry.width))
-        // Quartz uses a top-left screen origin for mouse events generated from
-        // window coordinates, matching ScreenCaptureKit's frame orientation.
-        let y = window.frame.minY + (point.y * Double(geometry.height))
+        let content = contentFrame(for: window)
+        let x = content.minX + (point.x * content.width)
+        // Quartz uses a top-left screen origin for target-process mouse events.
+        let y = content.minY + (point.y * content.height)
         return CGPoint(x: x, y: y)
     }
 
-    private func postMouse(_ type: CGEventType, at point: CGPoint, to processID: pid_t) {
+    private func crop(_ image: CGImage, to content: CGRect, in window: CGRect) -> CGImage? {
+        let scaleX = CGFloat(image.width) / max(window.width, 1)
+        let scaleY = CGFloat(image.height) / max(window.height, 1)
+        let x = max(Int((content.minX - window.minX) * scaleX), 0)
+        let yFromTop = max(Int((content.maxY - window.minY) * scaleY), 0)
+        let width = min(Int(content.width * scaleX), image.width - x)
+        let height = min(Int(content.height * scaleY), image.height - yFromTop)
+        guard width > 0, height > 0 else { return nil }
+        // CGImage crop rectangles are bottom-left based; ScreenCaptureKit
+        // frames are described in top-left window coordinates.
+        let y = image.height - yFromTop - height
+        return image.cropping(to: CGRect(x: x, y: y, width: width, height: height))
+    }
+
+    private func postMouse(_ type: CGEventType, at point: CGPoint, to processID: pid_t) throws {
         let button: CGMouseButton = .left
-        let event = CGEvent(
+        guard let event = CGEvent(
             mouseEventSource: nil,
             mouseType: type,
             mouseCursorPosition: point,
             mouseButton: button
-        )
-        event?.postToPid(processID)
+        ) else {
+            throw PhoneDriverError.unavailable("could not create mirrored-window input event")
+        }
+        event.postToPid(processID)
     }
 
     private func pngData(_ image: CGImage) -> Data? {
