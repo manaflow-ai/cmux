@@ -64,6 +64,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_GALLERY_IN_VM: "1"
         run: |
           set -u
           evidence="$RUNNER_TEMP/gallery-advisory"
