@@ -17,6 +17,8 @@ use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
+pub(crate) mod byte_scan;
+
 mod prompt_semantic;
 use prompt_semantic::*;
 
@@ -564,6 +566,48 @@ impl Terminal {
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
         let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
+        self.history_markers_before_write();
+        unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        self.history_markers_after_write();
+        let history_rows = self.scrollback_rows();
+        let history_anchor_evicted = !self.history_anchor.is_null()
+            && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
+        if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
+        {
+            self.bump_history_epoch();
+        }
+        if history_rows == 0 || history_anchor_evicted {
+            self.reset_history_anchor();
+        } else if self.history_anchor.is_null() {
+            self.ensure_history_anchor();
+        }
+        if mouse_modes_may_have_changed {
+            self.refresh_mouse_mode_revision();
+        }
+        normalized
+    }
+
+    /// The original byte-at-a-time form of [`Self::vt_write_with_normalized`],
+    /// kept so a check can feed the same bytes through both and require
+    /// identical results. Not for production use.
+    #[doc(hidden)]
+    pub fn vt_write_with_normalized_reference<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        if data.is_empty() {
+            return Cow::Borrowed(data);
+        }
+        self.ensure_history_anchor();
+        let previous_history_rows = self.scrollback_rows();
+        let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
+        let normalized = self.c1_normalizer.normalize_reference(data);
+        let normalized = self.empty_kitty_probe_filter.write_reference(normalized);
+        self.kitty_inflight.write_reference(&normalized);
+        self.vt_boundary.feed_reference(&normalized);
+        self.prompt_semantic.feed_reference(&normalized);
+        self.cursor_override.write_reference(&normalized);
+        self.palette_override.write_reference(&normalized);
+        self.color_overrides.write_reference(&normalized);
+        let mouse_modes_may_have_changed =
+            self.mouse_mode_change_detector.write_reference(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();

@@ -95,8 +95,32 @@ pub(super) enum PaletteTarget {
 }
 
 impl PaletteOverrideTracker {
+    /// Same result as [`Self::write_reference`]. In ground state only ESC
+    /// acts; every other byte leaves ground unchanged.
     pub(super) fn write(&mut self, data: &[u8]) {
+        let mut index = 0;
+        while index < data.len() {
+            if matches!(self.state, PaletteTrackState::Ground) {
+                index = byte_scan::find_esc(data, index);
+                if index == data.len() {
+                    break;
+                }
+            }
+            self.step(data[index]);
+            index += 1;
+        }
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(super) fn write_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 PaletteTrackState::Ground => match byte {

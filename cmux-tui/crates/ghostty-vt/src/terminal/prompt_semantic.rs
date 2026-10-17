@@ -110,8 +110,32 @@ impl PromptOsc {
 }
 
 impl PromptSemanticTracker {
+    /// Same result as [`Self::feed_reference`]. In ground state only ESC,
+    /// LF, VT and FF act; every other byte leaves ground unchanged.
     pub(super) fn feed(&mut self, data: &[u8]) {
+        let mut index = 0;
+        while index < data.len() {
+            if matches!(self.state, PromptTrackState::Ground) {
+                index = byte_scan::find_esc_or_line_end(data, index);
+                if index == data.len() {
+                    break;
+                }
+            }
+            self.step(data[index]);
+            index += 1;
+        }
+    }
+
+    /// Original byte-at-a-time feed, kept as the exactness reference.
+    pub(super) fn feed_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 // The PTY stream is UTF-8. Accept only 7-bit ESC forms so
