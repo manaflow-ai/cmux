@@ -179,7 +179,9 @@ second screenshot manifest, transition ID, or runner-failure taxonomy.
 ## Performance rules
 
 - Decode app-server and ACPMUX JSON off the main actor.
-- Coalesce observation deltas once per frame for UI consumers.
+- Coalesce observation deltas once per frame for UI projections only. Durable
+  terminal, error, and conflict receipts remain individually ordered and are
+  never dropped by visual coalescing.
 - Keep Swift responsible for process/SSH lifecycle only; do not move AppKit
   sidebar layout or `Observation` models into Rust.
 - Move pure Rust work first: framing, cursor reconciliation, receipt encoding,
