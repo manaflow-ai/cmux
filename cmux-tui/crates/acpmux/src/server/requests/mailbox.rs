@@ -96,9 +96,8 @@ fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
 fn parse_metadata(params: &Value) -> Result<BTreeMap<String, Value>, RpcError> {
     match params.get("metadata") {
         None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(metadata) => serde_json::from_value(metadata.clone()).map_err(|e| {
-            RpcError::invalid_params(format!("metadata must be an object: {e}"))
-        }),
+        Some(metadata) => serde_json::from_value(metadata.clone())
+            .map_err(|e| RpcError::invalid_params(format!("metadata must be an object: {e}"))),
     }
 }
 
