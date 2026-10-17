@@ -79,17 +79,27 @@ final class InputVerificationService {
         let services = self.services
         var sinceCheckpoint = Int.max - 1
         // The notification and location-trail observers act on the settled
-        // keyboard target: they run only when it changed.
-        var settled: FocusState.SettleKey?
+        // keyboard target: each runs only when what it reads changed. The
+        // trail also reads the active window, a shown top page and the
+        // selected workspace (a settle it skipped under a top page records
+        // once the page hides).
+        var notified: FocusState.SettleKey?
+        var trailed: TrailSettleKey?
         controller.focus.settledObserver = { [weak services, weak controller] state in
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
             guard let controller else { return }
             services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
             let key = state.settleKey
-            guard key != settled else { return }
-            settled = key
-            services?.notifications.focusDidSettle(state, in: controller)
-            services?.locationTrail.focusDidSettle(state, in: controller)
+            if key != notified {
+                notified = key
+                services?.notifications.focusDidSettle(state, in: controller)
+            }
+            let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
+                                       topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)
+            if trail != trailed {
+                trailed = trail
+                services?.locationTrail.focusDidSettle(state, in: controller)
+            }
         }
         controller.focus.observer = { [weak state = controller.state, weak focus = controller.focus] observation in
             // A no-op reduction (a responder report of the focus the window
@@ -115,4 +125,13 @@ final class InputVerificationService {
             }
         }
     }
+}
+
+/// What `LocationTrailService.focusDidSettle` reads: the focus and the
+/// window facts it skips on.
+private struct TrailSettleKey: Hashable {
+    var focus: FocusState.SettleKey
+    var active: Bool
+    var topPage: Bool
+    var workspace: String?
 }

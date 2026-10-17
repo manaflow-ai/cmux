@@ -65,11 +65,11 @@ nonisolated enum InputReplay {
                     diverge(Divergence(kind: .checkpoint, seq: entry.seq, window: window, event: "checkpoint",
                                        recorded: checkpoint.json, replayed: replayed.machine.checkpoint().json))
                 }
-                if machines[window] == nil { result.windows.append(window) }
                 guard let state = machine.restore(checkpoint) else {
                     machines[window] = nil
                     continue
                 }
+                if !result.windows.contains(window) { result.windows.append(window) }
                 machines[window] = (machine, state)
             case .focus(let event, let recorded):
                 guard let entry = machines[window] else {

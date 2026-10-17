@@ -151,11 +151,14 @@ nonisolated final class FocusMachine {
     // MARK: Reply
 
     private func read(_ reply: UnsafePointer<CmuxFocusReply>?, into state: inout FocusState) -> (changed: Bool, effects: [FocusEffect])? {
-        guard let reply = reply?.pointee, reply.ok != 0 else { return nil }
+        guard let reply = reply?.pointee else { return nil }
         let bytes = reply.strings
         let length = Int(reply.strings_len)
         func string(_ range: CmuxFocusStr) -> String? { bytes.flatMap { Self.string(range, $0, length) } }
-        if reply.changed != 0 {
+        // ok 0: refused (the fields are the previous, valid ones) or failed
+        // part way (the fields are the state as it is now). Either way the
+        // view takes the fields, and the event counts as refused.
+        if reply.changed != 0 || reply.ok == 0 {
             state.windowKey = reply.window_key != 0
             state.appActive = reply.app_active != 0
             state.sidebarHidden = reply.sidebar_hidden != 0
@@ -178,6 +181,7 @@ nonisolated final class FocusMachine {
             state.context = .init(bits: reply.context)
             state.isBrowserFocusModeActive = reply.browser_focus_mode_active != 0
         }
+        guard reply.ok != 0 else { return nil }
         var effects: [FocusEffect] = []
         if reply.effect_count > 0, let list = reply.effects {
             effects.reserveCapacity(Int(reply.effect_count))
