@@ -79,3 +79,53 @@
 .cmux-comparison-preview-specimen.acpmux-session-preview-outline { border: .5px solid color-mix(in srgb, var(--agent-accent, var(--comparison-accent)) 48%, transparent); background: color-mix(in srgb, var(--agent-page-bg) 92%, var(--agent-text) 8%); box-shadow: none; }
 @media (max-width: 720px) { .cmux-comparison-board { padding: 12px; } .cmux-comparison-toolbar { align-items: start; flex-direction: column; } .cmux-comparison-body { grid-template-columns: 1fr; } .cmux-comparison-sidebar { min-height: 270px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, currentColor 9%, transparent); } .cmux-comparison-window { min-height: 760px; } }
 @media (prefers-reduced-motion: reduce) { .cmux-comparison-tabs button, .cmux-comparison-preview-toggle button { transition: none; } }
+
+/* Keep the board in the same visual system as the real pane. The board is a test surface, not a
+   decorative glass card: surfaces, type, edges and elevation come from the host theme. */
+.cmux-comparison-board {
+  --comparison-accent: var(--agent-accent, var(--agent-text));
+  padding: 16px;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-size: var(--text-body, 13px);
+  line-height: var(--text-body--line-height, 18px);
+}
+.cmux-comparison-window {
+  width: min(100%, 1080px);
+  min-height: 600px;
+  border-color: var(--agent-border);
+  border-radius: var(--ui-popup-radius, 10px);
+  background: var(--agent-page-bg);
+  box-shadow: var(--elevation-1);
+  backdrop-filter: none;
+}
+.cmux-comparison-titlebar {
+  height: 40px;
+  padding: 0 12px;
+  border-bottom-color: var(--agent-border);
+  background: var(--agent-surface-elevated, var(--agent-page-bg));
+}
+.cmux-comparison-title { color: var(--agent-muted); font-size: var(--text-detail, 11px); }
+.cmux-comparison-build { color: var(--agent-muted); font-size: var(--text-caption, 10px); }
+.cmux-comparison-toolbar { padding: 18px 20px 14px; }
+.cmux-comparison-toolbar h1 { font-size: var(--text-title, 16px); line-height: var(--text-title--line-height, 20px); }
+.cmux-comparison-eyebrow { color: var(--agent-muted); font-size: var(--text-caption, 10px); }
+.cmux-comparison-tabs,
+.cmux-comparison-preview-toggle { border-color: var(--agent-border); background: var(--agent-control, color-mix(in srgb, var(--agent-text) 6%, transparent)); }
+.cmux-comparison-tabs button,
+.cmux-comparison-preview-toggle button { border-radius: var(--ui-row-radius, 6px); color: var(--agent-muted); font-size: var(--text-detail, 11px); }
+.cmux-comparison-tabs button:hover,
+.cmux-comparison-tabs button.is-active,
+.cmux-comparison-preview-toggle button:hover,
+.cmux-comparison-preview-toggle button.is-active { background: var(--agent-control-hover); color: var(--agent-text); }
+.cmux-comparison-body { border-top-color: var(--agent-border); }
+.cmux-comparison-sidebar { border-right-color: var(--agent-border); background: var(--agent-page-bg); }
+.cmux-comparison-sidebar-label { color: var(--agent-muted); }
+.cmux-comparison-main { background: var(--agent-page-bg); }
+.cmux-comparison-composer { margin: 0 18px 12px; padding: 12px; border-color: var(--acpmux-composer-edge, var(--agent-border)); border-radius: var(--ui-popup-radius, 10px); background: var(--acpmux-composer-surface, var(--agent-surface-elevated)); box-shadow: var(--acpmux-composer-shadow, none); }
+.cmux-comparison-send { background: var(--agent-accent); color: var(--agent-accent-text, var(--agent-page-bg)); }
+.cmux-comparison-slider-specimen { margin: 0 18px 8px; border-color: var(--agent-border); border-radius: var(--ui-row-radius, 6px); background: var(--agent-control, color-mix(in srgb, var(--agent-text) 5%, transparent)); }
+.cmux-comparison-specimen-heading { color: var(--agent-muted); }
+.cmux-comparison-specimen-heading strong { color: var(--agent-text); }
+.cmux-comparison-slider-toggle { padding-inline: 20px; color: var(--agent-muted); }
+.cmux-comparison-preview-specimen { border-radius: var(--ui-row-radius, 6px); }
