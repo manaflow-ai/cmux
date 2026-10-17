@@ -9,6 +9,12 @@ struct NativeConversationShellView: View {
     let model: ConversationModel
     @State private var storageError: String?
 
+    private var workspaceChoices: [ConversationWorkspaceChoice] {
+        shellStore.conversationWorkspaces.map {
+            ConversationWorkspaceChoice(id: $0.rpcWorkspaceID.rawValue, title: $0.name, directory: $0.currentDirectory ?? "")
+        }
+    }
+
     var body: some View {
         ConversationRootView(model: model, embedsNavigationStack: false)
             .safeAreaInset(edge: .bottom) {
@@ -19,17 +25,15 @@ struct NativeConversationShellView: View {
                         .padding()
                 }
             }
+            .onChange(of: workspaceChoices, initial: true) { _, choices in
+                model.workspaces = choices
+                let currentID = model.newTaskWorkspace?.id
+                let foregroundID = shellStore.explicitlySelectedWorkspace?.rpcWorkspaceID.rawValue
+                model.newTaskWorkspace = choices.first { $0.id == currentID }
+                    ?? choices.first { $0.id == foregroundID }
+                    ?? choices.first
+            }
             .task(id: shellStore.conversationConnectionKey) {
-                model.workspaces = shellStore.conversationWorkspaces.map {
-                    ConversationWorkspaceChoice(
-                        id: $0.rpcWorkspaceID.rawValue, title: $0.name,
-                        directory: $0.currentDirectory ?? ""
-                    )
-                }
-                if model.newTaskWorkspace == nil,
-                   let selected = shellStore.explicitlySelectedWorkspace {
-                    model.newTaskWorkspace = model.workspaces.first { $0.id == selected.rpcWorkspaceID.rawValue }
-                }
                 let scope = shellStore.conversationScopeID ?? "signed-out"
                 do {
                     let client = try shellStore.makeConversationClient()
