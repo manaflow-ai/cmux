@@ -1,7 +1,6 @@
 // l10n-allow-file: orchestration fixture labels are a read-only gallery surface.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { OrchestrationLab } from "./OrchestrationLab";
 
 const selectHugeBlue: Play = async (ctx) => {
   await ctx.click({ role: "radio", name: /Huge Blue lease/ });
@@ -19,7 +18,10 @@ export default componentEntry<{ initialStrategy?: string }>({
   anchors: [{ selector: "[data-orchestration-lab]" }],
   covers: ["agent-session/acpmux/OrchestrationLab.tsx#OrchestrationLab"],
   styles: () => import("./OrchestrationLab.gallery.css"),
-  load: async () => OrchestrationLab,
+  load: async () => {
+    const { OrchestrationLab } = await import("./OrchestrationLab");
+    return OrchestrationLab;
+  },
   variants: {
     "local-queue": {
       note: "Fixture-only local route with an explicit trust boundary.",

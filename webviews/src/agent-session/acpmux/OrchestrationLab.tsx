@@ -26,7 +26,7 @@ const strategies: Strategy[] = [
     label: "Local queue",
     description: "Fast feedback for short, interactive work.",
     decision: "admit",
-    blocker: "available",
+    blocker: "none",
     next: "Run the next bounded task and record its receipt.",
     route: "loopback · local-supervisor",
     transport: "loopback",
@@ -158,7 +158,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                   <strong>{strategy.label}</strong>
                   <b data-decision={strategy.decision}>{strategy.decision}</b>
                 </span>
-                <small>Blocker · {strategy.blocker}</small>
+                <small>{strategy.blocker === "none" ? "No blocker" : `Blocker · ${strategy.blocker}`}</small>
                 <small>Next · {strategy.next}</small>
               </button>
             );
