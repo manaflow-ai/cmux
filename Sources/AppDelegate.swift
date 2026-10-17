@@ -20582,6 +20582,26 @@ private extension NSWindow {
             return true
         }
 
+        // A browser menu equivalent with no browser owner still belongs to the
+        // focused terminal. Route this fallback before the app shortcut
+        // dispatcher, whose browser-scoped action cannot handle it without a
+        // browser panel in the event window.
+        if let firstResponderGhosttyView,
+           shouldRouteCommandEquivalentDirectlyToMainMenu(event),
+           AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
+           AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
+            if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderGhosttyView,
+                reason: "browser surface shortcut to terminal without browser owner"
+            ) {
+                return true
+            }
+        }
+
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             cmuxDebugLog("  → consumed by handleBrowserSurfaceKeyEquivalent")

@@ -228,7 +228,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             {
               "shortcuts": {
                 "bindings": {
-                  "selectWorkspaceByNumber": "cmd+2"
+                  "selectWorkspaceByNumber": "cmd+2",
+                  "reopenClosedWorkspace": "cmd+shift+t"
                 }
               }
             }
@@ -257,9 +258,11 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let originalStore = KeyboardShortcutSettings.settingsFileStore
         defer { KeyboardShortcutSettings.settingsFileStore = originalStore }
         KeyboardShortcutSettings.settingsFileStore = store
-        XCTAssertEqual(
-            KeyboardShortcutSettings.shortcutBindings(for: .openBrowser).first?.shortcut,
-            StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+        // The explicit legacy binding collides with the implicit replacement
+        // action. Resolving it exercises conflict lookup without recursing
+        // through `shortcutBindings(for:)` from `effectiveWhenClause(for:)`.
+        XCTAssertTrue(
+            KeyboardShortcutSettings.shortcutBindings(for: .reopenClosedBrowserPanel).isEmpty
         )
     }
 
