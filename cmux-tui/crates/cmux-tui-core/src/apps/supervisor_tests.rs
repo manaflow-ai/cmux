@@ -135,7 +135,12 @@ fn scripted_app_host() {
             ToHost::Event { sub, .. } => {
                 send(FromHost::Log { level: "info".into(), message: format!("event {sub}") });
             }
-            ToHost::Unmount { .. } | ToHost::Settings { .. } => {}
+            ToHost::Settings { values } => {
+                if let Some(barrier) = values["test_event_barrier"].as_str() {
+                    send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                }
+            }
+            ToHost::Unmount { .. } => {}
             ToHost::Shutdown => break,
         }
     }
@@ -955,6 +960,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_subscription_tests.rs"]
+mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
