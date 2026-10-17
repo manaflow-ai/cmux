@@ -75,6 +75,8 @@ public final class CEFRuntime {
     var browsers: [Int32: CEFBrowser] = [:]
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFBrowser] = [:]
+    /// Tabs pages asked Chromium to open, for tabs the shim did not match.
+    var popupLedger = CEFPopupLedger()
     private var nextRequest: Int32 = 1
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
     private var observers: [UUID: @MainActor (CEFShimEvent) -> Void] = [:]
@@ -339,10 +341,14 @@ public final class CEFRuntime {
     func handle(_ event: CEFShimEvent) {
         for observer in observers.values { observer(event) }
         switch event {
-        case .afterCreated(let browser, let request, _, let created):
-            browserCreated(browser, request: request, created: created)
+        case .afterCreated(let browser, let request, let window, let created):
+            browserCreated(browser, request: request, window: window, created: created)
         case .beforeClose(let browser):
             browserClosed(browser)
+        case .popup(let opener, let url, let disposition, let userGesture):
+            popupLedger.recordRequest(opener: opener, url: url, disposition: CEFDisposition(raw: disposition),
+                                      userGesture: userGesture, at: ProcessInfo.processInfo.systemUptime)
+            browsers[opener]?.handle(event)
         case .devToolsResult(let browser, let messageID, let success, let json):
             devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
                                   with: success ? .success(json) : .failure(CEFError.devTools(json)))
@@ -354,7 +360,7 @@ public final class CEFRuntime {
         }
     }
 
-    private func browserCreated(_ id: Int32, request: Int32, created: CEFCreatedBy) {
+    private func browserCreated(_ id: Int32, request: Int32, window: Int32, created reported: CEFCreatedBy) {
         if request != 0, let browser = pendingWindows.removeValue(forKey: request) {
             register(browser, id: id)
             browser.windowCreated()
@@ -364,6 +370,12 @@ public final class CEFRuntime {
         // went into its opener's window (the window request handler), and
         // becomes a browser of its own that the opener's owner places.
         guard browsers[id] == nil else { return }
+        // Chromium reports no opener for a modified click's tab: it belongs
+        // to the page whose window holds it. The shim's match may also miss
+        // the request (CEFPopupLedger).
+        let openerID = reported.opener != 0 && browsers[reported.opener] != nil
+            ? reported.opener : windowOwner(window) ?? reported.opener
+        let created = popupLedger.resolve(reported, opener: openerID, now: ProcessInfo.processInfo.systemUptime)
         let opener = created.opener == 0 ? nil : browsers[created.opener]
         guard let opener else {
             logger.notice("CEF browser \(id) created without a known opener; closing it")
@@ -386,7 +398,19 @@ public final class CEFRuntime {
         browser.attach(id: id)
     }
 
+    /// The page a Chromium window was created for (not a popup waiting
+    /// there for a window of its own), nil for 0 or a window cmux did not create.
+    private func windowOwner(_ window: Int32) -> Int32? {
+        guard window != 0, let shim else { return nil }
+        let pages = browsers.compactMap { id, browser -> CEFPopupLedger.WindowPage? in
+            guard !browser.isClosed, !browser.isPlaceholder else { return nil }
+            return CEFPopupLedger.WindowPage(browser: id, window: shim.tabWindowID(id), isOwner: !browser.awaitsWindowMove)
+        }
+        return CEFPopupLedger.owner(ofWindow: window, among: pages.sorted { $0.browser < $1.browser })
+    }
+
     private func browserClosed(_ id: Int32) {
+        popupLedger.forget(opener: id)
         let browser = browsers.removeValue(forKey: id)
         browser?.browserDidClose()
         devToolsCalls.failAll(where: { $0.browser == id }, with: CEFError.browserClosed)
@@ -399,8 +423,13 @@ public final class CEFRuntime {
     /// requesting page's window and is handed to that page's owner as
     /// `.newBrowser`; a request without a known source opens nothing in
     /// Chromium and goes to `openURLWithoutOpener`.
-    func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String) -> Int32 {
+    /// A popup's bounds (`window.open` features) are recorded for the tab
+    /// Chromium creates next for `source` (CEFPopupLedger).
+    func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String, bounds: CGRect? = nil) -> Int32 {
         if kind != 3, source != 0, browsers[source] != nil, browsers[source]?.isClosed == false {
+            if let bounds, bounds.width > 0, bounds.height > 0 {
+                popupLedger.recordWindowBounds(source: source, bounds: bounds, at: ProcessInfo.processInfo.systemUptime)
+            }
             return source
         }
         if let target = URL(string: url), !url.isEmpty {
