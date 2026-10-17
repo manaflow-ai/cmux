@@ -87,11 +87,11 @@ class SidebarRowView: NSView {
     var interactiveSubviews: [NSView] { [] }
 
     /// Frame of the title text in this row's coordinates, for inline rename.
-    var titleFrame: NSRect { .zero }
-    var titleFont: NSFont { SidebarStyle.titleFont }
-    func setTitleHidden(_ hidden: Bool) {}
+    @objc var titleFrame: NSRect { .zero }
+    @objc var titleFont: NSFont { SidebarStyle.titleFont }
+    @objc func setTitleHidden(_ hidden: Bool) {}
 
-    func hoverChanged() {
+    @objc func hoverChanged() {
         fadesNextFill = true
         fadesNextHover = true
         needsDisplay = true
