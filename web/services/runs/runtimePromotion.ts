@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudRuntimeWorkspaces } from "../../db/schema";
 import { createRuntime, getRuntime, promoteAttemptToRuntime } from "../vms/runtimeRepository";

@@ -265,6 +265,7 @@ function viewFromRuntime(input: {
  * readiness, uniqueness, and redaction checks live here so HTTP and future
  * internal callers share exactly one mutation path.
  */
+// oxlint-disable-next-line complexity -- Promotion keeps ownership, evidence, idempotency, and runtime fencing in one atomic boundary.
 export async function promoteRunAttempt(input: {
   readonly userId: string;
   readonly runId: string;
