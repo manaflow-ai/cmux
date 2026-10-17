@@ -358,8 +358,19 @@ function switchAccountHref(request: NextRequest): string | null {
   return `${signOut.pathname}${signOut.search}`;
 }
 
+/**
+ * Who the minted session belongs to: a full account, an anonymous user (a purchaser), no user,
+ * or unknown when minting failed and the cookie tokens stand.
+ */
+type SessionAccount = "full" | "anonymous" | "none" | "unknown";
+
 type FreshSession =
-  | { readonly kind: "tokens"; readonly refreshToken?: string; readonly accessToken?: string }
+  | {
+      readonly kind: "tokens";
+      readonly account: SessionAccount;
+      readonly refreshToken?: string;
+      readonly accessToken?: string;
+    }
   | { readonly kind: "response"; readonly response: NextResponse };
 
 /**
@@ -379,7 +390,7 @@ async function mintFreshSession(
     const user =
       (await authApp.getUser({ or: "return-null" })) ??
       (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
-    if (!user) return { kind: "tokens" };
+    if (!user) return { kind: "tokens", account: "none" };
     const promoted = await promoteVerifiedAnonymous(user, dependencies);
     if (promoted === "failed") {
       return {
@@ -392,14 +403,19 @@ async function mintFreshSession(
     }
     const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
     const tokens = await session.getTokens();
-    return { kind: "tokens", refreshToken: tokens.refreshToken || undefined, accessToken: tokens.accessToken || undefined };
+    return {
+      kind: "tokens",
+      account: user.isAnonymous === true && promoted !== "promoted" ? "anonymous" : "full",
+      refreshToken: tokens.refreshToken || undefined,
+      accessToken: tokens.accessToken || undefined,
+    };
   } catch (error) {
     if (hasAuthRateLimitSignal(error)) {
       console.error("auth.after_sign_in.stack_throttled", { failure: "rate_limited" });
       return { kind: "response", response: stackThrottledResponse(request, localizedMessages) };
     }
     console.error("[After Sign In] Failed to create fresh session", error);
-    return { kind: "tokens" };
+    return { kind: "tokens", account: "unknown" };
   }
 }
 
@@ -506,6 +522,25 @@ function stackThrottledResponse(
   );
 }
 
+/**
+ * The app's Sign in (a return carrying `cmux_auth_state`) accepts only a full account: the app
+ * rejects an anonymous user as not signed in. A pass that reaches here before the
+ * browser's sign-in has finished (a retry after an abandoned redirect, #20234) goes back to
+ * finish it with the same return, instead of handing the app a session it will refuse.
+ * Purchase returns carry no state and keep the anonymous purchaser's session.
+ */
+function finishSignInFirst(request: NextRequest, nativeReturnTo: string, account: SessionAccount): NextResponse | null {
+  if (account !== "anonymous" || !hasAuthState(nativeReturnTo)) return null;
+  const signIn = new URL("/handler/sign-in", requestOrigin(request));
+  signIn.searchParams.set(
+    "after_auth_return_to",
+    new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, requestOrigin(request)).toString(),
+  );
+  const response = NextResponse.redirect(signIn);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
 /** Hand fresh tokens back to an allowed native return target, or go home. */
 function nativeReturnFlow(
   request: NextRequest,
@@ -559,6 +594,8 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
+    const unfinished = nativeReturnTo === null ? null : finishSignInFirst(request, nativeReturnTo, fresh.account);
+    if (unfinished) return unfinished;
     if (refreshToken && accessCookie && nativeReturnTo !== null) {
       return nativeReturnFlow(request, stackCookies, nativeReturnTo, refreshToken, accessCookie, localizedMessages);
     }

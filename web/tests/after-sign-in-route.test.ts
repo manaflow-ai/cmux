@@ -306,6 +306,46 @@ describe("after sign-in native handoff", () => {
     );
   });
 
+  test("sends the app's sign-in back to finish when the browser holds only an anonymous session", async () => {
+    // #20234: a retry after an abandoned redirect reached here before the browser's sign-in
+    // finished; the app rejected the anonymous session it was handed as not signed in.
+    handoffCookie = "handoff-nonce";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({ refreshToken: "anon-refresh", accessToken: "anon-access" }),
+    }));
+    getUserResponses = [null, { isAnonymous: true, createSession }];
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const location = new URL(response.headers.get("location")!);
+    expect(location.pathname).toBe("/handler/sign-in");
+    const returnTo = new URL(location.searchParams.get("after_auth_return_to")!);
+    expect(returnTo.pathname).toBe("/handler/after-sign-in");
+    expect(returnTo.searchParams.get("native_app_return_to")).toBe(nativeReturnTo);
+    expect(returnTo.searchParams.get("cmux_auth_handoff")).toBe("handoff-nonce");
+    expect(response.headers.get("location")).not.toContain("anon-refresh");
+    expect(response.headers.get("set-cookie") ?? "").not.toContain(`${HANDOFF_COOKIE}=;`);
+  });
+
+  test("still hands a full account's session to the app's sign-in", async () => {
+    handoffCookie = "handoff-nonce";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({ refreshToken: "user-refresh", accessToken: "user-access" }),
+    }));
+    getUserResponses = [{ id: "u1", primaryEmail: "a@b.com", primaryEmailVerified: true, isAnonymous: false, createSession }];
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux:");
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("user-refresh");
+  });
+
   test("promotes a verified anonymous account before minting handoff tokens", async () => {
     rawRefreshCookie = "";
     rawAccessCookie = "";
