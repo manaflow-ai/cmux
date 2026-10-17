@@ -70,6 +70,7 @@ struct CmuxPhoneCommand {
             sessionID: sessionID,
             params: .object([
                 "action_id": .string("self-test-tap"),
+                "screen_seq": .number(Double(frame.sequence)),
                 "point": .object(["x": .number(0.5), "y": .number(0.5)]),
             ])
         ))

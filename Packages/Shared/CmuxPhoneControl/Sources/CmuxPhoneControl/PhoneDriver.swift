@@ -69,8 +69,8 @@ public actor MockPhoneDriver: PhoneDriver {
             bounds: .init(
                 x: 0,
                 y: 0,
-                width: Double(deviceValue.geometry.width),
-                height: Double(deviceValue.geometry.height)
+                width: 1,
+                height: 1
             ),
             actions: ["tap"],
             children: [

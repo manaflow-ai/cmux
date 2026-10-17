@@ -279,7 +279,7 @@ public actor PhoneControlServer {
                     throw PhoneError(code: "session_required", message: "open a session first")
                 }
                 let responses = await session.handle(request)
-                if method == "session.close" {
+                if method == "session.close", responses.first?.type == .response {
                     self.session = nil
                 }
                 return responses

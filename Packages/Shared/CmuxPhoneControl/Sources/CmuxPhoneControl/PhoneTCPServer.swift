@@ -174,7 +174,8 @@ public final class PhoneTCPServer: @unchecked Sendable {
                         self.receive(on: connection, state: state)
                         return
                     }
-                    Task {
+                    Task { [weak self, weak connection, state] in
+                        guard let self, let connection else { return }
                         do {
                             var output = Data()
                             let codec = PhoneWireCodec()
