@@ -1,7 +1,7 @@
 import AppKit
 
 /// A color property of a layer that a theme repaint blends (I5, cx-8w027.3).
-enum LayerColor: String, CaseIterable {
+nonisolated enum LayerColor: String, CaseIterable {
     case backgroundColor, borderColor, shadowColor
     /// `CAShapeLayer` only.
     case fillColor, strokeColor
