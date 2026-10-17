@@ -37,6 +37,8 @@ Recommendation: `byCli`. The questions people ask are per CLI ("is Codex current
 
 Owner recommendation: the session host on each machine (a small "agent environment" module next to terminals and documents). It is already on every machine (Mac, cmux server, team VM, Linux), it already opens visible terminals with origin user, and V3 makes it the document host for files on that machine, which `cmux/skills` and `cmux/memory` also need. The Swift detector in `CmuxNextCodeRouter/Detection` (presence only, Mac only) is the model for the sign-in part; it moves into the session host or is ported to it. Alternative: a per-machine app server (`server.instances: "machine"`), rejected for now because three first-party apps would need one shared owner and v2 has no shared server. The operation-catalog form is `proposed/host-catalog.json`.
 
+The existing `machine.list` record now carries a small non-secret `platform` object (`os`, `arch`) and a `capabilities` list. The local daemon reports `terminal`, `workspace` and `agent_session`; agent CLI versions, install paths and account labels remain the session host's responsibility. Remote owners can add capabilities without changing the agent app's machine discovery flow.
+
 | Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `agent_cli.list` | `{machine?, check_latest?}` | `{machine, clis: [{cli, name?, installed, version, latest: {version, checked_at}, install_method, updatable, path_label?, accounts: [{account: acct_…, label, plan?, status}]}]}` | session host of that machine | read | `agent_cli:read` | `agent_cli.watch` | nothing lists CLIs per machine; `agent.list` is running agents, not installed CLIs |
