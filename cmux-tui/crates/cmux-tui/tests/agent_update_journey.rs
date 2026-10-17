@@ -305,6 +305,53 @@ fn read_fifo(path: &Path, limit: Duration) -> String {
     }
 }
 
+/// The owner-admitted apply may start its own acpmux and update its own CLI.
+/// Its receipt identifies the same canonical machine that the client captured.
+#[test]
+fn cmux_next_agent_update_owner_apply_starts_only_the_captured_machine_and_echoes_it() {
+    let (root, _cleanup) = journey_root("auo");
+    let machine = machine(&root);
+    let identity = machine.rpc(json!({"id":1,"cmd":"identify","machine_metadata":true}));
+    let owner = identity["data"]["machine_id"].as_str().unwrap().to_owned();
+    assert!(!machine.dir.join("acpmux/acpmux.sock").exists());
+    let answer = machine.rpc(json!({
+        "id":2,"cmd":"agent-update-apply","ids":["fake"],"expected_machine_id":owner
+    }));
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["data"]["machine"], owner, "{answer}");
+    assert_eq!(
+        answer["data"]["results"],
+        json!([{"id":"fake","ok":true,"version":"2.0.9"}]),
+        "{answer}"
+    );
+    assert_eq!(fs::read_to_string(machine.dir.join("update-runs")).unwrap().lines().count(), 1);
+    let legacy = machine.rpc(json!({"id":3,"cmd":"agent-update-plan"}));
+    assert_eq!(
+        legacy["data"],
+        json!({"harnesses":[],"live_threads":0,"running_threads":0}),
+        "{legacy}"
+    );
+}
+
+/// A captured owner cannot redirect an apply to a daemon reached by mistake.
+#[test]
+fn cmux_next_agent_update_owner_foreign_apply_leaves_the_real_replacement_untouched() {
+    let (root, _cleanup) = journey_root("auf");
+    let machine = machine(&root);
+    let identity = machine.rpc(json!({"id":1,"cmd":"identify","machine_metadata":true}));
+    let owner = identity["data"]["machine_id"].as_str().unwrap();
+    let foreign =
+        format!("{}{}", &owner[..owner.len() - 1], if owner.ends_with('0') { "1" } else { "0" });
+    let refused = machine.rpc(json!({
+        "id":2,"cmd":"agent-update-apply","ids":["fake"],"expected_machine_id":foreign
+    }));
+    assert_eq!(refused["error_code"], "agent_update.owner_mismatch", "{refused}");
+    assert!(refused.get("data").is_none_or(Value::is_null));
+    assert!(!refused.to_string().contains(owner));
+    assert!(!machine.dir.join("acpmux/acpmux.sock").exists(), "a foreign request started acpmux");
+    assert!(!machine.dir.join("update-runs").exists(), "a foreign request updated the CLI");
+}
+
 /// Opens the daemon's WebSocket as an app page, presents `token` and sends
 /// `request`; its answer.
 fn over_websocket(addr: &str, token: &str, request: &Value) -> Value {

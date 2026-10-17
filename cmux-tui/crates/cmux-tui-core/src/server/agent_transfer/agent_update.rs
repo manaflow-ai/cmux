@@ -436,3 +436,7 @@ impl Mux {
         self.serves_agent_session_attach()
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "agent_update_owner_tests.rs"]
+mod owner_tests;
