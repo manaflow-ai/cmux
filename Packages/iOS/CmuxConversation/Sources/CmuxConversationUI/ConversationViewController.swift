@@ -11,19 +11,22 @@ public struct ConversationPresentationOptions {
     public var serviceSubtitle: String
     public var unreadCount: Int
     public var trailingSymbol: String
+    public var trailingAccessibilityLabel: String?
 
     public init(
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
-        trailingSymbol: String = "video"
+        trailingSymbol: String = "video",
+        trailingAccessibilityLabel: String? = nil
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
+        self.trailingAccessibilityLabel = trailingAccessibilityLabel
     }
 }
 
@@ -31,6 +34,11 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Optional host action for the trailing header button. Hosts such as
+    /// Chief use this for a service-specific action while the generic
+    /// conversation controller keeps its existing edit/select/reply behavior
+    /// when the hook is absent.
+    public var onHeaderTrailing: (() -> Void)?
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?
@@ -245,10 +253,18 @@ public final class ConversationViewController: UIViewController {
 
         header.translatesAutoresizingMaskIntoConstraints = false
         header.trailingSymbol = options.trailingSymbol
+        header.trailingAccessibilityLabel = options.trailingAccessibilityLabel
         header.setTrailingMode(.action, animated: false)
         header.onBack = { [weak self] in self?.handleBack() }
         header.onInfo = { [weak self] in self?.openInfo() }
-        header.onTrailing = { [weak self] in self?.handleHeaderTrailing() }
+        header.onTrailing = { [weak self] in
+            guard let self else { return }
+            if let onHeaderTrailing = self.onHeaderTrailing {
+                onHeaderTrailing()
+            } else {
+                self.handleHeaderTrailing()
+            }
+        }
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
         view.addSubview(header)

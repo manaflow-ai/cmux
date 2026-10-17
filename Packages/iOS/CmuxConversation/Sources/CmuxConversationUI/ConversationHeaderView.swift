@@ -51,6 +51,7 @@ final class ConversationHeaderView: UIView {
     var onInfo: (() -> Void)?
     var onTrailing: (() -> Void)?
     var trailingSymbol = "video"
+    var trailingAccessibilityLabel: String?
     private(set) var trailingMode: TrailingMode = .action
 
     static let contentHeight: CGFloat = 92
@@ -175,9 +176,10 @@ final class ConversationHeaderView: UIView {
                 ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
                 : mode == .close
                 ? String(localized: "conversation.header.close", defaultValue: "Close", bundle: .module)
-                : (self.trailingSymbol.hasPrefix("video")
+                : (self.trailingAccessibilityLabel
+                    ?? (self.trailingSymbol.hasPrefix("video")
                     ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
-                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module))
+                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)))
         }
         guard animated else { apply(); return }
         guard delay > 0 else {

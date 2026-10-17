@@ -1,4 +1,5 @@
 import CmuxAgentChat
+public import CmuxAgentQuestion
 public import CmuxMobileRPC
 public import Foundation
 
@@ -148,6 +149,69 @@ public struct MobileChiefConversation: Codable, Equatable, Hashable, Sendable, I
 }
 
 /// One compact transcript message from `chief.read`.
+public struct MobileChiefWork: Codable, Equatable, Sendable {
+    public let session: String
+    public let host: String?
+    public let title: String
+    public let status: String
+    public let preview: String?
+
+    public init(
+        session: String,
+        host: String? = nil,
+        title: String,
+        status: String,
+        preview: String? = nil
+    ) {
+        self.session = session
+        self.host = host
+        self.title = title
+        self.status = status
+        self.preview = preview
+    }
+}
+
+public struct MobileChiefApproval: Codable, Equatable, Sendable {
+    public let request: String
+    public let prompt: String
+    public let options: [String]
+    public let decided: String?
+
+    public init(request: String, prompt: String, options: [String], decided: String? = nil) {
+        self.request = request
+        self.prompt = prompt
+        self.options = options
+        self.decided = decided
+    }
+}
+
+/// Chief questions use the shared harness-neutral question model on the wire.
+/// Keep a Chief-specific spelling at this API boundary so callers do not need
+/// to know which shared package owns the representation.
+public typealias MobileChiefQuestion = AgentQuestion
+
+/// A structured payload for one non-text Chief part. Unknown kinds decode
+/// safely with only their `kind`, allowing newer Mac builds to coexist with
+/// older phones while the legacy `parts` kind list remains available.
+public struct MobileChiefPart: Codable, Equatable, Sendable {
+    public let kind: String
+    public let work: MobileChiefWork?
+    public let approval: MobileChiefApproval?
+    public let question: MobileChiefQuestion?
+
+    public init(
+        kind: String,
+        work: MobileChiefWork? = nil,
+        approval: MobileChiefApproval? = nil,
+        question: MobileChiefQuestion? = nil
+    ) {
+        self.kind = kind
+        self.work = work
+        self.approval = approval
+        self.question = question
+    }
+}
+
 public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let seq: UInt64
@@ -156,9 +220,12 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
     public let authorKind: String
     public let text: String
     public let at: Date
-    /// Part kinds (`text`, `work`, `approval`, `question`, …). The Mac
-    /// endpoint intentionally returns kinds, not the private Home payloads.
+    /// Part kinds (`text`, `work`, `approval`, `question`, …). Kept for
+    /// backwards compatibility with clients that only render plain text.
     public let parts: [String]
+    /// Structured work, approval and question parts. Older Mac builds omit
+    /// this field; those messages decode with an empty array.
+    public let partPayloads: [MobileChiefPart]
     public let threadRoot: String?
     public let clientMessageID: String?
 
@@ -171,6 +238,7 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
         text: String,
         at: Date,
         parts: [String] = [],
+        partPayloads: [MobileChiefPart] = [],
         threadRoot: String? = nil,
         clientMessageID: String? = nil
     ) {
@@ -182,13 +250,30 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
         self.text = text
         self.at = at
         self.parts = parts
+        self.partPayloads = partPayloads
         self.threadRoot = threadRoot
         self.clientMessageID = clientMessageID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, seq, authorID = "author_id", author, authorKind = "author_kind"
-        case text, at, parts, threadRoot = "thread_root", clientMessageID = "client_message_id"
+        case text, at, parts, partPayloads = "part_payloads"
+        case threadRoot = "thread_root", clientMessageID = "client_message_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        seq = try c.decode(UInt64.self, forKey: .seq)
+        authorID = try c.decode(String.self, forKey: .authorID)
+        author = try c.decode(String.self, forKey: .author)
+        authorKind = try c.decode(String.self, forKey: .authorKind)
+        text = try c.decode(String.self, forKey: .text)
+        at = try c.decode(Date.self, forKey: .at)
+        parts = try c.decodeIfPresent([String].self, forKey: .parts) ?? []
+        partPayloads = try c.decodeIfPresent([MobileChiefPart].self, forKey: .partPayloads) ?? []
+        threadRoot = try c.decodeIfPresent(String.self, forKey: .threadRoot)
+        clientMessageID = try c.decodeIfPresent(String.self, forKey: .clientMessageID)
     }
 }
 
@@ -197,11 +282,33 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
     public let conversation: String
     public let working: Bool
     public let messages: [MobileChiefMessage]
+    /// True when another page exists before the oldest returned message.
+    /// Older hosts omit this field and therefore remain a bounded, newest-page
+    /// reader to older phones.
+    public let hasMore: Bool
 
-    public init(conversation: String, working: Bool = false, messages: [MobileChiefMessage] = []) {
+    public init(
+        conversation: String,
+        working: Bool = false,
+        messages: [MobileChiefMessage] = [],
+        hasMore: Bool = false
+    ) {
         self.conversation = conversation
         self.working = working
         self.messages = messages
+        self.hasMore = hasMore
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case conversation, working, messages, hasMore = "has_more"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversation = try c.decode(String.self, forKey: .conversation)
+        working = try c.decodeIfPresent(Bool.self, forKey: .working) ?? false
+        messages = try c.decodeIfPresent([MobileChiefMessage].self, forKey: .messages) ?? []
+        hasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
     }
 }
 
@@ -275,9 +382,14 @@ public actor MobileChiefClient {
         return result.conversations
     }
 
-    public func read(conversation: String? = nil, limit: Int = 20) async throws -> MobileChiefReadResult {
+    public func read(
+        conversation: String? = nil,
+        beforeSeq: UInt64? = nil,
+        limit: Int = 20
+    ) async throws -> MobileChiefReadResult {
         var params: [String: Any] = ["limit": max(1, min(limit, 200))]
         if let conversation { params["conversation"] = conversation }
+        if let beforeSeq { params["before_seq"] = beforeSeq }
         return try await request("chief.read", params: params, as: MobileChiefReadResult.self)
     }
 

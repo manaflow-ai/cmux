@@ -22,6 +22,10 @@ struct MobileChiefClientTests {
                 "text":"I am on it.",
                 "at":"2026-10-16T12:30:45Z",
                 "parts":["text","work"],
+                "part_payloads":[{
+                  "kind":"work",
+                  "work":{"session":"acp-1","host":"builder","title":"Ship it","status":"running","preview":"Building"}
+                }],
                 "thread_root":"m-0"
               }]
             }
@@ -41,9 +45,58 @@ struct MobileChiefClientTests {
                 text: "I am on it.",
                 at: ISO8601DateFormatter().date(from: "2026-10-16T12:30:45Z")!,
                 parts: ["text", "work"],
+                partPayloads: [MobileChiefPart(
+                    kind: "work",
+                    work: MobileChiefWork(
+                        session: "acp-1", host: "builder", title: "Ship it", status: "running", preview: "Building"
+                    )
+                )],
                 threadRoot: "m-0"
             ),
         ])
+    }
+
+    @Test
+    func decodesStructuredApprovalAndQuestionPayloads() throws {
+        let data = Data(
+            """
+            {
+              "id":"m-2", "seq":8, "author_id":"chief", "author":"Chief", "author_kind":"chief",
+              "text":"Choose", "at":"2026-10-16T12:30:45Z", "parts":["approval","question"],
+              "part_payloads":[
+                {"kind":"approval","approval":{"request":"r-1","prompt":"Run deploy?","options":["allow","deny"]}},
+                {"kind":"question","question":{
+                  "id":"q-1",
+                  "source":{"harness":"chief","session":"chief-main","agentName":"Chief"},
+                  "items":[{"id":"q0","prompt":"Which region?","options":[{"id":"us","label":"US"}]}],
+                  "state":{"kind":"pending"}
+                }}
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try ChatWireCoding().decode(MobileChiefMessage.self, from: data)
+        #expect(message.partPayloads.count == 2)
+        #expect(message.partPayloads[0].approval == MobileChiefApproval(
+            request: "r-1", prompt: "Run deploy?", options: ["allow", "deny"]
+        ))
+        #expect(message.partPayloads[1].question?.id == "q-1")
+        #expect(message.partPayloads[1].question?.items.first?.prompt == "Which region?")
+    }
+
+    @Test
+    func decodesLegacyChiefMessageWithoutStructuredPayloads() throws {
+        let data = Data(
+            """
+            {"id":"m-old","seq":1,"author_id":"a","author":"A","author_kind":"agent",
+             "text":"Hello","at":"2026-10-16T12:30:45Z","parts":["text"]}
+            """.utf8
+        )
+
+        let message = try ChatWireCoding().decode(MobileChiefMessage.self, from: data)
+        #expect(message.parts == ["text"])
+        #expect(message.partPayloads.isEmpty)
     }
 
     @Test

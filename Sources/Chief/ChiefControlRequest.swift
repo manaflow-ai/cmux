@@ -13,8 +13,8 @@ enum ChiefControlRequest: Equatable, Sendable {
     case status
     /// `chief.conversations`: every Chief conversation.
     case conversations
-    /// `chief.read`: the newest `limit` messages of one conversation.
-    case read(conversation: String?, limit: Int)
+    /// `chief.read`: the newest `limit` messages, or a page before `beforeSeq`.
+    case read(conversation: String?, beforeSeq: UInt64?, limit: Int)
     /// `chief.stop`: stops the running turn of one conversation.
     case stop(conversation: String?)
     /// `chief.approve`: answers an approval card (`request` nil: the running turn's newest waiting one) with
@@ -96,7 +96,11 @@ enum ChiefControlRequest: Equatable, Sendable {
         case "chief.read":
             let limit = try optionalInt(params, "limit") ?? defaultReadLimit
             guard limit >= 1 else { throw ChiefControlParamError.invalid("limit") }
-            return .read(conversation: try conversation(params), limit: min(limit, maxReadLimit))
+            let beforeSeq = try optionalInt(params, "before_seq")
+            if let beforeSeq, beforeSeq < 1 { throw ChiefControlParamError.invalid("before_seq") }
+            return .read(conversation: try conversation(params),
+                         beforeSeq: beforeSeq.map(UInt64.init),
+                         limit: min(limit, maxReadLimit))
         case "chief.stop":
             return .stop(conversation: try conversation(params))
         case "chief.approve":

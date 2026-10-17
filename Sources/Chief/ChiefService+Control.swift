@@ -40,8 +40,21 @@ struct ChiefControlMessage: Sendable {
     var text: String
     var at: Date
     var parts: [String]
+    /// Structured payloads for the interactive/message parts that mobile can
+    /// render. `parts` remains the backwards-compatible kind list.
+    var partPayloads: [ChiefControlPartPayload]
     var threadRoot: String?
     var clientMessageID: String?
+}
+
+/// A structured part in a `chief.read` message. The optional fields are
+/// intentionally kept alongside `kind` so the wire shape can grow without
+/// replacing the legacy `parts: [String]` list.
+struct ChiefControlPartPayload: Sendable {
+    var kind: String
+    var work: WorkRef?
+    var approval: ApprovalRef?
+    var question: AgentQuestion?
 }
 
 /// The outcome of `chief.send`.
@@ -245,8 +258,22 @@ extension ChiefControlMessage {
                   author: author?.displayName ?? message.author.rawValue, authorKind: kind,
                   text: message.isRetracted ? "" : message.plainText, at: message.createdAt,
                   parts: message.isRetracted ? ["retracted"] : message.parts.map(Self.kind(of:)),
+                  partPayloads: message.isRetracted ? [] : message.parts.compactMap(Self.payload(of:)),
                   threadRoot: message.threadRoot?.rawValue,
                   clientMessageID: message.clientMessageID.rawValue)
+    }
+
+    static func payload(of part: MessagePart) -> ChiefControlPartPayload? {
+        switch part {
+        case .work(let work):
+            ChiefControlPartPayload(kind: "work", work: work, approval: nil, question: nil)
+        case .approval(let approval):
+            ChiefControlPartPayload(kind: "approval", work: nil, approval: approval, question: nil)
+        case .question(let question):
+            ChiefControlPartPayload(kind: "question", work: nil, approval: nil, question: question)
+        case .text, .attachment, .linkPreview, .location:
+            nil
+        }
     }
 
     static func kind(of part: MessagePart) -> String {

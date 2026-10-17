@@ -539,6 +539,10 @@ struct WorkspaceShellView: View {
         Group {
             if let client = store.makeChiefClient() {
                 ChiefHomeView(client: client)
+                    // Chief RPC clients are bound to the selected Mac. Reset
+                    // the list/transcript state when that connection changes
+                    // so a Home view never shows the previous Mac's rows.
+                    .id("\(store.connectedMacDeviceID ?? "unknown"):\(store.connectedMacInstanceTag ?? "")")
             } else {
                 ContentUnavailableView(
                     "Chief unavailable",

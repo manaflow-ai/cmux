@@ -302,9 +302,11 @@ extension MobileHostService {
             "chief.conversations",
             "chief.read",
             "chief.stop",
+            "chief.approve",
+            "chief.answer",
         ]
 #if DEBUG
-        capabilities.append(contentsOf: ["chief.approve", "chief.answer", "chief.debug"])
+        capabilities.append("chief.debug")
 #endif
         // Chief is a user-disabled Mac surface, not merely an optional RPC
         // family. Do not advertise stale Home entry points while it is off.

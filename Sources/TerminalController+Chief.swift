@@ -49,7 +49,7 @@ extension TerminalController {
             }
             typedParams[key] = json
         }
-        return await chiefResult(ControlRequest(id: nil, method: method, params: typedParams))
+        return await chiefResult(ControlRequest(id: nil, method: method, params: typedParams), allowMobileInteractive: true)
     }
 
     nonisolated func chiefResponse(_ request: ControlRequest) async -> String {
@@ -57,7 +57,10 @@ extension TerminalController {
         return Self.v2Encoder.response(id: request.id, Self.controlCallResult(fromLegacy: result))
     }
 
-    private nonisolated func chiefResult(_ request: ControlRequest) async -> V2CallResult {
+    private nonisolated func chiefResult(
+        _ request: ControlRequest,
+        allowMobileInteractive: Bool = false
+    ) async -> V2CallResult {
         // Defense in depth: the relay policy already denies `chief.*`.
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil {
             return .err(code: "not_authorized",
@@ -159,14 +162,26 @@ extension TerminalController {
             case .conversations:
                 let rows = try await v2MainAsync { ChiefService.shared.controlConversations() }
                 return .ok(["conversations": rows.map { Self.chiefPayload($0) }])
-            case .read(let conversation, let limit):
+            case .read(let conversation, let beforeSeq, let limit):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
-                let page = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
-                let messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
+                let summary = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
+                let messages: [ChiefControlMessage]
+                let hasMore: Bool
+                if let beforeSeq {
+                    let page = try await Self.chiefOwnerCall {
+                        try await owner.historyPage(of: id, before: beforeSeq, limit: limit)
+                    }
+                    messages = page.messages.map { ChiefControlMessage($0, participants: summary.conversation.participants) }
+                    hasMore = page.messages.first.map { $0.seq > 1 } ?? false
+                } else {
+                    let page = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
+                    messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
+                    hasMore = false
+                }
                 let working = await owner.isWorking(id)
                 return .ok(["conversation": id.rawValue, "working": working,
-                            "messages": messages.map { Self.chiefPayload($0) }] as [String: Any])
+                            "messages": messages.map { Self.chiefPayload($0) }, "has_more": hasMore] as [String: Any])
             case .stop(let conversation):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
@@ -175,7 +190,7 @@ extension TerminalController {
                 return .ok(["conversation": id.rawValue, "stopped": stopped] as [String: Any])
             case .approve(let conversation, let request, let choice):
                 // Release builds answer approval cards only in Home (ChiefControlRequest.isAvailable).
-                guard ChiefControlRequest.isAvailable("chief.approve") else {
+                guard allowMobileInteractive || ChiefControlRequest.isAvailable("chief.approve") else {
                     return .err(code: "not_available",
                                 message: String(localized: "socket.chief.error.approveNotAvailable",
                                                 defaultValue: "Answer Chief's approvals in Home; this build doesn't accept them from the socket."),
@@ -200,7 +215,7 @@ extension TerminalController {
                 return .ok(["conversation": id.rawValue, "request": card.request, "choice": option, "decided": true] as [String: Any])
             case .answer(let conversation, let message, let choices, let text):
                 // Release builds answer question cards only in Home (ChiefControlRequest.isAvailable).
-                guard ChiefControlRequest.isAvailable("chief.answer") else {
+                guard allowMobileInteractive || ChiefControlRequest.isAvailable("chief.answer") else {
                     return .err(code: "not_available",
                                 message: String(localized: "socket.chief.error.answerNotAvailable",
                                                 defaultValue: "Answer Chief's questions in Home; this build doesn't accept them from the socket."),
@@ -467,9 +482,39 @@ extension TerminalController {
             "id": message.id, "seq": message.seq, "author": message.author, "author_id": message.authorID,
             "author_kind": message.authorKind, "text": message.text, "at": chiefTime(message.at), "parts": message.parts,
         ]
+        if !message.partPayloads.isEmpty {
+            payload["part_payloads"] = message.partPayloads.map { chiefPayload($0) }
+        }
         if let root = message.threadRoot { payload["thread_root"] = root }
         if let clientMessageID = message.clientMessageID {
             payload["client_message_id"] = clientMessageID
+        }
+        return payload
+    }
+
+    private nonisolated static func chiefPayload(_ part: ChiefControlPartPayload) -> [String: Any] {
+        var payload: [String: Any] = ["kind": part.kind]
+        if let work = part.work {
+            payload["work"] = [
+                "session": work.session,
+                "host": work.host ?? NSNull(),
+                "title": work.title,
+                "status": work.status.rawValue,
+                "preview": work.preview ?? NSNull(),
+            ]
+        }
+        if let approval = part.approval {
+            payload["approval"] = [
+                "request": approval.request,
+                "prompt": approval.prompt,
+                "options": approval.options,
+                "decided": approval.decided ?? NSNull(),
+            ]
+        }
+        if let question = part.question,
+           let data = try? JSONEncoder().encode(question),
+           let value = try? JSONSerialization.jsonObject(with: data) {
+            payload["question"] = value
         }
         return payload
     }

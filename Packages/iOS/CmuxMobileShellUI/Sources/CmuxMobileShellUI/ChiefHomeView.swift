@@ -1,6 +1,7 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileShell
+import CmuxMobileSupport
 import Foundation
 import SwiftUI
 #if canImport(UIKit)
@@ -15,6 +16,7 @@ import UIKit
 /// surrounding shell keeps its existing workspace/feed/cloud destinations.
 struct ChiefHomeView: View {
     let client: MobileChiefClient
+    @Environment(\.scenePhase) private var scenePhase
     @State private var conversations: [MobileChiefConversation] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -35,19 +37,22 @@ struct ChiefHomeView: View {
         NavigationStack {
             Group {
                 if isLoading && conversations.isEmpty {
-                    ProgressView("Loading Chief")
+                    ProgressView(L10n.string("mobile.chief.loading", defaultValue: "Loading Chief"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let errorMessage, conversations.isEmpty {
                     ContentUnavailableView(
-                        "Chief unavailable",
+                        L10n.string("mobile.chief.unavailable.title", defaultValue: "Chief unavailable"),
                         systemImage: "bubble.left.and.bubble.right",
                         description: Text(errorMessage)
                     )
                 } else if conversations.isEmpty {
                     ContentUnavailableView(
-                        "No Chief conversations",
+                        L10n.string("mobile.chief.empty.title", defaultValue: "No Chief conversations"),
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Start a conversation from Chief on your Mac.")
+                        description: Text(L10n.string(
+                            "mobile.chief.empty.message",
+                            defaultValue: "Start a conversation from Chief on your Mac."
+                        ))
                     )
                 } else {
                     List {
@@ -82,8 +87,11 @@ struct ChiefHomeView: View {
                     .refreshable { await load() }
                 }
             }
-            .navigationTitle("Home")
-            .searchable(text: $query, prompt: "Search conversations")
+            .navigationTitle(L10n.string("mobile.chief.home.title", defaultValue: "Home"))
+            .searchable(
+                text: $query,
+                prompt: L10n.string("mobile.chief.home.search", defaultValue: "Search conversations")
+            )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -91,10 +99,17 @@ struct ChiefHomeView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .accessibilityLabel("Refresh Chief conversations")
+                    .accessibilityLabel(L10n.string(
+                        "mobile.chief.refresh",
+                        defaultValue: "Refresh Chief conversations"
+                    ))
                 }
             }
             .task { await load() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await load() }
+            }
             .navigationDestination(for: MobileChiefConversation.self) { conversation in
                 ChiefConversationDestination(client: client, conversation: conversation)
             }
@@ -153,7 +168,7 @@ private struct ChiefPinnedConversationCard: View {
                         .offset(x: 8, y: -4)
                 }
             }
-            Text("Chief")
+            Text(conversation.title)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.primary)
             Text(conversation.preview.isEmpty ? "Ask Chief anything" : conversation.preview)
@@ -167,9 +182,20 @@ private struct ChiefPinnedConversationCard: View {
         .padding(.top, 24)
         .padding(.bottom, 16)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(conversation.working ? "Chief, working" : "Chief")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(pinnedAccessibilityLabel)
         .accessibilityIdentifier("MobileChiefPinnedConversation")
+    }
+
+    private var pinnedAccessibilityLabel: String {
+        var values = [conversation.title]
+        if !conversation.preview.isEmpty { values.append(conversation.preview) }
+        if conversation.working {
+            values.append(L10n.string("mobile.chief.working", defaultValue: "Working"))
+        } else if conversation.unread > 0 {
+            values.append(L10n.unreadLabel(count: conversation.unread))
+        }
+        return values.joined(separator: ", ")
     }
 }
 
@@ -179,16 +205,17 @@ private struct ChiefAvatarView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [.blue, .indigo],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.38, weight: .semibold))
-                .foregroundStyle(.white)
+                .fill(Color(uiColor: .secondarySystemBackground))
+            if let image = UIImage(named: "ChiefAvatar", in: .module, compatibleWith: nil) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(size * 0.08)
+            } else {
+                Image(systemName: "sparkles")
+                    .font(.system(size: size * 0.38, weight: .semibold))
+                    .foregroundStyle(.blue)
+            }
         }
         .frame(width: size, height: size)
         .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
@@ -222,6 +249,7 @@ private struct ChiefConversationRow: View {
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 }
                 HStack(alignment: .top, spacing: 6) {
                     Text(conversation.preview.isEmpty ? "No messages yet" : conversation.preview)
@@ -240,7 +268,21 @@ private struct ChiefConversationRow: View {
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityIdentifier("MobileChiefConversationRow-\(conversation.id)")
+    }
+
+    private var rowAccessibilityLabel: String {
+        var values = [conversation.title]
+        if !conversation.preview.isEmpty { values.append(conversation.preview) }
+        if conversation.working {
+            values.append(L10n.string("mobile.chief.working", defaultValue: "Working"))
+        } else if conversation.unread > 0 {
+            values.append(L10n.unreadLabel(count: conversation.unread))
+        }
+        if let stamp = relativeDate(conversation.updatedAt) { values.append(stamp) }
+        return values.joined(separator: ", ")
     }
 
     private func relativeDate(_ date: Date) -> String? {
@@ -294,10 +336,16 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
                 serviceTitle: conversation.title,
                 serviceSubtitle: "Runs your agents on your Mac",
                 unreadCount: conversation.unread,
-                trailingSymbol: "bolt.horizontal"
+                trailingSymbol: "stop.fill",
+                trailingAccessibilityLabel: "Stop Chief"
             )
         )
         controller.onBack = back
+        controller.onHeaderTrailing = {
+            Task {
+                _ = try? await client.stop(conversation: conversation.id)
+            }
+        }
         store.start()
         return controller
     }

@@ -20,6 +20,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
 
     private struct State {
         var previousMessagesByID: [String: MobileChiefMessage] = [:]
+        /// Structured Chief cards are kept as backend metadata while the
+        /// generic conversation model renders pending cards as polls.
+        var structuredPartsByMessageID: [String: [MobileChiefPart]] = [:]
+        var decidingMessageIDs: Set<String> = []
         var pendingSends: [String: PendingSend] = [:]
         /// A poll/history pass may correlate the committed echo while the
         /// send request is still waiting for its follow-up read. Keep that
@@ -76,7 +80,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
-        let result = try await client.read(conversation: conversationID, limit: limit)
+        let before = beforeSeq.flatMap { $0 > 0 ? UInt64($0) : nil }
+        let result = try await client.read(conversation: conversationID, beforeSeq: before, limit: limit)
         let mapped = result.messages.map {
             map($0, clientMessageID: clientMessageID(for: $0))
         }
@@ -86,7 +91,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 uniquingKeysWith: { _, new in new }
             )
         }
-        return ConversationHistoryPage(messages: mapped, hasMore: false)
+        return ConversationHistoryPage(messages: mapped, hasMore: result.hasMore)
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
@@ -172,6 +177,69 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         throw unsupported("reactions")
     }
 
+    /// Chief approvals and questions use the generic conversation poll card
+    /// as their compact, tappable representation. A selected poll option is
+    /// converted back to the card's Chief RPC; deselecting is not meaningful
+    /// once Chief has accepted an answer.
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        guard selected else {
+            throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
+        }
+        guard let part = withState({ $0.structuredPartsByMessageID[messageID]?.first(where: { $0.kind == "approval" || $0.kind == "question" }) }) else {
+            throw unsupported("polls")
+        }
+        let claimed = withState { state in
+            state.decidingMessageIDs.insert(messageID).inserted
+        }
+        guard claimed else {
+            throw ConversationBackendError(code: -1, message: "That Chief card is already being answered")
+        }
+        defer {
+            withState { $0.decidingMessageIDs.remove(messageID) }
+        }
+        switch part.kind {
+        case "approval":
+            guard let approval = part.approval else { throw unsupported("approval cards") }
+            guard approval.decided == nil else {
+                throw ConversationBackendError(code: -1, message: "That approval was already answered")
+            }
+            _ = try await client.approve(conversation: conversationID, request: approval.request, choice: optionID)
+        case "question":
+            guard let question = part.question, question.isPending else {
+                throw ConversationBackendError(code: -1, message: "That question was already answered")
+            }
+            // `chief.answer` accepts labels or ids. The generic poll exposes
+            // the first item; preserve Chief's native recommendation for any
+            // additional items so a multi-item ask still submits a complete
+            // answer rather than failing with an incomplete card.
+            let choices = question.items.enumerated().map { index, item in
+                if index == 0 { return optionID }
+                return item.options.first?.id ?? ""
+            }.filter { !$0.isEmpty }
+            _ = try await client.answer(
+                conversation: conversationID,
+                message: messageID,
+                choices: choices,
+                text: nil
+            )
+        default:
+            throw unsupported("polls")
+        }
+
+        let refreshed = try await client.read(conversation: conversationID, limit: 200)
+        if let message = refreshed.messages.first(where: { $0.id == messageID }) {
+            return map(message, clientMessageID: clientMessageID(for: message))
+        }
+        // The answer RPC commits before the transcript snapshot necessarily
+        // includes the changed card. Return the last known row so the store
+        // does not show a false vote failure; the next poll will collapse it
+        // to the server's receipt.
+        if let previous = withState({ $0.previousMessagesByID[messageID] }) {
+            return map(previous, clientMessageID: clientMessageID(for: previous))
+        }
+        throw ConversationBackendError(code: -1, message: "Chief did not return the answered card")
+    }
+
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
         throw unsupported("editing")
     }
@@ -233,6 +301,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         unreadCount: 0,
                         headSeq: safeInt(lastSeq)
                     )))
+                    continuation.yield(.typing(
+                        participantID: participantID(in: result.messages),
+                        isTyping: result.working
+                    ))
                     connected = true
                 } else {
                     if !connected {
@@ -265,6 +337,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         unreadCount: 0,
                         headSeq: safeInt(lastSeq)
                     )))
+                    continuation.yield(.typing(
+                        participantID: participantID(in: result.messages),
+                        isTyping: result.working
+                    ))
                 }
                 reportedFailure = false
             } catch {
@@ -307,12 +383,25 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 isMe: true
             ))
         }
+        if !seen.contains("chief") {
+            participants.append(ConversationParticipant(
+                id: "chief",
+                name: "Chief",
+                initials: "CH",
+                colorHex: "#8E8E93",
+                isMe: false
+            ))
+        }
         return (ConversationInfo(
             id: conversationID,
             title: fallbackTitle.isEmpty ? conversationID : fallbackTitle,
             kind: .direct,
             participants: participants
         ), human)
+    }
+
+    private func participantID(in messages: [MobileChiefMessage]) -> String {
+        messages.first(where: { $0.authorKind == "chief" })?.authorID ?? "chief"
     }
 
     private func map(
@@ -324,9 +413,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             if isMe { state.meID = message.authorID }
             return isMe
         }
-        let text = message.text.isEmpty && !message.parts.isEmpty
+        withState { state in
+            state.structuredPartsByMessageID[message.id] = message.partPayloads
+        }
+        let poll = Self.pendingPoll(from: message)
+        let text = Self.receiptText(from: message) ?? (message.text.isEmpty && !message.parts.isEmpty
             ? message.parts.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · ")
-            : message.text
+            : message.text)
         return ConversationMessage(
             id: message.id,
             seq: safeInt(message.seq),
@@ -335,8 +428,47 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             sentAt: message.at,
             text: text,
             replyToID: message.threadRoot,
-            delivery: senderIsMe ? .sent : nil
+            delivery: senderIsMe ? .sent : nil,
+            poll: poll
         )
+    }
+
+    /// A pending Chief approval/question is projected into the generic poll
+    /// card. Answered and cancelled cards intentionally return nil so their
+    /// transcript remains a compact receipt rather than a stale action.
+    private static func pendingPoll(from message: MobileChiefMessage) -> ConversationPoll? {
+        for part in message.partPayloads {
+            if let approval = part.approval, part.kind == "approval", approval.decided == nil {
+                let options = approval.options.filter { !$0.hasPrefix("always:") }
+                guard !options.isEmpty else { continue }
+                return ConversationPoll(
+                    question: approval.prompt,
+                    options: options.map { ConversationPollOption(id: $0, text: $0) }
+                )
+            }
+            if let question = part.question, part.kind == "question", question.isPending,
+               let item = question.items.first, !item.options.isEmpty {
+                return ConversationPoll(
+                    question: item.prompt,
+                    options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Text shown after an approval/question is answered or cancelled. This
+    /// is the collapsed receipt form used by the generic transcript.
+    private static func receiptText(from message: MobileChiefMessage) -> String? {
+        for part in message.partPayloads {
+            if let approval = part.approval, part.kind == "approval", let decided = approval.decided {
+                return "\(approval.prompt)\n✓ \(decided)"
+            }
+            if let question = part.question, part.kind == "question", !question.isPending {
+                return question.transcriptText
+            }
+        }
+        return nil
     }
 
     private func map(_ messages: [MobileChiefMessage]) -> [ConversationMessage] {
