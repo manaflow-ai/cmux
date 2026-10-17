@@ -50,6 +50,13 @@ struct AgentChatModeView: View {
         .task {
             await updateSourceAndRefresh()
         }
+        .onDisappear {
+            // The host and selected-session streams are long-lived. Tear them
+            // down when the full-screen mode closes so the view's @State model
+            // cannot retain itself through its observation task and keep a
+            // stale mobile.chat subscription alive behind the workspace shell.
+            model.updateSource(nil)
+        }
         .onChange(of: store.connectionState) { _, _ in
             Task { await updateSourceAndRefresh() }
         }
