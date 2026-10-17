@@ -88,7 +88,8 @@ describe("Cloud Chief memory under load", { timeout: 120_000 }, () => {
     expect(done, `compactor calls seen: ${compactTimes.length}`).toBe(1)
     expect(at.length).toBeGreaterThanOrEqual(3)
     // "retry after 1 s": both waits at least about a second, though the base delay is 50 ms.
-    for (let k = 1; k < 3; k++) expect(at[k]! - at[k - 1]!).toBeGreaterThanOrEqual(900)
+    // ... and no longer than it said (not the old fixed 10 s).
+    for (let k = 1; k < 3; k++) [expect(at[k]! - at[k - 1]!).toBeGreaterThanOrEqual(900), expect(at[k]! - at[k - 1]!).toBeLessThan(5_000)]
   })
 
   it("resumes the memory from its checkpoint at a start, with the same view; folds only without one", async () => {
