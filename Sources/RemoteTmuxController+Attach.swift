@@ -40,21 +40,9 @@ extension RemoteTmuxController {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         try refuseARouteTheLiveConnectionDoesNotUse(host)
+        try validateAttachWindowTarget(windowTarget, host: host)
         let initialExistingMirrorWindowID = existingMirrorManager(for: host)
             .flatMap { appDelegate.windowId(for: $0) }
-        let initialActiveWindowID = appDelegate.tabManager
-            .flatMap { appDelegate.windowId(for: $0) }
-        if windowTarget != .dedicatedNewWindow {
-            guard windowTarget.resolve(
-                existingMirrorWindowID: initialExistingMirrorWindowID,
-                activeWindowID: initialActiveWindowID,
-                isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
-            ) != nil else {
-                // Reject a guaranteed-invalid destination before discovery can
-                // create a default remote session or open a cached SSH master.
-                throw RemoteTmuxError.unreachable("app not ready")
-            }
-        }
         guard windowRegistry.beginAttach(hostHash: host.connectionHash) else {
             throw RemoteTmuxError.unreachable("already attaching \(host.destination)")
         }

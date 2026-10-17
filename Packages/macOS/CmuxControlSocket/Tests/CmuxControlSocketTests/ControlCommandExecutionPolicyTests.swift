@@ -141,6 +141,14 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test func remoteTmuxNewRunsOnTheReleaseWorkerLane() {
+        #expect(ControlCommandExecutionPolicy.socketWorkerMethods.contains("remote.tmux.new"))
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "remote.tmux.new")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func windowCaptureRunsOnTheWorkerAndIsNotMainThreadCallable() {
         // A recording samples the window for as long as the clip lasts, and a
         // still waits on the same capture once, so these verbs must never be

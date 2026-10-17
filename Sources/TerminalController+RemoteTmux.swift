@@ -339,6 +339,108 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.new` — create one detached named tmux session, then mirror
+    /// only that session. Params match `remote.tmux.mirror` with required
+    /// `session`, optional `remote_cwd`, and optional `new_window`.
+    nonisolated func v2RemoteTmuxNew(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
+        }
+        guard let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport) else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
+        }
+        let remoteWorkingDirectory: String?
+        if let rawRemoteWorkingDirectory = params["remote_cwd"] {
+            guard let path = rawRemoteWorkingDirectory as? String,
+                  !path.isEmpty,
+                  !Self.remoteTmuxValueHasHiddenCharacter(path) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.remoteTmux.remoteCwdInvalid",
+                        defaultValue: "remote_cwd must be a non-empty string"
+                    )
+                )
+            }
+            remoteWorkingDirectory = path
+        } else {
+            remoteWorkingDirectory = nil
+        }
+        let activate = Self.remoteTmuxActivate(from: params)
+        let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
+        let newWindow = (params["new_window"] as? Bool) == true
+        let routing = remoteTmuxRouting(from: params)
+        let requestIdentity = Self.remoteTmuxRequestIdentity(id)
+        return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
+            else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            let windowTarget = newWindow
+                ? RemoteTmuxAttachWindowTarget.dedicatedNewWindow
+                : await MainActor.run { self.remoteTmuxAttachWindowTarget(routing: routing) }
+            try await controller.validateAttachWindowTarget(windowTarget, host: host)
+            do {
+                _ = try await controller.createRemoteSession(
+                    host: host,
+                    sessionName: sessionName,
+                    workingDirectory: remoteWorkingDirectory,
+                    requestID: requestIdentity
+                )
+            } catch let error as RemoteTmuxError {
+                if case .commandFailed(_, let stderr) = error,
+                   RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr),
+                   host.transportProfile.authenticationIsSSHShaped {
+                    return [
+                        "host": host.destination,
+                        "auth_required": true,
+                        "ssh_argv": host.interactiveAuthInvocation(),
+                    ]
+                }
+                throw error
+            }
+            let outcome = try await controller.attachHost(
+                host: host,
+                windowTarget: windowTarget,
+                activate: activate,
+                workspaceName: workspaceName,
+                sessionName: sessionName
+            )
+            switch outcome {
+            case .mirrored(let windowId, let workspaceIds):
+                await MainActor.run {
+                    controller.completeRemoteSessionCreation(
+                        host: host,
+                        sessionName: sessionName,
+                        requestID: requestIdentity
+                    )
+                }
+                return [
+                    "host": host.destination,
+                    "mirrored": true,
+                    "window_id": windowId.uuidString,
+                    "workspace_ids": workspaceIds.map(\.uuidString),
+                ]
+            case .authRequired(let sshArgv):
+                return [
+                    "host": host.destination,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
+            }
+        }
+    }
+
     /// `remote.tmux.window` — mirror every tmux session on a host into a
     /// dedicated new window. Params: `host` (required), optional `port`,
     /// `identity_file`, `activate`, and `workspace_name`.
@@ -402,6 +504,11 @@ extension TerminalController {
                 ?? v2UUID(params, "tab_id"),
             paneID: v2UUID(params, "pane_id")
         )
+    }
+
+    private nonisolated static func remoteTmuxRequestIdentity(_ id: Any?) -> String {
+        guard let id else { return UUID().uuidString }
+        return String(describing: id)
     }
 
     private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {

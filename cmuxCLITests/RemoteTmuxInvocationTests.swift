@@ -31,6 +31,14 @@ import Testing
         #expect(longForm.action == .attach(session: "work"))
     }
 
+    @Test func newAcceptsNamedSessionAndRemoteWorkingDirectory() throws {
+        let invocation = try RemoteTmuxInvocation.parse([
+            "dev@host", "new", "work", "-c", "/srv/projects/cmux", "--no-focus",
+        ])
+        #expect(invocation.action == .new(session: "work", workingDirectory: "/srv/projects/cmux"))
+        #expect(invocation.focus == false)
+    }
+
     @Test(arguments: [
         ["dev@host", "attach"],
         ["dev@host", "list", "--session", "work"],
