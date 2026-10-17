@@ -13,6 +13,7 @@ struct MobileChiefClientTests {
             {
               "conversation":"chief-main",
               "working":true,
+              "has_more":true,
               "messages":[{
                 "id":"m-1",
                 "seq":7,
@@ -35,6 +36,7 @@ struct MobileChiefClientTests {
         let result = try ChatWireCoding().decode(MobileChiefReadResult.self, from: data)
         #expect(result.conversation == "chief-main")
         #expect(result.working)
+        #expect(result.hasMore)
         #expect(result.messages == [
             MobileChiefMessage(
                 id: "m-1",

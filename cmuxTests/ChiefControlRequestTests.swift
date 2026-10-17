@@ -98,9 +98,11 @@ import Testing
     }
 
     @Test func readClampsLimit() {
-        #expect(parse("chief.read") == .success(.read(conversation: nil, limit: 20)))
-        #expect(parse("chief.read", ["limit": 5, "conversation": "conv_b"]) == .success(.read(conversation: "conv_b", limit: 5)))
-        #expect(parse("chief.read", ["limit": 10_000]) == .success(.read(conversation: nil, limit: 200)))
+        #expect(parse("chief.read") == .success(.read(conversation: nil, beforeSeq: nil, limit: 20)))
+        #expect(parse("chief.read", ["limit": 5, "conversation": "conv_b"]) == .success(.read(conversation: "conv_b", beforeSeq: nil, limit: 5)))
+        #expect(parse("chief.read", ["limit": 10_000]) == .success(.read(conversation: nil, beforeSeq: nil, limit: 200)))
+        #expect(parse("chief.read", ["before_seq": 18, "limit": 4]) == .success(.read(conversation: nil, beforeSeq: 18, limit: 4)))
+        #expect(parse("chief.read", ["before_seq": 0]) == .failure(.invalid("before_seq")))
         #expect(parse("chief.read", ["limit": 0]) == .failure(.invalid("limit")))
         #expect(parse("chief.read", ["limit": 1.5]) == .failure(.invalid("limit")))
         #expect(parse("chief.read", ["limit": true]) == .failure(.invalid("limit")))

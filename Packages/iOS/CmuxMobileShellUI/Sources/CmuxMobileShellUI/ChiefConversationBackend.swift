@@ -436,7 +436,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// A pending Chief approval/question is projected into the generic poll
     /// card. Answered and cancelled cards intentionally return nil so their
     /// transcript remains a compact receipt rather than a stale action.
-    private static func pendingPoll(from message: MobileChiefMessage) -> ConversationPoll? {
+    static func pendingPoll(from message: MobileChiefMessage) -> ConversationPoll? {
         for part in message.partPayloads {
             if let approval = part.approval, part.kind == "approval", approval.decided == nil {
                 let options = approval.options.filter { !$0.hasPrefix("always:") }
@@ -459,7 +459,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
 
     /// Text shown after an approval/question is answered or cancelled. This
     /// is the collapsed receipt form used by the generic transcript.
-    private static func receiptText(from message: MobileChiefMessage) -> String? {
+    static func receiptText(from message: MobileChiefMessage) -> String? {
         for part in message.partPayloads {
             if let approval = part.approval, part.kind == "approval", let decided = approval.decided {
                 return "\(approval.prompt)\n✓ \(decided)"
