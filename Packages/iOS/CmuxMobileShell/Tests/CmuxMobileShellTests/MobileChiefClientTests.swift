@@ -139,8 +139,8 @@ struct MobileChiefClientTests {
             MobileChiefCapability.send,
         ]
         #expect(!MobileChiefCapability.isAvailable(in: readAndSend))
-        #expect(!MobileChiefCapability.isAvailable(in: readAndSend + [MobileChiefCapability.stop]))
-        #expect(!MobileChiefCapability.isAvailable(in: readAndSend + [MobileChiefCapability.stop, MobileChiefCapability.approve]))
+        #expect(!MobileChiefCapability.isAvailable(in: readAndSend.union([MobileChiefCapability.stop])))
+        #expect(!MobileChiefCapability.isAvailable(in: readAndSend.union([MobileChiefCapability.stop, MobileChiefCapability.approve])))
         #expect(MobileChiefCapability.isAvailable(in: [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
