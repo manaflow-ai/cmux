@@ -203,4 +203,54 @@ describe("owner-fenced inventory refresh", () => {
     expect(host.calls.filter((c) => c.name === "action.run")).toEqual([])
     expect(Object.keys(snapshot(host).jobs).some((k) => k.startsWith("local/"))).toBe(false)
   })
+
+  test("cache invalidations re-discover and re-read admitted owners without live checks", async () => {
+    const host = create()
+    await mount(host)
+    host.handlers["agent_cli.list"] = ({ machine }) => inventory(machine, "2.0.0")
+    const before = host.calls.length
+    host.emit("agent_cli.changed", {})
+    await host.settle()
+    expect(version(host)).toBe("2.0.0")
+    expect(version(host, "local")).toBe("2.0.0")
+    expect(host.calls.slice(before).find((c) => c.name === "machine.list")?.params).toEqual({ catalog: true })
+    expect(host.calls.slice(before).filter((c) => c.name === "agent_cli.list").map((c) => c.params)).toEqual([
+      { machine: "local" }, { machine: "server" }
+    ])
+    expect(host.timers.size).toBe(0)
+  })
+
+  test("cache invalidations never import claimed rows or machine selectors from the event", async () => {
+    const host = create()
+    await mount(host)
+    host.handlers["agent_cli.list"] = ({ machine }) => inventory(machine, "2.0.0")
+    host.emit("agent_cli.changed", { machine: "unknown", cli: "codex", entry: entry("9.9.9"), command: "do not run" })
+    await host.settle()
+    expect(snapshot(host).inventories.unknown).toBeUndefined()
+    expect(version(host)).toBe("2.0.0")
+    expect(host.calls.every((c) => c.name === "machine.list" || c.name === "agent_cli.list")).toBe(true)
+  })
+
+  test("cache invalidations coalesce while a batch is pending and retain one follow-up", async () => {
+    const host = create()
+    await mount(host)
+    const pending = deferred<ReturnType<typeof ok>>()
+    host.handlers["machine.list"] = () => pending.promise
+    const count = () => host.calls.filter((c) => c.name === "machine.list").length
+    const before = count()
+    host.emit("agent_cli.changed", {})
+    await host.settle()
+    expect(count()).toBe(before + 1)
+    for (let i = 0; i < 50; i++) host.emit("agent_cli.changed", {})
+    await host.settle()
+    expect(count()).toBe(before + 1)
+    host.handlers["machine.list"] = () => ok([local, server])
+    host.handlers["agent_cli.list"] = ({ machine }) => inventory(machine, "3.0.0")
+    pending.resolve(ok([local, server]))
+    await host.settle()
+    expect(count()).toBe(before + 2)
+    expect(version(host)).toBe("3.0.0")
+    expect(host.timers.size).toBe(0)
+  })
+
 })
