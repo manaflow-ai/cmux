@@ -252,6 +252,7 @@ public final class SidebarDocStore {
         let origin = Self.undoOrigin
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
+            // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
             for asked in 1...Self.unsettledAsks {
                 do {
