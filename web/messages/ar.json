@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "استأنف خطتك لتتمكن من تغييرها.",
           "granted": "منحتها cmux. لا يوجد ما يمكن تغييره.",
+          "grantedNoCancel": "منحتها cmux، لذا لا يوجد ما يمكن إلغاؤه.",
+          "paymentFailed": "حدّث طريقة الدفع قبل تغيير الخطة.",
+          "foundersLifetime": "يتضمن Founder's Edition خطة Pro مدى الحياة.",
           "adminOnly": "يمكن لمسؤولي الفريق فقط تغيير الخطة."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "التبديل إلى {plan}؟",
         "upgradeBody": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} شهريًا.",
+        "upgradeBodyYearly": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} سنويًا.",
         "downgradeBody": "تبدأ {plan} الآن. يُضاف الجزء غير المستخدم من خطتك الحالية، {credit}، رصيدًا إلى فواتيرك القادمة. فاتورتك القادمة في {date} قيمتها {amount}.",
         "confirm": "التبديل إلى {plan}",
         "keep": "الإبقاء على الخطة الحالية",
@@ -578,6 +582,8 @@
         "title": "إلغاء {plan}؟",
         "body": "تبقى لديك {plan} حتى {date}. بعد ذلك ستفقد:",
         "bodyNoDate": "تبقى لديك {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ستفقد:",
+        "foundersBody": "ينتهي اشتراك {plan} في {date}. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
+        "foundersBodyNoDate": "ينتهي اشتراك {plan} في نهاية فترة الفوترة هذه. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
         "reasonLabel": "لماذا تلغي؟ (اختياري)",
         "otherPlaceholder": "أخبرنا بالمزيد (اختياري)",
         "confirm": "إلغاء الخطة",
