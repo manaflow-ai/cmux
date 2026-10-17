@@ -60,3 +60,12 @@ const threadTitleShown = () =>
 
 /// Whether the header shows the thread's project and title.
 export const useThreadTitle = (): boolean => useSyncExternalStore(subscribe, threadTitleShown, threadTitleShown);
+
+/// Pointer cursors on the composer's controls (Lucas 2026-10-17; today's arrow, Leo's Codex-like press,
+/// stays the default): `pointerCursor: true` in `agent-pane/layout.json` sets `data-pointer-cursor` on
+/// `<html>`, which composerControls.css reads.
+export function configurePointerCursor(layout: Record<string, unknown> | undefined): void {
+  if (typeof document === "undefined") return;
+  if (layout?.pointerCursor === true) document.documentElement.dataset.pointerCursor = "on";
+  else delete document.documentElement.dataset.pointerCursor;
+}

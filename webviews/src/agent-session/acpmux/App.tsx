@@ -191,7 +191,12 @@ import { headerState, setHeaderState, useHeaderState } from "./header/headerStat
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { configureHeaderStyle, configureThreadTitle, useThreadTitle } from "./header/headerStyle";
+import {
+  configureHeaderStyle,
+  configurePointerCursor,
+  configureThreadTitle,
+  useThreadTitle,
+} from "./header/headerStyle";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
@@ -3557,6 +3562,7 @@ function AcpmuxPane() {
           configureQuickActions(customization.layout);
           configureHeaderStyle(customization.layout);
           configureThreadTitle(customization.layout);
+          configurePointerCursor(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },

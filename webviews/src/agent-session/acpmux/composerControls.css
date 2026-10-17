@@ -215,3 +215,9 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
+
+/* Pointer cursors on the composer's controls (layout.json pointerCursor, header/headerStyle.ts): every
+   enabled button and chip in the card and the strips around it. */
+:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is(button, [role="button"], [role="combobox"]):not(:disabled):not([aria-disabled="true"]) {
+  cursor: pointer;
+}

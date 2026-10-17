@@ -1,6 +1,6 @@
 // The thread's place at the top of Thread details (Lucas 2026-10-17, after T3 Code's thread menu): rows
 // on the menu's rhythm, each an icon, its words and, where it has more, a chevron past a hairline.
-// - Where: the machine and the project folder (No project for a chat in its private agent-home).
+// - Where: the project folder (its machine on the right) (No project for a chat in its private agent-home).
 // - Open in <app>: the folder in the app last picked (else the first editor installed), with that
 //   app's own icon; the chevron lists the others (`folder.openIn`).
 // - The branch, how far it is from its upstream and its base; HEAD's commit, a click copies it.
@@ -107,7 +107,6 @@ export function ThreadDetails({
     <section className="acpmux-thread-details" aria-label={t("summary.threadDetails")}>
       <div className="acpmux-thread-details__row" title={folder}>
         <span className="acpmux-thread-details__icons" aria-hidden="true">
-          <Icon name="machine.mac" size={15} />
           <Icon name={home ? "placeholder" : "folder"} size={15} />
         </span>
         <span className="acpmux-thread-details__text">{home ? nt("noProject") : folderName(folder)}</span>

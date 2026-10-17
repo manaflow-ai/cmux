@@ -84,20 +84,16 @@ struct AgentChatTabActions {
         }
     }
 
-    /// An app's icon as a 32px PNG data URL for the page's Open in rows, kept per app.
+    /// An app's icon as a 64px PNG data URL (16pt at 2x and 3x) for the page's Open in rows, kept
+    /// per app. Taken from the icon's own best image: drawn into a small bitmap it came out blurred
+    /// on a grey tile.
     private static var icons: [URL: String] = [:]
     private static func icon(_ app: URL) -> String? {
         if let cached = icons[app] { return cached }
-        let image = NSWorkspace.shared.icon(forFile: app.path)
-        let size = NSSize(width: 32, height: 32)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        image.draw(in: NSRect(origin: .zero, size: size))
-        NSGraphicsContext.restoreGraphicsState()
-        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        var rect = NSRect(x: 0, y: 0, width: 64, height: 64)
+        guard let image = NSWorkspace.shared.icon(forFile: app.path)
+            .cgImage(forProposedRect: &rect, context: nil, hints: [.interpolation: NSImageInterpolation.high.rawValue]),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return nil }
         let url = "data:image/png;base64," + png.base64EncodedString()
         icons[app] = url
         return url
