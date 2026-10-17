@@ -38,12 +38,18 @@ import Testing
             strip.applyFrames()
         }
 
-        /// The part of `id`'s cell that draws, in the clip: its frame cut to its mask.
+        /// The part of `id`'s cell that draws, in the clip: its bounds cut to its mask and to every
+        /// clipping layer it sits in.
         func visibleSpan(_ id: TabID) -> ClosedRange<CGFloat>? {
-            guard let cell = strip.cells[id] else { return nil }
-            guard let mask = cell.layer.mask else { return cell.frame.minX...cell.frame.maxX }
-            guard mask.frame.width > 0.5 else { return nil }
-            return (cell.frame.minX + mask.frame.minX)...(cell.frame.minX + mask.frame.maxX)
+            guard let cell = strip.cells[id], let clip = strip.tabsClip.layer else { return nil }
+            var visible = cell.layer.convert(cell.layer.mask?.frame ?? cell.layer.bounds, to: clip)
+            var ancestor = cell.layer.superlayer
+            while let layer = ancestor, layer !== clip {
+                if layer.masksToBounds { visible = visible.intersection(layer.convert(layer.bounds, to: clip)) }
+                ancestor = layer.superlayer
+            }
+            guard !visible.isNull, visible.width > 0.5 else { return nil }
+            return visible.minX...visible.maxX
         }
 
         func hit(_ id: TabID) throws -> TabID? {
