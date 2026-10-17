@@ -139,6 +139,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 key={strategy.id}
                 className={`orchestration-gallery-route${selectedRoute ? " is-selected" : ""}`}
                 type="button"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich route cards need button semantics and roving focus.
                 role="radio"
                 aria-checked={selectedRoute}
                 aria-controls="orchestration-gallery-receipt"

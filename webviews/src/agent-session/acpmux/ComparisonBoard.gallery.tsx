@@ -219,6 +219,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 </div>
               </SessionPreviewCard>
             )}
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- compact treatment controls are not a form fieldset. */}
             <div className="cmux-comparison-preview-toggle" role="group" aria-label="Sidebar treatment">
               {(["card", "quiet", "outline"] as const).map((name) => (
                 <button
@@ -288,6 +289,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 sliderStyle={sliderStyle}
               />
             </div>
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- compact treatment controls are not a form fieldset. */}
             <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
               <span>Reasoning treatment</span>
               {(["accent", "minimal"] as const).map((name) => (
@@ -314,6 +316,7 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/EffortPicker.tsx#EffortPicker",
     "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
+    "agent-session/acpmux/SessionSidebar.tsx#SessionPreviewCard",
   ],
   checks: {
     anchorMovePx: { value: 0, reason: "Switching comparison sections keeps the gallery entry anchored." },
