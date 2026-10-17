@@ -81,6 +81,16 @@ export type RunAttachTicket = AttachTicket & {
   transport?: string;
   route?: string;
   token?: string;
+  session?: string;
+  trustedCarrier?: boolean;
+  endpoint?: {
+    transport?: string;
+    route?: string;
+    token?: string;
+    session?: string;
+    trustedCarrier?: boolean;
+    expiresAtUnix?: number;
+  };
   provider?: string;
   providerVmId?: string;
   providerWorkspaceId?: string;
@@ -132,6 +142,7 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
   // used by the server route during its rollout.  Keeping this tolerant makes
   // deploys with an older edge and a newer board reconnect cleanly.
   const nested = record(outer.attachTicket ?? outer.attach_ticket ?? outer.attach ?? value);
+  const endpoint = record(nested.endpoint ?? outer.endpoint);
   const ticket = stringValue(nested.ticket) ?? stringValue(outer.ticket);
   const runId = stringValue(nested.runId) ?? stringValue(nested.run_id) ?? intent.runId;
   const attemptId = stringValue(nested.attemptId) ?? stringValue(nested.attempt_id) ?? intent.attemptId;
@@ -142,7 +153,13 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
   }
   const expiresAt = nested.expiresAt ?? nested.expires_at;
   const expiresAtUnix = nested.expiresAtUnix ?? nested.expires_at_unix;
-  const optionalString = (key: string, snake: string = key) => stringValue(nested[key]) ?? stringValue(nested[snake]);
+  const optionalString = (key: string, snake: string = key) => stringValue(nested[key]) ?? stringValue(nested[snake]) ?? stringValue(endpoint[key]) ?? stringValue(endpoint[snake]);
+  const transport = optionalString("transport");
+  const route = optionalString("route");
+  const tokenValue = optionalString("token");
+  const session = optionalString("session");
+  const trustedCarrier = nested.trustedCarrier ?? nested.trusted_carrier ?? endpoint.trustedCarrier ?? endpoint.trusted_carrier;
+  const endpointExpiresAtUnix = endpoint.expiresAtUnix ?? endpoint.expires_at_unix;
   return {
     runId,
     attemptId,
@@ -151,9 +168,19 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
     ticket,
     ...(typeof expiresAt === "string" || typeof expiresAt === "number" ? { expiresAt } : {}),
     ...(typeof expiresAtUnix === "number" ? { expiresAtUnix } : {}),
-    ...(optionalString("transport") ? { transport: optionalString("transport") } : {}),
-    ...(optionalString("route") ? { route: optionalString("route") } : {}),
-    ...(optionalString("token") ? { token: optionalString("token") } : {}),
+    ...(transport ? { transport } : {}),
+    ...(route ? { route } : {}),
+    ...(tokenValue ? { token: tokenValue } : {}),
+    ...(session ? { session } : {}),
+    ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
+    ...(Object.keys(endpoint).length ? { endpoint: {
+      ...(transport ? { transport } : {}),
+      ...(route ? { route } : {}),
+      ...(tokenValue ? { token: tokenValue } : {}),
+      ...(session ? { session } : {}),
+      ...(typeof trustedCarrier === "boolean" ? { trustedCarrier } : {}),
+      ...(typeof endpointExpiresAtUnix === "number" ? { expiresAtUnix: endpointExpiresAtUnix } : {}),
+    } } : {}),
     ...(optionalString("provider") ? { provider: optionalString("provider") } : {}),
     ...(optionalString("providerVmId", "provider_vm_id") ? { providerVmId: optionalString("providerVmId", "provider_vm_id") } : {}),
     ...(optionalString("providerWorkspaceId", "provider_workspace_id") ? { providerWorkspaceId: optionalString("providerWorkspaceId", "provider_workspace_id") } : {}),

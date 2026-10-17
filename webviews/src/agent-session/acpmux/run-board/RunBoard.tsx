@@ -15,6 +15,7 @@ import {
   RunBoardApiSession,
   type AttachTicket,
   type AttachTicketIntent,
+  type RunAttachTicket,
   type RunApiClient,
 } from "./runApi";
 
@@ -25,9 +26,9 @@ export type RunBoardProps = {
   /** When supplied, the board loads and replays the durable Run control-plane API. */
   client?: RunApiClient;
   /** Host bridge that turns an attempt selection into a short-lived terminal attach ticket. */
-  onAttach?: (intent: AttachTicketIntent) => Promise<AttachTicket | void>;
+  onAttach?: (intent: AttachTicketIntent) => Promise<RunAttachTicket | void>;
   /** Existing attach/session bridge consumes the one-use ticket exactly once. */
-  onAttachTicket?: (ticket: AttachTicket) => Promise<void>;
+  onAttachTicket?: (ticket: RunAttachTicket) => Promise<void>;
   /** Human approval is intentionally a callback; the board never integrates by itself. */
   onApprove?: (intent: NonNullable<ReturnType<typeof reduceBoard>["approval"]>) => Promise<void>;
   pollMs?: number;

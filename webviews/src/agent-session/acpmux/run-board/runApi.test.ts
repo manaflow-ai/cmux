@@ -120,10 +120,14 @@ describe("Run API client", () => {
 
   test("requests an attach ticket with the attempt cursor and normalizes the response", async () => {
     const requests: RequestInit[] = [];
+    let call = 0;
     const client = createRunApiClient({
       baseUrl: "https://cmux.test",
       fetch: async (_input, init) => {
         requests.push(init);
+        call += 1;
+        if (call === 2)
+          return new Response(JSON.stringify({ transport: "cmux-remote", route: "wss://vm.example/v1/link", token: "carrier", session: "cloud", expiresAtUnix: 1_800_000_000_000 }), { status: 200 });
         return new Response(
           JSON.stringify({
             attachTicket: {
@@ -147,6 +151,9 @@ describe("Run API client", () => {
       ticket: "one-use-ticket",
       transport: "cmux-remote",
       providerVmId: "vm-1",
+      route: "wss://vm.example/v1/link",
+      token: "carrier",
+      session: "cloud",
     });
     expect(requests).toHaveLength(2);
     expect(requests[0]?.method).toBe("POST");
