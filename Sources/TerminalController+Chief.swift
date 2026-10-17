@@ -76,7 +76,44 @@ extension TerminalController {
         // `chief.open` keeps its established no-op response when the user
         // turns Chief off. Every other Chief operation must fail closed before
         // it can start the service or read its local transcript.
-        if !(try await v2MainAsync({ ChiefSettings.isEnabled })) {
+        let chiefEnabled: Bool
+        do {
+            chiefEnabled = try await v2MainAsync { ChiefSettings.isEnabled }
+        } catch let timeout as SocketMainActorHopTimeout {
+            return .err(
+                code: "timeout",
+                message: timeout.retryable
+                    ? String(
+                        localized: "socket.mainActorHop.timeout.notRun",
+                        defaultValue: "cmux did not respond within 10 seconds, so the command was not run. Retry in a moment."
+                    )
+                    : String(
+                        localized: "socket.mainActorHop.timeout.mayHaveRun",
+                        defaultValue: "cmux did not respond within 10 seconds after the command started, so its result is unknown. Check the effect before retrying."
+                    ),
+                data: [
+                    "retryable": timeout.retryable,
+                    "deadline_ms": Self.socketMainActorHopDeadlineMilliseconds,
+                    "stage": "main_actor",
+                ]
+            )
+        } catch is CancellationError {
+            return .err(
+                code: "cancelled",
+                message: String(localized: "socket.request.cancelled", defaultValue: "Request was cancelled"),
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "request_error",
+                message: String(
+                    localized: "socket.request.failedBeforeResult",
+                    defaultValue: "Request failed before returning a result"
+                ),
+                data: nil
+            )
+        }
+        if !chiefEnabled {
             switch parsed {
             case .open:
                 break

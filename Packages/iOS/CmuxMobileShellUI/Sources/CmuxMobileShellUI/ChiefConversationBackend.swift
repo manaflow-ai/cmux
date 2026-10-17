@@ -56,8 +56,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         ) = AsyncStream<ConversationBackendEvent>.makeStream()
         let stream = streamAndContinuation.stream
         let continuation = streamAndContinuation.continuation
-        let task = Task { [weak self] in
-            await self?.poll(continuation: continuation)
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.poll(continuation: continuation)
         }
         let previous: EventResources = withState { state in
             guard !state.closed else {
