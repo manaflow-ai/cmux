@@ -935,7 +935,10 @@ class IdentifyResult:
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
+    machine_capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    machine_id: Union[str, MissingType] = field(default=MISSING)
     machine_name: Union[str, MissingType] = field(default=MISSING)
+    machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -1041,6 +1044,13 @@ class LivePane:
 class MachineListeningTcpResult:
     __cmux_schema_path__: ClassVar[str] = 'types/MachineListeningTcpResult'
     stdout: str
+
+
+@dataclass(frozen=True)
+class MachinePlatform:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachinePlatform'
+    arch: str
+    os: str
 
 
 @dataclass(frozen=True)
@@ -5820,6 +5830,7 @@ __all__ = [
     'ListTerminalsResult',
     'LivePane',
     'MachineListeningTcpResult',
+    'MachinePlatform',
     'MachineUsage',
     'MachineUsageResult',
     'MintTerminalRendererResult',
