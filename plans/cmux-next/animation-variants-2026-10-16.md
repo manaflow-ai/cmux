@@ -67,3 +67,13 @@ Fleet job `ce8602e70ddc5f56f205da3c` built PR #21242 as tag `cmux-anim-20261016`
 - Naming variants were rebuilt at fleet job `95001aa9c1e6727bbfc0d9dd` as tag `cmux-anim-naming-20261017`. The extended reel is `artifacts/animation-recordings-20261017/naming-variants-side-by-side-extended.mp4`; the reviewed default is `crossfade`.
 
 The captures are local review evidence and are intentionally not committed as source artifacts. The PR description and follow-up comment carry the fleet job IDs and reviewed conclusions.
+
+## Efficiency receipt — 2026-10-18
+
+The isolated tagged build was measured with 100 sidebar workspaces and 10 ticking rows for 5
+seconds. The row-feed path did 220 ticks with zero structural rebuilds and zero list reloads;
+182 row configures matched 182 row patches. Main-thread work averaged 435 microseconds per
+tick, and debug-call latency was 1.09 ms p50 / 4.99 ms p95 / 9.14 ms max, with no over-frame
+calls. The idle scroll pass had no missed frames. The ticking scroll pass had 9 missed frames
+and 18 input calls over one frame, which is the next performance target. Receipt:
+`artifacts/perf-sidebar-20261018/summary-naming-default.json`.
