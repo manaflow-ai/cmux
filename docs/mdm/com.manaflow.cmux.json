@@ -3020,7 +3020,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"
