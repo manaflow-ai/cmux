@@ -49,6 +49,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::watch::CAPABILITY);
+        capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {

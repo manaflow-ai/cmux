@@ -133,6 +133,12 @@ fn cmux_next_inventory_native_watch_advertises_its_independent_capability() {
             .unwrap()
             .contains(&json!("agent-inventory-watch-v1"))
     );
+    assert!(
+        identity["data"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("agent-inventory-watch-fence-v1"))
+    );
     assert!(owner.methods().is_empty());
 }
 
@@ -287,4 +293,43 @@ fn cmux_next_inventory_native_watch_stale_disable_cannot_retire_a_new_lease() {
     disable["expected_watch_id"] = current["data"]["watch_id"].clone();
     assert_eq!(client.request(disable)["ok"], true);
     next.wait_closed();
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_disable_fence_never_selects_another_client() {
+    let mut owner = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = owner.mux("inventory-watch-other-client-stop");
+    let mut subscriber = Client::connect(&mux, "inventory-watch-subscriber");
+    let ack = subscriber.request(request(&mux, true));
+    assert_eq!(ack["ok"], true, "{ack}");
+    let mut other = Client::connect(&mux, "inventory-watch-other-client");
+    let mut disable = request(&mux, false);
+    disable["expected_watch_id"] = ack["data"]["watch_id"].clone();
+    assert_eq!(other.request(disable)["ok"], true);
+    owner.notify(snapshot(2));
+    let event =
+        subscriber.named_event("agent-inventory-changed", WAIT).expect("original lease live");
+    assert_eq!(event["watch_id"], ack["data"]["watch_id"]);
+    assert!(other.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none());
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_malformed_disable_fences_are_refused_before_connecting() {
+    let owner = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = owner.mux("inventory-watch-bad-stop-fence");
+    let mut client = Client::connect(&mux, "inventory-watch-bad-stop-fence");
+    for value in [
+        json!(true),
+        json!(1),
+        json!("short"),
+        json!("inventory_watch_0123456789ABCDEF0123456789ABCDEF"),
+    ] {
+        let mut disable = request(&mux, false);
+        disable["expected_watch_id"] = value;
+        assert_code(&client.request(disable), "agent_inventory.bad_request");
+    }
+    let mut enable = request(&mux, true);
+    enable["expected_watch_id"] = json!("inventory_watch_0123456789abcdef0123456789abcdef");
+    assert_code(&client.request(enable), "agent_inventory.bad_request");
+    assert!(owner.methods().is_empty());
 }

@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub(in crate::server) const CAPABILITY: &str = "agent-inventory-watch-v1";
+pub(in crate::server) const FENCED_CAPABILITY: &str = "agent-inventory-watch-fence-v1";
 const FEATURE: &str = "harnessInventoryWatch";
 const WATCH: &str = "_acpmux/harness/inventory/watch";
 
@@ -52,12 +53,17 @@ pub(in crate::server) fn try_handle(
         }
         let enabled =
             fields.remove("enabled").and_then(|v| v.as_bool()).ok_or(Failure::BadRequest)?;
+        let expected_watch = match fields.remove("expected_watch_id") {
+            None => None,
+            Some(Value::String(value)) if !enabled && valid_watch_id(&value) => Some(value),
+            _ => return Err(Failure::BadRequest),
+        };
         if !fields.is_empty() || message.len() > 4096 {
             return Err(Failure::BadRequest);
         }
         let watches = &mux.control_clients.agent_sessions.inventory_watches;
         if !enabled {
-            watches.disconnect(client);
+            watches.disconnect_matching(client, expected_watch.as_deref());
             return Ok(Dispatch::Value(json!({})));
         }
         if let Some(existing) = watches.get(client) {
@@ -131,4 +137,11 @@ fn revision(value: &Value) -> Result<u64, Failure> {
         return Err(Failure::InvalidResponse);
     }
     value.get("revision").and_then(Value::as_u64).ok_or(Failure::InvalidResponse)
+}
+
+fn valid_watch_id(value: &str) -> bool {
+    value.strip_prefix("inventory_watch_").is_some_and(|suffix| {
+        suffix.len() == 32
+            && suffix.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }

@@ -23,7 +23,7 @@ struct AgentInventoryWatchConnectionTests {
             result = {}
             if cmd == 'identify':
                 result = {'app':'cmux-tui','protocol':12,'generation':'watch-boot',
-                    'capabilities':['agent-inventory-watch-v1'] if modern else ['agent-inventory-v1']}
+                    'capabilities':['agent-inventory-watch-v1','agent-inventory-watch-fence-v1'] if modern else ['agent-inventory-v1']}
             elif cmd == 'agent-inventory-watch':
                 calls.append(frame)
                 if frame.get('enabled') is True:
@@ -47,14 +47,14 @@ struct AgentInventoryWatchConnectionTests {
                 #expect(receipt.revision == UInt64.max)
             } catch DaemonError.missingCapabilities(let missing) {
                 #expect(!modern)
-                #expect(missing == ["agent-inventory-watch-v1"])
+                #expect(missing == ["agent-inventory-watch-fence-v1"])
             }
             do {
-                _ = try await connection.request(MachineAgentInventoryUnwatchRequest(expectedMachineID: machine))
+                _ = try await connection.request(MachineAgentInventoryUnwatchRequest(expectedMachineID: machine, expectedWatchID: "inventory_watch_0123456789abcdef0123456789abcdef"))
                 #expect(modern)
             } catch DaemonError.missingCapabilities(let missing) {
                 #expect(!modern)
-                #expect(missing == ["agent-inventory-watch-v1"])
+                #expect(missing == ["agent-inventory-watch-fence-v1"])
             }
             let captured = try await connection.request(CapturedWatchCalls())
             let calls = try #require(captured.arrayValue)
@@ -62,7 +62,13 @@ struct AgentInventoryWatchConnectionTests {
             for (index, call) in calls.enumerated() {
                 #expect(call["expected_machine_id"] == .string(machine.rawValue))
                 #expect(call["enabled"] == .bool(index == 0))
-                #expect(Set(call.objectValue?.keys.map { $0 } ?? []) == ["id", "cmd", "enabled", "expected_machine_id"])
+                let keys = Set(call.objectValue?.keys.map { $0 } ?? [])
+                var expectedKeys: Set<String> = ["id", "cmd", "enabled", "expected_machine_id"]
+                if index == 1 {
+                    expectedKeys.insert("expected_watch_id")
+                    #expect(call["expected_watch_id"] == .string("inventory_watch_0123456789abcdef0123456789abcdef"))
+                }
+                #expect(keys == expectedKeys)
             }
             await connection.close()
         } catch {

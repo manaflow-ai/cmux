@@ -27,7 +27,7 @@ Require the native capability `agent-inventory-watch-v1` before sending:
 The full canonical owner ID and a boolean `enabled` are required. The Unix
 carrier is required; WebSocket and conversations-only remote relay clients
 are refused. Extra fields, commands, paths, machine/session selectors and
-client-supplied watch IDs are refused before connecting to acpmux.
+client-supplied watch IDs on enable are refused before connecting to acpmux.
 
 The daemon negotiates `harnessInventoryWatch` on one existing-owner socket
 connection and then calls `_acpmux/harness/inventory/watch {enabled:true}` on
@@ -50,7 +50,16 @@ the same captured admitted connection; a watch does not grant another read.
 Enabling again returns the current lease without another acpmux connection.
 While its handshake is pending the duplicate returns `agent_inventory.busy`.
 Disabling with the same owner and `enabled:false` returns `{}` and closes the
-lease. Disconnect also closes it. Replacing the configured acpmux socket or
+lease. A client managing asynchronous cleanup must negotiate
+`agent-inventory-watch-fence-v1` and include
+`expected_watch_id:"inventory_watch_…"` on disable. The owner atomically
+compares it only to this control connection's lease. A missing or different
+current lease returns `{}` without closing anything; a matching lease closes.
+This is an identity condition, never a selector for another client or owner.
+Malformed IDs and IDs on enable are refused. The original unconditioned
+disable remains available for explicit connection-wide retirement.
+
+Disconnect also closes the lease. Replacing the configured acpmux socket or
 losing/invalidating the feed retires the lease and, for a live subscriber,
 sends `agent-inventory-watch-ended {machine, watch_id, reason}`. No newer lease
 can be removed by an old callback. Activation and invalidation enqueue are
@@ -79,9 +88,11 @@ existing read catalog during this carrier slice.
 ## Swift native consumer contract
 
 `MachineAgentInventoryWatchRequest` and `MachineAgentInventoryUnwatchRequest`
-require the independently advertised `agent-inventory-watch-v1` capability.
-Both carry the captured canonical owner and a fixed boolean, without selectors,
-commands or a caller-selected watch ID. Enabling decodes a typed
+require `agent-inventory-watch-fence-v1` before enabling, so compatible
+conditional cleanup is available. Both carry the captured canonical owner and
+a fixed boolean. Unwatch additionally carries the exact watch ID returned by
+that lease's receipt. No selectors, commands or caller-created lease IDs are
+accepted, and no unconditioned disable fallback is attempted. Enabling decodes a typed
 `AgentInventoryWatchReceipt` directly from native bytes, preserving every
 `UInt64` revision.
 

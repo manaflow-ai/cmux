@@ -6,7 +6,7 @@ struct AgentInventoryWatchRequestTests {
     private let machine: ResourceID = "machine_0123456789abcdef0123456789abcdef"
     private let watch = "inventory_watch_0123456789abcdef0123456789abcdef"
 
-    @Test(arguments: [[], ["agent-inventory-v1"], ["agent-inventory-owner-v1"], ["agent-inventory-watch-v10"]])
+    @Test(arguments: [[], ["agent-inventory-v1"], ["agent-inventory-owner-v1"], ["agent-inventory-watch-v1"], ["agent-inventory-watch-fence-v10"]])
     func bothDirectionsRefuseOwnersWithoutTheExactWatchCapability(capabilities: [String]) {
         let identity = DaemonIdentity(capabilities: capabilities, generation: "boot")
         expectRefused(MachineAgentInventoryWatchRequest.self, identity: identity)
@@ -18,20 +18,22 @@ struct AgentInventoryWatchRequestTests {
             try R.requireServed(by: identity)
             Issue.record("an owner without watch support was admitted")
         } catch DaemonError.missingCapabilities(let missing) {
-            #expect(missing == ["agent-inventory-watch-v1"])
+            #expect(missing == ["agent-inventory-watch-fence-v1"])
         } catch { Issue.record("unexpected refusal: \(error)") }
     }
 
     @Test func enablingAndDisablingEncodeOnlyTheCapturedOwnerAndFixedBoolean() throws {
-        let identity = DaemonIdentity(capabilities: ["agent-inventory-watch-v1"], generation: "boot")
+        let identity = DaemonIdentity(capabilities: ["agent-inventory-watch-fence-v1"], generation: "boot")
         try MachineAgentInventoryWatchRequest.requireServed(by: identity)
         try MachineAgentInventoryUnwatchRequest.requireServed(by: identity)
         let enable = try WireCoding.encodeRequest(MachineAgentInventoryWatchRequest(expectedMachineID: machine), id: 1)
-        let disable = try WireCoding.encodeRequest(MachineAgentInventoryUnwatchRequest(expectedMachineID: machine), id: 2)
+        let disable = try WireCoding.encodeRequest(MachineAgentInventoryUnwatchRequest(expectedMachineID: machine, expectedWatchID: watch), id: 2)
         for (data, id, enabled) in [(enable, 1, true), (disable, 2, false)] {
             let value = try JSONDecoder().decode(JSONValue.self, from: data)
-            #expect(value == .object(["cmd": .string("agent-inventory-watch"), "id": .number(Double(id)),
-                                     "expected_machine_id": .string(machine.rawValue), "enabled": .bool(enabled)]))
+            var expected: [String: JSONValue] = ["cmd": .string("agent-inventory-watch"), "id": .number(Double(id)),
+                                                 "expected_machine_id": .string(machine.rawValue), "enabled": .bool(enabled)]
+            if !enabled { expected["expected_watch_id"] = .string(watch) }
+            #expect(value == .object(expected))
         }
     }
 

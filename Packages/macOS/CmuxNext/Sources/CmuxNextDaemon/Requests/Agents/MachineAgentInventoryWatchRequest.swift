@@ -9,8 +9,8 @@ public nonisolated struct MachineAgentInventoryWatchRequest: DaemonRequest {
     public typealias Response = AgentInventoryWatchReceipt
     /// The internal native subscription command.
     public static let command = "agent-inventory-watch"
-    /// Admission prevents sending the command to legacy or read-only owners.
-    public static let requiredCapability: String? = "agent-inventory-watch-v1"
+    /// Require conditional cleanup support before enabling a managed lease.
+    public static let requiredCapability: String? = "agent-inventory-watch-fence-v1"
     /// The selected owner's full canonical ID, used only as an identity fence.
     public let expectedMachineID: ResourceID
     /// This request always enables; use the unwatch request to retire a lease.

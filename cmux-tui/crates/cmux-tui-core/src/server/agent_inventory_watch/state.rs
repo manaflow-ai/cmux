@@ -28,7 +28,17 @@ impl Watches {
         }
     }
     pub(in crate::server) fn disconnect(&self, client: u64) {
-        let gone = self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.disconnect_matching(client, None);
+    }
+    /// The expected ID is a condition on this client's lease, never a selector.
+    pub(super) fn disconnect_matching(&self, client: u64, expected: Option<&str>) {
+        let gone = {
+            let mut live = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if expected.is_some_and(|id| live.get(&client).is_none_or(|watch| watch.id != id)) {
+                return;
+            }
+            live.remove(&client)
+        };
         if let Some(watch) = gone {
             watch.stop(Failure::Unavailable, false);
         }
