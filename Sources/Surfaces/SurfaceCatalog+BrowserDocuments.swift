@@ -43,12 +43,19 @@ extension SurfaceCatalog {
     /// The page a dropped Cloud browser row opens as a new daemon browser. A machine
     /// cannot place one tab twice, so a second view in a workspace mirrored to the
     /// same machine would be retired by reconciliation; the drop copies it instead.
-    func cloudBrowserCopyURL(for group: SurfaceResourceGroup, intoWorkspaceOn machine: SurfaceMachineID?) -> URL? {
-        guard let machine, machine.cloudMachineID != nil,
-              group.placements.count == 1, let id = group.placements.first?.resource,
-              id.machine == machine, id.kind == .browser, !id.isForwardedPort,
+    /// A viewer workspace without a mirrored remote workspace keeps the dragged tab itself.
+    func cloudBrowserCopyURL(for group: SurfaceResourceGroup, intoWorkspace workspaceID: UUID) -> URL? {
+        guard !group.representsWorkspace, group.placements.count == 1,
+              let placement = group.placements.first else { return nil }
+        let id = placement.resource
+        guard id.machine.cloudMachineID != nil, id.kind == .browser, !id.isForwardedPort,
+              cloudPlacementCoordinator.boundRemoteWorkspaceID(forLocalWorkspace: workspaceID, on: id.machine) != nil,
               let resource = resources[id], resource.remoteViews?.isEmpty == false else { return nil }
-        let url = resourceWithCloudBrowserDocument(resource).url.flatMap { URL(string: $0) }
+        // Copy the dragged view's page, not whichever view of this browser changed last.
+        let draggedView = placement.remoteTabID.flatMap { tabID in resource.remoteViews?.filter { $0.tabID == tabID } }
+        var dragged = resource
+        if let draggedView, !draggedView.isEmpty { dragged.remoteViews = draggedView }
+        let url = resourceWithCloudBrowserDocument(dragged).url.flatMap { URL(string: $0) }
         guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             return SurfacePaneFactory.blankURL
         }
