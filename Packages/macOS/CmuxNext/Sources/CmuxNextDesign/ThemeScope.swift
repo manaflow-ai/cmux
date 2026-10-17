@@ -377,7 +377,7 @@ public final class ThemeScope {
             ThemeScopeRegistry.setScope(self, of: view)
             roots.add(view)
             applyAppearance(to: view)
-            ThemeRepaint.request(view, roots: { [view] }, scope: self, animated: false)
+            ThemeRepaint.request(view, roots: { () -> [NSView] in [view] }, scope: self, animated: false)
         }
     }
 
@@ -389,7 +389,7 @@ public final class ThemeScope {
             ThemeScopeRegistry.setScope(self, of: window)
             windows.add(window)
             window.appearance = appearance
-            if let content = window.contentView { ThemeRepaint.request(content, roots: { [content] }, scope: self, animated: false) }
+            if let content = window.contentView { ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: self, animated: false) }
         }
     }
 
