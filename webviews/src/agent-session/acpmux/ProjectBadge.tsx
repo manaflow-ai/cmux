@@ -9,6 +9,16 @@ const BADGE_COLORS = [
   "var(--agent-ansi-3, #ff9f0a)",
 ] as const;
 
+/// A deliberately small visual cue derived only from the project identity we already have.
+/// Remote projects keep the host/peer distinction visible; home and local folders stay quiet.
+export type ProjectKind = "remote" | "home" | "local";
+
+export function projectKind(project: Pick<Project, "cwd" | "peer" | "host">): ProjectKind {
+  if (project.peer || project.host) return "remote";
+  const cwd = project.cwd.trim();
+  return cwd === "" || cwd === "/" || cwd === "~" ? "home" : "local";
+}
+
 function projectBadge(project: Project): { label: string; color: string } {
   const words = project.label
     .trim()
@@ -22,10 +32,12 @@ function projectBadge(project: Project): { label: string; color: string } {
 
 export function ProjectBadge({ project }: { project: Project }) {
   const badge = projectBadge(project);
+  const kind = projectKind(project);
   return (
     <span
       className="acpmux-project-badge"
       style={{ "--acpmux-project-badge": badge.color } as CSSProperties}
+      data-project-kind={kind}
       aria-hidden="true"
     >
       {badge.label}

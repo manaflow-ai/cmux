@@ -3,9 +3,14 @@ import type { ButtonHTMLAttributes, KeyboardEvent } from "react";
 type ListRowKeyboardProps = Pick<ButtonHTMLAttributes<HTMLButtonElement>, "onKeyDown">;
 
 /** The shared keyboard contract for a list of native button rows. */
-export function listRowKeyboardProps(selector: string, onMove: (row: HTMLElement) => void): ListRowKeyboardProps {
+export function listRowKeyboardProps(
+  selector: string,
+  onMove: (row: HTMLElement) => void,
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void,
+): ListRowKeyboardProps {
   return {
     onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+      onKeyDown?.(event);
       if (
         !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) ||
         event.altKey ||

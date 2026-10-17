@@ -2,6 +2,9 @@
 // schemas/settings/source/color-transition.json. Do not edit; edit the JSON and rerun.
 
 extension ColorTransitionSetting {
+    /// `appearance.colorTransition.reduceMotion`: What a color change does while macOS Reduce Motion is on. A color blend is not movement, so the default keeps a short crossfade (at most 100 ms, the motion policy's Reduce Motion fade cap).
+    public nonisolated static let reduceMotionPath = ["appearance", "colorTransition", "reduceMotion"]
+    public nonisolated static let reduceMotionDefault: ColorTransitionReduceMotionSetting = .crossfade
     /// `appearance.colorTransition.enabled`: On by default (Lawrence 2026-10-15: every theme and color change animates smoothly, or is instant when turned off). Off, or a duration of 0, applies every change in one frame.
     public nonisolated static let enabledPath = ["appearance", "colorTransition", "enabled"]
     public nonisolated static let enabledDefault = true
@@ -39,9 +42,6 @@ extension ColorTransitionSetting {
     /// `appearance.colorTransition.colorSpace`: Where colors blend. OKLab keeps lightness even (no muddy or dark midpoint between two hues); sRGB is the plain channel mix browsers use for rgb() colors.
     public nonisolated static let colorSpacePath = ["appearance", "colorTransition", "colorSpace"]
     public nonisolated static let colorSpaceDefault: ColorTransitionSpaceSetting = .oklab
-    /// `appearance.colorTransition.reduceMotion`: What a color change does while macOS Reduce Motion is on. A color blend is not movement, so the default keeps a short crossfade (at most 100 ms, the motion policy's Reduce Motion fade cap).
-    public nonisolated static let reduceMotionPath = ["appearance", "colorTransition", "reduceMotion"]
-    public nonisolated static let reduceMotionDefault: ColorTransitionReduceMotionSetting = .crossfade
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -50,6 +50,20 @@ nonisolated enum ColorTransitionSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.colorTransition", "Color Changes")
         return [
+            SettingDescriptor(
+                ColorTransitionSetting.reduceMotionPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.colorTransition.reduceMotion", "With Reduce Motion"),
+                help: SettingsText.keyed("settings.appearance.colorTransition.reduceMotion.help", "What color changes do while Reduce Motion is on in macOS."),
+                kind: .choice([
+                    SettingChoice(ColorTransitionReduceMotionSetting.crossfade.rawValue, SettingsText.keyed("settings.choice.colorReduceCrossfade", "Short Crossfade")),
+                    SettingChoice(ColorTransitionReduceMotionSetting.instant.rawValue, SettingsText.keyed("settings.choice.colorReduceInstant", "Instant")),
+                    SettingChoice(ColorTransitionReduceMotionSetting.full.rawValue, SettingsText.keyed("settings.choice.colorReduceFull", "Same as Usual")),
+                ]),
+                default: .string(ColorTransitionSetting.reduceMotionDefault.rawValue),
+                keywords: ["color", "reduce motion", "accessibility", "instant", "crossfade"]
+            ),
             SettingDescriptor(
                 ColorTransitionSetting.enabledPath,
                 section: .appearance,
@@ -158,20 +172,6 @@ nonisolated enum ColorTransitionSettingsSchema {
                 ]),
                 default: .string(ColorTransitionSetting.colorSpaceDefault.rawValue),
                 keywords: ["color", "oklab", "srgb", "blend", "interpolation"]
-            ),
-            SettingDescriptor(
-                ColorTransitionSetting.reduceMotionPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.colorTransition.reduceMotion", "With Reduce Motion"),
-                help: SettingsText.keyed("settings.appearance.colorTransition.reduceMotion.help", "What color changes do while Reduce Motion is on in macOS."),
-                kind: .choice([
-                    SettingChoice(ColorTransitionReduceMotionSetting.crossfade.rawValue, SettingsText.keyed("settings.choice.colorReduceCrossfade", "Short Crossfade")),
-                    SettingChoice(ColorTransitionReduceMotionSetting.instant.rawValue, SettingsText.keyed("settings.choice.colorReduceInstant", "Instant")),
-                    SettingChoice(ColorTransitionReduceMotionSetting.full.rawValue, SettingsText.keyed("settings.choice.colorReduceFull", "Same as Usual")),
-                ]),
-                default: .string(ColorTransitionSetting.reduceMotionDefault.rawValue),
-                keywords: ["color", "reduce motion", "accessibility", "instant", "crossfade"]
             ),
         ]
     }
