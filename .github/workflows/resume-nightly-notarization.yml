@@ -44,7 +44,7 @@ jobs:
   resume:
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
     # steps that launch the recovered app do not inherit them.
     env:
@@ -172,7 +172,7 @@ jobs:
       # The step limit leaves the job time to stage the outer submission below.
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
-        timeout-minutes: 75
+        timeout-minutes: 150
         env:
           # Launch smokes run in verify-stapled, which holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"

@@ -679,8 +679,17 @@ EOF
 cat > "$W/bin/package" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'package %s cert=%s submit_only=%s marker=%s\n' "$2" "${APPLE_CERTIFICATE_BASE64:+set}" "$CMUX_NOTARY_SUBMIT_ONLY" "${CMUX_NOTARY_STATE_STAPLED_APP:-}" >> "$CMUX_TEST_CALL_LOG"
+printf 'package %s cert=%s creates_keychain=%s submit_only=%s marker=%s\n' "$2" "${APPLE_CERTIFICATE_BASE64:+set}" "${CMUX_PACKAGE_CREATES_KEYCHAIN:-}" "$CMUX_NOTARY_SUBMIT_ONLY" "${CMUX_NOTARY_STATE_STAPLED_APP:-}" >> "$CMUX_TEST_CALL_LOG"
 printf 'second-dmg\n' > "$2"
+# CMUX_TEST_UPLOAD_FAILURES: the first N uploads fail after the DMG is signed.
+failures="${CMUX_TEST_UPLOAD_FAILURES:-0}"
+count_file="$CMUX_TEST_CALL_LOG.uploads"
+count="$(cat "$count_file" 2>/dev/null || echo 0)"
+printf '%s\n' "$((count + 1))" > "$count_file"
+if [ "$count" -lt "$failures" ]; then
+  printf 'upload failed\n' > "$CMUX_NOTARY_OUTPUT_FILE"
+  exit 1
+fi
 {
   printf 'submission_id=fixture-second-id\n'
   printf 'dmg_path=%s\n' "$2"
@@ -722,12 +731,14 @@ run_wrapper() {
   APPLE_CERTIFICATE_PASSWORD=fixture-password \
   CMUX_NOTARY_WAIT_TIMEOUT=2m \
   CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+  CMUX_STAPLED_APP_SUBMIT_RETRY_SECONDS=0 \
   "$ROOT_DIR/scripts/ci/resume-stapled-app-notarization.sh" \
     "$1" "$APP" "$W/recovery/cmux-nightly-macos.dmg" "$W/immutable.dmg" \
     "$ROOT_DIR/cmux.nightly.entitlements" "$W/outer.state"
 }
 reset_wrapper() {
   : > "$LOG"
+  rm -f "$LOG.uploads"
   rm -rf "$W/recovery/stapled-app" "$W/recovery/first-dmg-fallback" "$W/outer.state" "$W/outer.state.log" "$W/immutable.dmg" "$W/immutable.dmg.stapled-app-fallback"
   printf 'first-dmg\n' > "$W/recovery/cmux-nightly-macos.dmg"
   printf 'submission_id=fixture-first-id\n' > "$W/first.state"
@@ -735,8 +746,7 @@ reset_wrapper() {
 expected="$(cat <<EOF
 keychain delete cert=
 resume first.state $W/recovery/cmux-nightly-macos.dmg app_only=true helper_recheck_skipped=false wait=2m cert=
-keychain create cert=set
-package $W/recovery/stapled-app/cmux-nightly-macos.dmg cert= submit_only=true marker=true
+package $W/recovery/stapled-app/cmux-nightly-macos.dmg cert=set creates_keychain=true submit_only=true marker=true
 keychain delete cert=
 resume outer.state $W/recovery/stapled-app/cmux-nightly-macos.dmg app_only=false helper_recheck_skipped=true wait=40m cert=
 EOF
@@ -749,7 +759,7 @@ for case in Accepted Invalid "In Progress"; do
   CMUX_TEST_SECOND="$case" run_wrapper "$W/first.state" >/dev/null 2>"$W/err"
   status=$?
   set -e
-  if [ "$(head -n 6 "$LOG")" != "$expected" ] \
+  if [ "$(head -n 5 "$LOG")" != "$expected" ] \
     || ! grep -Fxq 'stapled_app=true' "$W/outer.state" || [ ! -s "$W/outer.state.log" ] \
     || ! grep -Eq '^stapled_submitted_at=[0-9]+$' "$W/outer.state" \
     || ! grep -Fxq 'first_submission_id=fixture-first-id' "$W/outer.state" \
@@ -831,7 +841,134 @@ if CMUX_TEST_SECOND="In Progress" run_wrapper "$W/marked.state" >/dev/null 2>"$W
   cat "$LOG" "$W/err" >&2
   exit 1
 fi
+# An upload that fails is tried again; when every try fails the state is
+# unsubmitted (never accepted), so it waits for the 6 h fallback.
+reset_wrapper
+if ! CMUX_TEST_UPLOAD_FAILURES=1 run_wrapper "$W/first.state" >/dev/null 2>"$W/err" \
+  || [ "$(grep -c '^package ' "$LOG")" -ne 2 ] || [ "$(cat "$W/immutable.dmg")" != second-dmg ]; then
+  echo "FAIL: one failed upload of the stapled-app DMG must be tried again" >&2
+  cat "$LOG" "$W/err" >&2
+  exit 1
+fi
+reset_wrapper
+set +e
+CMUX_TEST_UPLOAD_FAILURES=9 CMUX_TEST_SECOND=unsubmitted run_wrapper "$W/first.state" >/dev/null 2>"$W/err"
+status=$?
+set -e
+if [ "$status" -ne 75 ] || [ "$(grep -c '^package ' "$LOG")" -ne 3 ] \
+  || ! grep -Fxq 'submission_id=unsubmitted' "$W/outer.state" || ! grep -Fxq 'stapled_app=true' "$W/outer.state" \
+  || ! grep -Eq '^stapled_submitted_at=[0-9]+$' "$W/outer.state" || [ -e "$W/immutable.dmg" ]; then
+  echo "FAIL: a stapled-app DMG that cannot be uploaded must be handed off as unsubmitted, toward its 6 h fallback" >&2
+  cat "$LOG" "$W/err" >&2
+  exit 1
+fi
 echo "PASS: the stapled-app wrapper hands off its second submission and ships the first DMG only at the 6 h fallback"
+
+# stage-outer-notarization-recovery.py and poll-outer-notarizations.sh: an
+# exact hand-off artifact, and polling until Accepted or the 6 h deadline.
+P="$TMP_DIR/poll"
+mkdir -p "$P/bin" "$P/run/stapled-app" "$P/run/cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app/Contents"
+HEAD_SHA=0123456789abcdef0123456789abcdef01234567
+cat > "$P/source.json" <<'EOF'
+{"build": "4242", "app_path": "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app", "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz"}
+EOF
+sha_of() { python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"; }
+make_state() { # make_state <marked:true|false> <submitted_at>
+  local dmg="$P/run/stapled-app/cmux-nightly-macos-arm64.dmg"
+  printf 'second\n' > "$dmg"
+  printf 'first\n' > "$dmg.first.dmg"
+  {
+    printf 'submission_id=fixture-poll-id\n'
+    printf 'dmg_path=%s\n' "$dmg"
+    printf 'dmg_sha256=%s\n' "$(sha_of "$dmg")"
+    printf 'submit_exit=0\n'
+    printf 'immutable_path=%s\n' "$P/run/cmux-nightly-macos-arm64-4242.dmg"
+    printf 'channel=nightly\n'
+    if [ "$1" = true ]; then
+      printf 'stapled_app=true\nstapled_submitted_at=%s\nfirst_submission_id=fixture-first-id\nfirst_dmg_sha256=%s\n' "$2" "$(sha_of "$dmg.first.dmg")"
+    fi
+  } > "$P/run/outer.state"
+  printf 'evidence\n' > "$P/run/outer.state.log"
+}
+stage() { # stage <out> [args...]
+  local out="$1"; shift
+  rm -rf "$P/$out" "$P/meta/arm64"
+  python3 "$ROOT_DIR/scripts/ci/stage-outer-notarization-recovery.py" \
+    "$P/source.json" "$P/run/outer.state" "$P/run/cmux-nightly-macos-arm64.dmg" \
+    "$P/run/cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app" "$P/$out" \
+    --metadata-dir "$P/meta/arm64" "$@" \
+    --source-run-id 123 --head-sha "$HEAD_SHA" --run-attempt 1 --channel nightly --variant arm64 \
+    --release-tag nightly --dmg-prefix cmux-nightly-macos --short-sha 0123456
+}
+make_state true "$(date +%s)"
+if ! stage staged --require-stapled-app >/dev/null 2>"$P/err" \
+  || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg")" != second ] \
+  || [ "$(cat "$P/staged/cmux-nightly-macos-arm64.dmg.first.dmg")" != first ] \
+  || ! grep -Fxq 'stapled_app=true' "$P/staged/cmux-nightly-macos-arm64.dmg.notarization.state" \
+  || ! tar -tzf "$P/staged/cmux-nightly-notarization-recovery-app.tar.gz" | grep -q '^cmux NIGHTLY.app/' \
+  || ! python3 "$ROOT_DIR/scripts/ci/resolve-notarization-recovery.py" "$P/staged/cmux-nightly-notarization-recovery.json" \
+    123 "$HEAD_SHA" nightly arm64 --run-attempt 1 --strict --extract-app >/dev/null; then
+  echo "FAIL: a stapled-app hand-off must carry the state, the DMG, the first DMG and the current app, and resolve strictly" >&2
+  cat "$P/err" >&2
+  exit 1
+fi
+printf 'tampered\n' > "$P/run/stapled-app/cmux-nightly-macos-arm64.dmg.first.dmg"
+if stage tampered --require-stapled-app >/dev/null 2>&1; then
+  echo "FAIL: a hand-off must refuse a first DMG that does not match its record" >&2
+  exit 1
+fi
+make_state false 0
+if stage unmarked --require-stapled-app >/dev/null 2>&1; then
+  echo "FAIL: --require-stapled-app must refuse a state without stapled_app=true" >&2
+  exit 1
+fi
+# The stub poll tool answers the codes in $CMUX_TEST_POLL_CODES in turn, then
+# repeats the last one (0 Accepted, 1 refused, 2 In Progress, 3 failed query).
+cat > "$P/bin/poll" <<'EOF'
+#!/usr/bin/env bash
+n="$(cat "$CMUX_TEST_POLL_COUNT" 2>/dev/null || echo 0)"
+printf '%s\n' "$((n + 1))" > "$CMUX_TEST_POLL_COUNT"
+read -r -a codes <<<"$CMUX_TEST_POLL_CODES"
+i=$(( n < ${#codes[@]} ? n : ${#codes[@]} - 1 ))
+exit "${codes[$i]}"
+EOF
+chmod +x "$P/bin/poll"
+printf 'arm64\n' > "$P/variants"
+run_poll() { # run_poll <codes> [env...]
+  rm -f "$P/count" "$P/output"
+  env SOURCE_RUN_ID=123 SOURCE_HEAD_SHA="$HEAD_SHA" SOURCE_RUN_ATTEMPT=1 CHANNEL=nightly \
+    GITHUB_OUTPUT="$P/output" CMUX_POLL_NOTARY_SUBMISSION_TOOL="$P/bin/poll" \
+    CMUX_TEST_POLL_CODES="$1" CMUX_TEST_POLL_COUNT="$P/count" "${@:2}" \
+    timeout 60 "$ROOT_DIR/scripts/ci/poll-outer-notarizations.sh" "$P/meta" "$P/variants" "$P/reports" >"$P/poll.out" 2>&1
+}
+check_poll() { # check_poll <label> <expected exit> <expected outer_variants> [expect fallback]
+  local status="$1"
+  if [ "$status" -ne "$3" ] || { [ "$3" -eq 0 ] && ! grep -Fxq "outer_variants=$4" "$P/output"; } \
+    || { [ "${5:-}" = fallback ] && ! grep -q 'arm64: fallback' "$P/poll.out"; }; then
+    echo "FAIL: poll-outer-notarizations.sh: $2" >&2
+    cat "$P/poll.out" "$P/output" >&2 2>/dev/null
+    exit 1
+  fi
+}
+# Refused, 2 s before the deadline, 300 s interval: the poll sleeps to the
+# deadline and decides the fallback.
+make_state true "$(( $(date +%s) - 21600 + 2 ))"; stage s >/dev/null
+set +e; run_poll "1"; status=$?; set -e
+check_poll "$status" "a refused stapled-app DMG must reach its deadline" 0 '["arm64"]' fallback
+# Accepted on the second poll after a failed query.
+make_state true "$(date +%s)"; stage s >/dev/null
+set +e; run_poll "3 0" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
+check_poll "$status" "a failed query is polled again and Accepted decides" 0 '["arm64"]'
+# Pending with the deadline far away and a 2 s budget: not decided.
+set +e; run_poll "2" CMUX_OUTER_POLL_INTERVAL_SECONDS=1 CMUX_OUTER_POLL_BUDGET_SECONDS=2; status=$?; set -e
+check_poll "$status" "a budget that ends before the deadline decides nothing" 0 '[]'
+# An outer DMG without the marker: a failed query is polled again, a refusal fails.
+make_state false 0; stage s >/dev/null
+set +e; run_poll "3 2 0" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
+check_poll "$status" "an outer DMG is accepted after a failed query and In Progress" 0 '["arm64"]'
+set +e; run_poll "1" CMUX_OUTER_POLL_INTERVAL_SECONDS=1; status=$?; set -e
+check_poll "$status" "a refused outer DMG without the marker must fail" 1 ""
+echo "PASS: outer hand-offs are exact and the poll reaches each stapled-app deadline"
 
 # The CI signing keychain must be gone before any launch smoke runs code from
 # the bundle. Give the helper a managed keychain (scripts/ci/signing-keychain.sh

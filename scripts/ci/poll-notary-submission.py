@@ -138,8 +138,9 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
     if status_code != 200 or not status:
+        # 3: the query failed (network, HTTP); Apple's answer is unknown.
         print(f"notarization status query failed for {submission_id} (HTTP {status_code})", file=sys.stderr)
-        return 1
+        return 3
     print(f"status={status}")
     if status == "Accepted":
         return 0

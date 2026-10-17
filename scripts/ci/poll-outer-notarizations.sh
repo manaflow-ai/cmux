@@ -9,6 +9,11 @@
 #   (resume-stapled-app-notarization.sh). Before that it is polled again.
 # - Any other outer DMG still In Progress after CMUX_OUTER_POLL_SECONDS
 #   (80 min) stalls and waits for a manual resume; a refused one fails.
+# A failed query (poll-notary-submission.py exit 3) is an unknown answer and
+# is polled again. The poll sleeps to the nearest deadline when that comes
+# before the next interval, so a refused stapled-app DMG reaches its fallback.
+# The job limit must cover CMUX_OUTER_POLL_BUDGET_SECONDS (357 min) plus setup;
+# a deadline after the budget is reported for a manual resume.
 #
 # Usage: poll-outer-notarizations.sh <metadata-root> <variants-file> <reports-dir>
 # <metadata-root>/<variant>/ holds each downloaded metadata artifact. Needs
@@ -24,8 +29,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 POLL_TOOL="${CMUX_POLL_NOTARY_SUBMISSION_TOOL:-python3 $REPO_ROOT/scripts/ci/poll-notary-submission.py}"
 FALLBACK_SECONDS="${CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600}"
 OUTER_POLL_SECONDS="${CMUX_OUTER_POLL_SECONDS:-4800}"
-# A job may run 6 h; stop polling a little before that.
-BUDGET_SECONDS="${CMUX_OUTER_POLL_BUDGET_SECONDS:-21000}"
+# A job may run 360 min; stop polling a little before that.
+BUDGET_SECONDS="${CMUX_OUTER_POLL_BUDGET_SECONDS:-21420}"
 INTERVAL_SECONDS="${CMUX_OUTER_POLL_INTERVAL_SECONDS:-300}"
 OUT="${GITHUB_OUTPUT:-/dev/stdout}"
 now() { date +%s; }
@@ -68,13 +73,14 @@ while :; do
     if [ "$status" -eq 0 ]; then
       result_of[$variant]=accepted
     elif [ -n "$deadline" ]; then
+      # Queued, refused or not answered: only the deadline decides.
       if [ "$(now)" -ge "$deadline" ]; then
         result_of[$variant]=fallback
         echo "::warning::$variant: the DMG around the stapled app is not Accepted 6 h after its submission; its continuation ships the accepted first DMG"
       else
         pending=true
       fi
-    elif [ "$status" -eq 2 ]; then
+    elif [ "$status" -eq 2 ] || [ "$status" -eq 3 ]; then
       if [ $(( $(now) - start )) -ge "$OUTER_POLL_SECONDS" ]; then
         result_of[$variant]=stalled
         echo "::warning::$variant: the outer DMG is still In Progress; continue it with resume-nightly-notarization.yml"
@@ -87,11 +93,23 @@ while :; do
     fi
   done
   [ "$pending" = true ] || break
-  if [ $(( $(now) - start )) -ge "$BUDGET_SECONDS" ]; then
+  current="$(now)"
+  if [ $((current - start)) -ge "$BUDGET_SECONDS" ]; then
     echo "::warning::the polling budget ended before every outer DMG was decided; continue the rest with resume-nightly-notarization.yml"
     break
   fi
-  sleep "$INTERVAL_SECONDS"
+  # The next poll: one interval later, or the nearest deadline, or the end of
+  # the budget, whichever comes first.
+  wake=$((current + INTERVAL_SECONDS))
+  for variant in "${variants[@]}"; do
+    deadline="${deadline_of[$variant]}"
+    if [ "${result_of[$variant]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -lt "$wake" ]; then
+      wake="$deadline"
+    fi
+  done
+  [ "$wake" -le $((start + BUDGET_SECONDS)) ] || wake=$((start + BUDGET_SECONDS))
+  [ "$wake" -gt "$current" ] || wake=$((current + 1))
+  sleep $((wake - current))
 done
 decided=()
 for variant in "${variants[@]}"; do

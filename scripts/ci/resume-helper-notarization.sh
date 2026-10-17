@@ -69,6 +69,8 @@ NIGHTLY_VARIANT="${NIGHTLY_VARIANT:-universal}" \
 
 # Wait for the outer DMG, staple the app, then submit and wait for the DMG
 # around the stapled app (the one that ships).
+# The helper finish above checked the helper; the continuation does not again.
+CMUX_SKIP_HELPER_RECHECK=true \
 CMUX_NOTARY_WAIT_TIMEOUT="${CMUX_OUTER_NOTARY_WAIT_TIMEOUT:-60m}" \
 CMUX_NOTARY_EVIDENCE_FILE="$FIRST_LOG" \
 APPLE_SIGNING_IDENTITY="$SIGNING_IDENTITY" \

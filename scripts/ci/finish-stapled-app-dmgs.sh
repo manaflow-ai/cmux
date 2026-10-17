@@ -88,7 +88,8 @@ for i in "${!handoffs[@]}"; do
   status="$(status_of "$TMP_DIR/wait-$i.out")"
   log_status=""
   if [ "$status" = Accepted ]; then
-    "$XCRUN_TOOL" notarytool log "$id" "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/log-$i.out" 2>&1 || true
+    python3 "$ROOT_DIR/scripts/ci/run_with_timeout.py" --timeout-seconds 300 -- \
+      "$XCRUN_TOOL" notarytool log "$id" "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/log-$i.out" 2>&1 || true
     log_status="$(status_of "$TMP_DIR/log-$i.out")"
   fi
   if [ "$status" != Accepted ] || [ "$log_status" != Accepted ]; then

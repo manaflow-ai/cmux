@@ -117,8 +117,8 @@ RECORDED_CHANNEL="$(state_value channel)"
 # stapled_app=true: this DMG is the one around the stapled app
 # (resume-stapled-app-notarization.sh); the app inside must have its ticket.
 STATE_STAPLED_APP="$(state_value stapled_app)"
-# CMUX_RESUME_APP_ONLY=true: staple and check the app and this DMG, then stop
-# (resume-stapled-app-notarization.sh builds the DMG that ships).
+# CMUX_RESUME_APP_ONLY=true: staple and check the app, then stop; this DMG is
+# not changed (resume-stapled-app-notarization.sh builds the DMG that ships).
 RESUME_APP_ONLY="${CMUX_RESUME_APP_ONLY:-false}"
 # CMUX_SKIP_HELPER_RECHECK=true: the caller checked this same app's Computer
 # Use helper earlier in the job (the stapled-app DMG continuation).
@@ -305,12 +305,14 @@ launch_smokes "$APP_PATH"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 "$SYSPOLICY_TOOL" distribution "$APP_PATH"
 
-"$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
-"$XCRUN_TOOL" stapler validate "$DMG_RELEASE"
 if [ "$RESUME_APP_ONLY" = true ]; then
-  echo "Accepted submission $SUBMISSION_ID: the app and this DMG are stapled; the DMG around the stapled app comes next"
+  # The first DMG keeps its submitted bytes: it travels for the 6 h fallback
+  # (which staples it) and still matches its state if the job stops here.
+  echo "Accepted submission $SUBMISSION_ID: the app is stapled; the DMG around the stapled app comes next"
   exit 0
 fi
+"$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
+"$XCRUN_TOOL" stapler validate "$DMG_RELEASE"
 MOUNT_DIR="$(mktemp -d "$TMP_DIR/mount.XXXXXX")"
 "$HDIUTIL_TOOL" attach "$DMG_RELEASE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 MOUNTED_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"

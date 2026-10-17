@@ -174,7 +174,14 @@ package_signed_dmg() {
   umask "$saved_umask"
 }
 
-package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
+# CMUX_PACKAGE_CREATES_KEYCHAIN=true: make the signing keychain just before
+# this signature (resume-stapled-app-notarization.sh, which passes the
+# certificate only to this tool).
+if [ "${CMUX_PACKAGE_CREATES_KEYCHAIN:-false}" = true ]; then
+  package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR" create-keychain
+else
+  package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
+fi
 # This is the last signature. Delete the CI signing keychain before Apple's
 # wait and before the launch smokes below run code from the bundle.
 "$SIGNING_KEYCHAIN_TOOL" delete
@@ -209,8 +216,6 @@ for notary_sidecar in "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"; do
     exit 1
   fi
 done
-# The 6 h stapled-app fallback counts from here (write_notary_state).
-DMG_SUBMITTED_AT="$(date +%s)"
 set +e
 if [ "$SUBMIT_ONLY" != true ]; then
   "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
@@ -221,6 +226,9 @@ else
 fi >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
+# The 6 h stapled-app fallback counts from here, after the upload returned
+# (write_notary_state).
+DMG_SUBMITTED_AT="$(date +%s)"
 
 extract_notary_value() {
   local file="$1" key="$2"

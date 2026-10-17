@@ -16,7 +16,7 @@ requires the recorded submit time (stapled_submitted_at).
 usage: stage-outer-notarization-recovery.py <source-manifest> <state> <release-dmg> <app>
        <recovery-dir> [--metadata-dir DIR] [--require-stapled-app] --source-run-id ID
        --head-sha SHA --run-attempt N --channel C --variant V --release-tag T
-       --dmg-prefix P --short-sha S
+       --dmg-prefix P --short-sha S [--dmg DMG] [--log LOG]
 """
 
 from __future__ import annotations
@@ -56,6 +56,9 @@ def main() -> int:
     parser.add_argument("recovery_dir", type=Path)
     parser.add_argument("--metadata-dir", type=Path)
     parser.add_argument("--require-stapled-app", action="store_true")
+    # A state from a recovery artifact names a DMG and log on another runner.
+    parser.add_argument("--dmg", type=Path, help="the DMG of the state (default: its dmg_path)")
+    parser.add_argument("--log", type=Path, help="the evidence log of the state (default: <state>.log)")
     for name in ("source-run-id", "head-sha", "run-attempt", "channel", "variant", "release-tag", "dmg-prefix", "short-sha"):
         parser.add_argument(f"--{name}", required=True)
     args = parser.parse_args()
@@ -68,10 +71,10 @@ def main() -> int:
     stapled_app = state.get("stapled_app") == "true"
     if args.require_stapled_app and not stapled_app:
         raise SystemExit("outer state is not the DMG around the stapled app (stapled_app=true)")
-    log = Path(f"{args.state}.log")
+    log = args.log or Path(f"{args.state}.log")
     if not log.is_file() or log.stat().st_size == 0:
         raise SystemExit(f"outer state has no evidence log: {log}")
-    dmg = Path(state.get("dmg_path", ""))
+    dmg = args.dmg or Path(state.get("dmg_path", ""))
     if dmg.name != args.release_dmg.name or not dmg.is_file():
         raise SystemExit(f"outer state names no DMG with the release name: {dmg}")
     digest = sha256(dmg)

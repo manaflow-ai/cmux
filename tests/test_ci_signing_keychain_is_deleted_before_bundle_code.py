@@ -254,16 +254,20 @@ def check_scripts(failures: list[str]) -> None:
         failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
 
     stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
+    # The package tool makes the keychain just before its signature
+    # (CMUX_PACKAGE_CREATES_KEYCHAIN) and deletes it after; the wrapper deletes
+    # it again before the second continuation.
     first = index_of(stapled, '"$RESUME_TOOL" "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE"', last=True)
-    create = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" create')
+    creates = index_of(stapled, "CMUX_PACKAGE_CREATES_KEYCHAIN=true")
     package = index_of(stapled, '"$PACKAGE_TOOL"')
     delete = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" delete', last=True)
     continuation = index_of(stapled, 'continue_stapled "$OUTER_STATE"', last=True)
-    if not (0 <= first < create < package < delete < continuation):
+    own_create = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" create')
+    if own_create >= 0 or not (0 <= first < creates < package < delete < continuation):
         failures.append(
-            "scripts/ci/resume-stapled-app-notarization.sh: create the signing keychain after the first "
-            "continuation and just before the stapled-app DMG signature, and delete it before the second "
-            f"continuation (first={first} create={create} package={package} delete={delete} continuation={continuation})"
+            "scripts/ci/resume-stapled-app-notarization.sh: let the package tool make the signing keychain "
+            "after the first continuation, and delete it before the second continuation "
+            f"(first={first} creates={creates} package={package} delete={delete} continuation={continuation} own_create={own_create})"
         )
 
     sign = "\n".join(read_lines("scripts/sign-cmux-bundle.sh", failures))

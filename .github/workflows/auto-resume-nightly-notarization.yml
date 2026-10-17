@@ -298,7 +298,7 @@ jobs:
       actions: read
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
     # steps that launch the recovered app do not inherit them.
     env:
@@ -382,7 +382,7 @@ jobs:
       # (a step that runs out of time fails; a job that does is cancelled).
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
-        timeout-minutes: 75
+        timeout-minutes: 150
         env:
           # Launch smokes of the stapled DMG run in verify-stapled, which holds
           # no secrets. No bundle code runs in this job.
@@ -400,7 +400,7 @@ jobs:
           if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
             outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
             # Two bounded waits (the outer DMG, then the DMG around its
-            # stapled app) inside the 75-minute step limit.
+            # stapled app) inside the 150-minute step limit.
             CMUX_CHANNEL="$CHANNEL" \
             CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
             CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
@@ -593,7 +593,7 @@ jobs:
       actions: read
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 60
+    timeout-minutes: 150
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
@@ -670,7 +670,7 @@ jobs:
 
       - name: Staple and validate accepted outer DMG
         id: staple-outer
-        timeout-minutes: 45
+        timeout-minutes: 120
         env:
           # Launch smokes run in verify-stapled, which holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
@@ -699,10 +699,17 @@ jobs:
       # staple-stapled, which reach its 6 h fallback without a manual run.
       - name: Prepare stapled-app DMG recovery for manual continuation
         id: prepare-stapled
-        if: always() && steps.staple-outer.outcome == 'failure' && env.OUTER_STAPLED_APP != 'true'
+        if: always() && steps.staple-outer.outcome == 'failure'
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/cmux-stapled-app-notarization.state"
+          where=()
+          if [ ! -s "$state" ] && [ "$OUTER_STAPLED_APP" = true ]; then
+            # A stapled-app DMG whose recheck here was not Accepted (exit 75,
+            # before its deadline): hand the same state on to poll-stapled.
+            state="$STATE_FILE"
+            where=(--dmg "$DMG_RELEASE" --log "$EVIDENCE_FILE")
+          fi
           if [ ! -s "$state" ]; then
             echo "The failure came before the stapled-app DMG was submitted; nothing to hand off."
             exit 0
@@ -710,7 +717,7 @@ jobs:
           python3 scripts/ci/stage-outer-notarization-recovery.py \
             recovery/cmux-nightly-notarization-recovery.json \
             "$state" "$DMG_RELEASE" "$APP_PATH" stapled-recovery-staging \
-            --metadata-dir stapled-metadata-staging --require-stapled-app \
+            --metadata-dir stapled-metadata-staging --require-stapled-app ${where[@]+"${where[@]}"} \
             --source-run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_HEAD_SHA" \
             --run-attempt "$SOURCE_RUN_ATTEMPT" --channel "$CHANNEL" --variant "$VARIANT" \
             --release-tag "$RELEASE_TAG" --dmg-prefix "$DMG_PREFIX" --short-sha "$SHORT_SHA"
@@ -851,7 +858,7 @@ jobs:
       actions: read
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}

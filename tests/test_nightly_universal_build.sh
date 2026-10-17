@@ -612,6 +612,9 @@ poller = (Path(sys.argv[1]).parents[2] / "scripts/ci/poll-outer-notarizations.sh
 assert "stapled_submitted_at" in poller and "CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600" in poller
 smoke = (Path(sys.argv[1]).parents[2] / "scripts/ci/smoke-dmg.sh").read_text(encoding="utf-8")
 assert '"$XCRUN_TOOL" stapler validate "$APP"' in smoke and "--stapled-app-fallback)" in smoke
+# The fallback record the wrapper writes is the one the verify jobs read.
+assert '"$DMG_IMMUTABLE.stapled-app-fallback"' in stapled
+assert 'verified/$immutable.stapled-app-fallback' in auto and '"$dmg.stapled-app-fallback"' in resume
 assert "scripts/ci/stage-outer-notarization-recovery.py" in resume and "steps.prepare-outer.outputs.prepared == 'true'" in resume
 assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
 stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")

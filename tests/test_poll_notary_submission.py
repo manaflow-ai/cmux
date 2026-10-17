@@ -55,9 +55,9 @@ class PollNotarySubmissionTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual(body["status"], "Invalid")
 
-    def test_http_failure_fails_closed(self) -> None:
+    def test_http_failure_is_a_distinct_failure(self) -> None:
         result, body = self.run_status("", http_status=401)
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 3)
         self.assertEqual(body["http_status"], 401)
 
     def test_response_for_another_submission_fails_closed(self) -> None:
