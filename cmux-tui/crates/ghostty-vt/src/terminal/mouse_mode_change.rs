@@ -27,14 +27,28 @@ pub(super) enum MouseModeChangeState {
 }
 
 impl MouseModeChangeDetector {
-    pub(super) fn write(&mut self, data: &[u8]) -> bool {
+    pub(super) fn is_idle(&self) -> bool {
+        matches!(self.state, MouseModeChangeState::Ground) && self.utf8_remaining == 0
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(super) fn write_reference(&mut self, data: &[u8]) -> bool {
+        let mut may_have_changed = false;
+        for &byte in data {
+            may_have_changed |= self.step(byte);
+        }
+        may_have_changed
+    }
+
+    #[inline(always)]
+    pub(super) fn step(&mut self, byte: u8) -> bool {
         use MouseModeChangeState as State;
 
         let mut may_have_changed = false;
-        for &byte in data {
+        {
             if matches!(self.state, State::Ground) {
                 if self.consume_utf8_continuation(byte) {
-                    continue;
+                    return false;
                 }
                 self.note_utf8_lead(byte);
             }
