@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// The connect handshake's request lines (`DaemonConnection.handshake`).
+/// The connect handshake's request lines (`DaemonHandshake`).
 enum HandshakeLines {
     /// The replies of `identify`, `set-client-info` and `subscribe`, in that
     /// order, and whether the daemon accepts origin `user` on the

@@ -109,3 +109,14 @@ still match the captured ready connection generation, owner and watch ID, then
 recheck route admission. The typed value itself grants no permission. App-facing
 provider subscription/invalidations are not connected or advertised by these
 models.
+
+`DaemonConnection.agentInventoryWatch(expectedMachineID:)` captures the ready
+control session's shared `AgentInventoryWatch` manager after capability and
+canonical owner checks. Repeated captures on that transport share admission;
+a reconnect creates a new manager. Enable and conditional cleanup use only the
+captured transport with a 15-second owner-read bound. Cancelling pending enable
+retains its waiter until the receipt can be retired. Disable invalidates the
+local admission before awaiting cleanup; readmission waits for that cleanup.
+An uncertain admission or failed cleanup stays failed on this manager. It
+neither reconnects nor redirects a delayed disable to a newer control session.
+The app provider must still own route admission, callbacks and subscription demand.
