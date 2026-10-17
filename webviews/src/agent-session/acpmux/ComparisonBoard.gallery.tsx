@@ -86,7 +86,7 @@ const baseComposerSnapshot: AcpmuxSnapshot = {
         { id: "full-access", name: "Full access", description: "Run actions without asking." },
         { id: "plan", name: "Plan", description: "Read and propose without editing." },
       ],
-      currentModeId: "default",
+        currentModeId: "full-access",
     },
     configOptions: [
       {
@@ -127,7 +127,7 @@ function ComparisonBoard({
   }, [sliderStyle]);
   const [effort, setEffort] = useState("high");
   const [model, setModel] = useState("gpt-6.1-sol");
-  const [mode, setMode] = useState("default");
+  const [mode, setMode] = useState("full-access");
   const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
     { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
   ]);
