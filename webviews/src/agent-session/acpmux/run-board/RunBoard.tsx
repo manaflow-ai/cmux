@@ -18,6 +18,7 @@ import {
   type RunAttachTicket,
   type RunApiClient,
 } from "./runApi";
+import { attachRunTerminal } from "./runAttach";
 
 export type RunBoardProps = {
   snapshot: RunBoardSnapshot;
@@ -245,7 +246,7 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
       if (ticket && attachTicketExpired(ticket)) {
         throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
       }
-      if (ticket && onAttachTicket) await onAttachTicket(ticket);
+      if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
       setAttachState(ticket ? "attached" : "idle");
     } catch (error) {
