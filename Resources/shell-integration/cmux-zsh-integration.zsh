@@ -407,7 +407,9 @@ _cmux_private_path_chain() {
         current="${current%/*}"
         [[ -n "$current" ]] || current="/"
     done
-    canonical="$(_cmux_resolve_path "$start")" || return 1
+    # Each component above exists and was checked with lstat. Resolve symlinks
+    # in-process, then check the canonical ancestry with the same policy.
+    canonical="${start:P}"
     [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
 }
 
@@ -425,35 +427,18 @@ _cmux_private_path_chain_resolved() {
 _cmux_private_path_node() {
     builtin emulate -L zsh
     local current="$1"
-    local owner=""
-    if [[ -d "$current" && ! -L "$current" ]]; then
-        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
-        [[ "$owner" == "$current" ]] || return 1
-        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
-            return 0
-        fi
-        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
-        return 0
-    fi
-    if [[ -L "$current" ]]; then
-        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
-        [[ "$owner" == "$current" ]]
-        return $?
-    fi
-    return 1
+    local -A node
+    # lstat keeps symlink ownership distinct from the target, matching find -P.
+    builtin zmodload zsh/stat || return 1
+    builtin zstat -L -H node -- "$current" 2>/dev/null || return 1
+    (( node[uid] == EUID || node[uid] == 0 )) || return 1
+    local -i kind=$(( node[mode] & 8#170000 ))
+    (( kind == 8#120000 )) && return 0
+    (( kind == 8#40000 )) || return 1
+    # Shared writable ancestors are allowed only when they have the sticky bit.
+    (( (node[mode] & 8#22) == 0 || (node[mode] & 8#1000) != 0 ))
 }
 
-_cmux_resolve_path() {
-    if [[ -x /usr/bin/realpath ]]; then
-        /usr/bin/realpath -- "$1"
-    elif [[ -x /bin/realpath ]]; then
-        /bin/realpath -- "$1"
-    elif [[ -x /usr/bin/readlink ]]; then
-        /usr/bin/readlink -f -- "$1"
-    else
-        return 1
-    fi
-}
 typeset -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"

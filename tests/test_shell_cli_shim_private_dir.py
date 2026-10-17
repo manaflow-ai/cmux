@@ -265,6 +265,25 @@ TRAPDEBUG() {
             dispatches = trace.read_text().splitlines() if trace.exists() else []
             self.assertEqual(dispatches, [], "validation launches grow with path depth")
 
+    def test_zsh_inherited_root_resolves_symlinks_before_parent_references(self) -> None:
+        zsh = shutil.which("zsh") or "/bin/zsh"
+        with new_case("cmux-zsh-shim-parent-reference-") as case:
+            container = case.base / "actual"
+            destination = container / "destination"
+            destination.mkdir(parents=True, mode=0o700)
+            actual_root = container / "cmux-cli-shims" / SURFACE_ID
+            actual_root.mkdir(parents=True, mode=0o700)
+            actual_root.parent.chmod(0o700)
+            alias = case.base / "alias"
+            alias.mkdir(mode=0o700)
+            (alias / "link").symlink_to(destination, target_is_directory=True)
+            inherited = alias / "link/../cmux-cli-shims" / SURFACE_ID
+            case.inherit_root(inherited)
+            out = case.run(shells()[zsh])
+            self.assertEqual(out["root"], str(inherited), out)
+            self.assertFalse(case.parent.exists())
+            self.assertEqual(case.marker_lines(), ["wrapper", "wrapper"])
+
     def test_shared_shim_parent_is_not_used(self) -> None:
         def scenario(shell, case: Case) -> None:
             case.parent.mkdir()
