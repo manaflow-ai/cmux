@@ -35,7 +35,11 @@ public struct CloudWorkspaceProjectionPlan {
                 }
                 continue
             }
-            if protectedPanelIDs.contains(projection.panelID) { continue }
+            if protectedPanelIDs.contains(projection.panelID) {
+                // A pending pane already showing a wanted placement satisfies it.
+                if wanted.contains(placement) { seen.insert(placement) }
+                continue
+            }
             // Browsers are shareable views: several local panes may present the
             // same authorized daemon tab. Keep those views while the tab remains
             // in the machine graph; terminals retain their exact-placement

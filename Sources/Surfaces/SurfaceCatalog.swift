@@ -1263,10 +1263,14 @@ final class SurfaceCatalog {
     /// Applies one accepted graph's coordinate changes in O(changed projections).
     func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
         guard !replacements.isEmpty else { return }
-        for (previous, updated) in replacements where projections.contains(previous) {
-            projections.remove(previous)
-            projections.insert(updated)
+        // One assignment, so `noteProjectionChanges` sees a replacement rather than
+        // a closed pane and keeps that pane's native browser document.
+        var next = projections
+        for (previous, updated) in replacements where next.contains(previous) {
+            next.remove(previous)
+            next.insert(updated)
         }
+        projections = next
         for replacement in replacements.values {
             notifyChange(for: replacement.resource.machine)
         }

@@ -299,7 +299,8 @@ final class CloudPlacementCoordinator {
             self.movedTabs[resource.machine, default: [:]][placement.tabID] = placement.workspaceID
             self.confirmPlacement(placement, on: resource.machine)
             var replacements: [SurfaceProjection: SurfaceProjection] = [:]
-            for projection in catalog.projections where projection.resource == resource {
+            // Only the dragged tab moved; other views of this browser keep their tabs.
+            for projection in catalog.projections where projection.resource == resource && projection.remoteTabID == tabID {
                 var updated = projection
                 updated.remoteWorkspaceID = placement.workspaceID
                 updated.remoteTabID = placement.tabID

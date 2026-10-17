@@ -649,24 +649,21 @@ struct CloudTreeNodeActions {
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
-            let label = openingLabel(resource.machine)
-            onWillMutate(label)
-            Task { @MainActor in
-                guard let catalogProvider = catalog().provider(for: resource.machine) else {
-                    onDidMutate()
-                    onFailure(label)
-                    return
+            // `run` owns progress, cancellation and failure presentation for every Cloud action.
+            run(openingLabel(resource.machine)) { catalog in
+                guard let provider = catalog.provider(for: resource.machine) else {
+                    throw SurfaceCatalogError.noProvider(resource.machine)
                 }
-                let move = catalog().cloudPlacementCoordinator.moveRemoteTab(
+                var failure: Error?
+                await catalog.cloudPlacementCoordinator.moveRemoteTab(
                     resource: resource,
                     tabID: view.tabID,
                     intoRemoteWorkspace: remoteWorkspaceID,
-                    catalog: catalog(),
-                    provider: catalogProvider,
-                    onFailure: { error in onFailure(String(describing: error)) }
-                )
-                await move.value
-                onDidMutate()
+                    catalog: catalog,
+                    provider: provider,
+                    onFailure: { failure = $0 }
+                ).value
+                if let failure { throw failure }
             }
         }
         actions.refreshMachine = refreshMachine
