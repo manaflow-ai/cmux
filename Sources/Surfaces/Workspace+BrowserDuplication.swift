@@ -29,7 +29,10 @@ extension Workspace {
             creationPolicy: creationPolicy,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
+            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling,
+            // The copy opens in the source tab's engine (a Chromium tab stays
+            // Chromium), whatever `browser.engine` says, as in cmux Next.
+            inheritedEngine: browser.engineKind
         ) else { return nil }
         if let resource, isCloud {
             // Install the identity before the first network request. In particular,

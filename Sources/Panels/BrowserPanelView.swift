@@ -1320,6 +1320,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
+            .contextMenu { backForwardHistoryMenu(forward: false) }
             .safeHelp(String(localized: "browser.goBack", defaultValue: "Go Back"))
             .accessibilityLabel(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
@@ -1336,6 +1337,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
+            .contextMenu { backForwardHistoryMenu(forward: true) }
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
             .accessibilityLabel(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
@@ -1375,6 +1377,18 @@ struct BrowserPanelView: View {
                     onCancel: { panel.enginePageDelegate.cancel($0) },
                     controlIconPointSize: chromeMetrics.accessoryIconFontSize
                 )
+            }
+        }
+    }
+
+    /// The Back or Forward button's history menu (right-click): the page's
+    /// entries, nearest first, by title, or by address for an untitled page,
+    /// as in Safari and Chrome.
+    @ViewBuilder
+    private func backForwardHistoryMenu(forward: Bool) -> some View {
+        ForEach(panel.backForwardMenuEntries(forward: forward), id: \.offset) { entry in
+            Button(entry.title ?? entry.url?.absoluteString ?? "") {
+                panel.goToBackForwardEntry(offset: entry.offset)
             }
         }
     }
@@ -2074,7 +2088,9 @@ struct BrowserPanelView: View {
                     backgroundColor: browserChromeBackgroundColor,
                     metrics: chromeMetrics,
                     exitPageAction: { panel.exitUnresponsiveChromiumPage() },
-                    overlays: panel.pageOverlays
+                    overlays: panel.pageOverlays,
+                    proceedAction: panel.canProceedPastChromiumLoadFailure
+                        ? { panel.proceedPastChromiumLoadFailure() } : nil
                 ) {
                     panel.performPageRecovery(prompt)
                 }

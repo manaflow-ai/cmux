@@ -45,7 +45,7 @@ extension TerminalController {
         case .crashed, .chromiumCrashed: "crashed"
         case .chromiumUnresponsive: "unresponsive"
         case .unloaded: "unloaded"
-        default: "other"
+        case .chromiumLoadFailed: "load_failed"
         }
     }
 
@@ -63,6 +63,13 @@ extension TerminalController {
                     pressed = true
                 case ("exit", "unresponsive"):
                     panel.exitUnresponsiveChromiumPage()
+                    pressed = true
+                case ("reload", "load_failed"):
+                    panel.performPageRecovery(prompt)
+                    pressed = true
+                case ("proceed", "load_failed") where panel.canProceedPastChromiumLoadFailure:
+                    // The recovery view's Proceed button, for tests (DEBUG builds only).
+                    panel.proceedPastChromiumLoadFailure()
                     pressed = true
                 default:
                     break
@@ -83,6 +90,8 @@ extension TerminalController {
                 "prompt": v2OrNull(promptName),
                 "crashed": promptName == "crashed",
                 "pressed": pressed,
+                "load_error": v2OrNull(panel.chromiumLoadFailure?.error.name),
+                "can_proceed": panel.canProceedPastChromiumLoadFailure,
                 "current_url": v2OrNull(panel.currentURL?.absoluteString),
             ])
         }

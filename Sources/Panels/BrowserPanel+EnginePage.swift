@@ -191,7 +191,7 @@ extension BrowserPanel {
             webViewDidRequestClose?()
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
-        case .navigationFailed(let url, let code, _, _):
+        case .navigationFailed(let url, let code, let message, let showsEngineErrorPage):
             // A Chromium runtime that failed to start reports it as a failed
             // load: the panel opens the page in WebKit instead of staying blank.
             if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
@@ -203,7 +203,7 @@ extension BrowserPanel {
             if code != Self.engineAbortedErrorCode {
                 finishEngineNavigation(failure: "navigation failed")
             }
-            applyEnginePageNavigationFailure(url: url)
+            applyEnginePageNavigationFailure(url: url, code: code, message: message, showsEngineErrorPage: showsEngineErrorPage)
         case .navigationStarted:
             // A question about the page being left goes with it (spec §4).
             enginePageDelegate.permissionQueue.cancelAll()
@@ -447,9 +447,10 @@ extension BrowserPanel {
     /// unavailable inherited Chromium opens WebKit with the notice.
     static func resolvedEngineChoice(
         requested: BrowserEngineKind?,
-        inherited: BrowserEngineKind?
+        inherited: BrowserEngineKind?,
+        runtime: BrowserEngineRuntime? = nil
     ) -> BrowserEngineChoice? {
-        switch BrowserEngineRuntime.shared.resolve(requested: requested, inherited: inherited) {
+        switch (runtime ?? .shared).resolve(requested: requested, inherited: inherited) {
         case .open(let choice):
             return choice
         case .refuse:

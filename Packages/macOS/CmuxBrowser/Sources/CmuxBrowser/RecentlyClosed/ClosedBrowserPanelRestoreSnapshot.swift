@@ -23,6 +23,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     public let fallbackAnchorPaneId: UUID?
     /// When the panel was closed.
     public let closedAt: Date
+    /// The engine the panel rendered with; `nil` for WebKit.
+    public let engine: BrowserEngineKind?
 
     /// Creates a restore snapshot for a closed browser panel.
     /// - Parameters:
@@ -38,6 +40,7 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     ///   - fallbackAnchorPaneId: The pane to split against when recreating the
     ///     panel's placement.
     ///   - closedAt: When the panel was closed. Defaults to the current time.
+    ///   - engine: The engine the panel rendered with; `nil` for WebKit.
     public init(
         workspaceId: UUID,
         url: URL?,
@@ -47,7 +50,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         fallbackSplitOrientation: SplitOrientation?,
         fallbackSplitInsertFirst: Bool,
         fallbackAnchorPaneId: UUID?,
-        closedAt: Date = Date()
+        closedAt: Date = Date(),
+        engine: BrowserEngineKind? = nil
     ) {
         self.workspaceId = workspaceId
         self.url = url
@@ -58,5 +62,6 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         self.fallbackSplitInsertFirst = fallbackSplitInsertFirst
         self.fallbackAnchorPaneId = fallbackAnchorPaneId
         self.closedAt = closedAt
+        self.engine = engine
     }
 }

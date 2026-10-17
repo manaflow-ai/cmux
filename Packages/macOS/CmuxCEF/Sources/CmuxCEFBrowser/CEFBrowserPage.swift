@@ -470,7 +470,13 @@ public final class CEFBrowserPage: BrowserPage {
         case .loadFinished:
             emit(.navigationFinished(browser.state.url))
         case .loadFailed(let code, let message, let url, let chromiumInterstitial):
-            emit(.navigationFailed(url, code: code, message: message, showsEngineErrorPage: chromiumInterstitial))
+            // Chromium draws its net error page for most failures; its
+            // certificate interstitial only when the shim left the decision
+            // to it (not in an agent-driven tab), and nothing for a few errors.
+            // Code -1 is the page's own "could not create" report: no page at all.
+            let showsPage = code != -1
+                && ChromiumNetError(code: code, text: message).chromiumShowsPage(interstitial: chromiumInterstitial)
+            emit(.navigationFailed(url, code: code, message: message, showsEngineErrorPage: showsPage))
         case .newBrowser(let popup, let disposition, let features, let userGesture):
             handleNewBrowser(popup, disposition: disposition, features: features, userGesture: userGesture)
         case .closeRequested:

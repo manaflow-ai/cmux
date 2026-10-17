@@ -2171,6 +2171,20 @@ final class BrowserPanel: Panel, ObservableObject {
             if newValue != chromiumPageFailure { objectWillChange.send() }
         }
     }
+    /// A Chromium load failure Chromium drew no page for, shown with cmux's
+    /// recovery view until the next load starts
+    /// (`BrowserPanel+ChromiumLoadFailure.swift`). Unused for WebKit panels.
+    var chromiumLoadFailure: ChromiumLoadFailure? {
+        willSet {
+            if newValue != chromiumLoadFailure { objectWillChange.send() }
+        }
+    }
+    /// The address of the non-WebKit page's newest failed load: the address
+    /// bar keeps it until the next load starts, as Chrome's omnibox does.
+    var engineFailedNavigationURL: URL?
+    /// History a reopened tab's new non-WebKit page restores in place of its
+    /// first load (Reopen Closed Tab).
+    var pendingEngineNavigationRestore: BrowserPageRestoreState?
     /// Whether the non-WebKit page is on screen, as its host last reported.
     var isEnginePageVisible = false
     /// What to do once a hung Chromium renderer has been ended to recover it
@@ -4867,6 +4881,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
         if enginePage != nil {
+            // A reopened tab's page restores the closed page's history
+            // (Reopen Closed Tab) instead of loading its address fresh.
+            if let state = pendingEngineNavigationRestore {
+                pendingEngineNavigationRestore = nil
+                if restoreEngineNavigation(state, displayURL: url) { return }
+            }
             // A Chromium page has no deferred-discard restore path: load it
             // now (it starts even while its pane is hidden).
             currentURL = url
@@ -6801,22 +6821,16 @@ extension BrowserPanel {
     /// Mirrors a non-WebKit page's state into the published properties the
     /// browser chrome reads. WebKit panels publish from their own observers.
     func applyEnginePageState(_ state: BrowserPageState) {
-        if currentURL != state.url, let url = state.url { currentURL = url }
+        if state.isLoading, !isLoading { noteEngineLoadStarted() }
+        // After a failed load the address bar keeps the failed address:
+        // Chromium sends no address change for a load that never committed.
+        if engineFailedNavigationURL == nil, currentURL != state.url, let url = state.url { currentURL = url }
         let title = state.title ?? ""
         if pageTitle != title { pageTitle = title }
         if isLoading != state.isLoading { isLoading = state.isLoading }
         if estimatedProgress != state.estimatedProgress { estimatedProgress = state.estimatedProgress }
         if canGoBack != state.canGoBack { canGoBack = state.canGoBack }
         if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
-    }
-
-    /// A non-WebKit page's main-frame load failed. Chromium shows its own
-    /// error page; a new panel's first load has no committed URL, so the
-    /// address bar keeps the address that failed instead of going blank
-    /// (Next `chromium-error-page-new-tab`, design spec §8).
-    func applyEnginePageNavigationFailure(url: URL?) {
-        guard currentURL == nil, let url else { return }
-        currentURL = url
     }
 
     /// Publishes a non-WebKit page's favicon.
@@ -6944,6 +6958,51 @@ extension BrowserPanel {
         markTrustedInternalNavigationIfNeeded(for: targetURL)
         webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goForward()
+    }
+
+    /// Entries the Back and Forward buttons' history menus list, at most
+    /// (cmux Next `BrowserChromeView.backForwardMenuLimit`).
+    static let backForwardMenuLimit = 16
+
+    /// The Back (or Forward) button's history menu, nearest entry first:
+    /// Chromium's navigation entries, or WebKit's back/forward list. Empty
+    /// while a WebKit page steps through history restored by URL from a
+    /// session, which has no entries to jump to.
+    func backForwardMenuEntries(forward: Bool) -> [BrowserBackForwardEntry] {
+        let entries: [BrowserBackForwardEntry]
+        if let enginePage {
+            guard let list = (enginePage as? any BrowserPageBackForwardListing)?.backForwardList() else { return [] }
+            entries = forward ? list.forward : list.back
+        } else {
+            guard !usesRestoredSessionHistory else { return [] }
+            let list = webView.backForwardList
+            let entry = { (item: WKBackForwardListItem, offset: Int) in
+                BrowserBackForwardEntry(url: item.url, title: item.title.flatMap { $0.isEmpty ? nil : $0 }, offset: offset)
+            }
+            entries = forward
+                ? list.forwardList.enumerated().map { entry($0.element, $0.offset + 1) }
+                : list.backList.reversed().enumerated().map { entry($0.element, -($0.offset + 1)) }
+        }
+        return Array(entries.prefix(Self.backForwardMenuLimit))
+    }
+
+    /// Goes to the history menu entry `offset` steps from the current one
+    /// (negative is back), as Back or Forward pressed that many times would.
+    func goToBackForwardEntry(offset: Int, dialogOwner: BrowserDialogOwner = .user) {
+        guard offset != 0 else { return }
+        takeBrowserDialogOwnership(dialogOwner)
+        if let enginePage {
+            (enginePage as? any BrowserPageBackForwardListing)?.goToBackForwardEntry(offset: offset)
+            return
+        }
+        guard !usesRestoredSessionHistory else { return }
+        cancelAppSessionBootstrap()
+        _ = reactivateDiscardedWebViewWithoutNavigation(reason: offset < 0 ? "goBack" : "goForward")
+        cancelInFlightNavigationBeforeHistoryTraversal()
+        guard let item = webView.backForwardList.item(at: offset) else { return }
+        markTrustedInternalNavigationIfNeeded(for: item.url)
+        webView.applyBrowserUserAgentPolicy(for: item.url)
+        webView.go(to: item)
     }
 
     /// Open a link in a new browser surface in the same pane

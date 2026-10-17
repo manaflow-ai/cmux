@@ -291,7 +291,8 @@ public final class CEFBrowser {
         if let restore = pendingRestore {
             pendingRestore = nil
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
-            let fallback = contentRelease.releasedURL ?? configuration.initialURL
+            let fallback = contentRelease.releasedURL ?? pendingURL ?? configuration.initialURL
+            pendingURL = nil
             if restored != 1, let url = fallback { shim.loadURL(id, url.absoluteString) }
             if let url = contentRelease.takeLoadAfterRestore() { shim.loadURL(id, url.absoluteString) }
         } else if let url = pendingURL {
@@ -399,9 +400,27 @@ public final class CEFBrowser {
     public func stop() { browserID.map { runtime.shim?.stop($0) } }
 
     /// Chromium's navigation state for `CEFBrowserConfiguration.restoreState`.
+    /// A page whose content Memory Saver released returns the state it saved.
     public func navigationState() -> String? {
+        if isContentReleased { return pendingRestore }
         guard let id = browserID, let shim = runtime.shim else { return nil }
         return shim.takeString(shim.tabNavigationState(id))
+    }
+
+    /// Restores navigation state exported by ``navigationState()`` in place
+    /// of the page's next load: a page not created yet restores it when its
+    /// browser is created (falling back to the address it was asked to
+    /// load), a live page restores it now.
+    /// - Returns: `false` for a closed page, or when Chromium refused it.
+    @discardableResult
+    public func restoreNavigation(_ state: String) -> Bool {
+        guard !isClosed else { return false }
+        guard let id = browserID, !isCreationPending else {
+            pendingRestore = state
+            return true
+        }
+        guard let shim = runtime.shim else { return false }
+        return state.withCString { shim.tabRestoreNavigation(id, $0) } == 1
     }
 
     // MARK: Presentation
