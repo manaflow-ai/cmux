@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery Run board design prototype, not shipped UI.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { evidenceReady, initialBoard, reduceBoard, selectedAttempt, type RunAttempt } from "../../model";
+import { evidenceReady, initialBoard, reduceBoard, runReceipt, selectedAttempt, type RunAttempt } from "../../model";
 import type { RunBoardProps } from "../../RunBoard";
 import { attachFailureState, attachTicketExpired } from "../../RunBoard";
 import {
@@ -15,21 +15,17 @@ type AttachState = "idle" | "attached" | "expired" | "replayed" | "error";
 
 export type OpsConsoleProps = RunBoardProps;
 
-function statusLabel(attempt: RunAttempt): string {
-  if (attempt.state === "failed") return "Failed";
-  if (attempt.state === "completed") return evidenceReady(attempt) ? "Ready" : "Review";
-  return "Running";
-}
-
 function AttemptRail({
   attempts,
   selected,
   attached,
+  promoted,
   onSelect,
 }: {
   attempts: RunAttempt[];
   selected: string;
   attached?: string;
+  promoted?: string;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -41,10 +37,12 @@ function AttemptRail({
       <div className="ops-console-attempt-list">
         {attempts.map((attempt, index) => {
           const isSelected = attempt.id === selected;
+          const receipt = runReceipt(attempt, promoted === attempt.id);
           return (
             <button
               className="ops-console-attempt"
               data-state={attempt.state}
+              data-receipt-state={receipt.state}
               data-selected={isSelected ? "true" : "false"}
               key={attempt.id}
               type="button"
@@ -59,19 +57,18 @@ function AttemptRail({
                 <small>{attempt.direction}</small>
                 <small className="ops-console-attempt-worker">{attempt.worker}</small>
               </span>
-              <span className="ops-console-attempt-state">
-                <i aria-hidden="true" />
-                {statusLabel(attempt)}
+              <span className="ops-console-attempt-state" title={receipt.detail}>
+                {receipt.label}
                 {attached === attempt.id && <em>attached</em>}
               </span>
             </button>
           );
         })}
       </div>
-      <div className="ops-console-rail-key" aria-label="Attempt status legend">
-        <span><i data-state="completed" aria-hidden="true" /> ready</span>
-        <span><i data-state="running" aria-hidden="true" /> active</span>
-        <span><i data-state="failed" aria-hidden="true" /> failed</span>
+      <div className="ops-console-rail-key" aria-label="Run receipt states">
+        {Array.from(new Set(attempts.map((attempt) => runReceipt(attempt, promoted === attempt.id).state))).map((state) => (
+          <span key={state} data-receipt-state={state}>{state}</span>
+        ))}
       </div>
     </nav>
   );
@@ -308,7 +305,7 @@ export function OpsConsole({ snapshot, recovered, disconnected = false, client, 
       )}
       {apiError && <p className="ops-console-error" role="alert">{apiError}</p>}
       <div className="ops-console-layout">
-        <AttemptRail attempts={state.snapshot.attempts} selected={state.selected} attached={state.attached} onSelect={(id) => dispatch({ type: "select", attemptId: id })} />
+        <AttemptRail attempts={state.snapshot.attempts} selected={state.selected} attached={state.attached} promoted={state.approval?.attemptId} onSelect={(id) => dispatch({ type: "select", attemptId: id })} />
         <section className="ops-console-detail" aria-label="Selected attempt details">
           <header className="ops-console-detail-header">
             <div><span className="ops-console-kicker">SELECTED ATTEMPT</span><h2>{attempt.label}</h2><p>{attempt.worker} <span>·</span> {attempt.sessionId}</p></div>

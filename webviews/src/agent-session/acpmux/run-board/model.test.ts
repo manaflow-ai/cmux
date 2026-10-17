@@ -1,11 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { sessionSummary } from "../summary/sessionSummary";
 import { replayedBoardFixture, runBoardFixture } from "./fixtures";
-import { canApprove, evidenceReady, initialBoard, reduceBoard, type RunBoardState } from "./model";
+import { canApprove, evidenceReady, initialBoard, reduceBoard, runReceipt, type RunBoardState } from "./model";
 
 const review = (state: RunBoardState) => reduceBoard(state, { type: "review", checked: true });
 
 describe("Run board human intent", () => {
+  test("projects the existing attempt lifecycle into readable receipts", () => {
+    const attempts = runBoardFixture.attempts;
+    expect(runReceipt({ ...attempts[0]!, receipt: "queue" })).toMatchObject({ state: "queue", label: "Queued" });
+    expect(runReceipt(attempts[2]!)).toMatchObject({ state: "running", label: "Running" });
+    expect(runReceipt(attempts[0]!)).toMatchObject({ state: "reused", label: "Retained for reuse" });
+    expect(runReceipt(attempts[3]!)).toMatchObject({ state: "failed", label: "Failed" });
+    expect(runReceipt(attempts[0]!, true)).toMatchObject({ state: "promotion", label: "Promotion requested" });
+  });
+
   test("selection and attachment are independent, and attachment needs a live owner", () => {
     let state = reduceBoard(initialBoard(runBoardFixture), { type: "attach" });
     state = reduceBoard(state, { type: "select", attemptId: "attempt-b" });

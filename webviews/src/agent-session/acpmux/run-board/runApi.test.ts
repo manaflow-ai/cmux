@@ -118,6 +118,19 @@ describe("Run API client", () => {
     expect(snapshot.attempts[0]?.artifacts[0]).toMatchObject({ kind: "screenshot", verified: true });
   });
 
+  test("keeps control-plane queue, running, retained and failed receipts visible", () => {
+    const snapshot = normalizeRunSnapshot({
+      ...run,
+      attempts: [
+        { id: "queued", ordinal: 0, status: "queued" },
+        { id: "running", ordinal: 1, status: "running" },
+        { id: "retained", ordinal: 2, status: "succeeded", terminalRetainUntil: "2099-01-01T00:00:00.000Z" },
+        { id: "failed", ordinal: 3, status: "failed" },
+      ],
+    });
+    expect(snapshot.attempts.map((attempt) => attempt.receipt)).toEqual(["queue", "running", "reused", "failed"]);
+  });
+
   test("requests an attach ticket with the attempt cursor and normalizes the response", async () => {
     const requests: RequestInit[] = [];
     let call = 0;

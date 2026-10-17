@@ -55,12 +55,14 @@
 .ops-console-attempt-copy small { overflow: hidden; text-overflow: ellipsis; color: var(--ops-muted); font-size: 10px; white-space: nowrap; }
 .ops-console-attempt-worker { opacity: .72; }
 .ops-console-attempt-state { grid-column: 2; display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--ops-muted); font-size: 10px; }
+.ops-console-attempt[data-receipt-state="promotion"] .ops-console-attempt-state { color: var(--page-text, #18181b); font-weight: 600; }
+.ops-console-attempt[data-receipt-state="failed"] .ops-console-attempt-state { color: var(--ops-bad); }
 .ops-console-attempt-state i, .ops-console-rail-key i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ops-warn); }
 .ops-console-attempt[data-state="completed"] .ops-console-attempt-state i, .ops-console-rail-key i[data-state="completed"] { background: var(--ops-good); }
 .ops-console-attempt[data-state="failed"] .ops-console-attempt-state i, .ops-console-rail-key i[data-state="failed"] { background: var(--ops-bad); }
 .ops-console-attempt-state em { margin-left: auto; color: var(--ops-good); font-size: 9px; font-style: normal; letter-spacing: .04em; text-transform: uppercase; }
 .ops-console-rail-key { display: flex; flex-direction: column; gap: 7px; margin-top: auto; padding: 13px; color: var(--ops-muted); font-size: 10px; }
-.ops-console-rail-key span { display: flex; align-items: center; gap: 7px; }
+.ops-console-rail-key span { display: flex; align-items: center; gap: 7px; text-transform: lowercase; }
 .ops-console-detail { overflow: hidden; }
 .ops-console-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 15px 13px; border-bottom: 1px solid var(--ops-border); }
 .ops-console-detail-header h2 { margin: 4px 0 3px; font-size: 17px; font-weight: 560; letter-spacing: -.02em; }
