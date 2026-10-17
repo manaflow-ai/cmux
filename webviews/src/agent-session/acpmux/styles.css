@@ -268,7 +268,10 @@
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px;--acpmux-project-menu-edge:4px}
+.acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
+.acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
+.acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 .acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
 .acpmux-project-badge::after{content:"";position:absolute;right:-1px;bottom:-1px;width:5px;height:5px;border:1px solid var(--acpmux-composer-base,var(--agent-base));border-radius:50%;background:var(--agent-muted)}
