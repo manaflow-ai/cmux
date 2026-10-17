@@ -117,7 +117,9 @@ const longRows = Array.from({ length: 48 }, (_, i) => ({
 const handsBase: HandsState = {
   signed_in: true,
   levels: ["read-only", "ask", "auto", "full"],
-  hands: [{ hand: "hand_aaaaaaaaaaaaaaaaaaaa", name: "studio-mac", profile: "mac", level: "auto", online: true, pending: 1 }],
+  hands: [
+    { hand: "hand_aaaaaaaaaaaaaaaaaaaa", name: "studio-mac", profile: "mac", level: "auto", online: true, pending: 1 },
+  ],
   defaults: {},
   secure_enclave: true,
   prompt: null,
@@ -403,7 +405,10 @@ Object.assign(variants, {
   "empty-machines": variant("machines", { host: { ...host, machines: [] }, hands: { ...handsBase, hands: [] } }),
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
-  "long-machines": variant("machines", { host: { ...host, machines: longRows }, hands: { ...handsBase, hands: longHands } }),
+  "long-machines": variant("machines", {
+    host: { ...host, machines: longRows },
+    hands: { ...handsBase, hands: longHands },
+  }),
   "hands-signed-out": variant("machines", { hands: { ...handsBase, signed_in: false, hands: [] } }),
   "hands-prompt": variant("machines", {
     hands: { ...handsBase, prompt: "raise the hand “studio-mac” to Full", busy: "hand_aaaaaaaaaaaaaaaaaaaa" },
