@@ -534,7 +534,7 @@ final class AgentChatModeModel {
 
     func addAttachment(_ attachment: PendingAttachment) {
         guard attachments.count < 10 else {
-            errorMessage = "You can attach up to 10 files."
+            errorMessage = "You can attach up to 10 attachments."
             return
         }
         let maximumBytes = attachment.format == .file
