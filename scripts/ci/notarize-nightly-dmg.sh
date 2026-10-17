@@ -309,34 +309,57 @@ if values:
 PY
 }
 
-# stapled_app_deadline_passed [recorded epoch]: true when the earliest
-# stapled-app submission of this build (Apple's history, or the recorded
-# epoch) is CMUX_STAPLED_APP_FALLBACK_SECONDS old. Sets STAPLED_APP_FALLBACK_ID
-# to the newest such submission. Unknown (history unreadable, nothing
-# recorded) is not passed: the build keeps waiting.
+# stapled_app_deadline_passed <mode> <recorded epoch> <time>: true when the
+# stapled-app DMG of this build has waited CMUX_STAPLED_APP_FALLBACK_SECONDS.
+#   handed-off  <time> is the continued stapled-app submission's createdDate;
+#               the clock is the earlier of it and the recorded epoch.
+#   recovery    <time> is the first DMG's createdDate; the clock is Apple's
+#               earliest submission named $STAPLED_DMG_NAME made after it
+#               (an earlier attempt of the same build number does not count).
+# Sets STAPLED_APP_FALLBACK_ID to the newest such submission (recovery). An
+# unknown clock (nothing recorded, history unreadable) is not passed.
 stapled_app_deadline_passed() {
-  local recorded="${1:-}" history="$NOTARY_DIR/history.json" verdict
-  "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
-  verdict="$(python3 - "$history" "$STAPLED_DMG_NAME" "$recorded" "$STAPLED_APP_FALLBACK_SECONDS" <<'PY'
-import datetime, json, sys, time
-path, name, recorded, limit = sys.argv[1:]
-try:
-    entries = json.load(open(path, encoding="utf-8")).get("history") or []
-except (OSError, ValueError, AttributeError):
-    entries = []
+  local mode="$1" recorded="${2:-}" when="${3:-}" history="$NOTARY_DIR/history.json" verdict
+  : >"$history"
+  if [ "$mode" = recovery ]; then
+    "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
+  fi
+  verdict="$(python3 - "$mode" "$history" "$STAPLED_DMG_NAME" "$recorded" "$when" "$STAPLED_APP_FALLBACK_SECONDS" <<'PY'
+import datetime, json, re, sys, time
+mode, path, name, recorded, when, limit = sys.argv[1:]
+def epoch(text):
+    # Apple's dates: 2026-10-16T12:34:56.789Z (fraction and zone optional).
+    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?", str(text or "").strip())
+    if not m:
+        return None
+    base = datetime.datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+    zone = m.group(2) or "Z"
+    if zone != "Z":
+        sign = 1 if zone[0] == "+" else -1
+        digits = zone[1:].replace(":", "")
+        base -= sign * datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:]))
+    return base.timestamp()
 times, newest = [], ("", 0.0)
-for entry in entries:
-    if not isinstance(entry, dict) or entry.get("name") != name:
-        continue
+if mode == "handed-off":
+    if recorded.isdigit():
+        times.append(float(recorded))
+    if epoch(when) is not None:
+        times.append(epoch(when))
+else:
+    not_before = epoch(when)
     try:
-        created = datetime.datetime.fromisoformat(str(entry.get("createdDate", "")).replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        continue
-    times.append(created)
-    if created >= newest[1]:
-        newest = (str(entry.get("id") or ""), created)
-if recorded.isdigit():
-    times.append(float(recorded))
+        entries = json.load(open(path, encoding="utf-8")).get("history") or []
+    except (OSError, ValueError, AttributeError):
+        entries = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("name") != name:
+            continue
+        created = epoch(entry.get("createdDate"))
+        if created is None or (not_before is not None and created < not_before):
+            continue
+        times.append(created)
+        if created >= newest[1]:
+            newest = (str(entry.get("id") or ""), created)
 if not times:
     print("unknown -")
 else:
@@ -344,7 +367,7 @@ else:
     print(("passed" if age >= int(limit) else "waiting"), newest[0] or "-", int(age))
 PY
 )"
-  echo "Stapled-app DMG clock for $STAPLED_DMG_NAME: $verdict (limit ${STAPLED_APP_FALLBACK_SECONDS}s)"
+  echo "Stapled-app DMG clock ($mode) for $STAPLED_DMG_NAME: $verdict (limit ${STAPLED_APP_FALLBACK_SECONDS}s)"
   case "$verdict" in
     passed\ *)
       STAPLED_APP_FALLBACK_ID="$(awk '{print $2}' <<<"$verdict")"
@@ -411,8 +434,8 @@ if [ -n "$CONTINUE_STATE" ]; then
     echo "Could not read the status of Apple submission $CONTINUE_SUBMISSION_ID" >&2
     exit 1
   fi
-  if [ "$DMG_STATUS" = "In Progress" ] && [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ] \
-    && stapled_app_deadline_passed "$(state_value stapled_submitted_at)"; then
+  if [ "$DMG_STATUS" != Accepted ] && [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ] \
+    && stapled_app_deadline_passed handed-off "$(state_value stapled_submitted_at)" "$(extract_notary_value "$NOTARY_SUBMIT_OUTPUT" createdDate || true)"; then
     # The stapled-app DMG is past its deadline: publish the accepted first DMG.
     STAPLED_APP_FALLBACK_ID="$CONTINUE_SUBMISSION_ID"
     first_id="$(state_value first_submission_id)"
@@ -432,6 +455,16 @@ if [ -n "$CONTINUE_STATE" ]; then
     STAPLED_APP_FALLBACK=true
     DMG_SUBMIT_ID="$first_id"
     DMG_STATUS=Accepted
+  elif [ "$DMG_STATUS" != Accepted ] && [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
+    # Not accepted (still queued, or refused) and not yet past 6 h: the
+    # accepted first DMG waits for the fallback; nothing else is published.
+    save_notary_output
+    echo "::warning::stapled-app submission $CONTINUE_SUBMISSION_ID is $DMG_STATUS; the accepted first DMG ships at the 6 h fallback unless Apple accepts it first"
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+      echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+      echo "stapled_app_pending=true" >> "$GITHUB_OUTPUT"
+    fi
+    exit 0
   elif [ "$DMG_STATUS" = "In Progress" ]; then
     save_notary_output
     echo "Apple submission $CONTINUE_SUBMISSION_ID is still in progress; publication awaits Accepted" >&2
@@ -534,10 +567,20 @@ if [ "$STAPLE_APP_IN_DMG" = true ] && [ "$STAPLED_APP_FALLBACK" = true ]; then
   FINAL_DMG="$FIRST_DMG"
 elif [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
   echo "Continued submission $DMG_SUBMIT_ID is the DMG around the stapled app"
-elif [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$CONTINUE_STATE" ] && stapled_app_deadline_passed; then
+elif [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$CONTINUE_STATE" ] \
+  && stapled_app_deadline_passed recovery "" "$(extract_notary_value "$NOTARY_SUBMIT_OUTPUT" createdDate || true)"; then
   # A continuation of the accepted first DMG whose stapled-app DMG has been
   # submitted for 6 h without an Accepted answer: the first DMG ships.
   STAPLED_APP_FALLBACK=true
+elif [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$CONTINUE_STATE" ] && [ "${CMUX_STAPLED_APP_NO_NEW_SUBMISSION:-false}" = true ]; then
+  # The recovery job already waits on a newer build's stapled-app DMG: this
+  # older build ships only at its own fallback (above), no new submission.
+  echo "No new stapled-app submission for this older build; it ships at its 6 h fallback"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+    echo "stapled_app_pending=true" >> "$GITHUB_OUTPUT"
+  fi
+  exit 0
 elif [ "$STAPLE_APP_IN_DMG" = true ]; then
   if [ -z "$CONTINUE_STATE" ]; then
     # Record the accepted first submission: when the second one fails, a
@@ -661,7 +704,7 @@ fi
 rm -f "$FIRST_DMG"
 cp "$DMG_RELEASE" "$DMG_IMMUTABLE"
 if [ "$STAPLED_APP_FALLBACK" = true ]; then
-  echo "::warning title=App shipped without its own ticket::Apple has not accepted the stapled-app DMG (submission $STAPLED_APP_FALLBACK_ID) within ${STAPLED_APP_FALLBACK_SECONDS}s of its first submission; the first DMG (notarized and stapled) ships, and the app inside it needs Apple's online ticket lookup."
+  echo "::warning title=App shipped without its own ticket::Apple did not accept the stapled-app DMG (submission $STAPLED_APP_FALLBACK_ID) within ${STAPLED_APP_FALLBACK_SECONDS}s of its first submission; the first DMG (notarized and stapled) ships, and the app inside it needs Apple's online ticket lookup."
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "stapled_app_fallback=true" >> "$GITHUB_OUTPUT"
     echo "stapled_app_pending_id=$STAPLED_APP_FALLBACK_ID" >> "$GITHUB_OUTPUT"

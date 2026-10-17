@@ -735,6 +735,42 @@ if ! CMUX_TEST_HISTORY_JSON="{\"history\":[{\"id\":\"fixture-old-stapled-id\",\"
   cat "$TMP_DIR/fallback-stage1.err" "$LOG" >&2
   exit 1
 fi
+# A refused stapled-app DMG (Invalid) also ships the first DMG once 6 h passed,
+# and waits before that.
+reset_continue
+stage2_state "$(( $(date +%s) - 7 * 3600 ))"
+if ! CMUX_TEST_NOTARY_STATUS=Invalid run_fallback_continue >/dev/null 2>&1 \
+  || ! grep -Fxq "stapled_app_fallback=true" "$CONTINUE_GITHUB_OUTPUT" \
+  || [ "$(cat "$CONTINUE_DMG")" != "accepted first dmg" ]; then
+  echo "FAIL: a refused stapled-app DMG past 6 h must ship the accepted first DMG" >&2
+  exit 1
+fi
+reset_continue
+stage2_state "$(( $(date +%s) - 3600 ))"
+if ! CMUX_TEST_NOTARY_STATUS=Invalid run_fallback_continue >/dev/null 2>&1 \
+  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
+  || grep -q '^xcrun stapler staple' "$LOG"; then
+  echo "FAIL: a refused stapled-app DMG before 6 h waits for the fallback" >&2
+  exit 1
+fi
+rm -f "$first_continue_dmg"
+# While a newer build's stapled-app DMG waits, an older accepted build makes
+# no new submission; a date without a fraction still counts.
+reset_continue
+if ! CMUX_STAPLED_APP_NO_NEW_SUBMISSION=true run_fallback_continue >/dev/null 2>&1 \
+  || grep -q '^xcrun notarytool submit' "$LOG" \
+  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT"; then
+  echo "FAIL: an older build behind a pending stapled-app DMG must not submit a new one" >&2
+  exit 1
+fi
+reset_continue
+old_plain="$(python3 -c 'import datetime; print((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
+if ! CMUX_STAPLED_APP_NO_NEW_SUBMISSION=true CMUX_TEST_HISTORY_JSON="{\"history\":[{\"id\":\"fixture-plain-id\",\"name\":\"cmux-nightly-continue-1-stapled-app.dmg\",\"createdDate\":\"$old_plain\"}]}" \
+  run_fallback_continue >/dev/null 2>&1 \
+  || ! grep -Fxq "stapled_app_pending_id=fixture-plain-id" "$CONTINUE_GITHUB_OUTPUT"; then
+  echo "FAIL: an older build past its own 6 h ships its first DMG even behind a pending newer build" >&2
+  exit 1
+fi
 echo "PASS: the 6 h stapled-app fallback ships only the accepted first DMG and names the pending submission"
 
 reset_continue

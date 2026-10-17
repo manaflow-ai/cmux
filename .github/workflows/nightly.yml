@@ -3861,6 +3861,7 @@ jobs:
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           mkdir -p recovered
+          newer_stapled_pending=false
           while IFS=$'\t' read -r run_id artifact; do
             dir="recovery/$run_id"
             echo "::group::run $run_id ($artifact)"
@@ -3889,6 +3890,7 @@ jobs:
             pending="$dir/github-output"
             : > "$pending"
             if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
+                CMUX_STAPLED_APP_NO_NEW_SUBMISSION="$newer_stapled_pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
               # notarize-nightly-dmg.sh reports Apple's verdict once it has one.
               notary_status="$(sed -n 's/^notary_status=//p' "$pending" | tail -n 1)"
@@ -3903,10 +3905,12 @@ jobs:
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
               if grep -Fxq "stapled_app_pending=true" "$pending"; then
-                # Apple accepted it; the DMG around the stapled app is still
-                # queued. A later run continues this build, not an older one.
-                echo "::notice::run $run_id: submission $SUBMISSION_ID is accepted and the DMG around the stapled app is still in Apple's queue; a later run continues it"
-                echo "::endgroup::"; break
+                # Apple accepted its first DMG; the DMG around the stapled app is
+                # not accepted yet. Older candidates still ship at their own 6 h
+                # fallback, but make no new submission while this one waits.
+                echo "::notice::run $run_id: the first DMG is accepted and the DMG around the stapled app is not; older builds ship only at their 6 h fallback"
+                newer_stapled_pending=true
+                echo "::endgroup::"; continue
               fi
               echo "::notice::run $run_id: submission $SUBMISSION_ID is still in progress"
               echo "::endgroup::"; continue
@@ -5174,7 +5178,13 @@ jobs:
           cp "$RUNNER_TEMP/legacy.notarization.state" pending/legacy.notarization.state
           submission="$(sed -n 's/^submission_id=//p' pending/legacy.notarization.state)"
           [[ "$submission" =~ ^[A-Za-z0-9-]+$ ]] || { echo "pending state names no submission" >&2; exit 1; }
-          printf '{"build": "%s", "submission_id": "%s", "submitted_epoch": %s}\n' "$NIGHTLY_BUILD" "$submission" "$(date +%s)" > pending/pending.json
+          if grep -Fxq stapled_app=true pending/legacy.notarization.state; then
+            # The first DMG is accepted (the stapled-app DMG is pending): keep
+            # continuing it past 6 h, so its 6 h fallback can run.
+            printf '{"build": "%s", "submission_id": "%s", "submitted_epoch": %s, "accepted": true}\n' "$NIGHTLY_BUILD" "$submission" "$(date +%s)" > pending/pending.json
+          else
+            printf '{"build": "%s", "submission_id": "%s", "submitted_epoch": %s}\n' "$NIGHTLY_BUILD" "$submission" "$(date +%s)" > pending/pending.json
+          fi
           cp pending/pending.json pending-meta.json
           mkdir -p pending-meta && mv pending-meta.json pending-meta/pending.json
 
