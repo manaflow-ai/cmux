@@ -1644,8 +1644,11 @@ mod tests {
         machine.remove("platform");
         machine.remove("capabilities");
         let legacy: ResponseEnvelope<SnapshotResult> = serde_json::from_value(legacy).unwrap();
-        assert!(legacy.result.machines[0].platform.is_none());
-        assert!(legacy.result.machines[0].capabilities.is_empty());
+        let ProviderResponse::Success(result) = legacy.response else {
+            panic!("expected a legacy snapshot result");
+        };
+        assert!(result.machines[0].platform.is_none());
+        assert!(result.machines[0].capabilities.is_empty());
     }
 
     #[test]
