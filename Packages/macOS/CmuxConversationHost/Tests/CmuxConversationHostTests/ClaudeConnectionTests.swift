@@ -79,6 +79,21 @@ import CmuxConversation
         #expect(delta.first?.itemID == completed.first?.itemID)
     }
 
+    @Test func ambiguousQuestionPromptsFailBeforePublishingPartialRequests() async throws {
+        let transport = ClaudeFixtureTransport()
+        let connection = try await ClaudeConnection.open(transport: transport, session: session())
+        var iterator = connection.events.makeAsyncIterator()
+        let question: ConversationJSONValue = .object(["question": .string("Repeated?"), "options": .array([])])
+        await transport.emit(.object(["type": .string("control_request"), "request_id": .string("ambiguous"), "request": .object(["subtype": .string("can_use_tool"), "tool_name": .string("AskUserQuestion"), "input": .object(["questions": .array([question, question])])])]))
+        do {
+            _ = try await iterator.next()
+            Issue.record("Ambiguous native question keys must fail before publishing requests")
+        } catch let error as ConversationProviderError {
+            #expect(error.description.contains("distinct prompts"))
+        }
+        await connection.close()
+    }
+
     @Test func toolCompletionRequiresItsNativeResult() throws {
         var projection = ClaudeEventProjection()
         let tool = try projection.events(.object(["type": .string("assistant"), "message": .object(["id": .string("message"), "content": .array([.object(["type": .string("tool_use"), "id": .string("tool"), "name": .string("Bash"), "input": .object(["command": .string("pwd")])])])])]), turnID: .init(rawValue: "turn"))

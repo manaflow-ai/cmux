@@ -34,8 +34,13 @@ public enum ConversationJSONValue: Codable, Hashable, Sendable {
         case .bool(let value): try c.encode(value)
         case .number(let value):
             if let integer = Int64(value) { try c.encode(integer) }
-            else if let decimal = Double(value) { try c.encode(decimal) }
-            else { try c.encode(value) }
+            else if let integer = UInt64(value) { try c.encode(integer) }
+            else if value.range(of: #"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$"#, options: .regularExpression) != nil,
+                    let decimal = Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")) {
+                try c.encode(decimal)
+            } else {
+                throw EncodingError.invalidValue(value, .init(codingPath: encoder.codingPath, debugDescription: "Invalid JSON number"))
+            }
         case .string(let value): try c.encode(value)
         case .array(let value): try c.encode(value)
         case .object(let value): try c.encode(value)

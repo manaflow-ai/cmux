@@ -165,6 +165,13 @@ actor ClaudeConnection: ConversationProviderConnection {
         if body["tool_name"]?.stringValue == "AskUserQuestion" {
             let questions = input["questions"]?.arrayValue ?? []
             guard !questions.isEmpty else { throw ConversationProviderError.malformed("Claude question has no questions") }
+            let prompts = questions.compactMap { $0.objectValue?["question"]?.stringValue }
+            // Claude keys the final answer map by prompt. Ambiguous prompts
+            // cannot be answered without silently dropping one answer.
+            guard prompts.count == questions.count, Set(prompts).count == prompts.count,
+                  prompts.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                throw ConversationProviderError.malformed("Claude questions do not have distinct prompts")
+            }
             for (index, value) in questions.enumerated() {
                 guard let question = value.objectValue, let prompt = question["question"]?.stringValue else { throw ConversationProviderError.malformed("Claude question is incomplete") }
                 let options = (question["options"]?.arrayValue ?? []).compactMap { option -> ConversationQuestionOption? in
