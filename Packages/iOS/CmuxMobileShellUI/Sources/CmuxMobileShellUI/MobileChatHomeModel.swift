@@ -28,6 +28,7 @@ final class MobileChatHomeModel {
     private var hydratingSessionIDs: Set<String> = []
     private var resettingSessionIDs: Set<String> = []
     private var resetTokensBySessionID: [String: UUID] = [:]
+    private var sessionListStreamActive = false
     private var sessionVersions: [String: Int] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var refreshGeneration = UUID()
@@ -42,7 +43,6 @@ final class MobileChatHomeModel {
     /// Loads the current Mac's chat roster and starts the roster event stream.
     func refresh(using store: CMUXMobileShellStore) async {
         let generation = UUID()
-        clearPendingLocalMessages()
         refreshGeneration = generation
         let targetComputerID = store.connectedMacDeviceID
         if activeComputerID != targetComputerID {
@@ -63,6 +63,7 @@ final class MobileChatHomeModel {
         }
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
+        sessionListStreamActive = false
         conversationTasks.values.forEach { $0.cancel() }
         conversationTasks.removeAll()
         eventTasks.values.forEach { $0.cancel() }
@@ -156,6 +157,12 @@ final class MobileChatHomeModel {
     ) {
         guard let source,
               removedSessionVersions[sessionID] == nil else { return }
+        if resetToken == nil {
+            // A regular reopen supersedes a reset hydration that was still in
+            // flight. Clear its coalescing token so the next reset can start.
+            resettingSessionIDs.remove(sessionID)
+            resetTokensBySessionID[sessionID] = nil
+        }
         openSessionIDs.insert(sessionID)
         conversationTasks[sessionID]?.cancel()
         eventTasks[sessionID]?.cancel()
@@ -356,7 +363,9 @@ final class MobileChatHomeModel {
             try await source.send(text: trimmed, attachments: [], sessionID: sessionID)
             guard !Task.isCancelled,
                   refreshGeneration == generation,
-                  self.source === source else {
+                  self.source === source,
+                  openSessionIDs.contains(sessionID),
+                  sessions.contains(where: { $0.id == sessionID && $0.state != .ended }) else {
                 rollbackOptimisticSend(
                     sessionID: sessionID,
                     messageID: optimisticMessageID,
@@ -380,7 +389,6 @@ final class MobileChatHomeModel {
             )
             return false
         } catch {
-            guard refreshGeneration == generation, self.source === source else { return false }
             rollbackOptimisticSend(
                 sessionID: sessionID,
                 messageID: optimisticMessageID,
@@ -389,6 +397,12 @@ final class MobileChatHomeModel {
                 source: source,
                 generation: generation
             )
+            guard refreshGeneration == generation,
+                  self.source === source,
+                  openSessionIDs.contains(sessionID),
+                  sessions.contains(where: { $0.id == sessionID && $0.state != .ended }) else {
+                return false
+            }
             errorMessage = "Your message could not be sent."
             return false
         }
@@ -509,6 +523,7 @@ final class MobileChatHomeModel {
         hydratingSessionIDs = []
         resettingSessionIDs = []
         resetTokensBySessionID = [:]
+        sessionListStreamActive = false
         removedSessionVersions = [:]
         errorMessage = nil
         isLoadingSessions = false
@@ -516,7 +531,17 @@ final class MobileChatHomeModel {
 
     private func startSessionEvents(from source: MobileChatEventSource, generation: UUID) {
         sessionEventsTask = Task { [weak self] in
+            defer {
+                guard let self, self.refreshGeneration == generation else { return }
+                self.sessionListStreamActive = false
+            }
             let events = await source.sessionEvents()
+            guard !Task.isCancelled,
+                  self?.refreshGeneration == generation else { return }
+            // Keep the dedicated stream as a fallback until the roster's
+            // server handshake has completed. A failed handshake must not
+            // create a window where state events are silently discarded.
+            self?.sessionListStreamActive = true
             for await frame in events {
                 guard !Task.isCancelled,
                       self?.refreshGeneration == generation else { return }
@@ -543,6 +568,20 @@ final class MobileChatHomeModel {
                 break
             default:
                 return
+            }
+        }
+        if !fromSessionList,
+           sessionListStreamActive,
+           openSessionIDs.contains(sessionID) {
+            // The roster stream owns versioned descriptor updates for an open
+            // session. The dedicated stream still carries transcript events,
+            // but its unversioned state duplicate can otherwise arrive after
+            // a newer descriptor and rewind the UI.
+            switch event {
+            case .stateChanged:
+                return
+            default:
+                break
             }
         }
         if case .sessionRemoved = event {
@@ -675,14 +714,6 @@ final class MobileChatHomeModel {
         hasMoreHistoryBySessionID[sessionID] = nil
     }
 
-    private func clearPendingLocalMessages() {
-        for (sessionID, pending) in pendingLocalMessages {
-            let pendingIDs = Set(pending.map(\.id))
-            messagesBySessionID[sessionID]?.removeAll { pendingIDs.contains($0.id) }
-        }
-        pendingLocalMessages.removeAll()
-    }
-
     private func rollbackOptimisticSend(
         sessionID: String,
         messageID: String,
@@ -691,6 +722,10 @@ final class MobileChatHomeModel {
         source: MobileChatEventSource,
         generation: UUID
     ) {
+        // A completion from a superseded source may represent a request the
+        // Mac accepted just before the route was refreshed. Leave its local
+        // row for the authoritative snapshot to reconcile; session removal
+        // still clears it through removeSessionState.
         guard refreshGeneration == generation, self.source === source else { return }
         // A failed request must not leave a prompt that never reached the Mac
         // in the transcript. If a server echo already reconciled it, the
