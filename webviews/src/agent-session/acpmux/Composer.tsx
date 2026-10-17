@@ -454,10 +454,9 @@ export function Composer({
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
-    const initial = restored || draft || "";
-    setText(initial);
-    setCaret(initial.length);
-    pendingCaret.current = initial.length;
+    setText(restored || draft || "");
+    setCaret((restored || draft || "").length);
+    pendingCaret.current = (restored || draft || "").length;
   }, [sessionId, text, draft]);
   useEffect(() => {
     let current = true;
