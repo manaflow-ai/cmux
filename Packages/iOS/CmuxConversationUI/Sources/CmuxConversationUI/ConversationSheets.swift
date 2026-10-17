@@ -224,7 +224,9 @@ struct ConversationFilesSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        // File browsing needs the full sheet height so the final changed-file
+        // row remains a real hit target on both iPhone and iPad.
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("ConversationFilesSheet")
     }
