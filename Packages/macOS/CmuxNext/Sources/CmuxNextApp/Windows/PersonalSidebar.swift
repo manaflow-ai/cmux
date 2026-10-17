@@ -53,8 +53,7 @@ enum PersonalSidebar {
     }
 
     /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui `state/personal_order.rs`) over `workspaces` of `session`: walk every
-    /// personal row by position; before row i come the groups whose
-    /// `top_index` is i (in group order, members in personal order), then
+    /// personal row by position; before row i come the groups whose `top_index` is i (in group order, members in personal order), then
     /// row i when it is loose. Workspaces without a personal row follow as
     /// loose rows, then the groups placed after every loose row (`top_index`
     /// nil or past the last row). Consecutive loose rows share one section.
