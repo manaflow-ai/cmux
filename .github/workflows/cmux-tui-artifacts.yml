@@ -939,8 +939,10 @@ jobs:
       # (an optional Windows companion, attested in completion-windows.json),
       # never in cmux-tui/<sha>/. Its own optional job: a failed acpmux build
       # publishes the Windows daemon without it.
-      # Not for pull_request_target runs: publish-pr-tree publishes no Windows files.
-      windows_acpmux: ${{ github.event_name != 'pull_request_target' }}
+      # Also for pull_request_target runs (chief 2026-10-17): publish-pr-tree
+      # publishes the Windows daemon and acpmux, so a tree a PR publishes
+      # first is complete for Windows too.
+      windows_acpmux: true
       # Same-repository PRs (pull_request_target) publish the tree that their
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -2659,6 +2661,24 @@ jobs:
           name: cmux-tui-x86_64-apple-darwin
           path: assets/tree
 
+      # The Windows daemon, its host and acpmux (chief 2026-10-17): a push run
+      # of the same key finds the tree ready and builds nothing, so a PR tree
+      # without them never got completion-windows.json. Optional, as in
+      # publish-tree: without the daemon the tree has no Windows files.
+      - name: Download the Windows x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: assets/windows
+
+      - name: Download the Windows x86_64 acpmux
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-acpmux-x86_64-pc-windows-gnu
+          path: assets/windows
+
       - name: Publish the PR tree with the trusted helper
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -2739,6 +2759,33 @@ jobs:
           print(json.dumps({"commit": commit, "key": key, "binaries": binaries}, indent=2))
           PY
           mv manifest.json.tmp manifest.json
+          # Windows (chief 2026-10-17): this run's Windows daemon, with its
+          # host and acpmux when built, attested in completion-windows.json by
+          # this run's merge commit. A tree that already has
+          # completion-windows.json keeps it (write-once): no Windows change.
+          windows_args=()
+          windows_names="$(python3 "$helper" --list-windows-companions)"
+          windows_optional="$(python3 "$helper" --list-windows-optional-companions 2>/dev/null || true)"
+          if fetch "$base/completion-windows.json" tree/existing-completion-windows.json 2>/dev/null; then
+            echo "Tree $KEY already has completion-windows.json; its Windows files stay as they are."
+          elif python3 - "$SOURCE_COMMIT" "$windows_names" "$windows_optional" > tree/windows-manifest.json <<'PY'
+          import hashlib, json, pathlib, shutil, sys
+          commit, required, optional = sys.argv[1:]
+          binaries = {}
+          for name in required.split() + optional.split():
+              path = pathlib.Path("assets/windows") / name
+              if path.is_file():
+                  shutil.copyfile(path, pathlib.Path("assets/tree") / name)
+                  binaries[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+              elif name in required.split():
+                  sys.exit(f"no {name}")
+          print(json.dumps({"commit": commit, "binaries": binaries}, indent=2))
+          PY
+          then
+            windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$SOURCE_COMMIT")
+          else
+            echo "::warning title=PR tree without Windows::this run built no Windows daemon; PR tree $KEY is published without Windows files"
+          fi
           if [[ "${source_args[*]}" == *"--publish-source"* ]]; then
             python3 - "$KEY" "$SOURCE_COMMIT" "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" manifest.json > tree/source.json <<'PY'
           import json, os, sys
@@ -2766,6 +2813,7 @@ jobs:
             --manifest-file manifest.json \
             "${source_args[@]}" \
             "${completion_args[@]}" \
+            "${windows_args[@]}" \
             --uploader "$uploader" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries
