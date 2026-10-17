@@ -25,7 +25,9 @@ const scrollbar =
   "data-hovering:opacity-100 data-scrolling:opacity-100 data-scrolling:duration-0";
 const thumb =
   "rounded-full bg-(--ui-scroll-thumb,color-mix(in_srgb,currentColor_32%,transparent)) " +
-  "hover:bg-(--ui-scroll-thumb-hover,color-mix(in_srgb,currentColor_48%,transparent))";
+  "hover:bg-(--ui-scroll-thumb-hover,color-mix(in_srgb,currentColor_48%,transparent)) " +
+  "transition-[height,width,background-color] duration-180 ease-[cubic-bezier(0.2,0,0,1)] " +
+  "motion-reduce:transition-none";
 
 export function ScrollArea({
   className,

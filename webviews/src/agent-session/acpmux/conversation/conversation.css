@@ -755,6 +755,9 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+  /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
+     each streamed token compete with that correction and produces the one-pixel shake at rest. */
+  overflow-anchor: none;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;

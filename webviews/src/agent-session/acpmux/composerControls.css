@@ -120,6 +120,7 @@
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  animation: acpmux-effort-track-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 .acpmux-effort-fill {
   position: absolute;
@@ -127,7 +128,8 @@
   width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 45%, transparent);
-  transition: width 160ms ease;
+  transition: width 220ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: width;
 }
 .acpmux-effort-stop {
   position: absolute;
@@ -162,7 +164,8 @@
   background: var(--agent-text);
   box-shadow: var(--elevation-1);
   pointer-events: none;
-  transition: left 160ms ease;
+  transition: left 220ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: left;
 }
 /* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
    the recommended level on its own centred line under them: a narrow panel never cuts it. */
@@ -198,9 +201,22 @@
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .acpmux-effort-track,
   .acpmux-effort-fill,
   .acpmux-effort-thumb {
+    animation: none;
     transition: none;
+  }
+}
+@keyframes acpmux-effort-track-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scaleX(0.985);
+    transform-origin: left center;
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 /* The approval menu's question above the modes (permissions-menu.png). */
