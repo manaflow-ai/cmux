@@ -22,19 +22,19 @@ struct ConversationComposerArea: View {
             } else {
                 HStack(alignment: .bottom, spacing: 9) {
                     Menu {
-                        Button("Camera", systemImage: "camera") {}
-                        Button("Photos", systemImage: "photo") {}
-                        Button("Files", systemImage: "doc") {}
+                        Button(ConversationL10n.value("conversation.camera", "Camera"), systemImage: "camera") {}
+                        Button(ConversationL10n.value("conversation.photos", "Photos"), systemImage: "photo") {}
+                        Button(ConversationL10n.value("conversation.files", "Files"), systemImage: "doc") {}
                         Divider()
-                        Button("Plan mode", systemImage: "checklist") { model.updateDraft("/plan ") }
-                        Button("Pursue goal", systemImage: "target") { model.updateDraft("/goal ") }
+                        Button(ConversationL10n.value("conversation.plan_mode", "Plan mode"), systemImage: "checklist") { model.updateDraft("/plan ") }
+                        Button(ConversationL10n.value("conversation.pursue_goal", "Pursue goal"), systemImage: "target") { model.updateDraft("/goal ") }
                     } label: {
                         Image(systemName: "plus")
                             .font(.headline.weight(.semibold))
                             .frame(width: 34, height: 34)
                             .background(Color(uiColor: .tertiarySystemFill), in: Circle())
                     }
-                    .accessibilityLabel("Add attachment or mode")
+                    .accessibilityLabel(ConversationL10n.value("conversation.add", "Add attachment or mode"))
                     .accessibilityIdentifier("ConversationComposerPlus")
 
                     TextEditor(text: Binding(get: { model.draft }, set: { model.updateDraft($0) }))
@@ -46,7 +46,7 @@ struct ConversationComposerArea: View {
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .overlay(alignment: .topLeading) {
                             if model.draft.isEmpty {
-                                Text(model.isRunning ? "Follow up" : "Work on \(model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName ?? "Cloud")")
+                                Text(model.isRunning ? "Follow up" : "Work on \(model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName ?? ConversationL10n.value("conversation.cloud", "Cloud"))")
                                     .font(.body)
                                     .foregroundStyle(.tertiary)
                                     .padding(.horizontal, 16)
@@ -56,7 +56,7 @@ struct ConversationComposerArea: View {
                         }
                         .accessibilityIdentifier("ConversationComposerTextEditor")
 
-                    if model.isRunning && model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if model.isRunning && model.supportsStopping && model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Button {
                             model.stop()
                         } label: {
@@ -66,7 +66,7 @@ struct ConversationComposerArea: View {
                                 .background(.primary, in: Circle())
                                 .foregroundStyle(.background)
                         }
-                        .accessibilityLabel("Stop task")
+                        .accessibilityLabel(ConversationL10n.value("conversation.stop", "Stop task"))
                         .accessibilityIdentifier("ConversationStopButton")
                     } else {
                         Button {
@@ -81,33 +81,33 @@ struct ConversationComposerArea: View {
                         .disabled(!canSend)
                         .simultaneousGesture(
                             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                                guard canSend, model.isRunning else { return }
+                                guard canSend, model.isRunning, model.supportsSteering || model.supportsQueueing else { return }
                                 pendingSteerOrQueue = true
                             }
                         )
-                        .accessibilityLabel(model.isRunning ? "Send follow up" : "Send message")
+                        .accessibilityLabel(model.isRunning ? ConversationL10n.value("conversation.send_followup", "Send follow up") : ConversationL10n.value("conversation.send", "Send message"))
                         .accessibilityIdentifier("ConversationSendButton")
                     }
                 }
-                .confirmationDialog("Send while working", isPresented: $pendingSteerOrQueue, titleVisibility: .visible) {
-                    Button("Steer") { model.steer() }
-                    Button("Queue") { model.queueTurn() }
-                    Button("Cancel", role: .cancel) {}
+                .confirmationDialog(ConversationL10n.value("conversation.send_working", "Send while working"), isPresented: $pendingSteerOrQueue, titleVisibility: .visible) {
+                    if model.supportsSteering { Button(ConversationL10n.value("conversation.steer", "Steer")) { model.steer() } }
+                    if model.supportsQueueing { Button(ConversationL10n.value("conversation.queue", "Queue")) { model.queueTurn() } }
+                    Button(ConversationL10n.value("conversation.cancel", "Cancel"), role: .cancel) {}
                 } message: {
-                    Text("Choose whether this message should guide the current turn or wait in the queue.")
+                    Text(ConversationL10n.value("conversation.send_working.message", "Choose whether this message should guide the current turn or wait in the queue."))
                 }
             }
             HStack(spacing: 10) {
-                Text(model.isRunning ? "Working" : "Ready")
+                Text(model.isRunning ? ConversationL10n.value("conversation.working", "Working") : ConversationL10n.value("conversation.ready", "Ready"))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Menu {
-                    Button("Fast", action: {})
-                    Button("Balanced", action: {})
-                    Button("Thorough", action: {})
+                    Button(ConversationL10n.value("conversation.fast", "Fast"), action: {})
+                    Button(ConversationL10n.value("conversation.balanced", "Balanced"), action: {})
+                    Button(ConversationL10n.value("conversation.thorough", "Thorough"), action: {})
                 } label: {
-                    Label("Effort", systemImage: "gauge.with.dots.needle.67percent")
+                    Label(ConversationL10n.value("conversation.effort", "Effort"), systemImage: "gauge.with.dots.needle.67percent")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -134,7 +134,7 @@ private struct ConversationRequestCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let approval = request.approval {
-                Label("Approval needed", systemImage: "hand.raised")
+                Label(ConversationL10n.value("conversation.approval_needed", "Approval needed"), systemImage: "hand.raised")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.orange)
                 Text(approval.summary)
@@ -143,19 +143,19 @@ private struct ConversationRequestCard: View {
                     ConversationCodeBlock(text: command, label: "Command")
                 }
                 if approval.supportsAlwaysAllow {
-                    Toggle("Always approve for this task", isOn: $allowSession)
+                    Toggle(ConversationL10n.value("conversation.always_approve", "Always approve for this task"), isOn: $allowSession)
                         .font(.subheadline)
                 }
                 HStack {
-                    Button("Deny", role: .cancel) { model.resolveApproval(request, decision: .deny) }
+                    Button(ConversationL10n.value("conversation.deny", "Deny"), role: .cancel) { model.resolveApproval(request, decision: .deny) }
                     Spacer()
-                    Button("Approve") { model.resolveApproval(request, decision: allowSession ? .alwaysApprove : .approve) }
+                    Button(ConversationL10n.value("conversation.approve", "Approve")) { model.resolveApproval(request, decision: allowSession ? .alwaysApprove : .approve) }
                         .buttonStyle(.borderedProminent)
                 }
             } else if let question = request.question {
                 ConversationQuestionCard(request: request, model: model, isBlocking: true)
             } else {
-                Text("This request is unavailable.")
+                Text(ConversationL10n.value("conversation.request_unavailable", "This request is unavailable."))
                     .foregroundStyle(.secondary)
             }
         }
@@ -186,7 +186,7 @@ private struct ConversationQuestionCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text(question?.prompt ?? "Input needed")
+            Text(question?.prompt ?? ConversationL10n.value("conversation.input_needed", "Input needed"))
                 .font(.body.weight(.semibold))
             ForEach(question?.options ?? []) { option in
                 Button {
@@ -214,7 +214,7 @@ private struct ConversationQuestionCard: View {
                     .accessibilityIdentifier("ConversationQuestionCustomAnswer")
             }
             HStack {
-                Button(customAnswer.isEmpty ? "Skip" : "Send") {
+                Button(customAnswer.isEmpty ? ConversationL10n.value("conversation.skip", "Skip") : ConversationL10n.value("conversation.send", "Send")) {
                     let text = customAnswer.isEmpty ? "Skipped" : customAnswer
                     model.answer(request: request, value: text)
                 }

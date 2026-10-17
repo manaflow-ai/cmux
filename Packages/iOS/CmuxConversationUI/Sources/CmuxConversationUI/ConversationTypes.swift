@@ -27,7 +27,7 @@ public extension ConversationProvider {
     /// Human-readable provider label.
     var displayName: String {
         switch self {
-        case .codex: "Codex"
+        case .codex: ConversationL10n.value("conversation.codex", "Codex")
         case .claudeCode: "Claude Code"
         case .openCode: "OpenCode"
         case .unknown(let value): value
@@ -42,7 +42,7 @@ public extension ConversationSession {
 
 public extension ConversationItem {
     /// Text suitable for a simple transcript row.
-    var displayText: String { text ?? tool?.name ?? plan?.text ?? diff?.text ?? artifact?.fileName ?? "" }
+    var displayText: String { text ?? tool?.name ?? plan?.text ?? diff?.text ?? artifact?.fileName ?? rawPayload?.prettyDescription ?? "" }
 
     /// A compact title for a tool or structured item.
     var displayTitle: String {
@@ -51,7 +51,7 @@ public extension ConversationItem {
         case .result: "Result"
         case .reasoning: "Thinking"
         case .plan: "Plan"
-        case .files: diff?.path ?? "Files"
+        case .files: diff?.path ?? ConversationL10n.value("conversation.files", "Files")
         case .artifact: artifact?.fileName ?? "Artifact"
         default: kind.rawValue.capitalized
         }

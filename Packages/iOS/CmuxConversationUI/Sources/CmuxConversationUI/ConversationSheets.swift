@@ -11,8 +11,8 @@ struct ConversationNewTaskSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Provider") {
-                    Picker("Provider", selection: $provider) {
+                Section(ConversationL10n.value("conversation.provider", "Provider")) {
+                    Picker(ConversationL10n.value("conversation.provider", "Provider"), selection: $provider) {
                         ForEach([ConversationProvider.codex, .claudeCode, .openCode], id: \.self) { value in
                             Text(value.displayName).tag(value)
                         }
@@ -20,9 +20,9 @@ struct ConversationNewTaskSheet: View {
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("ConversationProviderPicker")
                 }
-                Section("Workspace") {
+                Section(ConversationL10n.value("conversation.workspace", "Workspace")) {
                     if model.workspaces.isEmpty {
-                        ContentUnavailableView("No workspaces", systemImage: "folder", description: Text("Choose a connected workspace before starting a task."))
+                        ContentUnavailableView(ConversationL10n.value("conversation.no_workspaces", "No workspaces"), systemImage: "folder", description: Text(ConversationL10n.value("conversation.choose_workspace", "Choose a connected workspace before starting a task.")))
                     } else {
                         ForEach(model.workspaces) { workspace in
                             Button {
@@ -43,11 +43,11 @@ struct ConversationNewTaskSheet: View {
                     }
                 }
             }
-            .navigationTitle("New task")
+            .navigationTitle(ConversationL10n.value("conversation.new_task", "New task"))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.cancel", "Cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Start") {
+                    Button(ConversationL10n.value("conversation.start", "Start")) {
                         model.createSession(provider: provider, workspace: model.workspaces.first(where: { $0.id == workspaceID }))
                         dismiss()
                     }
@@ -68,30 +68,52 @@ struct ConversationNewTaskSheet: View {
 struct ConversationModelSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var model: ConversationModel
-    @State private var effort = "balanced"
-    @State private var speed = "standard"
+    @State private var selectedModel = ""
+    @State private var effort = ""
+    @State private var speed = ""
+
+    private var capabilities: ConversationCapabilities? { model.capabilities }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Intelligence") {
-                    Picker("Effort", selection: $effort) {
-                        Text("Fast").tag("fast")
-                        Text("Balanced").tag("balanced")
-                        Text("Thorough").tag("thorough")
-                    }
-                    Picker("Speed", selection: $speed) {
-                        Text("Standard").tag("standard")
-                        Text("Quick").tag("quick")
+                if let capabilities, !capabilities.models.isEmpty {
+                    Section(ConversationL10n.value("conversation.model", "Model")) {
+                        Picker(ConversationL10n.value("conversation.model", "Model"), selection: $selectedModel) {
+                            ForEach(capabilities.models, id: \.self) { value in Text(value).tag(value) }
+                        }
                     }
                 }
-                Text("These controls follow the capabilities advertised by the connected provider.")
+                Section(ConversationL10n.value("conversation.intelligence", "Intelligence")) {
+                    if let capabilities, !capabilities.efforts.isEmpty {
+                        Picker(ConversationL10n.value("conversation.effort", "Effort"), selection: $effort) {
+                            ForEach(capabilities.efforts, id: \.self) { value in Text(value.capitalized).tag(value) }
+                        }
+                    }
+                    if let capabilities, !capabilities.speeds.isEmpty {
+                        Picker(ConversationL10n.value("conversation.speed", "Speed"), selection: $speed) {
+                            ForEach(capabilities.speeds, id: \.self) { value in Text(value.capitalized).tag(value) }
+                        }
+                    }
+                }
+                Text(ConversationL10n.value("conversation.capabilities", "These controls follow the capabilities advertised by the connected provider."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            .navigationTitle("Model and effort")
+            .navigationTitle(ConversationL10n.value("conversation.model_effort", "Model and effort"))
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(ConversationL10n.value("conversation.done", "Done")) {
+                        model.configure(model: selectedModel.isEmpty ? nil : selectedModel, effort: effort.isEmpty ? nil : effort, speed: speed.isEmpty ? nil : speed)
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                let session = model.sessions.first(where: { $0.id == model.selectedSessionID })
+                selectedModel = session?.model ?? capabilities?.models.first ?? ""
+                effort = session?.effort ?? capabilities?.efforts.first ?? ""
+                speed = session?.speed ?? capabilities?.speeds.first ?? ""
             }
         }
         .presentationDetents([.medium])
@@ -104,24 +126,24 @@ struct ConversationFilesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let items: [ConversationItem]
     @State private var selection: String?
-    @State private var filter = "Unstaged"
+    @State private var filter = ConversationL10n.value("conversation.unstaged", "Unstaged")
 
     private var diffs: [ConversationDiff] {
-        items.compactMap(\.diff).filter { filter == "All" || $0.comparison.localizedCaseInsensitiveContains(filter.lowercased()) }
+        items.compactMap(\.diff).filter { filter == ConversationL10n.value("conversation.all", "All") || $0.comparison.localizedCaseInsensitiveContains(filter.lowercased()) }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                Picker("Comparison", selection: $filter) {
-                    Text("Unstaged").tag("Unstaged")
-                    Text("Staged").tag("Staged")
-                    Text("Last turn").tag("Last turn")
-                    Text("All").tag("All")
+                Picker(ConversationL10n.value("conversation.comparison", "Comparison"), selection: $filter) {
+                    Text(ConversationL10n.value("conversation.unstaged", "Unstaged")).tag(ConversationL10n.value("conversation.unstaged", "Unstaged"))
+                    Text(ConversationL10n.value("conversation.staged", "Staged")).tag(ConversationL10n.value("conversation.staged", "Staged"))
+                    Text(ConversationL10n.value("conversation.last_turn", "Last turn")).tag(ConversationL10n.value("conversation.last_turn", "Last turn"))
+                    Text(ConversationL10n.value("conversation.all", "All")).tag(ConversationL10n.value("conversation.all", "All"))
                 }
                 .pickerStyle(.segmented)
                 if diffs.isEmpty {
-                    ContentUnavailableView("No changes", systemImage: "doc.text", description: Text("There are no changes for this comparison."))
+                    ContentUnavailableView(ConversationL10n.value("conversation.no_changes", "No changes"), systemImage: "doc.text", description: Text(ConversationL10n.value("conversation.no_changes.description", "There are no changes for this comparison.")))
                         .listRowBackground(Color.clear)
                 } else {
                     ForEach(diffs, id: \.path) { diff in
@@ -139,9 +161,9 @@ struct ConversationFilesSheet: View {
                     }
                 }
             }
-            .navigationTitle("Files")
+            .navigationTitle(ConversationL10n.value("conversation.files", "Files"))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
             }
             .sheet(item: Binding(get: {
                 selection.flatMap { path in diffs.first(where: { $0.path == path }).map { ConversationDiffItem(diff: $0) } }
@@ -149,7 +171,7 @@ struct ConversationFilesSheet: View {
                 NavigationStack {
                     ConversationDiffView(diff: item.diff)
                         .navigationTitle(item.diff.path)
-                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { selection = nil } } }
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { selection = nil } } }
                 }
             }
         }

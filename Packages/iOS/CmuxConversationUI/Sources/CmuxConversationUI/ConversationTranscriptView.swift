@@ -15,7 +15,7 @@ struct ConversationTranscriptView: View {
                             .padding(.top, 56)
                     }
                     ForEach(model.items) { item in
-                        ConversationItemRow(item: item, isExpanded: expandedItems.contains(item.id)) {
+                        ConversationItemRow(item: item, model: model, isExpanded: expandedItems.contains(item.id)) {
                             if expandedItems.contains(item.id) { expandedItems.remove(item.id) }
                             else { expandedItems.insert(item.id) }
                         }
@@ -51,9 +51,9 @@ private struct ConversationWelcomeView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(.blue)
-            Text("Work with \(provider.displayName)")
+            Text(ConversationL10n.value("conversation.welcome.title", "Work with \(provider.displayName)"))
                 .font(.title3.weight(.semibold))
-            Text("Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here.")
+            Text(ConversationL10n.value("conversation.welcome.body", "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -66,10 +66,11 @@ private struct ConversationWelcomeView: View {
 
 private struct ConversationItemRow: View {
     let item: ConversationItem
+    @Bindable var model: ConversationModel
     let isExpanded: Bool
     let toggle: () -> Void
 
-    private var isUser: Bool { item.kind == .message && item.rawPayload == nil && item.tool == nil }
+    private var isUser: Bool { item.kind == .message && item.role?.lowercased() == "user" }
     private var isCollapsible: Bool { [.reasoning, .plan, .tool, .result, .files, .artifact, .child, .usage].contains(item.kind) }
 
     var body: some View {
@@ -112,7 +113,7 @@ private struct ConversationItemRow: View {
                 .buttonStyle(.plain)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    if item.kind == .error { Label("Error", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.subheadline.weight(.semibold)) }
+                    if item.kind == .error { Label(ConversationL10n.value("conversation.error", "Error"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.subheadline.weight(.semibold)) }
                     Text(item.displayText)
                         .font(.body)
                         .foregroundStyle(item.kind == .error ? .red : .primary)
@@ -141,7 +142,7 @@ private struct ConversationItemRow: View {
     private var statusLabel: String {
         if let tool = item.tool {
             switch tool.status {
-            case .queued: "Queued"
+            case .queued: ConversationL10n.value("conversation.queued", "Queued")
             case .running: "Running"
             case .success: "Success"
             case .failed: "Failed"
@@ -163,13 +164,7 @@ private struct ConversationItemRow: View {
         if item.kind == .files, let diff = item.diff {
             ConversationDiffView(diff: diff)
         } else if item.kind == .artifact, let artifact = item.artifact {
-            HStack(spacing: 8) {
-                Image(systemName: "doc")
-                Text(artifact.fileName).lineLimit(1)
-                Spacer()
-                if let byteCount = artifact.byteCount { Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
-            }
-            .font(.subheadline)
+            ConversationArtifactPreview(artifact: artifact, model: model)
         } else if let tool = item.tool {
             VStack(alignment: .leading, spacing: 8) {
                 if let input = tool.input { ConversationCodeBlock(text: input.prettyDescription, label: "Input") }
@@ -180,6 +175,49 @@ private struct ConversationItemRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ConversationArtifactPreview: View {
+    let artifact: ConversationArtifact
+    @Bindable var model: ConversationModel
+    @State private var isLoading = false
+    @State private var localURL: URL?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc")
+                Text(artifact.fileName).lineLimit(1)
+                Spacer()
+                if let byteCount = artifact.byteCount {
+                    Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let localURL {
+                ShareLink(item: localURL) { Label(ConversationL10n.value("conversation.share_artifact", "Share artifact"), systemImage: "square.and.arrow.up") }
+                    .font(.subheadline)
+            } else {
+                Button {
+                    isLoading = true
+                    errorMessage = nil
+                    Task {
+                        do { localURL = try await model.downloadArtifact(artifact) }
+                        catch { errorMessage = error.localizedDescription }
+                        isLoading = false
+                    }
+                } label: {
+                    if isLoading { ProgressView().controlSize(.small) }
+                    else { Label(ConversationL10n.value("conversation.preview_artifact", "Preview artifact"), systemImage: "arrow.down.circle") }
+                }
+                .disabled(isLoading)
+                .accessibilityIdentifier("ConversationArtifactPreview-\(artifact.artifactID)")
+            }
+            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
         }
     }
 }
@@ -220,7 +258,7 @@ private struct ConversationQueuedRow: View {
                     .font(.body)
                     .foregroundStyle(.primary)
                 HStack(spacing: 6) {
-                    Text(item.isDelivering ? "Sending" : "Queued")
+                    Text(item.isDelivering ? ConversationL10n.value("conversation.sending", "Sending") : ConversationL10n.value("conversation.queued", "Queued"))
                     Text("·")
                     Image(systemName: "ellipsis")
                 }
@@ -231,17 +269,17 @@ private struct ConversationQueuedRow: View {
             .padding(.vertical, 10)
             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contextMenu {
-                Button("Edit", systemImage: "pencil") { text = item.text; isEditing = true }
-                Button("Steer instead", systemImage: "arrow.turn.up.right") { model.steer(item.text) }
-                Button("Cancel", systemImage: "xmark", role: .destructive) { model.cancelQueue(item) }
+                Button(ConversationL10n.value("conversation.edit", "Edit"), systemImage: "pencil") { text = item.text; isEditing = true }
+                Button(ConversationL10n.value("conversation.steer_instead", "Steer instead"), systemImage: "arrow.turn.up.right") { model.steer(item.text) }
+                Button(ConversationL10n.value("conversation.cancel", "Cancel"), systemImage: "xmark", role: .destructive) { model.cancelQueue(item) }
             }
             .sheet(isPresented: $isEditing) {
                 NavigationStack {
                     Form { TextField("Queued message", text: $text, axis: .vertical).lineLimit(3...8) }
-                        .navigationTitle("Edit queued message")
+                        .navigationTitle(ConversationL10n.value("conversation.edit_queued", "Edit queued message"))
                         .toolbar {
-                            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { isEditing = false } }
-                            ToolbarItem(placement: .confirmationAction) { Button("Save") { model.editQueue(item, text: text); isEditing = false } }
+                            ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.cancel", "Cancel")) { isEditing = false } }
+                            ToolbarItem(placement: .confirmationAction) { Button(ConversationL10n.value("conversation.save", "Save")) { model.editQueue(item, text: text); isEditing = false } }
                         }
                 }
                 .presentationDetents([.medium])

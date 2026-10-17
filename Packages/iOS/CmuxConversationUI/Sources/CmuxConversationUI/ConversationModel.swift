@@ -1,4 +1,5 @@
 import CmuxConversation
+import CryptoKit
 import Foundation
 import Observation
 
@@ -22,12 +23,20 @@ public final class ConversationModel {
     public private(set) var connectionState: ConversationConnectionState = .disconnected
     /// Whether the selected task's run is active.
     public private(set) var isRunning = false
+    /// The active provider turn used to reject stale steer/interrupt commands.
+    public private(set) var activeTurnID: ConversationTurnID?
+    /// Capabilities advertised by the selected provider session.
+    public private(set) var capabilities: ConversationCapabilities?
     /// Last command receipt, including rejected and uncertain outcomes.
     public private(set) var lastReceipt: ConversationReceipt?
     /// Non-destructive inline error for load/command failures.
     public private(set) var errorMessage: String?
     /// Text currently in the composer.
-    public var draft = ""
+    public var draft = "" {
+        didSet {
+            if let selectedSessionID { draftBySession[selectedSessionID] = draft }
+        }
+    }
     /// Filter text for the task list.
     public var searchText = ""
     /// A provider/workspace used by the new-task sheet.
@@ -50,6 +59,7 @@ public final class ConversationModel {
     private var bufferedEvents: [ConversationEvent] = []
     private var draftBySession: [ConversationID: String] = [:]
     private var cursorBySession: [ConversationID: ConversationCursor] = [:]
+    private var pendingCreateRequestID: ConversationCommandID?
 
     /// Creates state for a host scope. A nil client starts in a disconnected,
     /// read-only state and can be replaced when pairing becomes available.
@@ -74,6 +84,7 @@ public final class ConversationModel {
         snapshotTask?.cancel()
         commandTasks.values.forEach { $0.cancel() }
         commandTasks.removeAll()
+        isSubmitting = false
         self.client = client
         self.scopeID = scopeID
         connectionState = client == nil ? .disconnected : .connecting
@@ -85,11 +96,14 @@ public final class ConversationModel {
             requests = []
             queue = []
             isRunning = false
+            activeTurnID = nil
+            capabilities = nil
             draft = ""
             currentCursor = 0
             currentProviderGeneration = nil
             draftBySession.removeAll()
             cursorBySession.removeAll()
+            pendingCreateRequestID = nil
         }
         guard client != nil else {
             if scopeChanged { sessions = [] }
@@ -126,18 +140,21 @@ public final class ConversationModel {
 
     /// Creates a new task and opens it in the conversation view.
     public func createSession(provider: ConversationProvider? = nil, workspace: ConversationWorkspaceChoice? = nil) {
-        guard let client else {
-            errorMessage = "Reconnect to create a task."
+        guard let client, !isSubmitting else {
+            errorMessage = ConversationL10n.value("conversation.error.reconnect_create", "Reconnect to create a task.")
             return
         }
         let selectedWorkspace = workspace ?? newTaskWorkspace
         guard let selectedWorkspace else {
-            errorMessage = "Choose a workspace before starting a task."
+            errorMessage = ConversationL10n.value("conversation.error.choose_workspace", "Choose a workspace before starting a task.")
             return
         }
         let provider = provider ?? newTaskProvider
+        isSubmitting = true
+        let requestID = pendingCreateRequestID ?? ConversationCommandID(rawValue: UUID().uuidString)
+        pendingCreateRequestID = requestID
         let request = ConversationCreateRequest(
-            requestID: ConversationCommandID(rawValue: UUID().uuidString),
+            requestID: requestID,
             provider: provider,
             workspaceID: selectedWorkspace.id,
             directory: selectedWorkspace.directory,
@@ -148,12 +165,15 @@ public final class ConversationModel {
             do {
                 let session = try await client.createSession(request)
                 guard let self, self.generation == expectedGeneration else { return }
+                self.pendingCreateRequestID = nil
+                self.isSubmitting = false
                 self.sessions.removeAll { $0.id == session.id }
                 self.sessions.append(session)
                 self.selectSession(id: session.id)
             } catch {
                 guard let self, self.generation == expectedGeneration else { return }
                 self.errorMessage = Self.userMessage(for: error)
+                self.isSubmitting = false
             }
         }
     }
@@ -161,6 +181,7 @@ public final class ConversationModel {
     /// Selects a task and begins stream-before-snapshot replay.
     public func selectSession(id: ConversationID?) {
         guard selectedSessionID != id else { return }
+        if let previousSessionID = selectedSessionID { draftBySession[previousSessionID] = draft }
         streamTask?.cancel()
         snapshotTask?.cancel()
         selectedSessionID = id
@@ -168,6 +189,8 @@ public final class ConversationModel {
         requests = []
         queue = []
         isRunning = false
+        activeTurnID = nil
+        capabilities = nil
         currentCursor = id.flatMap { cursorBySession[$0] } ?? 0
         draft = id.flatMap { draftBySession[$0] } ?? ""
         bufferedEvents.removeAll()
@@ -179,7 +202,6 @@ public final class ConversationModel {
     /// Updates the draft without submitting it.
     public func updateDraft(_ value: String) {
         draft = value
-        if let selectedSessionID { draftBySession[selectedSessionID] = value }
     }
 
     /// Starts a turn. A failed or uncertain receipt leaves the draft intact.
@@ -188,12 +210,14 @@ public final class ConversationModel {
         guard !value.isEmpty else { return }
         guard let selectedSessionID else { return }
         guard connectionState == .connected else {
-            errorMessage = "Reconnect to send a message."
+            errorMessage = ConversationL10n.value("conversation.error.reconnect_send", "Reconnect to send a message.")
             return
         }
         guard !isSubmitting else { return }
         if isRunning {
-            queueTurn(value)
+            if supportsQueueing { queueTurn(value) }
+            else if supportsSteering { steer(value) }
+            else { errorMessage = ConversationL10n.value("conversation.error.followup_unsupported", "This provider cannot accept a follow-up while it is working.") }
             return
         }
         send(.startTurn(text: value, model: nil, effort: nil), draftToClear: value, sessionID: selectedSessionID)
@@ -203,7 +227,7 @@ public final class ConversationModel {
     public func queueTurn(_ text: String? = nil) {
         guard let selectedSessionID else { return }
         let value = (text ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, connectionState == .connected, !isSubmitting else { return }
+        guard !value.isEmpty, connectionState == .connected, !isSubmitting, supportsQueueing else { return }
         send(.queue(text: value), draftToClear: value, sessionID: selectedSessionID)
     }
 
@@ -211,13 +235,13 @@ public final class ConversationModel {
     public func steer(_ text: String? = nil) {
         guard let selectedSessionID else { return }
         let value = (text ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, connectionState == .connected, !isSubmitting else { return }
+        guard !value.isEmpty, connectionState == .connected, !isSubmitting, supportsSteering else { return }
         send(.steer(text: value), draftToClear: value, sessionID: selectedSessionID)
     }
 
     /// Requests a stop; tool lifecycle remains visible until its own event.
     public func stop() {
-        guard let selectedSessionID, connectionState == .connected, !isSubmitting else { return }
+        guard let selectedSessionID, connectionState == .connected, !isSubmitting, supportsStopping else { return }
         send(.interrupt, draftToClear: nil, sessionID: selectedSessionID)
     }
 
@@ -266,6 +290,51 @@ public final class ConversationModel {
         sendGlobal(.setArchived(true), sessionID: session.id)
     }
 
+    /// Downloads one journaled artifact through the optional bounded transfer
+    /// protocol. The result is written to a private temporary URL and verified
+    /// against the host-provided SHA-256 before it is returned to the caller.
+    public func downloadArtifact(_ artifact: ConversationArtifact) async throws -> URL {
+        guard let client = client as? any ConversationArtifactClient,
+              let selectedSessionID else { throw ConversationArtifactError.unavailable }
+        let maximumBytes: UInt64 = 16 * 1024 * 1024
+        let maximumChunk = 64 * 1024
+        var offset: UInt64 = 0
+        var totalBytes: UInt64?
+        var bytes = Data()
+        while totalBytes == nil || offset < (totalBytes ?? 0) {
+            let chunk = try await client.artifactChunk(
+                ConversationArtifactQuery(
+                    sessionID: selectedSessionID,
+                    artifactID: artifact.artifactID,
+                    offset: offset,
+                    expectedSHA256: artifact.sha256
+                )
+            )
+            guard chunk.artifactID == artifact.artifactID,
+                  chunk.offset == offset,
+                  chunk.data.count <= maximumChunk,
+                  chunk.totalBytes <= maximumBytes else { throw ConversationArtifactError.invalidChunk }
+            if totalBytes == nil { totalBytes = chunk.totalBytes }
+            guard chunk.totalBytes == totalBytes, !chunk.data.isEmpty || offset == chunk.totalBytes else {
+                throw ConversationArtifactError.invalidChunk
+            }
+            bytes.append(chunk.data)
+            offset += UInt64(chunk.data.count)
+            guard offset <= maximumBytes else { throw ConversationArtifactError.tooLarge }
+            if chunk.data.isEmpty { break }
+        }
+        let expectedHash = artifact.sha256 ?? ""
+        let actualHash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        guard expectedHash.isEmpty || expectedHash.caseInsensitiveCompare(actualHash) == .orderedSame else {
+            throw ConversationArtifactError.hashMismatch
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-conversation-artifacts", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(artifact.fileName)
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
     /// Sessions filtered by search text, retaining pinned grouping in the view.
     public var filteredSessions: [ConversationSession] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -285,6 +354,24 @@ public final class ConversationModel {
     /// Whether the selected task has an asynchronous question card.
     public var asynchronousRequest: ConversationRequest? {
         requests.first(where: { $0.state == .pending && !$0.isBlocking })
+    }
+
+    /// Whether the provider can steer its current turn.
+    public var supportsSteering: Bool { capabilities?.features.contains("steer") == true }
+
+    /// Whether the provider can interrupt/stop its current turn.
+    public var supportsStopping: Bool {
+        guard let features = capabilities?.features else { return false }
+        return features.contains("interrupt") || features.contains("stop")
+    }
+
+    /// Whether the provider accepts queued follow-up turns.
+    public var supportsQueueing: Bool { capabilities?.features.contains("queue") == true }
+
+    /// Changes provider settings for future turns when advertised by the host.
+    public func configure(model: String?, effort: String?, speed: String?) {
+        guard let selectedSessionID, connectionState == .connected else { return }
+        send(.configure(model: model, effort: effort, speed: speed), draftToClear: nil, sessionID: selectedSessionID)
     }
 
     private func openSession(id: ConversationID) {
@@ -313,6 +400,29 @@ public final class ConversationModel {
             } catch {
                 guard self.generation == expectedGeneration, self.selectedSessionID == id else { return }
                 self.connectionState = .failed(message: Self.userMessage(for: error))
+                self.errorMessage = Self.userMessage(for: error)
+                self.recoverSnapshotAfterStreamFailure(client: client, id: id, expectedGeneration: expectedGeneration)
+            }
+        }
+    }
+
+    /// Replaces a possibly incomplete projection after the host reports a
+    /// stream gap or overflow. The model remains disconnected until a later
+    /// client replacement registers a fresh live stream.
+    private func recoverSnapshotAfterStreamFailure(
+        client: any ConversationClient,
+        id: ConversationID,
+        expectedGeneration: Int
+    ) {
+        snapshotTask?.cancel()
+        snapshotTask = Task { [weak self] in
+            do {
+                let snapshot = try await client.snapshot(sessionID: id)
+                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                self.apply(snapshot: snapshot)
+                self.connectionState = .disconnected
+            } catch {
+                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
                 self.errorMessage = Self.userMessage(for: error)
             }
         }
@@ -351,8 +461,10 @@ public final class ConversationModel {
         queue = snapshot.queued
         currentCursor = snapshot.cursor
         currentProviderGeneration = snapshot.generation
+        activeTurnID = snapshot.activeTurnID
+        isRunning = snapshot.isTurnRunning
+        capabilities = snapshot.capabilities
         cursorBySession[snapshot.session.id] = currentCursor
-        isRunning = snapshot.session.state == .starting || snapshot.session.state == .ready && snapshot.items.last?.kind == .tool
         lastReceipt = snapshot.receipts.last
         snapshotLoading = false
         connectionState = .connected
@@ -385,12 +497,16 @@ public final class ConversationModel {
         case .queue:
             if let queue = event.queue { self.queue = queue }
         case .run, .turn:
-            if let state = event.state { isRunning = ["running", "starting", "working", "thinking"].contains(state.lowercased()) }
+            activeTurnID = event.turnID ?? activeTurnID
+            if let state = event.state {
+                isRunning = ["running", "starting", "working", "thinking"].contains(state.lowercased())
+                if !isRunning { activeTurnID = nil }
+            }
         case .receipt:
             if let receipt = event.receipt { apply(receipt: receipt) }
         case .restarted:
             requests.removeAll()
-            errorMessage = "The provider restarted. Pending requests were cleared."
+            errorMessage = ConversationL10n.value("conversation.error.provider_restarted", "The provider restarted. Pending requests were cleared.")
         case .unknown:
             break
         }
@@ -411,6 +527,7 @@ public final class ConversationModel {
             commandID: commandID,
             sessionID: sessionID,
             expectedGeneration: currentProviderGeneration,
+            expectedTurnID: activeTurnID,
             command: command
         )
         let task = Task { [weak self] in
@@ -458,12 +575,29 @@ public final class ConversationModel {
 
     private func apply(receipt: ConversationReceipt) {
         lastReceipt = receipt
-        if receipt.state == .rejected { errorMessage = receipt.reason ?? "The command was rejected." }
-        if receipt.state == .uncertain { errorMessage = receipt.reason ?? "The command outcome is unknown. Check the task before retrying." }
+        if receipt.state == .rejected { errorMessage = receipt.reason ?? ConversationL10n.value("conversation.error.command_rejected", "The command was rejected.") }
+        if receipt.state == .uncertain { errorMessage = receipt.reason ?? ConversationL10n.value("conversation.error.command_uncertain", "The command outcome is unknown. Check the task before retrying.") }
     }
 
     private static func userMessage(for error: any Error) -> String {
         if let error = error as? any LocalizedError, let message = error.errorDescription { return message }
-        return "The Cloud service is unavailable."
+        return ConversationL10n.value("conversation.error.unavailable", "The Cloud service is unavailable.")
+    }
+}
+
+/// Errors for bounded artifact previews.
+public enum ConversationArtifactError: LocalizedError, Sendable {
+    case unavailable
+    case invalidChunk
+    case tooLarge
+    case hashMismatch
+
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable: ConversationL10n.value("conversation.error.artifact_unavailable", "This artifact is unavailable from the connected host.")
+        case .invalidChunk: ConversationL10n.value("conversation.error.artifact_chunk", "The artifact transfer returned an invalid chunk.")
+        case .tooLarge: ConversationL10n.value("conversation.error.artifact_large", "This artifact is larger than the supported transfer limit.")
+        case .hashMismatch: ConversationL10n.value("conversation.error.artifact_hash", "The downloaded artifact failed its integrity check.")
+        }
     }
 }

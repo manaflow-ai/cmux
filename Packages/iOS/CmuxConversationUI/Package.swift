@@ -9,6 +9,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "CmuxConversationUI",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
@@ -23,11 +24,12 @@ let package = Package(
         .target(
             name: "CmuxConversationUI",
             dependencies: ["CmuxConversation"],
+            resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),
         .testTarget(
             name: "CmuxConversationUITests",
-            dependencies: ["CmuxConversationUI"],
+            dependencies: ["CmuxConversationUI", "CmuxConversation"],
             swiftSettings: swiftSettings
         ),
     ]

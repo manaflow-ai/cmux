@@ -22,17 +22,17 @@ struct ConversationTaskListView: View {
             let pinned = model.filteredSessions.filter(\.isPinned)
             let recent = model.filteredSessions.filter { !$0.isPinned }
             if !pinned.isEmpty {
-                Section("Pinned") {
+                Section(ConversationL10n.value("conversation.pinned", "Pinned")) {
                     ForEach(pinned) { sessionRow($0) }
                 }
                 .accessibilityIdentifier("ConversationPinnedSection")
             }
-            Section(pinned.isEmpty ? "Tasks" : "Recent") {
+            Section(pinned.isEmpty ? ConversationL10n.value("conversation.tasks", "Tasks") : ConversationL10n.value("conversation.recent", "Recent")) {
                 if recent.isEmpty && pinned.isEmpty {
                     ContentUnavailableView(
                         "No tasks yet",
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("Start a task to work with Codex, Claude Code, or OpenCode.")
+                        description: Text(ConversationL10n.value("conversation.empty.description", "Start a task to work with Codex, Claude Code, or OpenCode."))
                     )
                     .accessibilityIdentifier("ConversationEmptyState")
                 } else {
@@ -41,14 +41,14 @@ struct ConversationTaskListView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search tasks")
-        .navigationTitle("Tasks")
+        .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: ConversationL10n.value("conversation.search", "Search tasks"))
+        .navigationTitle(ConversationL10n.value("conversation.tasks", "Tasks"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: onNewTask) {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("New task")
+                .accessibilityLabel(ConversationL10n.value("conversation.new_task", "New task"))
                 .accessibilityIdentifier("ConversationNewTaskButton")
             }
         }
@@ -60,11 +60,11 @@ struct ConversationTaskListView: View {
                         .textInputAutocapitalization(.sentences)
                         .accessibilityIdentifier("ConversationRenameField")
                 }
-                .navigationTitle("Rename task")
+                .navigationTitle(ConversationL10n.value("conversation.rename_task", "Rename task"))
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editingSession = nil } }
+                    ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.cancel", "Cancel")) { editingSession = nil } }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
+                        Button(ConversationL10n.value("conversation.save", "Save")) {
                             let title = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !title.isEmpty { model.renameSession(session, title: title) }
                             editingSession = nil
@@ -75,13 +75,13 @@ struct ConversationTaskListView: View {
             .presentationDetents([.height(180)])
             .presentationDragIndicator(.visible)
         }
-        .confirmationDialog("Archive task?", isPresented: $showsArchiveConfirmation, titleVisibility: .visible) {
-            Button("Archive", role: .destructive) {
+        .confirmationDialog(ConversationL10n.value("conversation.archive.confirm", "Archive task?"), isPresented: $showsArchiveConfirmation, titleVisibility: .visible) {
+            Button(ConversationL10n.value("conversation.archive", "Archive"), role: .destructive) {
                 if let archiveTarget { model.archive(archiveTarget) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(ConversationL10n.value("conversation.cancel", "Cancel"), role: .cancel) {}
         } message: {
-            Text("This removes the task from the remote task list.")
+            Text(ConversationL10n.value("conversation.archive.message", "This removes the task from the remote task list."))
         }
         .accessibilityIdentifier("ConversationTaskList")
     }
@@ -98,7 +98,7 @@ struct ConversationTaskListView: View {
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text(session.title.isEmpty ? "Untitled task" : session.title)
+                        Text(session.title.isEmpty ? ConversationL10n.value("conversation.untitled", "Untitled task") : session.title)
                             .font(.body.weight(session.isUnread ? .semibold : .regular))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
@@ -124,18 +124,18 @@ struct ConversationTaskListView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button(session.isPinned ? "Unpin" : "Pin", systemImage: session.isPinned ? "pin.slash" : "pin") {
+            Button(session.isPinned ? ConversationL10n.value("conversation.unpin", "Unpin") : ConversationL10n.value("conversation.pin", "Pin"), systemImage: session.isPinned ? "pin.slash" : "pin") {
                 model.setPinned(session, pinned: !session.isPinned)
             }
-            Button("Rename", systemImage: "pencil") {
+            Button(ConversationL10n.value("conversation.rename", "Rename"), systemImage: "pencil") {
                 renameText = session.title
                 editingSession = session
             }
-            Button("Mark unread", systemImage: "circle") {
+            Button(ConversationL10n.value("conversation.mark_unread", "Mark unread"), systemImage: "circle") {
                 // The host owns unread persistence; selection remains local.
             }
             Divider()
-            Button("Archive", systemImage: "archivebox", role: .destructive) {
+            Button(ConversationL10n.value("conversation.archive", "Archive"), systemImage: "archivebox", role: .destructive) {
                 archiveTarget = session
                 showsArchiveConfirmation = true
             }
@@ -153,7 +153,7 @@ private struct ConversationConnectionBanner: View {
         HStack(spacing: 10) {
             Image(systemName: "wifi.slash")
             VStack(alignment: .leading, spacing: 2) {
-                Text(state == .connecting ? "Connecting" : "Cloud service unavailable")
+                Text(state == .connecting ? ConversationL10n.value("conversation.connecting", "Connecting") : ConversationL10n.value("conversation.unavailable", "Cloud service unavailable"))
                     .font(.subheadline.weight(.semibold))
                 if case .failed(let message) = state { Text(message).font(.caption).foregroundStyle(.secondary) }
             }

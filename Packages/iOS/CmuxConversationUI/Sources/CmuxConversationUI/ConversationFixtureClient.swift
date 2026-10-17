@@ -43,7 +43,7 @@ public actor ConversationFixtureClient: ConversationClient {
         self.scenario = scenario ?? Scenario(rawValue: environmentScenario ?? "all")
         self.capabilities = ConversationCapabilities(
             protocolVersion: "fixture/1",
-            features: ["approval", "question", "queue", "steer", "files", "artifacts"],
+            features: ["approval", "question", "queue", "steer", "interrupt", "stop", "files", "artifacts"],
             models: ["fixture-model"],
             efforts: ["fast", "balanced", "thorough"],
             speeds: ["standard", "quick"],
@@ -138,7 +138,7 @@ public actor ConversationFixtureClient: ConversationClient {
         switch command.command {
         case .startTurn(let text, _, _):
             state.isRunning = true
-            state = appendItem(state, kind: .message, text: text)
+            state = appendItem(state, kind: .message, role: "user", text: text)
             state = appendItem(state, kind: .reasoning, text: "Working through the request…")
             state = appendTool(state, name: "shell", input: .string("pwd"), output: nil, status: .running)
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
@@ -158,7 +158,7 @@ public actor ConversationFixtureClient: ConversationClient {
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .queue, queue: state.queued)
         case .steer(let text):
-            state = appendItem(state, kind: .message, text: text)
+            state = appendItem(state, kind: .message, role: "user", text: text)
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
         case .interrupt:
             state.isRunning = false
@@ -169,7 +169,7 @@ public actor ConversationFixtureClient: ConversationClient {
         case .answerQuestion(let requestID, let answers):
             state.pendingRequests.removeAll { $0.id == requestID }
             let answerText = answers.compactMap { $0.text ?? $0.optionID }.joined(separator: ", ")
-            state = appendItem(state, kind: .message, text: "Answer received: \(answerText.isEmpty ? "selected" : answerText)")
+            state = appendItem(state, kind: .message, role: "user", text: "Answer received: \(answerText.isEmpty ? "selected" : answerText)")
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .request, request: nil)
         case .resolveApproval(let requestID, let decision):
@@ -214,7 +214,7 @@ public actor ConversationFixtureClient: ConversationClient {
 
     private func seedInitialState(for sessionID: ConversationID) {
         guard var state = sessions[sessionID] else { return }
-        state = appendItem(state, kind: .message, text: "Build a native conversation surface for all three providers.")
+        state = appendItem(state, kind: .message, role: "user", text: "Build a native conversation surface for all three providers.")
         state = appendItem(state, kind: .reasoning, text: "I’ll keep provider details behind the host contract.")
         state = appendItem(state, kind: .plan, text: "Inspect workspace → run tools → report changes", plan: ConversationPlan(text: "Inspect workspace → run tools → report changes", status: "In progress"))
         state = appendTool(state, name: "shell", input: .object(["command": .string("pwd")]), output: .string("/tmp/cmux-fixture"), status: .success)
@@ -245,16 +245,16 @@ public actor ConversationFixtureClient: ConversationClient {
     }
 
     private func makeSnapshot(_ state: SessionState) -> ConversationSnapshot {
-        ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: state.receipts, capabilities: capabilities)
+        ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: state.receipts, activeTurnID: state.isRunning ? ConversationTurnID(rawValue: "fixture-turn") : nil, isTurnRunning: state.isRunning, capabilities: capabilities)
     }
 
     private func makeReceipt(commandID: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, generation: ConversationGeneration) -> ConversationReceipt {
         ConversationReceipt(id: commandID, sessionID: sessionID, state: state, generation: generation)
     }
 
-    private func appendItem(_ state: SessionState, kind: ConversationItemKind, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil) -> SessionState {
+    private func appendItem(_ state: SessionState, kind: ConversationItemKind, role: String? = nil, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil) -> SessionState {
         var state = state
-        let item = ConversationItem(id: ConversationItemID(rawValue: "item-\(UUID().uuidString)"), sequence: state.cursor + 1, kind: kind, text: text, plan: plan, diff: diff)
+        let item = ConversationItem(id: ConversationItemID(rawValue: "item-\(UUID().uuidString)"), sequence: state.cursor + 1, kind: kind, role: role, text: text, plan: plan, diff: diff)
         state.items.append(item)
         state = appendEvent(state, kind: .item, item: item)
         return state

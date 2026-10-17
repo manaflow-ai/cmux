@@ -90,9 +90,9 @@ private struct ConversationDetailView: View {
         .sheet(isPresented: $showsModelSettings) {
             ConversationModelSettingsSheet(model: model)
         }
-        .confirmationDialog("Task actions", isPresented: $showsMore, titleVisibility: .visible) {
-            Button("Refresh task") { model.refreshSessions() }
-            Button("Close task", role: .cancel) { model.selectSession(id: nil) }
+        .confirmationDialog(ConversationL10n.value("conversation.task_actions", "Task actions"), isPresented: $showsMore, titleVisibility: .visible) {
+            Button(ConversationL10n.value("conversation.refresh", "Refresh task")) { model.refreshSessions() }
+            Button(ConversationL10n.value("conversation.close_task", "Close task"), role: .cancel) { model.selectSession(id: nil) }
         }
         .accessibilityIdentifier("ConversationDetail")
     }
@@ -120,17 +120,17 @@ private struct ConversationHeaderView: View {
                     .background(.thinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back to tasks")
+            .accessibilityLabel(ConversationL10n.value("conversation.back", "Back to tasks"))
             .accessibilityIdentifier("ConversationBackButton")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(session?.title ?? "Conversation")
+                Text(session?.title ?? ConversationL10n.value("conversation.title", "Conversation"))
                     .font(.headline)
                     .lineLimit(1)
                 HStack(spacing: 5) {
-                    Text(session?.provider.displayName ?? "Codex")
+                    Text(session?.provider.displayName ?? ConversationL10n.value("conversation.codex", "Codex"))
                     Text("·")
-                    Text(session?.workspaceDisplayName ?? "Cloud")
+                    Text(session?.workspaceDisplayName ?? ConversationL10n.value("conversation.cloud", "Cloud"))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -140,19 +140,19 @@ private struct ConversationHeaderView: View {
             if model.connectionState != .connected {
                 Image(systemName: "circle.slash")
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Disconnected")
+                    .accessibilityLabel(ConversationL10n.value("conversation.disconnected", "Disconnected"))
             }
             Menu {
-                Button("Files", systemImage: "doc.text.magnifyingglass") { showsFiles = true }
-                Button("Model and effort", systemImage: "slider.horizontal.3") { showsModelSettings = true }
+                Button(ConversationL10n.value("conversation.files", "Files"), systemImage: "doc.text.magnifyingglass") { showsFiles = true }
+                Button(ConversationL10n.value("conversation.model_effort", "Model and effort"), systemImage: "slider.horizontal.3") { showsModelSettings = true }
                 Divider()
-                Button("More actions", systemImage: "ellipsis") { showsMore = true }
+                Button(ConversationL10n.value("conversation.more", "More actions"), systemImage: "ellipsis") { showsMore = true }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.headline.weight(.semibold))
                     .frame(width: 36, height: 34)
             }
-            .accessibilityLabel("Conversation actions")
+            .accessibilityLabel(ConversationL10n.value("conversation.actions", "Conversation actions"))
             .accessibilityIdentifier("ConversationActionsMenu")
         }
         .padding(.horizontal, 16)
