@@ -156,6 +156,7 @@ export function ChiefDock({
               <ContextMenu
                 key={session.sessionId}
                 className="acpmux-chief-card-menu-host"
+                popupClassName="acpmux-chief-card-context-menu"
                 items={menuItems}
                 targets="own"
               >

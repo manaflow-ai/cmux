@@ -459,9 +459,10 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-dock-title{display:inline-flex;align-items:center;gap:5px;color:var(--agent-text);font-weight:650}
 .acpmux-chief-dock-count{margin-left:auto;min-width:18px;padding:0 5px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);text-align:center}
 .acpmux-chief-dock-stack{display:flex;flex-direction:column;gap:1px;min-height:0;overflow:auto;overscroll-behavior:contain}
+.acpmux-chief-card-context-menu{transform:translateX(-100%)}
 .acpmux-chief-dock-empty{margin:8px 7px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-chief-card{position:relative;display:flex;align-items:center;min-width:0;overflow:hidden;border-radius:var(--ui-row-radius,5px);background:color-mix(in srgb,var(--agent-text) 5%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 8%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),box-shadow var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
-.acpmux-chief-card+.acpmux-chief-card{margin-top:-4px}
+.acpmux-chief-card+.acpmux-chief-card{margin-top:0}
 .acpmux-chief-card[data-depth="0"]{z-index:calc(var(--layer-sticky,10) + 4)}
 .acpmux-chief-card[data-depth="1"]{z-index:calc(var(--layer-sticky,10) + 3)}
 .acpmux-chief-card[data-depth="2"]{z-index:calc(var(--layer-sticky,10) + 2)}
@@ -472,12 +473,12 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card[data-status=error]{box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-danger,var(--agent-warning)) 42%,transparent)}
 .acpmux-chief-card[data-steering=true]{background:color-mix(in srgb,var(--agent-accent) 8%,transparent)}
 .acpmux-chief-card[data-selected=true]{background:color-mix(in srgb,var(--agent-accent) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 36%,transparent)}
-.acpmux-chief-card-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(36px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:3px var(--ui-row-padding-inline,8px);border:0;border-radius:var(--ui-row-radius,5px);background:transparent;color:inherit;text-align:left;cursor:pointer}
+.acpmux-chief-card-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(42px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:4px var(--ui-row-padding-inline,8px);border:0;border-radius:var(--ui-row-radius,5px);background:transparent;color:inherit;text-align:left;cursor:pointer}
 .acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-chief-card-copy{display:flex;flex-direction:column;min-width:0;gap:1px}
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-chief-card-copy strong{font-size:var(--text-detail);line-height:var(--text-detail--line-height);font-weight:600}
-.acpmux-chief-card-copy small{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-chief-card-copy strong{font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
+.acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 64%,var(--agent-muted));font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums}
 .acpmux-chief-dock-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--agent-muted)}
 .acpmux-chief-dock-dot[data-status=streaming]{background:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
