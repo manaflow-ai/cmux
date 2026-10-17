@@ -129,7 +129,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// not have this entitlement and intentionally return `nil`, allowing the
     /// file fallback to handle them.
     public static func signedAccessGroup(bundleIdentifier: String?) -> String? {
-#if canImport(Security)
+#if os(macOS) && canImport(Security)
         guard let bundleIdentifier,
               !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let task = SecTaskCreateFromSelf(nil),
