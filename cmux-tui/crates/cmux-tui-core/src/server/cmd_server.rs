@@ -47,6 +47,7 @@ pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
+        "machine_id": mux.machine_public_id,
         "machine_name": crate::machine_name::machine_name(),
         "registry_id": registry_id,
         "generation": generation,

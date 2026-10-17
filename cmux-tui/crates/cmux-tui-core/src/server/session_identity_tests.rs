@@ -31,7 +31,7 @@ fn identify_reports_session_identity() {
 fn listed_machine(mux: &Arc<Mux>) -> Value {
     mux.resource_machine_service()
         .dispatch(&crate::resource_api::ResourceMachineRequest {
-            operation: crate::resource::ResourceOperation::MachineList,
+            operation: ResourceOperation::MachineList,
             selectors: crate::ResourceSelectors::default(),
             fields: serde_json::Map::new(),
             idempotency_key: None,
