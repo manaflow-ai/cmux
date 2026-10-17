@@ -9,6 +9,7 @@ import CoreGraphics
 /// several screens. Asked for at 1.5 screens from the top, a hard fling
 /// reached the top of what was loaded and bounced there until the page
 /// came. The request now goes out four screens ahead.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationHistoryPrefetch {
     public enum Decision: Equatable, Sendable {
         /// Ask for the page above (coalesced while one is on its way).

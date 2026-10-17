@@ -41,6 +41,7 @@ public struct ConversationShortTimeCache {
 /// The shared cache for the app's cells, emptied when the locale or the
 /// time zone changes.
 @MainActor
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationShortTime {
     private static var cache = ConversationShortTimeCache()
     private static var observers: [any NSObjectProtocol] = []

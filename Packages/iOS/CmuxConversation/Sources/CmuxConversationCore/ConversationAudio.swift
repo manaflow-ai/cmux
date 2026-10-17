@@ -4,6 +4,7 @@ import Foundation
 /// 16-bit mono PCM WAV encoding, the format audio messages travel in here
 /// (the simulator serves procedural WAV, and recordings are re-encoded so a
 /// continued recording concatenates without a transcode).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationWAV {
     public static let sampleRate = 16_000
 
@@ -90,6 +91,7 @@ public enum ConversationWAV {
 
 /// Speech-like procedural audio (voiced syllables with pauses) for the
 /// simulator path when no microphone is available. Deterministic per seed.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationSyntheticSpeech {
     public static func samples(seconds: Double, seed: UInt64, sampleRate: Int = ConversationWAV.sampleRate) -> [Float] {
         var state = seed &+ 0x9E37_79B9_7F4A_7C15

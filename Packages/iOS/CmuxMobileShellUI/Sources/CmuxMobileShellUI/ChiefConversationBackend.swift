@@ -31,6 +31,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         let clientMessageID: String
         let text: String
         let startedAt: Date
+        var serverMessageID: String?
     }
 
     init(client: MobileChiefClient, conversationID: String, title: String) {
@@ -44,17 +45,29 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             let task = Task { [weak self] in
                 await self?.poll(continuation: continuation)
             }
-            withState { state in
+            let previous = withState { state -> (
+                Task<Void, Never>?,
+                AsyncStream<ConversationBackendEvent>.Continuation?
+            ) in
+                guard !state.closed else {
+                    continuation.finish()
+                    return (task, nil)
+                }
+                let previous = (state.pollTask, state.continuation)
                 state.continuation = continuation
-                state.pollTask?.cancel()
                 state.pollTask = task
+                return previous
             }
+            previous.0?.cancel()
+            previous.1?.finish()
         }
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
         let result = try await client.read(conversation: conversationID, limit: limit)
-        let mapped = map(result.messages)
+        let mapped = result.messages.map {
+            map($0, clientMessageID: clientMessageID(for: $0))
+        }
         withState { state in
             state.previousMessagesByID.merge(
                 result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
@@ -65,17 +78,31 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        let startedAt = Date()
         withState { state in
             state.pendingSends[draft.clientMessageID] = PendingSend(
                 clientMessageID: draft.clientMessageID,
                 text: draft.text,
-                startedAt: Date()
+                startedAt: startedAt,
+                serverMessageID: nil
             )
         }
         do {
-            _ = try await client.send(draft.text, conversation: conversationID)
+            let sendResult = try await client.send(draft.text, conversation: conversationID)
+            withState { state in
+                state.pendingSends[draft.clientMessageID]?.serverMessageID = sendResult.messageID
+            }
             let result = try await client.read(conversation: conversationID, limit: 200)
-            if let sent = result.messages.last(where: { $0.text == draft.text && $0.authorKind == "human" }) {
+            let sent = sendResult.messageID.flatMap { messageID in
+                result.messages.first { $0.id == messageID }
+            } ?? result.messages
+                .filter {
+                    $0.authorKind == "human"
+                        && $0.text == draft.text
+                        && $0.at >= startedAt.addingTimeInterval(-5)
+                }
+                .max(by: { $0.at < $1.at })
+            if let sent {
                 withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
                 var message = map(sent, clientMessageID: draft.clientMessageID)
                 message.clientMessageID = draft.clientMessageID
@@ -90,7 +117,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         // visible to `chief.read`; preserve the optimistic row identity so a
         // later poll can replace it without duplicating the bubble.
         return ConversationMessage(
-            id: "chief-local-\(draft.clientMessageID)",
+            id: "local:\(draft.clientMessageID)",
             seq: nil,
             clientMessageID: draft.clientMessageID,
             senderID: withState { $0.meID },
@@ -177,7 +204,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     for message in result.messages {
                         let previous = withState { $0.previousMessagesByID[message.id] }
                         guard previous != message else { continue }
-                        eventSeq = max(eventSeq + 1, safeInt(message.seq))
+                        if eventSeq < Int.max {
+                            eventSeq = max(eventSeq + 1, safeInt(message.seq))
+                        }
                         continuation.yield(.message(
                             map(message, clientMessageID: clientMessageID(for: message)),
                             eventSeq: eventSeq
@@ -198,7 +227,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 reportedFailure = false
             } catch {
                 connected = false
-                if !reportedFailure || !first {
+                if !reportedFailure {
                     continuation.yield(.disconnected(reason: String(describing: error)))
                     reportedFailure = true
                 }
@@ -279,8 +308,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         return withState { state in
             let cutoff = Date().addingTimeInterval(-300)
             state.pendingSends = state.pendingSends.filter { $0.value.startedAt >= cutoff }
-            guard let pending = state.pendingSends.values
-                .filter({ $0.text == message.text })
+            guard let pending = state.pendingSends.values.filter({ pending in
+                (pending.serverMessageID == message.id
+                    || (pending.serverMessageID == nil && pending.text == message.text))
+                    && message.at >= pending.startedAt.addingTimeInterval(-5)
+            })
                 .min(by: { $0.startedAt < $1.startedAt }) else { return nil }
             state.pendingSends.removeValue(forKey: pending.clientMessageID)
             return pending.clientMessageID

@@ -34,6 +34,7 @@ public struct ConversationDetailsHeaderLayout: Equatable, Sendable {
 ///
 /// Dynamic Type grows the title (title1 bold, wrapping to two lines from AX2)
 /// and the quick-action circles; the actions stay 16 pt under the title.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDetailsHeaderGeometry {
     public static let avatarSize: CGFloat = 80
     public static let collapsedAvatarSize: CGFloat = 60
@@ -117,6 +118,7 @@ public enum ConversationDetailsHeaderGeometry {
 
 /// The details' Info / Backgrounds selection capsule (CommunicationDetails
 /// DetailsTabBarView), measured in a 60 fps recording of real Messages.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDetailsTabGeometry {
     /// The capsule slides between tabs on this spring (damping 0.85,
     /// response 0.435 s), widening or narrowing to the new title.

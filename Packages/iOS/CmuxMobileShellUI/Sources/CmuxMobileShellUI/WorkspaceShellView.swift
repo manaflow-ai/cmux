@@ -1258,10 +1258,17 @@ struct WorkspaceShellView: View {
         Binding(
             get: { splitSidebarDestination },
             set: { newValue in
-                if primarySearchCoordinator.isPresented, let scope = newValue.searchScope {
-                    // Switching destinations mid-search re-scopes the session
-                    // instead of abandoning it under the old scope.
-                    primarySearchCoordinator.beginSearch(for: scope)
+                if primarySearchCoordinator.isPresented {
+                    if let scope = newValue.searchScope {
+                        // Switching destinations mid-search re-scopes the session
+                        // instead of abandoning it under the old scope.
+                        primarySearchCoordinator.beginSearch(for: scope)
+                    } else {
+                        // Home and Cloud have no search scope. Dismiss the
+                        // split search before changing destination so the
+                        // sidebar cannot snap back to the old search scope.
+                        primarySearchCoordinator.cancelPresentedSearch()
+                    }
                 }
                 selectedPrimaryTab = newValue
             }

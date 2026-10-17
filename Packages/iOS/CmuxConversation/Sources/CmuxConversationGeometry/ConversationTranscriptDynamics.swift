@@ -20,6 +20,7 @@ import Foundation
 ///   `updateAttributesForTargetContentOffsetChangeWithAttributes:` (a fling's
 ///   target, `scrollViewWillEndDragging:`) set each row's target easing; a row
 ///   adopts it once the content moves more than 2 pt in a frame.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTranscriptDynamics {
     /// Which side a row sits on (`transcriptOrientation`).
     public enum Side: Sendable {
