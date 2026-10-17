@@ -17,7 +17,7 @@ use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
     MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
+    MachinePlatform, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
     MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
     ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
