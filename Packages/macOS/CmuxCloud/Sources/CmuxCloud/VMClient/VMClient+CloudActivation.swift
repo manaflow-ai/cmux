@@ -105,7 +105,6 @@ extension VMClient {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap { $0.isEmpty ? nil : VMCreator(userId: $0) }
         summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
-        summary.computerUse = Self.decodeComputerUse(dict["computerUse"])
         // `resources` is the pool claim used by limits.used*. A
         // legacy row may conservatively claim the provider maximum;
         // only the explicit marker is safe as the live grow-only

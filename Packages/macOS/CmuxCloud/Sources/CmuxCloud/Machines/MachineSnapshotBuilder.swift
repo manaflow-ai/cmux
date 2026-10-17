@@ -55,8 +55,7 @@ public enum MachineSnapshotBuilder: Sendable {
             resourceReservation: summary.resourceReservation,
             resourcePoolClaim: summary.resourcePoolClaim,
             usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: summary.status),
-            privateAddress: summary.preferredPrivateAddress,
-            computerUse: summary.computerUse
+            privateAddress: summary.preferredPrivateAddress
         )
         snapshot.agentUpdates = summary.agentUpdates
         return snapshot
