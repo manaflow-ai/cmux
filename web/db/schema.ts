@@ -2999,3 +2999,64 @@ export const catalogVersions = pgTable(
   },
   (table) => [index("catalog_versions_published_at_idx").on(table.publishedAt.desc())],
 );
+
+/** One staff Cloud VM health sweep per row (services/vms/health). */
+export const cloudVmHealthSnapshots = pgTable("cloud_vm_health_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  attentionNeeded: boolean("attention_needed").notNull(),
+  report: jsonb("report").notNull(),
+}, (table) => [
+  index("cloud_vm_health_snapshots_created_at_idx").on(table.createdAt),
+]);
+
+/** Durable Stack revocation work created when a Cloud access grant is revoked. */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.gaveUpAt} is null`),
+  index("stack_session_revocations_user_idx").on(table.userId),
+]);
+
+export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (table) => [
+  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
+  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt).where(sql`${table.deadLetteredAt} is null`),
+  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
+]);
+
+export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
+  slot: integer("slot").primaryKey(),
+  leaseId: uuid("lease_id").notNull(),
+  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+});
+
+export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state", {
+  id: integer("id").primaryKey().default(1),
+  throttledUntil: timestamp("throttled_until", { withTimezone: true }).notNull().default(sql`'epoch'`),
+  reportedStuck: integer("reported_stuck").notNull().default(0),
+  reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
+}, (table) => [
+  check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+]);
