@@ -27,16 +27,16 @@ fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
 
 #[test]
 fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
-    let cases = super::super::command::cases::safe_operation_cases();
+    let cases = crate::cli::command::cases::safe_operation_cases();
     let sends =
-        |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
+        |args: &[&str]| match crate::cli::parse(&strings(args), crate::cli::Surface::Cmux) {
             Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
                 request.operation.name().ok()
             }
             _ => None,
         };
     for tool in v2_tools::tools() {
-        if super::super::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
+        if crate::cli::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
             continue;
         }
         let (args, _) = cases
