@@ -194,12 +194,6 @@ private struct MobileChatPromptEditor: View {
             Text("Prompt")
                 .font(.subheadline.weight(.semibold))
             HStack(alignment: .bottom, spacing: 8) {
-                Button(action: {}) {
-                    Image(systemName: "plus")
-                        .foregroundStyle(.secondary)
-                }
-                .disabled(true)
-                .accessibilityLabel("Add attachment")
                 TextField("Describe the task…", text: $text, axis: .vertical)
                     .lineLimit(4...8)
                     .focused(isFocused)
