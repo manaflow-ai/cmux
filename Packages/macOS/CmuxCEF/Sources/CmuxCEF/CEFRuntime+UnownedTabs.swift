@@ -76,8 +76,11 @@ extension CEFRuntime {
 
     /// A tab Chromium created in no cmux page's window (no opener it could
     /// name): the anchor page adopts it as its own new tab, with the events
-    /// it sent before (`early`). False when no page can take it.
+    /// it sent before (`early`, or those kept while it waited for a popup
+    /// window: `deferOrphan`). False when no page can take it.
     func adoptOrphan(_ id: Int32, created: CEFCreatedBy, early: [CEFShimEvent]) -> Bool {
+        let kept = unplacedEvents.removeValue(forKey: id) ?? []
+        let early = early.isEmpty ? kept : early
         guard created.disposition != .offTheRecord, browsers[id] == nil,
               let anchor = unownedTabAnchor?(nil), let anchorID = anchor.browserID,
               Self.canTakeUnownedTab(anchor, registered: browsers[anchorID], profilePath: "") else { return false }

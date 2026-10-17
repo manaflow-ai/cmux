@@ -414,7 +414,8 @@ public final class CEFRuntime {
             guard let id = event.browserID else { return }
             if let browser = browsers[id] {
                 browser.handle(event)
-            } else if unplacedPopups[id] != nil, unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
+            } else if unplacedPopups[id] != nil || deferredOrphans.contains(id),
+                      unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
                 unplacedEvents[id, default: []].append(event)
             }
         }
