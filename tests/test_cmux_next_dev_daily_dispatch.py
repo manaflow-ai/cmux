@@ -30,6 +30,14 @@ def check(ok, message):
         failures.append(message)
 
 
+text = WORKFLOW.read_text()
+schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
+check(schedule == ["*/15 * * * *"],
+      f"the dev dispatcher must run every 15 minutes, got {schedule}")
+check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
+      "the exact-SHA dedupe guard must remain in the dispatcher")
+
+
 def script_body():
     text = WORKFLOW.read_text()
     match = re.search(r"^        with:\n          script: \|\n((?:^            .*\n|^\s*\n)+)", text, re.MULTILINE)
