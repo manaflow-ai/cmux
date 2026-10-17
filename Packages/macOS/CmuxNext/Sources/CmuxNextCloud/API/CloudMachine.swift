@@ -26,6 +26,83 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public var storageMb: Int?
     }
 
+    /// Provider operations and session transports advertised for this machine.
+    public struct Capabilities: Sendable, Hashable, Decodable {
+        /// Operations that a Cloud provider may advertise for one machine.
+        public enum Operation: String, CaseIterable, Sendable, Hashable {
+            case snapshot, restore, fork, exec, stats, restart, ports, desktop, sizing, persistentHome
+        }
+
+        public var snapshot: Bool
+        public var restore: Bool
+        public var fork: Bool
+        public var exec: Bool
+        public var stats: Bool
+        public var restart: Bool
+        public var ports: Bool
+        public var desktop: Bool
+        public var sizing: Bool
+        public var persistentHome: Bool
+        public var attachTransports: [String]
+
+        /// Creates a conservative capability set for an older or incomplete response.
+        public init(snapshot: Bool = false, restore: Bool = false, fork: Bool = false,
+                    exec: Bool = false, stats: Bool = false, restart: Bool = false,
+                    ports: Bool = false, desktop: Bool = false, sizing: Bool = false,
+                    persistentHome: Bool = false, attachTransports: [String] = []) {
+            self.snapshot = snapshot
+            self.restore = restore
+            self.fork = fork
+            self.exec = exec
+            self.stats = stats
+            self.restart = restart
+            self.ports = ports
+            self.desktop = desktop
+            self.sizing = sizing
+            self.persistentHome = persistentHome
+            self.attachTransports = attachTransports
+        }
+
+        /// Returns whether the provider advertised an operation before the
+        /// client attempts the corresponding request.
+        public func supports(_ operation: Operation) -> Bool {
+            switch operation {
+            case .snapshot: snapshot
+            case .restore: restore
+            case .fork: fork
+            case .exec: exec
+            case .stats: stats
+            case .restart: restart
+            case .ports: ports
+            case .desktop: desktop
+            case .sizing: sizing
+            case .persistentHome: persistentHome
+            }
+        }
+
+        /// The advertised operations, in stable contract order.
+        public var supportedOperations: [Operation] { Operation.allCases.filter(supports) }
+
+        private enum CodingKeys: String, CodingKey {
+            case snapshot, restore, fork, exec, stats, restart, ports, desktop, sizing, persistentHome, attachTransports
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(snapshot: try c.decodeIfPresent(Bool.self, forKey: .snapshot) ?? false,
+                      restore: try c.decodeIfPresent(Bool.self, forKey: .restore) ?? false,
+                      fork: try c.decodeIfPresent(Bool.self, forKey: .fork) ?? false,
+                      exec: try c.decodeIfPresent(Bool.self, forKey: .exec) ?? false,
+                      stats: try c.decodeIfPresent(Bool.self, forKey: .stats) ?? false,
+                      restart: try c.decodeIfPresent(Bool.self, forKey: .restart) ?? false,
+                      ports: try c.decodeIfPresent(Bool.self, forKey: .ports) ?? false,
+                      desktop: try c.decodeIfPresent(Bool.self, forKey: .desktop) ?? false,
+                      sizing: try c.decodeIfPresent(Bool.self, forKey: .sizing) ?? false,
+                      persistentHome: try c.decodeIfPresent(Bool.self, forKey: .persistentHome) ?? false,
+                      attachTransports: try c.decodeIfPresent([String].self, forKey: .attachTransports) ?? [])
+        }
+    }
+
     public var id: String
     public var provider: String
     public var status: Status
@@ -37,22 +114,25 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var createdAt: Date?
     public var address: Address?
     public var size: Size?
+    /// Server-declared provider operations and attach transports.
+    public var capabilities: Capabilities
 
     /// Sidebar and menu title: the user's name, else the slug, else the id.
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
-                slug: String? = nil, address: Address? = nil) {
+                slug: String? = nil, address: Address? = nil, capabilities: Capabilities = .init()) {
         self.id = id
         self.provider = provider
         self.status = status
         self.displayName = displayName
         self.slug = slug
         self.address = address
+        self.capabilities = capabilities
     }
 
     public init(from decoder: any Decoder) throws {
@@ -69,6 +149,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
+        capabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init()
     }
 }
 
