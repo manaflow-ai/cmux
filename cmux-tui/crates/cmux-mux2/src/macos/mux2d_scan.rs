@@ -8,19 +8,24 @@ pub(super) fn needs_immediate_parse(data: &[u8]) -> bool {
         match data[i] {
             0x05 => return true, // ENQ answerback
             0x1b => {
-                let Some(&next) = data.get(i + 1) else { return true };
+                // The parser executes C0 controls (other than CAN, SUB and
+                // ESC) and ignores DEL in the escape state: look past them.
+                let mut k = i + 1;
+                while k < data.len() && executes_inside(data[k]) {
+                    k += 1;
+                }
+                let Some(&next) = data.get(k) else { return true };
                 match next {
                     // OSC, DCS, APC, PM, SOS: color/title queries, XTGETTCAP,
                     // DECRQSS, kitty graphics queries. DECID (ESC Z) is DA1.
                     b']' | b'P' | b'_' | b'^' | b'X' | b'Z' => return true,
                     b'[' => {
-                        let mut j = i + 2;
+                        let mut j = k + 1;
                         // Parameters and intermediates; C0 controls other
-                        // than ESC, CAN and SUB execute inside a CSI without
-                        // ending it.
+                        // than ESC, CAN and SUB execute inside a CSI and DEL
+                        // is ignored there, without ending it.
                         while j < data.len()
-                            && ((0x20..0x40).contains(&data[j])
-                                || (data[j] < 0x20 && !matches!(data[j], 0x1b | 0x18 | 0x1a)))
+                            && ((0x20..0x40).contains(&data[j]) || executes_inside(data[j]))
                         {
                             j += 1;
                         }
@@ -65,4 +70,10 @@ pub(super) fn incomplete_tail_start(data: &[u8]) -> usize {
         Some(b'[') if rest[1..].iter().all(|b| (0x20..0x40).contains(b)) => esc,
         _ => data.len(),
     }
+}
+
+/// C0 controls the parser executes inside an escape or CSI without leaving
+/// it (all but CAN, SUB and ESC), and DEL, which it ignores there.
+fn executes_inside(b: u8) -> bool {
+    (b < 0x20 && !matches!(b, 0x1b | 0x18 | 0x1a)) || b == 0x7f
 }

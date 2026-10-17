@@ -26,12 +26,15 @@ use ghostty_vt::{Callbacks, Terminal};
 
 #[path = "mux2d_os.rs"]
 mod os;
+#[path = "mux2d_parse.rs"]
+mod parse;
 #[path = "mux2d_scan.rs"]
 mod scan;
 #[path = "mux2d_state.rs"]
 mod state;
 
 use os::*;
+use parse::*;
 use scan::{incomplete_tail_start, needs_immediate_parse};
 use state::{STATE_MAGIC, parse_state};
 
@@ -40,7 +43,11 @@ const READ_CHUNK: usize = 64 << 10;
 /// cannot starve the others (kqueue is level-triggered and fires again).
 const READ_BUDGET: usize = 1 << 20;
 /// Unwatched output is parsed in batches of this size (MUX2_PARSE_BATCH).
-const PARSE_BATCH: usize = 1 << 20;
+const PARSE_BATCH: usize = 256 << 10;
+/// Batches one terminal may have at its parse worker. At the limit the
+/// loop stops reading that PTY, so a flooding program waits in the kernel
+/// and a query behind the backlog waits for at most this many batches.
+const INFLIGHT_MAX: usize = 2;
 /// Reads retried after EAGAIN while output is flowing (MUX2_READ_SPINS).
 /// The macOS PTY buffer is small: a writer that refills it within a few
 /// microseconds is read without a kevent round trip and a context switch.
@@ -59,6 +66,8 @@ const TOKEN_LISTEN: u64 = 0;
 const KIND_CONN: u64 = 1 << 32;
 const KIND_PTY: u64 = 2 << 32;
 const KIND_PROC: u64 = 3 << 32;
+/// EVFILT_USER, ident = terminal id: a worker finished one of its batches.
+const KIND_WAKE: u64 = 4 << 32;
 const INDEX_MASK: u64 = 0xffff_ffff;
 
 struct Term {
@@ -81,6 +90,8 @@ struct Term {
     /// unwatched read, prepended to the next read so the batch decision
     /// sees whole sequences. Parsed, in order, before any state access.
     carry: Vec<u8>,
+    /// PTY reads stopped because INFLIGHT_MAX batches are at the worker.
+    read_paused: bool,
     /// Bytes the parser asked to write back to the program (query replies).
     replies: Arc<Mutex<Vec<u8>>>,
     /// Bytes queued for the program's input (client writes and replies).
@@ -122,59 +133,6 @@ impl Conn {
     }
 }
 
-#[derive(Default)]
-struct Inflight {
-    count: Mutex<usize>,
-    done: std::sync::Condvar,
-}
-
-impl Inflight {
-    fn wait_idle(&self) {
-        let mut count = self.count.lock().expect("inflight");
-        while *count > 0 {
-            count = self.done.wait(count).expect("inflight");
-        }
-    }
-}
-
-/// One unwatched batch for a parse worker. A terminal's batches always go
-/// to the same worker, so they are parsed in order.
-struct ParseJob {
-    parser: Arc<Mutex<Terminal>>,
-    inflight: Arc<Inflight>,
-    bytes: Vec<u8>,
-}
-
-impl Term {
-    /// The parser, after every batch handed to a worker is parsed.
-    fn vt(&self) -> std::sync::MutexGuard<'_, Terminal> {
-        self.inflight.wait_idle();
-        self.parser.lock().expect("parser")
-    }
-}
-
-fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
-    let n = tunable("MUX2_PARSE_WORKERS", cores.saturating_sub(1).min(8));
-    (0..n)
-        .map(|i| {
-            let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
-            std::thread::Builder::new()
-                .name(format!("mux2-parse-{i}"))
-                .spawn(move || {
-                    for job in rx {
-                        job.parser.lock().expect("parser").vt_write(&job.bytes);
-                        let mut count = job.inflight.count.lock().expect("inflight");
-                        *count -= 1;
-                        job.inflight.done.notify_all();
-                    }
-                })
-                .expect("parse worker");
-            tx
-        })
-        .collect()
-}
-
 struct Server {
     kq: RawFd,
     listen: RawFd,
@@ -188,6 +146,8 @@ struct Server {
     read_spins: u32,
     /// Children of killed terminals not reaped yet; kept across upgrades.
     orphans: Vec<libc::pid_t>,
+    /// Batches one terminal may have at its worker (MUX2_INFLIGHT_MAX).
+    inflight_max: usize,
     /// Parse workers for unwatched batches (MUX2_PARSE_WORKERS, 0 = inline).
     workers: Vec<std::sync::mpsc::Sender<ParseJob>>,
 }
@@ -239,6 +199,11 @@ impl Server {
                 let token = ev.udata as usize as u64;
                 let index = (token & INDEX_MASK) as u32;
                 let writable = ev.filter == libc::EVFILT_WRITE;
+                if ev.filter == libc::EVFILT_USER {
+                    // Routed by filter and ident, not by udata.
+                    self.batch_done(ev.ident as u32);
+                    continue;
+                }
                 match token & !INDEX_MASK {
                     _ if token == TOKEN_LISTEN => self.accept(),
                     KIND_CONN if writable => self.flush_conn(index),
@@ -246,6 +211,7 @@ impl Server {
                     KIND_PTY if writable => self.flush_input(index),
                     KIND_PTY => self.pty_readable(index),
                     KIND_PROC => self.child_exited(index, ev.ident as libc::pid_t),
+                    KIND_WAKE => self.batch_done(index),
                     _ => {}
                 }
             }
@@ -523,6 +489,7 @@ impl Server {
                     }
                     // SAFETY: closing the master hangs up the slave side.
                     unsafe { libc::close(term.master) };
+                    let _ = self.kev(t as usize, libc::EVFILT_USER, libc::EV_DELETE, 0, 0);
                     for c in &term.attached {
                         if let Some(conn) = self.conns.get_mut(c) {
                             conn.attached = None;
@@ -592,10 +559,13 @@ impl Server {
                 }
             }
             proto::STATS => {
-                let pending: usize = self.terms.values().map(|t| t.pending.len()).sum();
+                let pending: usize =
+                    self.terms.values().map(|t| t.pending.len() + t.carry.len()).sum();
+                let inflight: usize =
+                    self.terms.values().map(|t| *t.inflight.count.lock().expect("inflight")).sum();
                 let bytes: u64 = self.terms.values().map(|t| t.bytes_in).sum();
                 let text = format!(
-                    "pid\t{}\nterminals\t{}\nclients\t{}\npending_bytes\t{pending}\nbytes_in\t{bytes}\n",
+                    "pid\t{}\nterminals\t{}\nclients\t{}\npending_bytes\t{pending}\ninflight_batches\t{inflight}\nbytes_in\t{bytes}\n",
                     std::process::id(),
                     self.terms.len(),
                     self.conns.len()
@@ -657,6 +627,7 @@ impl Server {
                 inflight: Arc::default(),
                 open_seq: false,
                 carry: Vec::new(),
+                read_paused: false,
                 cols,
                 rows,
                 pending: Vec::new(),
@@ -671,6 +642,13 @@ impl Server {
             },
         );
         self.kev(master as usize, libc::EVFILT_READ, libc::EV_ADD, 0, KIND_PTY | u64::from(t))?;
+        self.kev(
+            t as usize,
+            libc::EVFILT_USER,
+            libc::EV_ADD | libc::EV_CLEAR,
+            0,
+            KIND_WAKE | u64::from(t),
+        )?;
         if let Err(e) = self.kev(
             pid as usize,
             libc::EVFILT_PROC,
@@ -726,7 +704,9 @@ impl Server {
     }
 
     /// Reads up to `budget` bytes of PTY output for `t`. Returns true at EOF.
-    fn read_pty(&mut self, t: u32, budget: usize) -> bool {
+    /// `may_pause` is false while draining after exit: every byte must be
+    /// read before EXIT is sent.
+    fn read_pty(&mut self, t: u32, budget: usize, may_pause: bool) -> bool {
         let Some(term) = self.terms.get_mut(&t) else { return true };
         let watched = !term.attached.is_empty();
         let mut forwarded: Vec<u8> = Vec::new();
@@ -736,7 +716,9 @@ impl Server {
         // Set once the program has asked something: it is now waiting for
         // the answer, not writing, so spinning for more output only delays.
         let mut asked = false;
-        let (parse_batch, read_spins) = (self.parse_batch, self.read_spins);
+        let mut pause = false;
+        let (parse_batch, read_spins, inflight_max) =
+            (self.parse_batch, self.read_spins, self.inflight_max);
         while total < budget {
             // SAFETY: buf is valid for its length.
             let n =
@@ -784,10 +766,20 @@ impl Server {
                     if term.pending.len() >= parse_batch {
                         let worker = (!self.workers.is_empty())
                             .then(|| &self.workers[t as usize % self.workers.len()]);
-                        offload_parse(term, worker);
+                        offload_parse(term, worker, self.kq, t);
+                        if may_pause
+                            && *term.inflight.count.lock().expect("inflight") >= inflight_max
+                        {
+                            term.read_paused = true;
+                            pause = true;
+                        }
                     }
                 }
                 term.carry.extend_from_slice(tail);
+                if pause {
+                    // Resumed by batch_done when the worker catches up.
+                    break;
+                }
                 spins = 0;
                 continue;
             }
@@ -810,6 +802,9 @@ impl Server {
         self.flush_replies(t);
         if close {
             let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0);
+        } else if pause {
+            let token = KIND_PTY | u64::from(t);
+            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DISABLE, 0, token);
         }
         if !clients.is_empty() {
             self.fanout(t, &clients, &forwarded);
@@ -818,7 +813,21 @@ impl Server {
     }
 
     fn pty_readable(&mut self, t: u32) {
-        self.read_pty(t, READ_BUDGET);
+        self.read_pty(t, READ_BUDGET, true);
+    }
+
+    /// A worker finished a batch of `t`: write any reply it produced, and
+    /// resume reading the PTY if it was paused at INFLIGHT_MAX.
+    fn batch_done(&mut self, t: u32) {
+        self.flush_replies(t);
+        let Some(term) = self.terms.get_mut(&t) else { return };
+        let below = *term.inflight.count.lock().expect("inflight") < self.inflight_max;
+        if term.read_paused && below && term.pty_open {
+            term.read_paused = false;
+            let master = term.master;
+            let token = KIND_PTY | u64::from(t);
+            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_ENABLE, 0, token);
+        }
     }
 
     fn fanout(&mut self, t: u32, clients: &[u32], bytes: &[u8]) {
@@ -854,7 +863,7 @@ impl Server {
         }
         // Output written before exit is still in the PTY: read all of it, so
         // the screen a waiter reads includes it.
-        self.read_pty(t, EXIT_DRAIN_MAX);
+        self.read_pty(t, EXIT_DRAIN_MAX, false);
         let Some(term) = self.terms.get_mut(&t) else { return };
         flush_parse(term);
         term.exit = Some(code);
@@ -864,51 +873,6 @@ impl Server {
         for c in notify {
             self.send(c, proto::EXIT, &code.to_le_bytes());
         }
-    }
-}
-
-/// Writes queued input until the PTY is full, without touching kqueue; the
-/// caller's flush_input arms EVFILT_WRITE for whatever is left.
-fn write_input_now(term: &mut Term) {
-    while !term.input.is_empty() && term.pty_open {
-        let (front, _) = term.input.as_slices();
-        // SAFETY: front is a valid slice.
-        let n = unsafe { libc::write(term.master, front.as_ptr().cast(), front.len()) };
-        if n <= 0 {
-            return;
-        }
-        term.input.drain(..n as usize);
-    }
-}
-
-/// Parses every pending byte now, after the batches already handed out.
-fn flush_parse(term: &mut Term) {
-    if !term.carry.is_empty() {
-        let carry = std::mem::take(&mut term.carry);
-        term.pending.extend_from_slice(&carry);
-    }
-    if !term.pending.is_empty() {
-        let pending = std::mem::take(&mut term.pending);
-        term.vt().vt_write(&pending);
-        term.pending = pending;
-        term.pending.clear();
-    }
-}
-
-/// Hands the pending batch to `worker` while the loop keeps reading; parses
-/// it inline when there is no worker.
-fn offload_parse(term: &mut Term, worker: Option<&std::sync::mpsc::Sender<ParseJob>>) {
-    let Some(worker) = worker else {
-        return flush_parse(term);
-    };
-    let capacity = term.pending.capacity();
-    let bytes = std::mem::replace(&mut term.pending, Vec::with_capacity(capacity));
-    *term.inflight.count.lock().expect("inflight") += 1;
-    let job = ParseJob { parser: term.parser.clone(), inflight: term.inflight.clone(), bytes };
-    if let Err(std::sync::mpsc::SendError(job)) = worker.send(job) {
-        // The worker is gone: parse here, keeping the order.
-        *term.inflight.count.lock().expect("inflight") -= 1;
-        term.vt().vt_write(&job.bytes);
     }
 }
 
@@ -987,6 +951,7 @@ pub fn main() {
         read_spins: tunable("MUX2_READ_SPINS", READ_SPINS as usize) as u32,
         orphans: Vec::new(),
         workers: spawn_parse_workers(),
+        inflight_max: tunable("MUX2_INFLIGHT_MAX", INFLIGHT_MAX).max(1),
     };
     server
         .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)

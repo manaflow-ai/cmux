@@ -223,6 +223,7 @@ impl Server {
                     parser: Arc::new(Mutex::new(r.vt)),
                     inflight: Arc::default(),
                     carry: Vec::new(),
+                    read_paused: false,
                     cols: r.cols,
                     rows: r.rows,
                     pending: Vec::new(),
@@ -236,6 +237,13 @@ impl Server {
                     bytes_in: r.bytes_in,
                 },
             );
+            self.kev(
+                t as usize,
+                libc::EVFILT_USER,
+                libc::EV_ADD | libc::EV_CLEAR,
+                0,
+                KIND_WAKE | u64::from(t),
+            )?;
             if open {
                 self.kev(
                     master as usize,
