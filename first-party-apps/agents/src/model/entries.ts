@@ -25,7 +25,15 @@ export type CliEntry = {
   accounts: Account[]
 }
 
-export type Machine = { id: string; name: string; origin: string; status: string; os?: string | null }
+export type Machine = {
+  id: string
+  name: string
+  origin: string
+  status: string
+  os?: string | null
+  platform?: { os?: string | null; arch?: string | null } | null
+  capabilities?: string[]
+}
 
 export type Status = "missing" | "current" | "update" | "ahead" | "unknown"
 
