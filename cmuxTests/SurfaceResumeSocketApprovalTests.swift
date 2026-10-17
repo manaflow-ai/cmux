@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 import Testing
@@ -160,6 +161,48 @@ struct SurfaceResumeSocketApprovalTests {
     func explicitReviewCannotPromoteNonReviewableSources(source: String) {
         let proposal = SurfaceResumeBindingSnapshot(command: "pi --session synthetic", source: source)
         #expect(!SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: proposal))
+    }
+
+    @Test
+    func approvalPromptDetailsShowSignedEnvironment() {
+        let proposal = SurfaceResumeBindingSnapshot(
+            command: "pi --session synthetic",
+            source: "example-resume-integration",
+            environment: ["ZDOTDIR": "/tmp/synthetic dir", "EXAMPLE_RESTORE_EPOCH": "synthetic-epoch"]
+        )
+        let details = SurfaceResumeApprovalStore.approvalPromptDetails(
+            binding: proposal,
+            environmentLabel: "Environment:"
+        )
+        #expect(details == """
+        pi --session synthetic
+
+        Environment:
+        EXAMPLE_RESTORE_EPOCH=synthetic-epoch
+        ZDOTDIR='/tmp/synthetic dir'
+        """)
+        let bare = SurfaceResumeBindingSnapshot(command: "pi --session synthetic", source: "manual")
+        #expect(SurfaceResumeApprovalStore.approvalPromptDetails(
+            binding: bare,
+            environmentLabel: "Environment:"
+        ) == "pi --session synthetic")
+    }
+
+    @Test
+    func explicitReviewRefusesUnshownLaunchCommand() {
+        var proposal = SurfaceResumeBindingSnapshot(
+            command: "pi --session synthetic",
+            source: "example-resume-integration"
+        )
+        #expect(SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: proposal))
+        proposal.launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "pi",
+            executablePath: "/usr/local/bin/pi",
+            arguments: ["/usr/local/bin/pi", "--session", "synthetic"],
+            workingDirectory: nil,
+            environment: nil
+        )
+        #expect(!SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: proposal))
     }
 
     @Test
