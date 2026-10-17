@@ -179,7 +179,13 @@ function artifactVerified(artifact: PromotionArtifact): boolean {
 /** Evidence may be a verifier's explicit result bit or a fully verified manifest. */
 export function promotionEvidenceReady(source: Pick<AttemptPromotionSource, "result" | "artifacts">): boolean {
   const result = source.result;
-  if (result?.evidenceReady === true || result?.evidenceVerified === true) return true;
+  if (result?.evidenceReady === true || result?.evidenceVerified === true || result?.verificationState === "verified") return true;
+  const evidence = result?.evidence;
+  if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) {
+    const verified = (evidence as Record<string, unknown>).verified;
+    const state = (evidence as Record<string, unknown>).state;
+    if (verified === true || state === "verified") return true;
+  }
   return source.artifacts.length > 0 && source.artifacts.every(artifactVerified);
 }
 
