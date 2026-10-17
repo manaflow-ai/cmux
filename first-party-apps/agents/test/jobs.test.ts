@@ -135,4 +135,56 @@ describe("selected-owner job admission", () => {
     expect(job(host)?.job).toBe("retry")
     expect(host.calls.filter((c) => c.name === "agent_cli.update")).toHaveLength(2)
   })
+
+  test("the Accounts hop keeps admission busy across all action kinds", async () => {
+    const host = await create()
+    host.handlers["agent_cli.sign_in"] = () => refused("operation.unsupported")
+    const pending = deferred<ReturnType<typeof ok>>()
+    host.handlers["action.run"] = () => pending.promise
+    const first = invoke(host, "signIn", "local")
+    await host.settle()
+    for (const [action] of cases) await invoke(host, action, "local")
+    expect(host.calls.filter((c) => c.name === "action.run")).toHaveLength(1)
+    expect(host.calls.filter((c) => c.name.startsWith("agent_cli.") && c.name !== "agent_cli.list")).toHaveLength(1)
+    pending.resolve(ok({}))
+    await first
+    expect(job(host, "local")?.job).toBe("accounts.reauthenticate")
+  })
+
+  test("an older Accounts answer cannot settle a re-admitted owner's next request", async () => {
+    const host = await create()
+    host.handlers["agent_cli.sign_in"] = () => refused("operation.unsupported")
+    const old = deferred<ReturnType<typeof ok>>()
+    host.handlers["action.run"] = () => old.promise
+    const first = invoke(host, "signIn", "local")
+    await host.settle()
+    host.handlers["machine.list"] = () => ok([server])
+    await refresh(host)
+    host.handlers["machine.list"] = () => ok([local, server])
+    await refresh(host)
+    const next = deferred<ReturnType<typeof started>>()
+    host.handlers["agent_cli.update"] = () => next.promise
+    const second = invoke(host, "update", "local")
+    await host.settle()
+    old.resolve(ok({}))
+    await first
+    expect(job(host, "local")?.phase).toBe("requested")
+    next.resolve(started("new"))
+    await second
+    expect(job(host, "local")?.job).toBe("new")
+  })
+
+  test("different CLIs on the same owner have independent admission", async () => {
+    const host = await create()
+    const pending = deferred<ReturnType<typeof started>>()
+    host.handlers["agent_cli.update"] = ({ cli }) => cli === "codex" ? pending.promise : started("claude")
+    const first = invoke(host, "update")
+    await host.settle()
+    await invoke(host, "update", "server", "claude")
+    expect(snapshot(host).jobs["server/claude"]?.job).toBe("claude")
+    expect(job(host)?.phase).toBe("requested")
+    pending.resolve(started("codex"))
+    await first
+    expect(job(host)?.job).toBe("codex")
+  })
 })

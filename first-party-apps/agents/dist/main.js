@@ -554,6 +554,15 @@
       return copy;
     });
   }
+  function requestJob(machine, cli, kind) {
+    if (!machineById(machine) || busy(jobOf(machine, cli)))
+      return null;
+    dispatchJob(machine, cli, { type: "request", kind });
+    return jobOf(machine, cli);
+  }
+  function isCurrentJob(machine, cli, request) {
+    return machineById(machine) !== null && jobOf(machine, cli) === request;
+  }
   function invalidate() {
     invalidated = true;
     if (invalidationTask)
@@ -573,8 +582,21 @@
     }
   }
   async function run(kind, machine, cli, op, params, token) {
-    dispatchJob(machine, cli, { type: "request", kind });
+    const owner = machineById(machine);
+    const request = requestJob(machine, cli, kind);
+    if (!owner || !request)
+      return null;
+    const current = () => isCurrentJob(machine, cli, request) && machineById(machine)?.origin === owner.origin;
     const r = await call(op, { ...machine ? { machine } : {}, cli, ...params }, withGesture(token));
+    if (!current())
+      return null;
+    const provider = providerFor(cli)?.accountsProvider;
+    if (!r.ok && r.error.code === "operation.unsupported" && kind === "sign_in" && provider && owner.origin === "local") {
+      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
+      if (current())
+        dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
+      return r;
+    }
     if (r.ok)
       dispatchJob(machine, cli, { type: "started", job: r.value.job, terminal: r.value.terminal ?? null });
     else
@@ -587,17 +609,8 @@
   function install(machine, cli, method) {
     return run("install", machine, cli, "agent_cli.install", { method }, gesture());
   }
-  async function signIn(machine, cli) {
-    const token = gesture();
-    const r = await run("sign_in", machine, cli, "agent_cli.sign_in", {}, token);
-    const provider = providerFor(cli)?.accountsProvider;
-    const isLocal = machineById(machine)?.origin === "local";
-    if (!r.ok && r.error.code === "operation.unsupported" && provider && isLocal) {
-      dispatchJob(machine, cli, { type: "clear" });
-      dispatchJob(machine, cli, { type: "request", kind: "sign_in" });
-      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
-      dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
-    }
+  function signIn(machine, cli) {
+    return run("sign_in", machine, cli, "agent_cli.sign_in", {}, gesture());
   }
   function refresh() {
     return load(true);

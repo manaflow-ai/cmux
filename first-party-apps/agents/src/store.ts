@@ -3,7 +3,7 @@
 // admitted owners; they carry no observations or job completion authority.
 
 import { sanitizeMachine, type CliEntry, type Machine, withMissing } from "./model/entries.ts"
-import { type Job, type JobEvent, jobKey, reduceJob } from "./model/jobs.ts"
+import { busy, type Job, type JobEvent, type JobKind, jobKey, reduceJob } from "./model/jobs.ts"
 import { call, type OpError } from "./ops.ts"
 import { t } from "./l10n.ts"
 
@@ -113,6 +113,18 @@ export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
     else delete copy[key]
     return copy
   })
+}
+
+/** Capture one request before sending an operation, shared by every action surface. */
+export function requestJob(machine: string, cli: string, kind: JobKind): Job | null {
+  if (!machineById(machine) || busy(jobOf(machine, cli))) return null
+  dispatchJob(machine, cli, { type: "request", kind })
+  return jobOf(machine, cli)
+}
+
+/** Removal or a newer request retires the original request, even after re-admission. */
+export function isCurrentJob(machine: string, cli: string, request: Job): boolean {
+  return machineById(machine) !== null && jobOf(machine, cli) === request
 }
 
 /** Invalidations never supply rows, selectors or job results. */
