@@ -235,17 +235,14 @@ export default componentEntry<Props>({
     "overview-accent-card": {
       note: "Light or dark theme: full glass shell with the accent slider and card preview treatment.",
       props: { sliderStyle: "accent", previewVariant: "card" },
-      play: hoverSidebar,
     },
     "overview-minimal-quiet": {
       note: "Light or dark theme: quieter slider fill with the flatter quiet sidebar card.",
       props: { sliderStyle: "minimal", previewVariant: "quiet" },
-      play: hoverSidebar,
     },
     "overview-minimal-outline": {
       note: "Light or dark theme: outlined slider thumb with the accent rim sidebar card.",
       props: { sliderStyle: "minimal", previewVariant: "outline" },
-      play: hoverSidebar,
     },
     "slider-accent-open": {
       note: "Accent slider treatment mounted in the simulated composer.",
