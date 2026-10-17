@@ -30,6 +30,9 @@ real treatment in context, not to decorate a screenshot or invent a second desig
   concrete reason and a fallback that still follows the token system.
 - Keep the visual hierarchy quiet and functional: compact controls, restrained borders, one clear
   surface per component, and no decorative shell around a shell.
+- Do not default to an eyebrow, title, and subtitle stack. Use one clear heading; supporting copy
+  must explain a decision or unblock an action. Avoid repeating instructions in cards and inspectors,
+  and keep developer explanations in gallery notes or disclosures instead of the specimen.
 - Preserve `appearance.borders = none`, reduced motion, reduced transparency, keyboard focus, and
   light/dark theme behavior.
 - A variant must change a real visual property such as fill, thumb geometry, border, elevation,

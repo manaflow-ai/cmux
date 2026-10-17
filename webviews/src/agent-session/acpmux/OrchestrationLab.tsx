@@ -8,6 +8,7 @@ type Strategy = {
   decision: "admit" | "hold" | "wait";
   blocker: string;
   next: string;
+  nextLabel: string;
   route: string;
   transport: "loopback" | "ssh" | "lease";
   task: string;
@@ -28,6 +29,7 @@ const strategies: Strategy[] = [
     decision: "admit",
     blocker: "none",
     next: "Run the next bounded task and record its receipt.",
+    nextLabel: "Record receipt",
     route: "loopback · local-supervisor",
     transport: "loopback",
     task: "orch-local-01",
@@ -46,6 +48,7 @@ const strategies: Strategy[] = [
     decision: "hold",
     blocker: "revised controller cleanup receipt",
     next: "Reconcile cleanup evidence before requesting admission.",
+    nextLabel: "Reconcile cleanup",
     route: "ssh · enrolled host",
     transport: "ssh",
     task: "orch-huge-blue-07",
@@ -64,6 +67,7 @@ const strategies: Strategy[] = [
     decision: "wait",
     blocker: "capacity unavailable",
     next: "Keep the proposal queued and re-evaluate when a slot opens.",
+    nextLabel: "Wait for capacity",
     route: "durable lease · cloud-router",
     transport: "lease",
     task: "orch-cloud-12",
@@ -109,26 +113,16 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
   return (
     <main className="orchestration-gallery" data-orchestration-lab>
       <header className="orchestration-gallery-header">
-        <div>
-          <p className="orchestration-gallery-kicker">Fixture-only comparison surface</p>
-          <h1>Orchestration lab</h1>
-          <p>Compare route decisions before a worker, provider, scheduler, or dispatch path exists.</p>
-        </div>
+        <h1>Orchestration lab</h1>
         <div className="orchestration-gallery-trust" role="note" aria-label="Orchestration trust state">
-          <strong>Preview only</strong>
-          <span>No task dispatched</span>
-          <span>Authorization disabled</span>
-          <span>Proposal advisory</span>
-          <span>Trust override preview only</span>
+          <strong>Preview only · no dispatch</strong>
+          <span>Trust override: preview only · authorization disabled</span>
         </div>
       </header>
 
       <section className="orchestration-gallery-compare" aria-label="Route comparison">
         <div className="orchestration-gallery-section-heading">
-          <div>
-            <span className="orchestration-gallery-kicker">Route comparison</span>
-            <p>Choose a route to inspect its receipt-shaped fixture and action path.</p>
-          </div>
+          <h2>Routes</h2>
           <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
         </div>
         {/* ui-allow: gallery route cards use explicit radio semantics for the fixture. */}
@@ -158,8 +152,8 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                   <strong>{strategy.label}</strong>
                   <b data-decision={strategy.decision}>{strategy.decision}</b>
                 </span>
-                <small>{strategy.blocker === "none" ? "No blocker" : `Blocker · ${strategy.blocker}`}</small>
-                <small>Next · {strategy.next}</small>
+                <small>{strategy.blocker === "none" ? "No blocker" : strategy.blocker}</small>
+                <small>{strategy.nextLabel}</small>
               </button>
             );
           })}
@@ -173,11 +167,8 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
         aria-label={`${selected.label} receipt preview`}
       >
         <div className="orchestration-gallery-section-heading">
-          <div>
-            <span className="orchestration-gallery-kicker">Receipt preview · display sample</span>
-            <h2>{selected.label}</h2>
-          </div>
-          <b data-status={selected.receiptStatus}>{selected.receiptStatus}</b>
+          <h2>{selected.label} receipt</h2>
+          <span className="orchestration-gallery-status">{selected.receiptStatus}</span>
         </div>
         <dl className="orchestration-gallery-summary">
           <div>
@@ -202,28 +193,25 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           </div>
           <div>
             <dt>Acceptance</dt>
-            <dd>{selected.acceptance} · advisory fixture</dd>
+            <dd>{selected.acceptance}</dd>
           </div>
         </dl>
         <div className="orchestration-gallery-action-path" aria-label="Action path">
           <span>
-            <b>1</b>
             <strong>Decision</strong>
             {selected.decision}
           </span>
           <span>
-            <b>2</b>
             <strong>Blocker</strong>
             {selected.blocker}
           </span>
           <span className="is-next">
-            <b>3</b>
-            <strong>Next safe action</strong>
+            <strong>Next action</strong>
             {selected.next}
           </span>
         </div>
         <details className="orchestration-gallery-json">
-          <summary>Show non-contract JSON sample</summary>
+          <summary>Sample JSON · advisory only</summary>
           <pre aria-label="Non-contract display sample">
             {JSON.stringify(
               {
