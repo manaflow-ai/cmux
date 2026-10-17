@@ -105,6 +105,7 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
     }
 
     public func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
+        try Task.checkCancellation()
         guard AXIsProcessTrusted() else {
             throw PhoneError(
                 code: "permission_denied",
@@ -132,6 +133,7 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
             try postMouse(.leftMouseDown, at: startPoint, to: processID)
             let steps = max(action.durationMilliseconds ?? 250, 1) / 16
             for step in 1...max(steps, 1) {
+                try Task.checkCancellation()
                 let fraction = Double(step) / Double(max(steps, 1))
                 try postMouse(
                     .leftMouseDragged,
