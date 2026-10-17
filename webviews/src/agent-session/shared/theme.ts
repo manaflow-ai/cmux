@@ -73,6 +73,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   const motionValues = theme.motion ? Object.values(theme.motion) : [];
   if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
   else delete root.dataset.agentMotion;
+  if (root.dataset.agentMotion === "off") {
+    for (const animation of document.getAnimations?.() ?? []) animation.cancel();
+  }
   // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
   for (let index = 0; index < 16; index += 1) {
     const color = theme.palette?.[index];
