@@ -28,7 +28,7 @@
 .timeline-intent small { display: block; margin-top: 7px; color: var(--page-text-3); font-size: var(--text-caption); }
 .timeline-kicker { color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: .06em; text-transform: uppercase; }
 .timeline-recovery { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--timeline-warn) 45%, var(--page-separator)); border-radius: 7px; background: color-mix(in srgb, var(--timeline-warn) 6%, transparent); }
-.timeline-recovery-icon { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid color-mix(in srgb, var(--timeline-warn) 45%, var(--page-separator)); border-radius: 50%; color: var(--timeline-warn); font-size: 16px; }
+.timeline-recovery-icon { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid color-mix(in srgb, var(--timeline-warn) 45%, var(--page-separator)); border-radius: 50%; color: var(--timeline-warn); font-size: var(--text-title); }
 .timeline-recovery div { flex: 1; min-width: 0; }
 .timeline-recovery strong { display: block; font-size: var(--text-detail); font-weight: 500; }
 .timeline-recovery p { margin: 4px 0 0; color: var(--page-text-3); font-size: var(--text-caption); }
@@ -76,7 +76,7 @@
 .timeline-events::before { content: ""; position: absolute; top: 10px; bottom: 14px; left: 10px; width: 1px; background: var(--timeline-line); }
 .timeline-event { position: relative; display: grid; grid-template-columns: 21px 1fr; gap: 12px; padding: 0 0 19px; }
 .timeline-event:last-child { padding-bottom: 4px; }
-.timeline-event-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--page-separator); border-radius: 50%; background: var(--cmux-surface-background, Canvas); color: var(--page-text-3); font-size: 13px; }
+.timeline-event-marker { z-index: var(--layer-raised); display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid var(--page-separator); border-radius: 50%; background: var(--cmux-surface-background, Canvas); color: var(--page-text-3); font-size: var(--text-body); }
 .timeline-event-marker-prompt { color: var(--page-text); }
 .timeline-event-marker-tool { color: var(--timeline-ok); }
 .timeline-event-body { min-width: 0; padding: 1px 0 0; }
