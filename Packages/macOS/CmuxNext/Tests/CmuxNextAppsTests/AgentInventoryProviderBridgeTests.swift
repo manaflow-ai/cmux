@@ -6,6 +6,25 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct AgentInventoryProviderBridgeTests {
+    @Test func laterDemandCanReadmitAfterNegotiatedNoLeaseRefusal() async throws {
+        let f = InventoryProviderBridgeFixture(mode: "retry-first")
+        do {
+            try await f.start()
+            f.demand(2, true)
+            let firstAdmissions = f.bridge.slots.compactMap(\.admission)
+            for admission in firstAdmissions { await admission.value }
+            #expect(try await f.state().filter { $0["kind"] == .string("enable") }.count == 1)
+            f.demand(3, false)
+            f.demand(4, true)
+            try await f.wait("invalidate")
+            let calls = try await f.state()
+            #expect(calls.filter { $0["kind"] == .string("enable") }.count == 2)
+            #expect(calls.filter { $0["kind"] == .string("disable") }.isEmpty)
+            #expect(calls.last?["sequence"] == .string("4"))
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
     @Test func staleRegistryRouteCannotAdmitNewlyReconnectedTransport() async throws {
         let f = InventoryProviderBridgeFixture()
         do {

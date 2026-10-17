@@ -16,7 +16,8 @@ struct DaemonReadyConnection: Sendable {
         self.userOriginAllowed = userOriginAllowed
         inventoryWatch = identity.machineResourceID.flatMap { machine in
             guard MachineCatalogRecord.validID(machine) else { return nil }
-            return AgentInventoryWatch(transport: transport, machine: machine)
+            return AgentInventoryWatch(transport: transport, machine: machine,
+                                       supportsReceipts: identity.supports("agent-inventory-watch-admission-v1"))
         }
     }
 }
