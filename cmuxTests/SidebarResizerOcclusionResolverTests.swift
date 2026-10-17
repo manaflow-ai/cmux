@@ -82,4 +82,39 @@ import Testing
         )
         #expect(queryCount == 0)
     }
+
+    /// The band's content side lies over a Chromium page, whose child window
+    /// is the topmost window at the pointer: it acts for the observed window,
+    /// so the resizer still activates there (and the page leaves a hole).
+    @Test func inBandOverOwnChromiumPageWindowActivates() {
+        let resolver = SidebarResizerOcclusionResolver(
+            topmostMouseEventWindowNumber: { _ in 99 },
+            actingWindowNumber: { $0 == 99 ? 10 : $0 }
+        )
+
+        #expect(
+            resolver.bandMayActivate(
+                isDragging: false,
+                isInDividerBand: true,
+                screenPoint: .zero,
+                observedWindowNumber: 10
+            )
+        )
+    }
+
+    @Test func inBandOverAnotherWindowsChromiumPageDoesNotActivate() {
+        let resolver = SidebarResizerOcclusionResolver(
+            topmostMouseEventWindowNumber: { _ in 99 },
+            actingWindowNumber: { $0 == 99 ? 11 : $0 }
+        )
+
+        #expect(
+            !resolver.bandMayActivate(
+                isDragging: false,
+                isInDividerBand: true,
+                screenPoint: .zero,
+                observedWindowNumber: 10
+            )
+        )
+    }
 }

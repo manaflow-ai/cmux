@@ -52,6 +52,9 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(overlayView.commandPalettePanelContains(windowPoint: panelCenter) == true)
         #expect(overlayView.commandPalettePanelContains(windowPoint: NSPoint(x: 20, y: 20)) == false)
         #expect(NSView().commandPalettePanelContains(windowPoint: .zero) == nil)
+        // A Chromium page leaves a hole at the panel's frame in the window.
+        #expect(overlayView.commandPalettePanelRectInWindow() == panelFrame)
+        #expect(NSView().commandPalettePanelRectInWindow() == nil)
         let unlaidOutHost = NSView()
         let unlaidOutMarker = CommandPalettePanelHitRegionView(frame: .zero)
         unlaidOutMarker.identifier = CommandPalettePanelHitRegionView.interfaceIdentifier
