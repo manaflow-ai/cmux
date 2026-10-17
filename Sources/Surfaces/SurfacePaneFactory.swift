@@ -60,9 +60,12 @@ enum SurfacePaneFactory {
             browserCreationPolicy: creationPolicy
         )
         browserPanel(panelID: created.panelID, in: created.workspaceID)?.opensLinkedContent = true
-        // A socket command that may not move focus still wins, as it does in `create`.
+        // A socket command that may not move focus still wins, and activation stays
+        // suppressed, as in `create`.
         if focus, TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true {
-            self.focus(panelID: created.panelID, in: created.workspaceID)
+            TerminalController.withSocketCommandPolicyStack([true]) {
+                self.focus(panelID: created.panelID, in: created.workspaceID)
+            }
         }
         return created
     }
