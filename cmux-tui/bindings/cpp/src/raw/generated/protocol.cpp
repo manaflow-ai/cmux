@@ -4062,6 +4062,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("lifecycle_ready", std::move(encoded).value());
     }
+    if (value.machine_id) {
+        auto encoded = encode_value(*value.machine_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_id", std::move(encoded).value());
+    }
     if (value.machine_name) {
         auto encoded = encode_value(*value.machine_name);
         if (!encoded) return std::move(encoded).error();
@@ -4188,6 +4193,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_lifecycle_ready);
         if (!decoded) return std::move(decoded).error();
         result.lifecycle_ready = std::move(decoded).value();
+    }
+    const Json* field_machine_id = value.find("machine_id");
+    if (field_machine_id) {
+        auto decoded = decode_value<std::string>(*field_machine_id);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_id = std::move(decoded).value();
     }
     const Json* field_machine_name = value.find("machine_name");
     if (field_machine_name) {

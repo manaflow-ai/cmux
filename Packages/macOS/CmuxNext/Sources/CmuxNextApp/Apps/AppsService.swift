@@ -62,14 +62,21 @@ final class AppsService {
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
 
-    /// Serves the Mac-side app op families (`coderouter`, `action`) on the
-    /// control router through the supervisor's provider channel.
+    /// Serves app-side operations and admitted machine inventory reads
+    /// through the supervisor's verified-app provider channel.
     func attach(router: ControlRouter) {
         controlRouter = router
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
             try await router.appControl(method, params)
         }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control)]))
+        let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
+            guard let machines else { return [] }
+            return machines.daemons.map { daemon in
+                AgentInventoryRoute(machineID: daemon.identity?.machineResourceID, reader: daemon.connection,
+                                    allowed: !daemon.policyBlock.isBlocked && machines.daemon(machine: daemon.machineID) === daemon, isDefault: daemon.isLocal)
+            }
+        }
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control), inventory]))
     }
 
     /// Opens the App Store (palette "App Store", `appStore.show`): a user

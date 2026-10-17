@@ -19,6 +19,7 @@ public final class IdentifyResult implements WireValue {
     private final Field<String> ghosttyCommit;
     private final Field<String> launchSnapshotPath;
     private final Field<Boolean> lifecycleReady;
+    private final Field<String> machineId;
     private final Field<String> machineName;
     private final long pid;
     private final long protocol;
@@ -39,6 +40,7 @@ public final class IdentifyResult implements WireValue {
         this.ghosttyCommit = builder.ghosttyCommit;
         this.launchSnapshotPath = builder.launchSnapshotPath;
         this.lifecycleReady = builder.lifecycleReady;
+        this.machineId = builder.machineId;
         this.machineName = builder.machineName;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
@@ -69,6 +71,7 @@ public final class IdentifyResult implements WireValue {
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
     public Field<String> launchSnapshotPath() { return launchSnapshotPath; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
+    public Field<String> machineId() { return machineId; }
     public Field<String> machineName() { return machineName; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
@@ -116,6 +119,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawLifecycleReady)) {
             builder.lifecycleReady(Wire.bool(rawLifecycleReady, "IdentifyResult.lifecycle_ready"));
         }
+        Object rawMachineId = Wire.optional(object, "machine_id");
+        if (!Wire.isMissing(rawMachineId)) {
+            builder.machineId(Wire.string(rawMachineId, "IdentifyResult.machine_id"));
+        }
         Object rawMachineName = Wire.optional(object, "machine_name");
         if (!Wire.isMissing(rawMachineName)) {
             builder.machineName(Wire.string(rawMachineName, "IdentifyResult.machine_name"));
@@ -154,6 +161,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "ghostty_commit", ghosttyCommit);
         Wire.put(object, "launch_snapshot_path", launchSnapshotPath);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
+        Wire.put(object, "machine_id", machineId);
         Wire.put(object, "machine_name", machineName);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
@@ -169,11 +177,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineId, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -188,6 +196,7 @@ public final class IdentifyResult implements WireValue {
         private Field<String> ghosttyCommit = Field.omitted();
         private Field<String> launchSnapshotPath = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
+        private Field<String> machineId = Field.omitted();
         private Field<String> machineName = Field.omitted();
         private Long pid;
         private boolean pidSet;
@@ -236,6 +245,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder lifecycleReady(Boolean value) {
             this.lifecycleReady = Field.of(value);
+            return this;
+        }
+        public Builder machineId(String value) {
+            this.machineId = Field.of(value);
             return this;
         }
         public Builder machineName(String value) {

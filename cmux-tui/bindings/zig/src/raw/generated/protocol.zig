@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+pub const ir_sha256 = "09340095057e13a293f364ecfe981a8b4d8f2a9d3df8576dfbc9f3a243cbbd55";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1045,6 +1045,7 @@ pub const IdentifyResult = struct {
     ghostty_commit: wire.Field([]const u8) = .absent,
     launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
+    machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
     pid: u32,
     protocol: u32,
@@ -1058,6 +1059,7 @@ pub const IdentifyResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
         "lifecycle_ready",
+        "machine_id",
         "machine_name",
         "session_id",
     };

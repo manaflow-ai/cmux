@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
+mod machines;
+
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
@@ -123,11 +125,15 @@ impl ResourceMachineService for LocalResourceMachineService {
         match request.operation {
             ResourceOperation::MachineList => {
                 require_no_selectors(&request.selectors)?;
-                Ok(json!([machine_snapshot(&context)]))
+                let mut machines = vec![machine_snapshot(&context)];
+                machines.extend(self.remote_machine_snapshots());
+                Ok(json!(machines))
             }
             ResourceOperation::MachineGet => {
-                resolve_local_machine(&request.selectors, &context)?;
-                Ok(machine_snapshot(&context))
+                if resolve_local_machine(&request.selectors, &context).is_ok() {
+                    return Ok(machine_snapshot(&context));
+                }
+                self.remote_machine_snapshot(&request.selectors)
             }
             ResourceOperation::SessionList => {
                 resolve_local_machine(&request.selectors, &context)?;
@@ -286,7 +292,23 @@ fn machine_snapshot(context: &LocalResourceContext) -> Value {
         "connectable": true,
         "deleted": false,
         "recoverable": false,
+        // Keep this inventory deliberately small and non-sensitive. Provider
+        // logins, paths and credentials belong to the session host's
+        // agent_cli.list response instead.
+        "platform": machine_platform(),
+        "capabilities": machine_capabilities(),
     })
+}
+
+fn machine_platform() -> Value {
+    json!({
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+    })
+}
+
+fn machine_capabilities() -> Value {
+    json!(["terminal", "workspace", "agent_session"])
 }
 
 fn session_snapshot(context: &LocalResourceContext) -> Value {
@@ -855,4 +877,21 @@ fn public_browser_snapshot(
             "rows": rows.max(1),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{machine_capabilities, machine_platform};
+
+    #[test]
+    fn machine_platform_is_non_secret_and_capabilities_are_stable() {
+        let platform = machine_platform();
+        assert!(platform["os"].as_str().is_some_and(|value| !value.is_empty()));
+        assert!(platform["arch"].as_str().is_some_and(|value| !value.is_empty()));
+
+        assert_eq!(
+            machine_capabilities(),
+            serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
 }
