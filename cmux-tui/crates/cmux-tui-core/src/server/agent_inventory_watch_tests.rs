@@ -259,3 +259,32 @@ fn cmux_next_inventory_native_watch_replacement_cleanup_preserves_a_new_socket_l
     assert_eq!(event["watch_id"], ack["data"]["watch_id"]);
     assert_eq!(event["revision"], 2);
 }
+
+#[test]
+fn cmux_next_inventory_native_watch_stale_disable_cannot_retire_a_new_lease() {
+    let old = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mut next = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = old.mux("inventory-watch-stale-disable");
+    let mut client = Client::connect(&mux, "inventory-watch-stale-disable");
+    let first = client.request(request(&mux, true));
+    assert_eq!(first["ok"], true, "{first}");
+    mux.set_acpmux_socket(Some(next.socket.clone()));
+    client.named_event("agent-inventory-watch-ended", WAIT).expect("old lease retired");
+    let current = client.request(request(&mux, true));
+    assert_eq!(current["ok"], true, "{current}");
+    assert_ne!(first["data"]["watch_id"], current["data"]["watch_id"]);
+    let mut disable = request(&mux, false);
+    disable["expected_watch_id"] = first["data"]["watch_id"].clone();
+    let ignored = client.request(disable);
+    assert_eq!(ignored["ok"], true, "conditional cleanup must be idempotent: {ignored}");
+    assert!(
+        client.named_event("agent-inventory-watch-ended", Duration::from_millis(100)).is_none()
+    );
+    next.notify(snapshot(2));
+    let changed = client.named_event("agent-inventory-changed", WAIT).expect("current lease live");
+    assert_eq!(changed["watch_id"], current["data"]["watch_id"]);
+    let mut disable = request(&mux, false);
+    disable["expected_watch_id"] = current["data"]["watch_id"].clone();
+    assert_eq!(client.request(disable)["ok"], true);
+    next.wait_closed();
+}
