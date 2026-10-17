@@ -74,32 +74,31 @@ public final class AgentPageRedraw {
         }
     }
 
-    /// The size and appearance this page last gave the app's New Tab frame at, and whether a capture
-    /// is on the way: a page shown again at the same size and appearance gives none (a tab switch
-    /// takes no snapshot), and one capture runs at a time.
-    public var givenNewTabFrame: (size: CGSize, appearance: NSAppearance.Name?)?
+    /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
-    private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?)?
+    private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
 
     /// Snapshots the page as WebKit draws it now in `pane` (a parked New Tab spare), kept when `pane`
     /// is still where and as large as it was when the snapshot is ready: the image its move into a
     /// pane shows until it draws there is then this page at that size.
     public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
-        let (size, place) = (pane.frame.size, pane.superview)
+        let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak webView, weak pane, weak place] in
             guard let image = try? await webView?.takeSnapshot(configuration: nil), image.size == size,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
-            self?.remembered = (image, size, appearance)
+            self?.remembered = (image, size, appearance, generation)
         }
     }
 
-    /// The remembered frame, once, when it was drawn at `size` and `appearance`.
+    /// The remembered frame, once, when it was drawn at `size` and `appearance` and its chats and model
+    /// are still today's (`AgentPaneNewTabFrame`).
     public func takeRememberedFrame(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
         defer { remembered = nil }
-        guard let remembered, remembered.size == size, remembered.appearance == appearance else { return nil }
+        guard let remembered, remembered.size == size, remembered.appearance == appearance,
+              remembered.generation == AgentPaneNewTabFrame.shared.generation else { return nil }
         return remembered.image
     }
 

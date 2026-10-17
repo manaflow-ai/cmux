@@ -56,7 +56,7 @@ struct AgentTabContent {
         let paneView = pane.view
         let images = pane.services.agentTabs.launchImages
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99).
-        let newTabFrame = { view?.model.newTab == nil ? nil : images.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
+        let newTabFrame = { view?.model.newTab == nil ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard paneView.launchImageView != nil, let view else { return }
@@ -75,7 +75,7 @@ struct AgentTabContent {
         let paneView = pane.view, appearance = Self.appearance(of: paneView)
         let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
         let own = view.redraw.takeRememberedFrame(size: size, appearance: appearance)
-        guard paneView.launchImageView == nil, let image = own ?? pane.services.agentTabs.launchImages.newTabFrame(size: size, appearance: appearance)
+        guard paneView.launchImageView == nil, let image = own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         else { return BenchSpans.mark("newTab.cover.none \(size) \(String(describing: appearance))") }
         BenchSpans.mark(own != nil ? "newTab.cover.own" : "newTab.cover")
         paneView.showLaunchImage(image)
@@ -88,12 +88,11 @@ struct AgentTabContent {
     }
 
     /// `view` 400 ms after it painted here (its chats and chips in), clear areas left clear (the pane
-    /// paints under it): what the next New Tab page draws until it paints (cx-ec99). The first page's
-    /// first paint on the theme's color showed under each Cmd-T: no chats, no model (Leo 2026-10-13).
-    /// Once per page, size and appearance (unless the held frame is another), one at a time, never hidden (perf-tabs I6).
+    /// paints under it): what the next New Tab page draws until it paints (cx-ec99; Leo 2026-10-13).
+    /// Only when no frame with today's chats, model, size and appearance is held; one capture per page
+    /// at a time, never of a hidden page (perf-tabs I6).
     private func rememberNewTabFrame(of view: AgentPaneView) {
-        let images = pane.services.agentTabs.launchImages
-        let redraw = view.redraw
+        let frames = AgentPaneNewTabFrame.shared, redraw = view.redraw
         guard !redraw.givesNewTabFrame else { return }
         redraw.givesNewTabFrame = true
         view.model.whenPainted { [weak view, weak paneView = pane.view, weak redraw] in
@@ -103,13 +102,10 @@ struct AgentTabContent {
                 defer { redraw?.givesNewTabFrame = false }
                 guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost),
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
-                let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
-                guard size != .zero else { return }
-                if let given = view.redraw.givenNewTabFrame, given.size == size, given.appearance == appearance,
-                   images.newTabFrame(size: size, appearance: appearance) != nil { return }
-                guard let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
-                images.rememberNewTabFrame(image, size: size, appearance: appearance)
-                view.redraw.givenNewTabFrame = (size, appearance)
+                let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView), takenAt = frames.generation
+                guard size != .zero, frames.image(size: size, appearance: appearance) == nil,
+                      let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
+                frames.remember(image, size: size, appearance: appearance, takenAt: takenAt)
             }
         }
     }
