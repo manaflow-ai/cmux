@@ -160,7 +160,7 @@ async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
     let hub = hub_for(&root, &user, &home);
     let cache = root.join("inventory-health.json");
     let private = "private@example.test secret-token";
-    let cached = json!([{
+    let mut cached = json!([{
         "id": "codex", "program": private, "path": private, "channel": "npm",
         "package": private, "version": "1.2.3", "latest": "1.2.4",
         "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn",
@@ -169,6 +169,13 @@ async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
         "problem": private, "checkedAt": 1235,
         "lastAutoUpdate": {"at": 1235, "ok": false, "detail": private}
     }]);
+    let mut invalid_id = cached[0].clone();
+    invalid_id["id"] = json!(private);
+    let mut invalid_version = cached[0].clone();
+    invalid_version["id"] = json!("broken");
+    invalid_version["version"] = json!(format!("1.2.3 {private}"));
+    invalid_version["latest"] = json!(private);
+    cached.as_array_mut().unwrap().extend([invalid_id, invalid_version]);
     std::fs::write(&cache, cached.to_string()).unwrap();
     hub.health.attach(Settings { cache: Some(cache), home: home.clone(), ..Settings::default() });
     for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
@@ -189,6 +196,9 @@ async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
             json!({"view": "inventory", "cached": true, "harnesses": [{
                 "id": "codex", "channel": "npm", "version": "1.2.3", "latest": "1.2.4",
                 "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn", "checkedAt": 1235
+            }, {
+                "id": "broken", "channel": "npm", "version": null, "latest": null,
+                "latestCheckedAt": 1234, "outdated": false, "auth": "signedIn", "checkedAt": 1235
             }]})
         );
         assert!(!reply.to_string().contains(private));
