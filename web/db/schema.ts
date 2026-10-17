@@ -2810,3 +2810,54 @@ export const appleNotifications = pgTable("apple_notifications", {
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
 ]);
+
+/**
+ * The paywall experiment variant last served to each user (one row per user
+ * and experiment). Assignment is sticky: once a user is exposed to a variant
+ * they keep it even when the optimizer moves traffic, so allocation changes
+ * never move an exposed user to another arm. `payload` is the validated copy
+ * served, kept so the sticky variant can be served when the flag now
+ * evaluates to another variant. Grant analytics read the row to tag
+ * `subscription_entitlement_granted` with the variant.
+ */
+export const paywallAssignments = pgTable("paywall_assignments", {
+  userId: text("user_id").notNull(),
+  experiment: text("experiment").notNull(),
+  variant: text("variant").notNull(),
+  payload: jsonb("payload").notNull(),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+  servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.experiment] }),
+]);
+
+/**
+ * Every change to a paywall or pricing experiment, written by the optimizer
+ * (and by humans through its scripts): variant created or retired, copy
+ * changed, traffic split changed, sample-ratio-mismatch halt. Append only;
+ * the staff variants page reads it.
+ */
+export const paywallExperimentChanges = pgTable("paywall_experiment_changes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  experiment: text("experiment").notNull(),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  kind: text("kind").notNull(),
+  variant: text("variant"),
+  reason: text("reason").notNull(),
+  details: jsonb("details"),
+  actor: text("actor").notNull(),
+}, (table) => [
+  index("paywall_experiment_changes_experiment_idx").on(table.experiment, table.changedAt.desc()),
+]);
+
+/** One optimizer run per experiment: the per-variant snapshot and the daily report. */
+export const paywallExperimentRuns = pgTable("paywall_experiment_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  experiment: text("experiment").notNull(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+  halted: boolean("halted").notNull().default(false),
+  snapshot: jsonb("snapshot").notNull(),
+  reportMarkdown: text("report_markdown").notNull(),
+}, (table) => [
+  index("paywall_experiment_runs_experiment_idx").on(table.experiment, table.ranAt.desc()),
+]);

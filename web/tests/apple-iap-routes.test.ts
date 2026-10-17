@@ -83,7 +83,7 @@ describe("Apple billing route auth", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       appAccountToken: "token-user-a",
-      app: { bundleId: "dev.cmux.app.beta", storeKitEnvironment: "Sandbox", billingPeriods: ["monthly", "yearly"] },
+      app: { bundleId: "dev.cmux.app.beta", storeKitEnvironment: "Sandbox", billingPeriods: ["monthly", "yearly"], bundleIdHeader: "dev.cmux.app.beta", paywallLayouts: ["cards", "comparison", "focus"] },
     });
     expect(getUserCalls[0]).toMatchObject({ tokenStore: { accessToken: "access-token" } });
   });
