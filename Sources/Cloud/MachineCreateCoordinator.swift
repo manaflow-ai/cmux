@@ -2,6 +2,7 @@ import CmuxCloud
 import Foundation
 import Observation
 import CmuxCloudMachines
+import CmuxProductAnalytics
 
 /// Adapts the shared package lifecycle to CLI processes, notifications, and local workspaces.
 /// Every New Machine entrypoint uses this owner; views consume immutable projections.
@@ -15,6 +16,7 @@ final class MachineCreateCoordinator {
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
     ) -> Bool
     typealias CancellableLaunch = @MainActor (
+        UUID,
         [String],
         @escaping @MainActor (String) -> Void,
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
@@ -33,6 +35,7 @@ final class MachineCreateCoordinator {
             MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
         },
         cancelCreatedMachine: { CloudVMActionLauncher.shared.destroyMachineBestEffort($0) },
+        analytics: .app,
         cancelOperation: { operation in
             guard let workspaceID = operation.request.presentationWorkspaceID else { return }
             NewMachineSheetPresenter.closeReservedWorkspace(
@@ -56,6 +59,11 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private let cancelOperation: @MainActor (MachineCreateOperation) -> Void
     @ObservationIgnored private let notificationCenter: NotificationCenter
     @ObservationIgnored private var accessDidEndObserver: NSObjectProtocol?
+    @ObservationIgnored private let analytics: ProductAnalytics
+    @ObservationIgnored private let now: () -> Date
+    /// Operations whose machine creation was already reported; a retry of
+    /// one only reopens the machine and is not another create.
+    @ObservationIgnored private var reportedCreatedOperationIDs: Set<UUID> = []
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -63,9 +71,12 @@ final class MachineCreateCoordinator {
         now: @escaping () -> Date = Date.init,
         notificationCenter: NotificationCenter = .default,
         cancelCreatedMachine: @escaping @MainActor (String) -> Void = { _ in },
+        analytics: ProductAnalytics = .disabled,
         cancelOperation: @escaping @MainActor (MachineCreateOperation) -> Void = { _ in }
     ) {
         self.lifecycle = CloudMachineCreateCoordinator(output: Self.outputParser, now: now)
+        self.analytics = analytics
+        self.now = now
         self.notifier = notifier
         self.selectWorkspace = selectWorkspace
         self.cancelCreatedMachine = cancelCreatedMachine
@@ -93,7 +104,7 @@ final class MachineCreateCoordinator {
     /// Registers the pending projection before invoking a legacy noncancellable launcher.
     @discardableResult
     func start(_ request: MachineCreateRequest, launch: @escaping Launch) -> Bool {
-        start(request, cancellableLaunch: { arguments, progress, completion in
+        start(request, cancellableLaunch: { _, arguments, progress, completion in
             guard launch(arguments, progress, completion) else { return nil }
             return CloudVMActionLauncher.CancellationHandle { }
         })
@@ -206,7 +217,7 @@ final class MachineCreateCoordinator {
         if isRetry, !request.isBaseSetup, let machineID {
             arguments = ["vm", "open", machineID] + (request.presentationWorkspaceID.map { ["--workspace", $0.uuidString] } ?? []) + ["--focus", "false"]
         }
-        let handle = launch(arguments, { [weak self] chunk in
+        let handle = launch(attempt.operationID, arguments, { [weak self] chunk in
             guard let self else { return }
             self.apply(self.lifecycle.receive(chunk, from: attempt))
         }, { [weak self] result in
@@ -214,7 +225,8 @@ final class MachineCreateCoordinator {
             let completion = CloudMachineCreateCompletion(
                 succeeded: result.succeeded, wasCancelled: result.wasCancelled, output: result.output,
                 failureOutput: Self.displayableFailureOutput(result.output),
-                machineID: result.machineId, workspaceID: result.workspaceId
+                machineID: result.machineId, workspaceID: result.workspaceId,
+                refusalCode: result.refusalCode
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
@@ -246,6 +258,7 @@ final class MachineCreateCoordinator {
             lastFinished = finished
             let id = finished.operation.id
             handles[id] = nil
+            reportCreateFinished(finished)
 #if DEBUG
             let presentationWorkspace = finished.operation.request.presentationWorkspaceID?.uuidString ?? "none"
             cmuxDebugLog(
@@ -286,6 +299,22 @@ final class MachineCreateCoordinator {
         if transition.changed { postDidChange(finished: finished) }
     }
 
+    /// One product analytics outcome per finished create, from any launcher.
+    private func reportCreateFinished(_ finished: Finished) {
+        let seconds = now().timeIntervalSince(finished.operation.startedAt)
+        switch finished.outcome {
+        case .created, .createdButOpenFailed:
+            guard reportedCreatedOperationIDs.insert(finished.operation.id).inserted else { return }
+            analytics.noteMachineCreateFinished(succeeded: true, errorCode: nil, seconds: seconds)
+        case .failed:
+            analytics.noteMachineCreateFinished(
+                succeeded: false,
+                errorCode: finished.operation.refusalCode,
+                seconds: seconds
+            )
+        }
+    }
+
     /// Releases only app resources; lifecycle state and callback fences live in the package.
     private func discardRetiredAdapters() {
         let liveIDs = Set(lifecycle.projection.operations.map(\.id))
@@ -301,7 +330,8 @@ final class MachineCreateCoordinator {
         guard let request = requests[operation.id] else { return nil }
         return MachineCreateOperation(
             id: operation.id, request: request, startedAt: operation.startedAt,
-            createdMachineID: operation.createdMachineID, phase: operation.phase
+            createdMachineID: operation.createdMachineID, phase: operation.phase,
+            refusalCode: operation.refusalCode
         )
     }
 

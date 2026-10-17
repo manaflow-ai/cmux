@@ -112,6 +112,8 @@ describe("client config env validation", () => {
       ...requiredEnv,
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
       STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+      STRIPE_MAX_MONTHLY_200_PRICE_ID: "price_max_200",
+      STRIPE_MAX_YEARLY_1920_PRICE_ID: "price_max_1920",
       STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
       STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
     });

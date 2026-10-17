@@ -11,6 +11,7 @@ extension CmuxTuiSurfaceProvider {
         case remotePlacementUnavailable(String)
         case remoteTabNotFound(String)
         case terminalNotCreated(String)
+        case browserNotCreated
         /// The terminal's process already ended on the machine.
         case terminalExited(String)
         /// The daemon did not answer the resolver within the bounded retries.
@@ -72,6 +73,8 @@ extension CmuxTuiSurfaceProvider {
                     ),
                     Self.sanitizedDetail(detail)
                 )
+            case .browserNotCreated:
+                return String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry.")
             case .terminalExited(let id):
                 return String(
                     format: String(

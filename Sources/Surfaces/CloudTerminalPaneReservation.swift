@@ -225,7 +225,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited, .failureMessage:
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .requestTimedOut, .exited, .failureMessage:
                         requeueInput = false
                     }
                     if case .clientMissing = error {
@@ -483,6 +483,9 @@ final class CloudTerminalPaneReservation {
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?
+    /// The attach stream registered while the machine creates the terminal.
+    /// The first attachment adopts it; every other ending closes it.
+    private(set) var attachHandshake: CloudTuiManualMirrorHandshake?
 
     init(
         workspaceID: UUID,
@@ -509,6 +512,23 @@ final class CloudTerminalPaneReservation {
     }
 
     var machine: SurfaceMachineID { sourcePlacement.machine }
+
+    /// Starts registering the attach stream beside the remote create.
+    func beginAttachHandshake(_ handshake: CloudTuiManualMirrorHandshake) {
+        attachHandshake?.close()
+        attachHandshake = handshake
+    }
+
+    /// Hands the handshake to the attaching session, at most once.
+    func takeAttachHandshake() -> CloudTuiManualMirrorHandshake? {
+        defer { attachHandshake = nil }
+        return attachHandshake
+    }
+
+    /// Closes a handshake no session adopted.
+    func closeAttachHandshake() {
+        takeAttachHandshake()?.close()
+    }
 
     /// Records the create receipt before layout reconciliation adopts the pane.
     func bind(sourcePlacement: CloudTerminalSourcePlacement) {

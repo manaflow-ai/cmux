@@ -65,19 +65,15 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         let appDelegate = try #require(AppDelegate.shared)
         appDelegate.debugResetShortcutRoutingStateForTesting()
 
-        let windowId = appDelegate.createMainWindow()
+        let fixture = try TerminalFocusTestFixture()
         defer {
-            closeWindow(withId: windowId)
+            fixture.tearDown()
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
-
-        let terminalWindow = try #require(findMainWindow(withId: windowId))
+        let terminalWindow = fixture.window
         let contentView = try #require(terminalWindow.contentView)
         appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(terminalWindow)
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+        let terminalPanel = fixture.panel
         let textBoxView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 240, height: 30)
         )

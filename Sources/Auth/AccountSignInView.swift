@@ -35,6 +35,9 @@ struct AccountSignInView: View {
             case let .failed(failure):
                 AccountSignInFailureView(
                     failure: failure,
+                    detail: model.failureDetail,
+                    detailCopyState: model.failureDetailCopyState,
+                    onCopyDetail: model.copyFailureDetail,
                     hasFallbackLink: model.hasFallbackLink,
                     linkCopyState: model.linkCopyState,
                     browserOpenState: model.browserOpenState,
@@ -113,6 +116,9 @@ private struct AccountSignInLoadingView: View {
 
 private struct AccountSignInFailureView: View {
     let failure: AccountSignInModel.Failure
+    let detail: String?
+    let detailCopyState: AccountSignInModel.LinkCopyState
+    let onCopyDetail: () -> Void
     let hasFallbackLink: Bool
     let linkCopyState: AccountSignInModel.LinkCopyState
     let browserOpenState: AccountSignInModel.BrowserOpenState
@@ -131,6 +137,13 @@ private struct AccountSignInFailureView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let detail {
+                AccountSignInFailureDetail(
+                    detail: detail,
+                    copyState: detailCopyState,
+                    onCopy: onCopyDetail
+                )
+            }
             Button(String(localized: "account.signIn.tryAgain", defaultValue: "Try Again"), action: onTryAgain)
                 .cloudProminentButtonStyle()
                 .accessibilityIdentifier("AccountSignInRetryButton")
@@ -145,6 +158,34 @@ private struct AccountSignInFailureView: View {
         }
         .frame(maxWidth: 440)
         .accessibilityIdentifier("AccountSignInFailureState")
+    }
+}
+
+/// The failure's error code, HTTP status and request ID, selectable and
+/// copyable so a user can report exactly what failed.
+private struct AccountSignInFailureDetail: View {
+    let detail: String
+    let copyState: AccountSignInModel.LinkCopyState
+    let onCopy: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(verbatim: detail)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("AccountSignInFailureDetail")
+            Button(
+                copyState == .copied
+                    ? String(localized: "account.signIn.errorDetailsCopied", defaultValue: "Error Details Copied")
+                    : String(localized: "account.signIn.copyErrorDetails", defaultValue: "Copy Error Details"),
+                action: onCopy
+            )
+            .controlSize(.small)
+            .accessibilityIdentifier("AccountSignInCopyErrorDetailsButton")
+        }
     }
 }
 
@@ -248,6 +289,11 @@ private extension AccountSignInModel.LoadingStage {
             return String(localized: "account.signIn.loading.waitingSlow", defaultValue: "Still waiting for sign-in…")
         case .finishing:
             return String(localized: "account.signIn.loading.finishing", defaultValue: "Finishing sign-in…")
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.loading.rateLimited",
+                defaultValue: "Too many sign-in requests from this network"
+            )
         }
     }
 
@@ -272,6 +318,11 @@ private extension AccountSignInModel.LoadingStage {
             return String(
                 localized: "account.signIn.loading.finishing.instructions",
                 defaultValue: "cmux is verifying your account. Keep this pane open."
+            )
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.loading.rateLimited.instructions",
+                defaultValue: "cmux retries automatically. Keep this pane open."
             )
         }
     }
@@ -302,6 +353,11 @@ private extension AccountSignInModel.Failure {
             return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "cmux couldn’t authorize this sign-in")
         case .rejected:
             return String(localized: "account.signIn.error.rejected.title", defaultValue: "cmux couldn’t complete the sign-in")
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.error.rateLimited.title",
+                defaultValue: "Too many sign-in requests from this network"
+            )
         case .unknown:
             return String(localized: "account.signIn.error.unknown.title", defaultValue: "Couldn’t finish sign-in")
         }
@@ -353,6 +409,11 @@ private extension AccountSignInModel.Failure {
             return String(
                 localized: "account.signIn.error.rejected.recovery",
                 defaultValue: "Check the account details in the browser and try again."
+            )
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.error.rateLimited.recovery",
+                defaultValue: "cmux retried automatically. Wait a minute, then try again. Your account and existing cmux workspaces are unchanged."
             )
         case .unknown:
             return String(
