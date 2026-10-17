@@ -150,7 +150,7 @@ extension MobileHostService {
             // same-account mobile admission remains authoritative, just as it
             // is for the notification and workstream feeds.
             return nil
-        case "chief.open", "chief.send", "chief.stop", "chief.approve", "chief.answer", "chief.debug":
+        case "chief.open", "chief.send", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug":
             // Opening Chief changes app selection, and the remaining methods
             // control a Mac-owned agent. A workspace-scoped ticket cannot
             // prove authority for those Mac-wide mutations; require a

@@ -19,6 +19,7 @@ struct ChiefHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var conversations: [MobileChiefConversation] = []
     @State private var isLoading = true
+    @State private var requestInFlight = false
     @State private var errorMessage: String?
     @State private var query = ""
 
@@ -105,10 +106,13 @@ struct ChiefHomeView: View {
                     ))
                 }
             }
-            .task { await load() }
-            .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
-                Task { await load() }
+            // The Mac-owned Chief inbox has no push event topic yet. Keep the
+            // Home list current while it is visible, and restart the loop on
+            // foreground so a reply received while the app was backgrounded
+            // appears without requiring a manual pull-to-refresh.
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
+                await refreshLoop()
             }
             .navigationDestination(for: MobileChiefConversation.self) { conversation in
                 ChiefConversationDestination(client: client, conversation: conversation)
@@ -124,8 +128,13 @@ struct ChiefHomeView: View {
     }
 
     private func load() async {
+        guard !requestInFlight else { return }
+        requestInFlight = true
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            requestInFlight = false
+            isLoading = false
+        }
         do {
             var rows = try await client.conversations()
             var startupFailure: String?
@@ -149,6 +158,17 @@ struct ChiefHomeView: View {
             errorMessage = startupFailure
         } catch {
             errorMessage = String(describing: error)
+        }
+    }
+
+    private func refreshLoop() async {
+        while !Task.isCancelled {
+            await load()
+            do {
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+            } catch {
+                return
+            }
         }
     }
 }

@@ -330,6 +330,7 @@ extension TerminalController {
             "chief.status",
             "chief.conversations",
             "chief.read",
+            "chief.mark_read",
             "chief.stop",
             "debug.terminals",
             "surface.send_text",

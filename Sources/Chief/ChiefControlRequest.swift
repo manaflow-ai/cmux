@@ -15,6 +15,8 @@ enum ChiefControlRequest: Equatable, Sendable {
     case conversations
     /// `chief.read`: the newest `limit` messages, or a page before `beforeSeq`.
     case read(conversation: String?, beforeSeq: UInt64?, limit: Int)
+    /// `chief.mark_read`: advances the signed-in user's read cursor.
+    case markRead(conversation: String?, upToSeq: UInt64)
     /// `chief.stop`: stops the running turn of one conversation.
     case stop(conversation: String?)
     /// `chief.approve`: answers an approval card (`request` nil: the running turn's newest waiting one) with
@@ -29,7 +31,7 @@ enum ChiefControlRequest: Equatable, Sendable {
 
     /// Every method of the family; `chief.debug` answers only in DEBUG builds.
     static let methods: [String] = [
-        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop", "chief.approve",
+        "chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.mark_read", "chief.stop", "chief.approve",
         "chief.answer", "chief.debug",
     ]
 
@@ -101,6 +103,12 @@ enum ChiefControlRequest: Equatable, Sendable {
             return .read(conversation: try conversation(params),
                          beforeSeq: beforeSeq.map { UInt64($0) },
                          limit: min(limit, maxReadLimit))
+        case "chief.mark_read":
+            guard let upToSeq = try optionalInt(params, "up_to_seq") else {
+                throw ChiefControlParamError.missing("up_to_seq")
+            }
+            guard upToSeq >= 1 else { throw ChiefControlParamError.invalid("up_to_seq") }
+            return .markRead(conversation: try conversation(params), upToSeq: UInt64(upToSeq))
         case "chief.stop":
             return .stop(conversation: try conversation(params))
         case "chief.approve":

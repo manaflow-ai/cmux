@@ -1557,6 +1557,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "chief.status",
             "chief.conversations",
             "chief.read",
+            "chief.mark_read",
             "chief.stop",
             "chief.approve",
             "chief.answer",

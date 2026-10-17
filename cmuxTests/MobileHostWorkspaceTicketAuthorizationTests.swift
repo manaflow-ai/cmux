@@ -597,6 +597,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let mutations: [(method: String, params: [String: Any])] = [
             ("chief.open", [:]),
             ("chief.send", ["text": "hello"]),
+            ("chief.mark_read", ["up_to_seq": 7]),
             ("chief.stop", [:]),
             ("chief.approve", ["choice": "Allow"]),
             ("chief.answer", [:]),

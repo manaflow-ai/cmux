@@ -18,6 +18,9 @@ import Testing
     @Test func simpleMethodsTakeNoParams() {
         #expect(parse("chief.status") == .success(.status))
         #expect(parse("chief.conversations") == .success(.conversations))
+        #expect(parse("chief.mark_read") == .failure(.missing("up_to_seq")))
+        #expect(parse("chief.mark_read", ["up_to_seq": 7, "conversation": "conv_x"])
+            == .success(.markRead(conversation: "conv_x", upToSeq: 7)))
         #expect(parse("chief.stop") == .success(.stop(conversation: nil)))
         #expect(parse("chief.stop", ["conversation": " conv_x "]) == .success(.stop(conversation: "conv_x")))
     }
@@ -60,7 +63,7 @@ import Testing
         // Question cards too: they confirm what the Chief creates (a Cloud machine).
         #expect(!ChiefControlRequest.isAvailable("chief.answer", debugBuild: false))
         #expect(ChiefControlRequest.isAvailable("chief.answer", debugBuild: true))
-        for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.stop"] {
+        for method in ["chief.open", "chief.send", "chief.status", "chief.conversations", "chief.read", "chief.mark_read", "chief.stop"] {
             #expect(ChiefControlRequest.isAvailable(method, debugBuild: false), "\(method)")
         }
         #expect(ChiefControlRequest.isDebugBuild) // tests build DEBUG

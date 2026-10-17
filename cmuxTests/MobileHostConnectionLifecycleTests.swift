@@ -852,6 +852,7 @@ extension MobileHostAuthorizationTests {
             "chief.status",
             "chief.conversations",
             "chief.read",
+            "chief.mark_read",
             "chief.stop",
         ]))
         #expect(Set(capabilities).isSuperset(of: [

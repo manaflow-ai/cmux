@@ -130,12 +130,24 @@ struct MobileChiefClientTests {
     }
 
     @Test
+    func decodesMarkReadResult() throws {
+        let result = try ChatWireCoding().decode(
+            MobileChiefMarkReadResult.self,
+            from: Data("{\"conversation\":\"chief-main\",\"up_to_seq\":7,\"marked\":true}".utf8)
+        )
+        #expect(result.conversation == "chief-main")
+        #expect(result.upToSeq == 7)
+        #expect(result.marked)
+    }
+
+    @Test
     func chiefCapabilityRequiresInteractiveActions() {
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))
         let readAndSend: Set<String> = [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
+            MobileChiefCapability.markRead,
             MobileChiefCapability.send,
         ]
         #expect(!MobileChiefCapability.isAvailable(in: readAndSend))
@@ -144,6 +156,7 @@ struct MobileChiefClientTests {
         #expect(MobileChiefCapability.isAvailable(in: [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
+            MobileChiefCapability.markRead,
             MobileChiefCapability.send,
             MobileChiefCapability.stop,
             MobileChiefCapability.approve,

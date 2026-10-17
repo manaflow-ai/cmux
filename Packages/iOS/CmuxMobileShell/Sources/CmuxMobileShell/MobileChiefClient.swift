@@ -23,6 +23,7 @@ public struct MobileChiefCapability: Hashable, Sendable {
     public static let status = "chief.status"
     public static let conversations = "chief.conversations"
     public static let read = "chief.read"
+    public static let markRead = "chief.mark_read"
     public static let send = "chief.send"
     public static let stop = "chief.stop"
     public static let approve = "chief.approve"
@@ -37,6 +38,7 @@ public struct MobileChiefCapability: Hashable, Sendable {
         Set([
             conversations,
             read,
+            markRead,
             send,
             stop,
             approve,
@@ -398,6 +400,12 @@ public actor MobileChiefClient {
         return try await request("chief.read", params: params, as: MobileChiefReadResult.self)
     }
 
+    public func markRead(conversation: String? = nil, upToSeq: UInt64) async throws -> MobileChiefMarkReadResult {
+        var params: [String: Any] = ["up_to_seq": upToSeq]
+        if let conversation { params["conversation"] = conversation }
+        return try await request("chief.mark_read", params: params, as: MobileChiefMarkReadResult.self)
+    }
+
     public func send(
         _ text: String,
         conversation: String? = nil,
@@ -463,4 +471,22 @@ private struct MobileChiefConversationsResult: Decodable {
 public struct MobileChiefStopResult: Codable, Equatable, Sendable {
     public let conversation: String
     public let stopped: Bool
+}
+
+public struct MobileChiefMarkReadResult: Codable, Equatable, Sendable {
+    public let conversation: String
+    public let upToSeq: UInt64
+    public let marked: Bool
+
+    public init(conversation: String, upToSeq: UInt64, marked: Bool = true) {
+        self.conversation = conversation
+        self.upToSeq = upToSeq
+        self.marked = marked
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case conversation
+        case upToSeq = "up_to_seq"
+        case marked
+    }
 }

@@ -286,7 +286,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
 
     func setTyping(_ isTyping: Bool) async {}
 
-    func markRead(upToSeq: Int) async {}
+    func markRead(upToSeq: Int) async {
+        guard upToSeq > 0 else { return }
+        _ = try? await client.markRead(conversation: conversationID, upToSeq: UInt64(upToSeq))
+    }
 
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
         throw unsupported("attachments")
