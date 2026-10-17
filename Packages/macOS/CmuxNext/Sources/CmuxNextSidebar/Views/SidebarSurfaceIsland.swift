@@ -142,7 +142,7 @@ final class SidebarUpdatedCardHost: NSView {
 }
 
 #if DEBUG
-extension SidebarView {
+extension SidebarViewComponents {
     /// Proofs (`debug.update_surfaces`): opens the staged card's highlights
     /// popover as a hover would; whether it shows.
     public func debugShowUpdateHighlights() -> [String: String] {

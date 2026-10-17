@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// Visible workspace rows in sidebar coordinates, keyed by the selection target.
     public var shortcutHintWorkspaceFrames: [WorkspaceID: CGRect] {
         guard !isHiddenOrHasHiddenAncestor, bounds.width > 1 else { return [:] }

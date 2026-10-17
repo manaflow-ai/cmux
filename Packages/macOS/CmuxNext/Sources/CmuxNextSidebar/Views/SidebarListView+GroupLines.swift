@@ -13,7 +13,7 @@ struct SidebarGroupLine: Equatable {
 // under the rows (SidebarGroupLineViews), from under the header bar to the
 // end of the last member row. Per-row pieces left gaps at the row spacing and
 // under the header (cx-qno.17 proof), so the line is drawn per group.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
     /// each row where its view is now, the animation's start, so a new line

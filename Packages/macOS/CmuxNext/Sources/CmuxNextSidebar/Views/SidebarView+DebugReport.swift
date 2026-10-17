@@ -2,7 +2,7 @@ import AppKit
 
 /// `debug.sidebar_rows` as a JSONSerialization object graph (nil is NSNull),
 /// so the app adds only its window fields. Rects are {x, y, width, height}.
-extension SidebarView {
+extension SidebarViewComponents {
     /// One window's sidebar: rows, selection, drag and drop state, paging,
     /// section headers and arrangements, status glyphs, layout items, + button.
     public func debugReport() -> [String: Any] {
