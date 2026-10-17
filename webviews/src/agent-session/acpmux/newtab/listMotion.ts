@@ -46,9 +46,15 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-  const signature = keys.join("\n");
+  const signature = JSON.stringify(keys);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
+  useLayoutEffect(
+    () => () => {
+      observed.current?.observer.disconnect();
+      observed.current = null;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const root = list.current;
     if (observed.current?.root !== root) {
@@ -66,8 +72,11 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
     if (!root || elements.length !== keys.length) {
+      for (const animation of running.current) animation.cancel();
+      running.current = [];
       places.current = new Map();
       shown.current = "";
+      shownKeys.current = [];
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
