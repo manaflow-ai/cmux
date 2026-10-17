@@ -3174,7 +3174,7 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
+  test("an older image the CLI sends for `vm new --base` boots the current base image", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
@@ -3195,10 +3195,13 @@ describe("VM REST auth", () => {
       }),
     );
 
+    // The retired beta image is still listed, but a request for it gets the
+    // current base default at the plan's size, never its old guest software.
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       provider: "freestyle",
-      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      image: MANIFEST_BASE_DEFAULT.imageId,
+      imageVersion: MANIFEST_BASE_DEFAULT.version,
     }));
   });
 });
