@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
+          "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
+          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",
@@ -578,6 +582,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
