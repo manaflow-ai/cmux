@@ -744,6 +744,14 @@ import Testing
 
         await sendGate.open()
         await firstSend.value
+        await source.emitHost(
+            sessionID: "session",
+            event: .appended([
+                userMessage(id: "first", seq: 1, text: "first instruction"),
+                userMessage(id: "second", seq: 2, text: "second instruction"),
+            ])
+        )
+        await settle()
         #expect(model.selectedPendingPrompts.isEmpty)
         #expect((await source.sent).map(\.0) == ["first instruction", "second instruction"])
     }
@@ -782,6 +790,11 @@ import Testing
 
         await sendGate.open()
         await sendTask.value
+        await source.emitHost(
+            sessionID: "session",
+            event: .appended([userMessage(id: "prompt", seq: 1, text: "Review this screenshot")])
+        )
+        await settle()
         #expect(model.selectedPendingPrompts.isEmpty)
     }
 
