@@ -31,4 +31,15 @@ struct SidebarCollapseMotionTests {
             #expect(SidebarTunables.collapseMotion.value.fadesPanel)
         }
     }
+
+    @Test func workspaceTitleArrivalIsInstantByDefault() throws {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(SidebarTunables.all)
+        let key = SidebarTunables.workspaceTitleMotion.key
+        let previous = store.override(key)
+        defer { store.set(key, previous) }
+        store.set(key, nil)
+        #expect(SidebarTunables.workspaceTitleMotion.value == .instant)
+    }
 }

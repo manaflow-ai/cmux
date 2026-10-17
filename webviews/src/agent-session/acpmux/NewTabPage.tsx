@@ -174,7 +174,15 @@ export function recentSessions(
     .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   const order = (entries: AcpmuxSessionEntry[]) =>
-    entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    entries.sort(
+      (a, b) =>
+        urgency(a) - urgency(b) ||
+        (b.updatedAt ?? 0) - (a.updatedAt ?? 0) ||
+        // The daemon may report two chats in the same millisecond (and both
+        // then render as "now"). Tie the order to their durable ids so a
+        // snapshot's arrival order cannot make the rows trade places.
+        a.sessionId.localeCompare(b.sessionId),
+    );
   if (!fold) return order(all).slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
   const shown = order(all.filter((entry) => !entry.spawnedBy)).slice(0, count);
