@@ -566,7 +566,7 @@ mod tests {
         }
         let (relay, out) = connection(&mux, Some("app"), false);
         crate::server::origin_gate::set_role_for_test(&mux, relay, "page_relay");
-        verify(&mux, relay);
+        crate::server::origin_gate::set_verified_app_for_test(&mux, relay, true);
         assert_eq!(
             error_code(&mux, relay, &out, frame()).as_deref(),
             Some("apps.provider.forbidden")
