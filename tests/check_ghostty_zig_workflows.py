@@ -506,15 +506,15 @@ def _job_events(path: Path, job: Job,) -> tuple[list[tuple[int, RunEvent]], list
         # A single shell step may initialize both Ghostty submodules. Treat
         # that as one initialization step for the resolver ordering guard;
         # separate init steps remain visible and still fail the duplicate
-        # wiring check.
-        init_events = [event for event in run_events if event.kind == "init"]
-        if init_events:
-            events.append((step_index, init_events[0]))
-        events.extend(
-            (step_index, event)
-            for event in run_events
-            if event.kind != "init"
-        )
+        # wiring check. Preserve the original event order so a consumer that
+        # runs before initialization is still rejected.
+        seen_init = False
+        for event in run_events:
+            if event.kind == "init":
+                if seen_init:
+                    continue
+                seen_init = True
+            events.append((step_index, event))
     return events, failures
 
 
