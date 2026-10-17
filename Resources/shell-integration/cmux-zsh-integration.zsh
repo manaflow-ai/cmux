@@ -287,6 +287,10 @@ _cmux_restore_scrollback_once() {
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
+        # The saved scrollback can end with the prompt that was active when
+        # cmux quit. Clear that replayed line so the fresh startup prompt does
+        # not accumulate another copy on every relaunch.
+        builtin printf '\r\033[2K'
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
 
@@ -594,7 +598,6 @@ _cmux_install_cli_wrapper() {
     fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
-_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
@@ -2407,7 +2410,6 @@ _cmux_fix_path() {
         fi
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
-    _cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
