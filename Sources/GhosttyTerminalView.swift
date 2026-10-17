@@ -8579,7 +8579,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
             modifierFlagsRawValue: pressFlags.rawValue,
-            permitsLinkActivation: TerminalLinkActivationPolicy.permitsCommandClick(
+            permitsLinkActivation: TerminalLinkActivationPolicy().permitsCommandClick(
                 modifierFlagsRawValue: pressFlags.rawValue,
                 commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue
             )

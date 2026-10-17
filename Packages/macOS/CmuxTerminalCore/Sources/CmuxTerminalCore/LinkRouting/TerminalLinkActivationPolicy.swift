@@ -14,7 +14,7 @@ public struct TerminalLinkActivationPolicy: Sendable {
     ///   - modifierFlagsRawValue: Device-independent modifier flags at press time.
     ///   - commandModifierRawValue: The platform's raw Command modifier bit.
     /// - Returns: `true` only when Command is the sole device-independent modifier.
-    public static func permitsCommandClick(
+    public func permitsCommandClick(
         modifierFlagsRawValue: UInt,
         commandModifierRawValue: UInt
     ) -> Bool {

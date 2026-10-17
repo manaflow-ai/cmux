@@ -2207,7 +2207,8 @@
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
           "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
           "showLinkHoverURL": "포인터가 링크 위에 있거나 링크에 키보드 포커스가 있는 동안 브라우저 패널 왼쪽 하단에 링크의 대상 주소를 표시합니다.",
-          "urlAllowlist": "내장 브라우저 탐색을 제한하는 호스트 또는 URL 패턴입니다. 설정 화면은 로컬 개발 오리진을 제안하며, 목록을 저장하면 선택적 제한이 활성화됩니다. 항목을 삭제하면 해당 오리진을 차단하고, 관리 정책이 없을 때 사용자 값을 비워 제한을 해제할 수 있습니다."
+          "urlAllowlist": "내장 브라우저 탐색을 제한하는 호스트 또는 URL 패턴입니다. 설정 화면은 로컬 개발 오리진을 제안하며, 목록을 저장하면 선택적 제한이 활성화됩니다. 항목을 삭제하면 해당 오리진을 차단하고, 관리 정책이 없을 때 사용자 값을 비워 제한을 해제할 수 있습니다.",
+          "openTerminalLinksInCmuxBrowser": "활성화하면 터미널 출력의 링크를 Command-클릭할 때 cmux 브라우저에서 열립니다. 비활성화하면 기본 브라우저에서 열립니다."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",

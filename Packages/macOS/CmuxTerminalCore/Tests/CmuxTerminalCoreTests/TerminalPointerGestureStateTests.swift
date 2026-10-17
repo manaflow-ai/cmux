@@ -13,7 +13,8 @@ import Testing
             pressPointY: 20
         )
 
-        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        let rawCompletion = state.complete(windowNumber: 7, timestamp: 11)
+        let completion = try #require(rawCompletion)
         #expect(!completion.permitsLinkActivation)
     }
 
@@ -30,7 +31,8 @@ import Testing
 
         // The release can arrive after Command is released. The press-time
         // authorization still owns the complete click lifecycle.
-        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        let rawCompletion = state.complete(windowNumber: 7, timestamp: 11)
+        let completion = try #require(rawCompletion)
         #expect(completion.permitsLinkActivation)
     }
 
@@ -47,7 +49,8 @@ import Testing
         state.markDragged(atX: 14, y: 20)
         state.invalidateLinkActivation()
 
-        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        let rawCompletion = state.complete(windowNumber: 7, timestamp: 11)
+        let completion = try #require(rawCompletion)
         #expect(!completion.permitsLinkActivation)
         #expect(completion.isDrag)
     }
