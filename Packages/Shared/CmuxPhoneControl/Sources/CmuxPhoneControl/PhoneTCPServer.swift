@@ -387,9 +387,15 @@ public final class PhoneTCPServer: @unchecked Sendable {
     }
 
     private func sendErrorAndClose(_ connection: NWConnection, error: Error) {
+        let code: String
+        if let codecError = error as? PhoneWireCodecError, codecError == .lineTooLarge {
+            code = "response_too_large"
+        } else {
+            code = "transport_error"
+        }
         let envelope = PhoneEnvelope.failure(
             id: nil,
-            error: PhoneError(code: "response_too_large", message: String(describing: error))
+            error: PhoneError(code: code, message: String(describing: error))
         )
         guard let encoded = try? PhoneWireCodec().encode(envelope) else {
             connection.cancel()

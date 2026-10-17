@@ -17,6 +17,8 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
         public let name: String
         public let model: String
         public let osVersion: String
+        /// Optional exact window title used to select one of several mirrored phones.
+        public let windowTitle: String?
         /// Insets, in window points, around the actual mirrored phone surface.
         /// iPhone Mirroring includes host window chrome; callers should provide
         /// the measured content insets when the window is decorated.
@@ -27,13 +29,15 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
             name: String = "Mirrored iPhone",
             model: String = "iPhone",
             osVersion: String = "unknown",
-            contentInsets: PhoneDisplayGeometry.Insets = .zero
+            contentInsets: PhoneDisplayGeometry.Insets = .zero,
+            windowTitle: String? = nil
         ) {
             self.deviceID = deviceID
             self.name = name
             self.model = model
             self.osVersion = osVersion
             self.contentInsets = contentInsets
+            self.windowTitle = windowTitle
         }
     }
 
@@ -143,6 +147,9 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
                     ),
                     to: processID
                 )
+                if step < max(steps, 1) {
+                    try await Task.sleep(nanoseconds: 16_000_000)
+                }
             }
             try postMouse(.leftMouseUp, at: endPoint, to: processID)
         case .longPress, .type, .press:
@@ -162,10 +169,15 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
             false,
             onScreenWindowsOnly: true
         )
-        let candidate = content.windows.first { window in
+        let candidates = content.windows.filter { window in
             let application = window.owningApplication
             return application?.bundleIdentifier == "com.apple.ScreenContinuity"
                 || application?.applicationName.localizedCaseInsensitiveContains("iPhone Mirroring") == true
+        }
+        let candidate = if let windowTitle = configuration.windowTitle {
+            candidates.first { $0.title == windowTitle }
+        } else {
+            candidates.first
         }
         guard let candidate else {
             throw PhoneDriverError.unavailable(

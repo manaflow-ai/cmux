@@ -15,6 +15,7 @@ public actor PhoneSession {
     private var closed = false
     private var actionRecords: [String: ActionRecord] = [:]
     private var actionRecordOrder: [String] = []
+    private var inFlightActions: [String: PhoneActionRequest] = [:]
 
     public init(id: String = UUID().uuidString.lowercased(), driver: any PhoneDriver) {
         self.id = id
@@ -104,6 +105,21 @@ public actor PhoneSession {
                         details: .object(["current_seq": .number(Double(currentSequence))])
                     )
                 }
+                if let pending = inFlightActions[action.actionID] {
+                    guard pending == action else {
+                        throw PhoneError(
+                            code: "action_id_conflict",
+                            message: "action_id is already being used for a different action"
+                        )
+                    }
+                    throw PhoneError(
+                        code: "action_in_progress",
+                        message: "an action with this action_id is still in progress",
+                        retryable: true
+                    )
+                }
+                inFlightActions[action.actionID] = action
+                defer { inFlightActions.removeValue(forKey: action.actionID) }
                 let receipt = try await driver.perform(action)
                 currentSequence = receipt.screenSequence
                 remember(action: action, receipt: receipt)
@@ -242,6 +258,7 @@ public actor PhoneSession {
 public actor PhoneControlServer {
     private let driver: any PhoneDriver
     private var session: PhoneSession?
+    private var openingSession = false
 
     public init(driver: any PhoneDriver) {
         self.driver = driver
@@ -261,9 +278,11 @@ public actor PhoneControlServer {
                 return [.response(id: requestID, result: try PhoneJSONValue([device]))]
 
             case "session.open":
-                if session != nil {
+                if session != nil || openingSession {
                     throw PhoneError(code: "session_exists", message: "only one local session is supported")
                 }
+                openingSession = true
+                defer { openingSession = false }
                 let device = try await driver.device()
                 let newSession = PhoneSession(driver: driver)
                 session = newSession
