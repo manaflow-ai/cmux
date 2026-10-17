@@ -65,16 +65,42 @@ struct AgentChatTabActions {
             ("xcode", "Xcode", "com.apple.dt.Xcode"),
         ]
         let workspace = NSWorkspace.shared
-        let installed = editors.filter { $0.bundle.map { workspace.urlForApplication(withBundleIdentifier: $0) != nil } ?? true }
+        let appURL = { (bundle: String?) -> URL? in
+            bundle.map { workspace.urlForApplication(withBundleIdentifier: $0) } ?? URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
+        }
+        let installed = editors.filter { appURL($0.bundle) != nil }
         if let app, let folder, folder.hasPrefix("/"), let pick = installed.first(where: { $0.id == app }) {
             let url = URL(fileURLWithPath: folder, isDirectory: true)
-            if let bundle = pick.bundle, let appURL = workspace.urlForApplication(withBundleIdentifier: bundle) {
-                workspace.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+            if pick.bundle != nil, let at = appURL(pick.bundle) {
+                workspace.open([url], withApplicationAt: at, configuration: NSWorkspace.OpenConfiguration())
             } else {
                 workspace.open(url)
             }
         }
-        return installed.map { ["id": $0.id, "name": $0.name] }
+        return installed.map { editor in
+            var row = ["id": editor.id, "name": editor.name]
+            if let at = appURL(editor.bundle), let icon = Self.icon(at) { row["icon"] = icon }
+            return row
+        }
+    }
+
+    /// An app's icon as a 32px PNG data URL for the page's Open in rows, kept per app.
+    private static var icons: [URL: String] = [:]
+    private static func icon(_ app: URL) -> String? {
+        if let cached = icons[app] { return cached }
+        let image = NSWorkspace.shared.icon(forFile: app.path)
+        let size = NSSize(width: 32, height: 32)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let url = "data:image/png;base64," + png.base64EncodedString()
+        icons[app] = url
+        return url
     }
 
     /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.

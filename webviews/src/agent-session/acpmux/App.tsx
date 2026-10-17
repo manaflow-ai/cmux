@@ -5535,6 +5535,7 @@ function AcpmuxPane() {
                     quick ? undefined : (
                       <ThreadDetails
                         folder={localCwd}
+                        {...(machineName ? { machine: machineName } : {})}
                         readStatus={readFolderStatus}
                         refresh={snapshot.isWorking}
                         openIn={(app) =>

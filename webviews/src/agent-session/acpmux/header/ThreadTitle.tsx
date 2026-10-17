@@ -4,7 +4,10 @@
 // leaving the field keeps the name, Escape puts the old one back.
 import { useState } from "react";
 import { useT } from "../i18n";
+import { useNt } from "../newtab/strings";
 import { folderName } from "../summary/ThreadDetails";
+import { Icon } from "../icons/Icon";
+import { isAgentHome } from "../sessionList";
 
 export function ThreadTitle({
   folder,
@@ -18,7 +21,9 @@ export function ThreadTitle({
   onRename?: (name: string) => Promise<unknown>;
 }) {
   const t = useT();
+  const nt = useNt();
   const [editing, setEditing] = useState(false);
+  const home = isAgentHome(folder);
   // The name this page gave the chat, shown until its title catches up.
   const [renamed, setRenamed] = useState<{ from: string; to: string }>();
   const shown = renamed && renamed.from === title ? renamed.to : title || t("header.agentChat");
@@ -33,14 +38,16 @@ export function ThreadTitle({
     <nav className="acpmux-thread-title" aria-label={t("chatMenu.rename")}>
       {folder && (
         <>
+          {/* A chat with no project runs in its private agent-home folder: No project, nothing to open. */}
           <button
             type="button"
             className="acpmux-thread-title__project"
-            title={folder}
-            disabled={!onProject}
+            title={home ? undefined : folder}
+            disabled={!onProject || home}
             onClick={() => onProject?.(folder)}
           >
-            {folderName(folder)}
+            <Icon name={home ? "placeholder" : "folder"} size={13} />
+            <span className="acpmux-thread-title__label">{home ? nt("noProject") : folderName(folder)}</span>
           </button>
           <span className="acpmux-thread-title__slash" aria-hidden="true">
             /
@@ -52,6 +59,8 @@ export function ThreadTitle({
           className="acpmux-thread-title__field"
           aria-label={t("chatMenu.rename")}
           defaultValue={shown}
+          // As wide as the name (and a little room to type), so the project beside it never moves.
+          size={Math.max(8, Math.min(48, shown.length + 2))}
           // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
           onFocus={(event) => event.currentTarget.select()}
