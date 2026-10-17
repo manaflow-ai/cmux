@@ -55,6 +55,9 @@ losing/invalidating the feed retires the lease and, for a live subscriber,
 sends `agent-inventory-watch-ended {machine, watch_id, reason}`. No newer lease
 can be removed by an old callback. Activation and invalidation enqueue are
 ordered before socket replacement; disable orders the end of notifications.
+Replacement atomically detaches the old leases before allowing new admissions,
+then closes only those detached leases outside the socket lock. An internal
+connection epoch rejects stale admissions even when a socket path is reused.
 
 At most eight watches exist per native owner. Watch handshakes share the
 existing eight-worker cache-read budget, including cancelled attempts still

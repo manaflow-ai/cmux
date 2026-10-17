@@ -67,6 +67,8 @@ pub(super) mod agent_session_link;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_inventory_socket.rs"]
+mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -106,7 +108,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The daemon's acpmux socket and every live attachment.
 #[derive(Default)]
 pub(crate) struct AgentSessions {
-    socket: RwLock<Option<PathBuf>>,
+    socket: RwLock<inventory_socket::SocketState>,
     #[cfg(test)]
     inventory_socket_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Bounded cache reads share this owner's socket, never its start path.
@@ -135,44 +137,6 @@ impl AttachState {
 }
 
 impl AgentSessions {
-    pub(crate) fn set_socket(&self, socket: Option<PathBuf>) {
-        let changed = {
-            let mut current = self.socket.write().unwrap_or_else(|e| e.into_inner());
-            let changed = *current != socket;
-            *current = socket;
-            changed
-        };
-        #[cfg(test)]
-        if changed {
-            let hook = self.inventory_socket_hook.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(hook) = hook {
-                hook();
-            }
-        }
-        if changed {
-            self.inventory_watches.stop_all();
-        }
-    }
-
-    pub(crate) fn socket(&self) -> Option<PathBuf> {
-        self.socket.read().unwrap_or_else(|e| e.into_inner()).clone()
-    }
-
-    #[cfg(test)]
-    pub(in crate::server) fn set_inventory_socket_test_hook(&self, hook: Box<dyn FnOnce() + Send>) {
-        *self.inventory_socket_hook.lock().unwrap_or_else(|e| e.into_inner()) = Some(hook);
-    }
-
-    /// Linearizes a cache-watch receipt or invalidation before socket replacement.
-    pub(super) fn with_inventory_socket<T>(
-        &self,
-        expected: &std::path::Path,
-        action: impl FnOnce() -> T,
-    ) -> Option<T> {
-        let current = self.socket.read().unwrap_or_else(|e| e.into_inner());
-        (current.as_deref() == Some(expected)).then(action)
-    }
-
     /// The live attachment of `surface` on `client`; an ended one is dropped.
     fn attachment(&self, client: u64, surface: SurfaceId) -> Option<Arc<Attachment>> {
         let mut state = self.lock();

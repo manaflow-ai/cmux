@@ -33,18 +33,24 @@ impl Watches {
             watch.stop(Failure::Unavailable, false);
         }
     }
-    pub(in crate::server) fn stop_all(&self) {
-        let gone: Vec<_> =
-            self.0.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, v)| v).collect();
-        for watch in gone {
-            watch.stop(Failure::Unavailable, true);
-        }
+    pub(in crate::server) fn take_all(&self) -> Retired {
+        Retired(self.0.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, v)| v).collect())
     }
 }
 
 impl Drop for Watches {
     fn drop(&mut self) {
-        self.stop_all();
+        self.take_all().close();
+    }
+}
+
+/// Detached under the socket write guard, closed after releasing it.
+pub(in crate::server) struct Retired(Vec<Arc<Watch>>);
+impl Retired {
+    pub(in crate::server) fn close(self) {
+        for watch in self.0 {
+            watch.stop(Failure::Unavailable, true);
+        }
     }
 }
 
@@ -68,6 +74,7 @@ pub(super) struct Watch {
     owner: MachinePublicId,
     mux: Weak<Mux>,
     pub(super) socket: PathBuf,
+    generation: u64,
     pub(super) writer: MessageWriter,
     state: Mutex<State>,
 }
@@ -77,6 +84,7 @@ impl Watch {
         mux: &Arc<Mux>,
         client: u64,
         socket: PathBuf,
+        generation: u64,
         writer: MessageWriter,
     ) -> Result<Arc<Self>, Failure> {
         let mut bytes = [0u8; 16];
@@ -88,6 +96,7 @@ impl Watch {
             owner: mux.machine_public_id.clone(),
             mux: Arc::downgrade(mux),
             socket,
+            generation,
             writer,
             state: Mutex::new(State {
                 phase: Phase::Pending,
@@ -100,14 +109,17 @@ impl Watch {
     }
     pub(super) fn current_socket(&self) -> bool {
         self.mux.upgrade().is_some_and(|mux| {
-            mux.control_clients.agent_sessions.socket().as_ref() == Some(&self.socket)
+            mux.control_clients
+                .agent_sessions
+                .with_inventory_socket(&self.socket, self.generation, || ())
+                .is_some()
         })
     }
     pub(super) fn respond(&self, id: Option<Value>) -> Result<bool, Failure> {
         let mux = self.mux.upgrade().ok_or(Failure::Unavailable)?;
         mux.control_clients
             .agent_sessions
-            .with_inventory_socket(&self.socket, || {
+            .with_inventory_socket(&self.socket, self.generation, || {
                 let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 match state.phase {
                     Phase::Active => Ok(agent_inventory::reply(
@@ -146,7 +158,7 @@ impl Watch {
         let mux = self.mux.upgrade().ok_or(Failure::Unavailable)?;
         mux.control_clients
             .agent_sessions
-            .with_inventory_socket(&self.socket, || {
+            .with_inventory_socket(&self.socket, self.generation, || {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 if state.phase == Phase::Closed {
                     return Err(state.failure);
@@ -168,9 +180,11 @@ impl Watch {
                     .mux
                     .upgrade()
                     .and_then(|mux| {
-                        mux.control_clients
-                            .agent_sessions
-                            .with_inventory_socket(&self.socket, || self.observe(&value))
+                        mux.control_clients.agent_sessions.with_inventory_socket(
+                            &self.socket,
+                            self.generation,
+                            || self.observe(&value),
+                        )
                     })
                     .unwrap_or(Err(Failure::Unavailable));
                 if let Err(error) = result {

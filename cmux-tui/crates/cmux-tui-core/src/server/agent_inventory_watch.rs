@@ -63,9 +63,10 @@ pub(in crate::server) fn try_handle(
         if let Some(existing) = watches.get(client) {
             return existing.respond(id.clone()).map(Dispatch::Sent);
         }
-        let socket = mux.control_clients.agent_sessions.socket().ok_or(Failure::Unavailable)?;
+        let (socket, generation) =
+            mux.control_clients.agent_sessions.inventory_socket().ok_or(Failure::Unavailable)?;
         let slot = agent_inventory::reserve(mux)?;
-        let watch = state::Watch::new(mux, client, socket, writer.clone())?;
+        let watch = state::Watch::new(mux, client, socket, generation, writer.clone())?;
         watches.insert(watch.clone())?;
         let failure_watch = watch.clone();
         let worker_id = id.clone();
