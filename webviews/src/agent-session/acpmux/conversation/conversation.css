@@ -784,10 +784,18 @@ pre.cv-math-source {
   opacity: 0;
 }
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
-   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
-.acpmux-row:focus-within .acpmux-row__copy,
+   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it.
+   Only keyboard focus (the row's tab stop or the button itself), not any focus inside the row: a
+   click on a prompt's Edit focused its editor, and Copy then sat on the prompt's corner (Lucas
+   2026-10-17). Never over an open prompt editor. */
+.acpmux-row:focus-visible .acpmux-row__copy,
+.acpmux-row .acpmux-row__copy:focus-visible,
 .acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
   opacity: 1;
+}
+.acpmux-row:has(.cv-user__edit) .acpmux-row__copy {
+  opacity: 0;
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-row .acpmux-row__copy {
