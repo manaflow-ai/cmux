@@ -1,16 +1,16 @@
 import { useSyncExternalStore } from "react";
 
 /// Codex-style tool runs in a running turn (cx-ncc.108; conversation/turns.ts `codexRuns`): a
-/// The Codex-style grouping is the normal transcript presentation. The host may still explicitly
-/// disable it with the existing Debug tunable (`agentPane.debug.codexToolRuns`), which the app
-/// pushes with the theme (`theme.codexToolRuns`, AgentPaneTheme.swift) and again when it changes.
-let current = true;
+/// The native host sends the tunable's default explicitly. A browser or older host that has not
+/// sent a theme keeps the legacy web fallback until it opts into Codex-style live grouping.
+let current = false;
 const listeners = new Set<() => void>();
 
 /// The host pushed the theme: the transcript follows at once.
 export function configureCodexToolRuns(value: unknown): void {
-  // Missing theme data keeps the feature on for older hosts; only an explicit false opts out.
-  const next = value !== false;
+  // Native AgentPaneTunables sends true by default; missing theme data stays compatible with
+  // browser and older hosts until they explicitly opt in.
+  const next = value === true;
   if (next === current) return;
   current = next;
   for (const listener of listeners) listener();
