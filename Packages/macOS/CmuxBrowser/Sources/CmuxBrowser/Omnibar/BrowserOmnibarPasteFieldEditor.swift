@@ -1,10 +1,31 @@
 import AppKit
 
-/// Field editor that preserves raw pasteboard text until omnibar URL classification.
+/// Field editor that preserves raw pasteboard text until omnibar URL classification, and adds
+/// "Paste and Go" to its right-click menu for a delegate that handles it.
 final class BrowserOmnibarPasteFieldEditor: NSTextView {
     override var isFieldEditor: Bool {
         get { true }
         set {}
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        pasteAndGoMenu(from: super.menu(for: event), pasteboard: .general)
+    }
+
+    /// `base` with the Paste and Go row when the delegate handles it and `pasteboard` has text.
+    /// - Parameters:
+    ///   - base: The text view's menu.
+    ///   - pasteboard: The pasteboard the row pastes from.
+    /// - Returns: The menu to show.
+    func pasteAndGoMenu(from base: NSMenu?, pasteboard: NSPasteboard) -> NSMenu? {
+        guard let base, isEditable,
+              let handler = delegate as? any BrowserOmnibarPasteAndGoHandling,
+              let row = BrowserOmnibarPasteAndGo.row(forPasteboardText: pasteboard.string(forType: .string)) else {
+            return base
+        }
+        return BrowserOmnibarPasteAndGo.menu(adding: row, to: base) { [weak handler] text in
+            handler?.omnibarPasteAndGo(text)
+        }
     }
 
     override func readSelection(from pasteboard: NSPasteboard) -> Bool {

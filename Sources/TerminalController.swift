@@ -1937,6 +1937,8 @@ class TerminalController {
                 id: request.id,
                 v2WindowScreenshotOnSocketWorker(params: request.params)
             )
+        case "browser.extension.list", "browser.extension.load", "browser.extension.install_crx", "browser.extension.enable", "browser.extension.disable", "browser.extension.remove", "browser.extension.reload", "browser.extension.pin", "browser.extension.unpin", "browser.extension.move", "browser.extension.options", "browser.extension.run", "browser.extension.command", "browser.extension.open_page":
+            return v2BrowserExtensionOnSocketWorker(id: request.id, method: request.method, params: request.params)
         case "browser.download.list", "browser.download.wait":
             return v2Result(id: request.id, request.method == "browser.download.list" ? v2BrowserDownloadListOnSocketWorker(params: request.params) : v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.dialog.accept", "browser.dialog.dismiss":
@@ -10216,8 +10218,10 @@ class TerminalController {
 
             // A non-WebKit engine focuses its own page view (this command has
             // explicit focus intent).
-            if let enginePage = browserPanel.automationEnginePage {
-                result = enginePage.setFocused(true)
+            if browserPanel.automationEnginePage != nil {
+                // The page itself, not its DevTools.
+                browserPanel.noteEnginePageChosen()
+                result = browserPanel.focusEnginePageContent()
                     ? .ok(["focused": true])
                     : .err(code: "internal_error", message: "Focus did not move into web view", data: nil)
                 return

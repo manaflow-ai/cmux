@@ -144,6 +144,7 @@ public final class CEFPageFeatures {
             items: BrowserContextMenuItem.decodeChromiumList(itemsJSON),
             target: target,
             defaultBrowserLink: host?.contextMenuDefaultBrowserLink(for: target),
+            webSearch: host?.contextMenuWebSearch(for: target),
             hostGroups: host?.contextMenuHostGroups(for: target) ?? []
         )
         let shim = self.shim

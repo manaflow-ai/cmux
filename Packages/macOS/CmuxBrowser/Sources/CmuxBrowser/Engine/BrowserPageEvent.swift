@@ -44,4 +44,8 @@ public enum BrowserPageEvent: Equatable, Sendable {
     /// The page left a letter unhandled while no editable field had focus
     /// (Chromium reports it after the page), for single-key page shortcuts.
     case unhandledKey(BrowserPageKey)
+    /// The page navigated to a link another app opens (mailto:, tel:, an
+    /// app's own scheme), which the engine cancelled instead of loading;
+    /// `userGesture` is whether the user's click started it.
+    case externalAppRequested(URL, userGesture: Bool)
 }

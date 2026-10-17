@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 
 @MainActor
@@ -30,6 +31,14 @@ struct SidebarResizerOcclusionResolver {
         let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
         return windowNumber > 0 ? windowNumber : nil
     }
+    /// The window a window acts for: a Chromium page's child window acts for
+    /// the cmux window it sits in (its pages lie over the band's content side),
+    /// any other window for itself.
+    var actingWindowNumber: (Int) -> Int = { windowNumber in
+        guard let window = NSApp.window(withWindowNumber: windowNumber),
+              let acting = window.chromiumActingWindow(fallback: nil) else { return windowNumber }
+        return acting.windowNumber
+    }
 
     func dividerBandContains(
         point: NSPoint,
@@ -55,7 +64,8 @@ struct SidebarResizerOcclusionResolver {
         observedWindowNumber: Int
     ) -> Bool {
         guard !isDragging else { return true }
-        guard isInDividerBand else { return false }
-        return topmostMouseEventWindowNumber(screenPoint) == observedWindowNumber
+        guard isInDividerBand,
+              let topmost = topmostMouseEventWindowNumber(screenPoint) else { return false }
+        return topmost == observedWindowNumber || actingWindowNumber(topmost) == observedWindowNumber
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxCEFBrowser
 import CmuxFoundation
 import ObjectiveC
 
@@ -14,6 +15,10 @@ import ObjectiveC
 /// Lifecycle mirrors `BrowserPopupWindowController`: the controller retains
 /// itself through its panel and goes away when the panel closes; closing the
 /// panel closes the page, and the page's `window.close()` closes the panel.
+/// An extension's popup window (`chrome.windows.create({type: "popup"})`)
+/// opens here too: Chromium's own window for it attaches over the page, so
+/// `chrome.windows.update` moves or resizes the panel and
+/// `chrome.windows.remove` (the page closing) closes it.
 ///
 /// References: design review on #21050 (popups must open the way WebKit opens
 /// them, spec §0.1); Classic `BrowserPopupWindowController.swift`,
@@ -28,6 +33,7 @@ final class ChromiumPopupWindowController: NSObject, NSWindowDelegate {
     private let panel: BrowserPopupPanel
     private let originLabel = NSTextField(labelWithString: "")
     private var eventsTask: Task<Void, Never>?
+    private var isClosing = false
 
     /// Opens `page` in a popup window sized `width` x `height` (points) near `opener`.
     @discardableResult
@@ -104,6 +110,13 @@ final class ChromiumPopupWindowController: NSObject, NSWindowDelegate {
                     break
                 }
             }
+            // The page closed on its own (chrome.windows.remove of an
+            // extension popup window): the panel goes with it.
+            guard !Task.isCancelled, let self, !self.isClosing else { return }
+            self.panel.close()
+        }
+        (page as? CEFBrowserPage)?.onPopupWindowBoundsRequest = { [weak self] frame in
+            self?.applyRequestedFrame(frame)
         }
         // Opened by the page's own request: it comes forward like a WebKit popup.
         panel.makeKeyAndOrderFront(nil)
@@ -117,7 +130,29 @@ final class ChromiumPopupWindowController: NSObject, NSWindowDelegate {
         if originLabel.stringValue != origin { originLabel.stringValue = origin }
     }
 
+    /// `frame`: screen points from the primary display's top-left (Chromium's
+    /// window coordinates), clamped to the panel's screen like a new popup.
+    private func applyRequestedFrame(_ frame: CGRect) {
+        guard !isClosing else { return }
+        let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? panel.frame
+        let primaryTop = NSScreen.screens.first?.frame.maxY ?? visibleFrame.maxY
+        let contentRect = browserPopupContentRect(
+            requestedWidth: frame.width,
+            requestedHeight: frame.height,
+            requestedX: frame.minX,
+            requestedTopY: frame.minY - (primaryTop - visibleFrame.maxY),
+            visibleFrame: visibleFrame,
+            defaultWidth: Self.defaultSize.width,
+            defaultHeight: Self.defaultSize.height,
+            minWidth: Self.minimumSize.width,
+            minHeight: Self.minimumSize.height
+        )
+        panel.setFrame(panel.frameRect(forContentRect: contentRect), display: true)
+    }
+
     func windowWillClose(_ notification: Notification) {
+        isClosing = true
         eventsTask?.cancel()
         eventsTask = nil
         page.close()

@@ -56,4 +56,18 @@ import Testing
         once.finish(nil)
         #expect(answers == [3])
     }
+
+    @Test func searchRowNamesTheEngineAndQuotesAShortenedSelection() throws {
+        let url = try #require(URL(string: "https://duckduckgo.com/?q=a"))
+        let short = BrowserContextMenuWebSearch(engineName: "DuckDuckGo", query: "  hello\n world ", url: url)
+        #expect(short.snippet == "hello world")
+        #expect(BrowserContextMenuPresenter.title(for: .searchWeb(short)) == "Search DuckDuckGo for \u{201C}hello world\u{201D}")
+        let long = BrowserContextMenuWebSearch(engineName: "Bing", query: String(repeating: "a", count: 80), url: url)
+        #expect(long.snippet == String(repeating: "a", count: 49) + "\u{2026}")
+
+        var hosted: [BrowserContextMenuHostAction] = []
+        let menu = BrowserContextMenuPresenter().makeMenu([.host(.searchWeb(short))], performHostAction: { hosted.append($0) }, chooseEngineItem: { _ in })
+        BrowserMenuActionTarget.target(of: try #require(menu.items.first))?.run(nil)
+        #expect(hosted == [.searchWeb(short)])
+    }
 }

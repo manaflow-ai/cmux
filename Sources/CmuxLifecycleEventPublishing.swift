@@ -250,6 +250,11 @@ private enum MainWindowKeyRegainRefresh {
         // Window focus regain owns the redraw invariant. Cursor tracking and
         // focused subviews can update themselves only after this invalidation.
         invalidateContentDisplayTree(window: window)
+        // A press took the keys from this window's Chromium page window:
+        // restoring now would focus that page again and make the cmux window
+        // non-key before AppKit dispatches the press. The window restores
+        // once the press is handled (`CmuxMainWindow.sendEvent`).
+        if (window as? CmuxMainWindow)?.isTakingKeysForChromiumChromeClick == true { return }
         _ = context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
     }
 

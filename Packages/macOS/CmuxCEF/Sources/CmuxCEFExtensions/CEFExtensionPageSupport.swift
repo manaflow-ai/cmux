@@ -2,6 +2,7 @@ import AppKit
 public import CmuxBrowser
 public import CoreGraphics
 public import Foundation
+import OSLog
 public import Observation
 
 /// The extension side of one Chromium page: its toolbar actions, the open
@@ -13,6 +14,8 @@ public import Observation
 @MainActor
 @Observable
 public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHosting {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "browser.chromium.extensions")
+
     /// The icon size requested from Chromium: the 22 pt toolbar button at 2x.
     public static let iconPixels: Int32 = 44
 
@@ -115,7 +118,9 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
             return true
         }
         let ran = stores.extensionCalls.runAction(browser: browser, id: id, x: anchorX, width: max(width, 1))
-        if ran, actions.first(where: { $0.id == id })?.hasPopup == true { openPopup = id }
+        let hasPopup = actions.first(where: { $0.id == id })?.hasPopup == true
+        if ran, hasPopup { openPopup = id }
+        Self.logger.debug("action run browser=\(browser) ran=\(ran) popup=\(hasPopup) x=\(anchorX) width=\(width)")
         return ran
     }
 
@@ -130,6 +135,13 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
         guard let browser = cefBrowserID, let open = openPopup else { return }
         stores.extensionCalls.hidePopup(browser: browser, id: open)
         openPopup = nil
+    }
+
+    /// The page left the screen (another tab or workspace shows, or it left
+    /// its window): its action popup closes, as Chrome closes a popup that
+    /// loses focus, instead of showing again, stale, when the page returns.
+    public func pageLeftScreen() {
+        hidePopup()
     }
 
     /// Chromium's own action context menu at a screen point (AppKit coordinates, bottom-left origin).
@@ -149,6 +161,8 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
 
     /// Chromium reported that the popup closed.
     func popupClosed() {
+        let browser = cefBrowserID ?? 0, wasOpen = openPopup != nil
+        Self.logger.debug("action popup closed browser=\(browser) open=\(wasOpen)")
         openPopup = nil
         refreshActions()
     }

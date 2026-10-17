@@ -124,6 +124,9 @@ final class WeakWindowReference {
     }
 }
 
+/// The command palette card's corner radius (its Chromium page hole is notched to it).
+private let commandPalettePanelCornerRadius: CGFloat = 8
+
 @MainActor
 private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
@@ -138,6 +141,15 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private let scheduledFocusAction = MainActorDeferredActionScheduler()
     private var isPaletteVisible = false
     private var hasMountedPaletteRootView = false
+    /// The palette card shows above Chromium pages (a hole in each page window).
+    private lazy var chromiumPageHole = ChromiumWindowOverlayHole(
+        source: "commandPalette",
+        cornerRadius: commandPalettePanelCornerRadius,
+        refreshNotifications: [CommandPalettePanelHitRegion.geometryDidChangeNotification]
+    ) { [weak self] in
+        guard let self, self.isPaletteVisible else { return nil }
+        return self.hostingView.commandPalettePanelRectInWindow()
+    }
 
     init(window: NSWindow) {
         self.window = window
@@ -553,6 +565,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             promoteOverlayAboveSiblingsIfNeeded()
         }
         if let window {
+            chromiumPageHole.activate(in: window)
             interactionMonitor.activate(
                 for: window,
                 shouldDismiss: { [weak self] event in
@@ -580,6 +593,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     private func hideOverlay() {
         interactionMonitor.deactivate()
+        chromiumPageHole.deactivate()
         stopFocusLockTimer()
         if let window, isPaletteResponder(window.firstResponder) {
             _ = window.makeFirstResponder(nil)
@@ -1416,6 +1430,7 @@ struct ContentView: View {
               let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
+            ChromiumWindowHoles.set([], for: Self.sidebarResizerPageHoleSource, in: observedWindow)
             scheduleSidebarResizerCursorRelease(force: true)
             return
         }
@@ -1438,6 +1453,7 @@ struct ContentView: View {
             observedWindowNumber: window.windowNumber
         )
         isResizerBandActive = mayActivate && isInDividerBand
+        publishSidebarResizerPageHoles(in: window, contentView: contentView)
 
         if mayActivate {
             activateSidebarResizerCursor()
@@ -1451,6 +1467,26 @@ struct ContentView: View {
             stopSidebarResizerCursorStabilizer()
             scheduleSidebarResizerCursorRelease()
         }
+    }
+
+    private static let sidebarResizerPageHoleSource = "sidebarResizer"
+
+    /// The bands' content side lies over the leftmost or rightmost pane. A
+    /// Chromium page there is a child window above this one and would take
+    /// the press, so while the pointer is in a band (or a resize drags) the
+    /// page leaves a hole over it; at rest the page draws edge to edge.
+    private func publishSidebarResizerPageHoles(in window: NSWindow, contentView: NSView) {
+        var bands: [CGRect] = []
+        if isResizerBandActive || isResizerDragging {
+            let bounds = contentView.bounds
+            func band(_ edge: SidebarResizeInteraction.Edge, dividerX: CGFloat) -> CGRect {
+                contentView.convert(CGRect(x: edge.handleX(dividerX: dividerX), y: bounds.minY,
+                                           width: SidebarResizeInteraction.totalHitWidth, height: bounds.height), to: nil)
+            }
+            if sidebarState.isVisible { bands.append(band(.leading, dividerX: sidebarWidth)) }
+            if rightSidebarVisible { bands.append(band(.trailing, dividerX: bounds.maxX - rightSidebarWidth)) }
+        }
+        ChromiumWindowHoles.set(bands, for: Self.sidebarResizerPageHoleSource, in: window)
     }
 
     private func startSidebarResizerCursorStabilizer() {
@@ -3945,7 +3981,7 @@ struct ContentView: View {
                 }
                 .frame(width: targetWidth)
                 .background(CommandPalettePanelHitRegion())
-                .ghosttyDialogSurface(cornerRadius: 8)
+                .ghosttyDialogSurface(cornerRadius: commandPalettePanelCornerRadius)
                 .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
                 .padding(.top, 40)
             }

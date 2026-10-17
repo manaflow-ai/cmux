@@ -278,7 +278,8 @@ public protocol ControlDebugContext: AnyObject {
     func controlDebugBrowserFavicon(params: [String: JSONValue]) -> ControlCallResult
 
     /// Runs a browser crash-safety debug method (`debug.browser.crashes`,
-    /// `debug.browser.page_status`) for crash-injection tests.
+    /// `debug.browser.page_status`) for crash-injection tests, or
+    /// `debug.browser.extension_prompts` for extension install tests.
     ///
     /// A documented passthrough like ``controlDebugBrowserFavicon(params:)``:
     /// `debug.browser.page_status` resolves its panel through the shared

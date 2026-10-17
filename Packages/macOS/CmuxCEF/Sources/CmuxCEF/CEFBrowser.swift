@@ -74,6 +74,10 @@ public enum CEFBrowserEvent {
     case closeRequested
     /// Chromium destroyed the browser.
     case closed
+    /// An extension resized or moved this page's popup window
+    /// (`chrome.windows.update`): the requested frame in screen DIPs from
+    /// the primary display's top-left.
+    case popupWindowBoundsRequested(CGRect)
     /// Every shim event of this browser, after the state update (feature
     /// code: context menus, permissions, downloads, DevTools).
     case shim(CEFShimEvent)
@@ -100,8 +104,12 @@ public final class CEFBrowser {
     /// with its id: the moment to register per-page setup (user scripts)
     /// that must apply to the first document.
     public var onWindowCreated: (@MainActor (Int32) -> Void)?
+    /// Runs when ``hostView`` leaves the screen: it left its window, or it
+    /// or an ancestor was hidden (another tab or workspace shows).
+    public var onLeftScreen: (@MainActor () -> Void)?
 
-    unowned let runtime: CEFRuntime
+    /// The runtime this page runs in.
+    public unowned let runtime: CEFRuntime
     private var pendingURL: URL?
     var pendingRestore: String?
     private var pendingFocus = false
@@ -115,6 +123,11 @@ public final class CEFBrowser {
     weak var placeholderOwner: CEFBrowser?
     /// This page only creates a popup's window (never shown as a page).
     var isPlaceholder = false
+    /// The extension popup window (chrome.windows.create, fork API 13) this
+    /// page is the tab of; it attaches over `hostView` when first shown.
+    public internal(set) var popupWindow: Int32?
+    /// The popup window is attached over `hostView`.
+    var isPopupWindowAttached = false
     /// `.closed` was sent (once per page).
     private var sentClosed = false
     private weak var opener: CEFBrowser?
@@ -154,6 +167,23 @@ public final class CEFBrowser {
         hostView.onPresentationChange = { [weak self] _ in self?.presentationChanged() }
     }
 
+    /// The tab of an extension's popup window (`chrome.windows.create`),
+    /// which keeps its own hidden Chromium window until `hostView` is shown
+    /// and the window attaches over it (`attachPopupWindow`).
+    init(adoptingPopupWindow window: Int32, browser id: Int32, from opener: CEFBrowser, runtime: CEFRuntime,
+         url: URL?, title: String) {
+        var configuration = opener.configuration
+        configuration.initialURL = nil
+        configuration.restoreState = nil
+        configuration.zoom = 1
+        self.configuration = configuration
+        self.runtime = runtime
+        popupWindow = window
+        state.url = url
+        state.title = title
+        hostView.onPresentationChange = { [weak self] _ in self?.presentationChanged() }
+    }
+
     /// The placeholder page that creates a popup's own window.
     private init(placeholderFor owner: CEFBrowser) {
         configuration = owner.configuration
@@ -172,8 +202,15 @@ public final class CEFBrowser {
     // MARK: Lifetime
 
     private func presentationChanged() {
-        guard !isClosed, hostView.isPresented else { return }
-        if awaitsWindowMove {
+        guard !isClosed else { return }
+        guard hostView.isPresented else {
+            onLeftScreen?()
+            return
+        }
+        if !isPlaceholder, popupWindow == nil { runtime.lastShownBrowser = self }
+        if popupWindow != nil, !isPopupWindowAttached {
+            attachPopupWindow()
+        } else if awaitsWindowMove {
             ensureOwnWindow()
         } else if contentRelease.isReleasing || contentRelease.isReleased {
             // The owner restores released content (it may wait for the person to ask).
@@ -331,6 +368,28 @@ public final class CEFBrowser {
             opener?.reactivate()
         } else {
             runtime.logger.error("CEF popup \(id) in window \(shim.tabWindowID(id)) could not move into its own window; closing it")
+            close()
+        }
+    }
+
+    /// Shows an extension popup window over `hostView` (never inside a
+    /// Chromium event: this runs from the view lifecycle, on a later turn
+    /// than CMUX_POPUP_WINDOW_CREATED). A window that cannot attach closes
+    /// its tab, so no hidden window stays behind.
+    private func attachPopupWindow() {
+        guard let window = popupWindow, let id = browserID, let shim = runtime.shim else { return }
+        let size = hostView.bounds.size
+        runtime.notePopupWindow("window=\(window) attach \(Int(size.width))x\(Int(size.height))")
+        if shim.popupWindowAttach(window, Unmanaged.passUnretained(hostView).toOpaque(),
+                                  Int32(clamping: Int(max(size.width, 1).rounded())),
+                                  Int32(clamping: Int(max(size.height, 1).rounded()))) == 1 {
+            isPopupWindowAttached = true
+            _ = shim.tabActivate(id)
+            hostView.postGeometryChange()
+            runtime.notePopupWindow("window=\(window) attached")
+        } else {
+            runtime.logger.error("CEF popup window \(window) did not attach; closing its tab")
+            runtime.notePopupWindow("window=\(window) attach failed")
             close()
         }
     }

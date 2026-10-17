@@ -65,6 +65,10 @@ struct BrowserExtensionToolbar: View {
                             onContextMenu: { point in host.showExtensionActionMenu(action.id, atScreenPoint: point) }
                         )
                     }
+                    let crashIndicator = BrowserExtensionCrashIndicator(extensions: extensions, visibleActionIDs: visibleIDs)
+                    if crashIndicator.isShown {
+                        crashButton(crashIndicator, store: store)
+                    }
                     menuButton(
                         extensions: extensions, actionIDs: Set(actions.map(\.id)), overflowedIDs: overflowed,
                         supportsManagement: store.supportsManagement, isActive: menuActive
@@ -84,6 +88,30 @@ struct BrowserExtensionToolbar: View {
                 run(id, buttonFrame: frame)
             }
         }
+    }
+
+    /// Crashed extensions with no visible button of their own: one warning
+    /// button that reloads them all.
+    private func crashButton(_ indicator: BrowserExtensionCrashIndicator, store: BrowserExtensionStore) -> some View {
+        let help = String(
+            format: String(localized: "browser.extensions.crashedHelp", defaultValue: "Crashed: %@. Click to reload."),
+            ListFormatter.localizedString(byJoining: indicator.names)
+        )
+        return Button {
+            for id in indicator.extensionIDs { _ = store.reload(id) }
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: metrics.accessoryIconFontSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(OmnibarAddressButtonStyle(isActive: false))
+        .frame(width: metrics.buttonIconSize, height: metrics.buttonIconSize, alignment: .center)
+        .safeHelp(help)
+        .accessibilityLabel(help)
+        .accessibilityHint(BrowserExtensionAccessibilityText.reloadsHint)
+        .accessibilityIdentifier("BrowserExtensionsCrashed")
     }
 
     private func menuButton(

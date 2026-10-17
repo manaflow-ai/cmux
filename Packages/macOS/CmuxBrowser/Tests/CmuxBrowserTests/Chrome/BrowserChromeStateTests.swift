@@ -30,4 +30,20 @@ struct BrowserChromeStateTests {
         #expect(state.setVisibility(.visible))
         #expect(state.isOmnibarVisible)
     }
+
+    @Test("Content fullscreen hides the chrome without changing the policy")
+    func contentFullscreenHidesChromeOnly() {
+        let state = BrowserChromeState(visibility: .visible)
+
+        #expect(state.setContentFullscreen(true))
+        #expect(!state.setContentFullscreen(true))
+        #expect(!state.isOmnibarVisible)
+        #expect(state.visibility == .visible)
+        // A toggle while fullscreen acts on the policy, not on the hidden chrome.
+        #expect(state.toggleOmnibarVisibility() == false)
+        #expect(state.visibility == .hidden)
+        #expect(state.toggleOmnibarVisibility())
+        #expect(state.setContentFullscreen(false))
+        #expect(state.isOmnibarVisible)
+    }
 }

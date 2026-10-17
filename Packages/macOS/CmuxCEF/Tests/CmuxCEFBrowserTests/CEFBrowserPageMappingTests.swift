@@ -58,6 +58,13 @@ struct CEFBrowserPageMappingTests {
         #expect(CEFBrowserPage.pageEvent(forShimEvent: .closeRequested(browser: 1)) == nil)
     }
 
+    @Test func aLinkToAnotherAppBecomesAnExternalAppRequest() {
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .externalURL(browser: 1, url: "mailto:a@example.com", userGesture: true))
+            == .externalAppRequested(URL(string: "mailto:a@example.com")!, userGesture: true))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .externalURL(browser: 1, url: "zoommtg://join?x=1", userGesture: false))
+            == .externalAppRequested(URL(string: "zoommtg://join?x=1")!, userGesture: false))
+    }
+
     @Test func emptyTitleIsNil() {
         #expect(CEFBrowserPage.pageState(CEFBrowserState()).title == nil)
     }

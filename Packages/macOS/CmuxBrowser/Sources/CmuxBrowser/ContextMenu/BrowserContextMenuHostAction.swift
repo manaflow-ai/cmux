@@ -7,6 +7,8 @@ public import Foundation
 public enum BrowserContextMenuHostAction: Hashable, Sendable {
     /// Opens the link in the user's default browser.
     case openLinkInDefaultBrowser(URL)
+    /// Searches the selection with cmux's search engine in a new tab.
+    case searchWeb(BrowserContextMenuWebSearch)
     /// Copies a screenshot of the whole page.
     case screenshotPage
     /// Starts a screenshot of a page section.

@@ -6,6 +6,11 @@ public import SwiftUI
 /// The marker never participates in hit testing. The overlay controller queries its
 /// frame from the hosting view before deciding whether a mouse-down is outside.
 public struct CommandPalettePanelHitRegion: NSViewRepresentable {
+    /// Posted (object: the marker view) when the panel's marker is placed,
+    /// resized or moved: the panel's frame changed (a Chromium page's hole
+    /// for it follows).
+    public static let geometryDidChangeNotification = Notification.Name("cmux.commandPalette.panelGeometryDidChange")
+
     /// Creates a passive panel-bounds marker.
     public init() {}
 
@@ -39,6 +44,17 @@ public extension NSView {
         guard let marker = commandPalettePanelHitRegionDescendant(),
               !marker.bounds.isEmpty else { return nil }
         return marker.bounds.contains(marker.convert(windowPoint, from: nil))
+    }
+
+    /// The mounted palette panel's frame in window coordinates, nil before
+    /// the marker mounted or while it has no size. A Chromium page window
+    /// leaves a hole there so the panel shows above the page.
+    ///
+    /// - Returns: The panel rect in the receiver's window coordinates.
+    func commandPalettePanelRectInWindow() -> CGRect? {
+        guard let marker = commandPalettePanelHitRegionDescendant(),
+              !marker.bounds.isEmpty, marker.window != nil else { return nil }
+        return marker.convert(marker.bounds, to: nil)
     }
 
     private func commandPalettePanelHitRegionDescendant() -> NSView? {

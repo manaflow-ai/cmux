@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import SwiftUI
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
@@ -159,6 +160,60 @@ final class CmuxMainWindow: NSWindow {
     func setFrameForRestoredPlacement(_ frameRect: NSRect, display flag: Bool) {
         recordUserPlacement()
         setFrame(frameRect, display: flag)
+    }
+
+    /// Set while this window takes the keys from its own Chromium page window
+    /// for a press into its content; the key-regain focus restore waits until
+    /// the press is handled (`finishChromiumChromeClick`).
+    private(set) var isTakingKeysForChromiumChromeClick = false
+    /// A press that took the keys from a Chromium page window is in flight.
+    private var chromiumChromeClickInFlight = false
+
+    /// A press into this window while its own Chromium page window has the
+    /// keyboard is a press into the window the person is using, but AppKit
+    /// sees a non-key window and drops the press unless the view under it
+    /// accepts the first mouse (the pane tab bar does not), so tab clicks
+    /// next to a Chromium page needed a second try. Take the keys first and
+    /// dispatch the press as a key window does (`ChromiumChromeClickFacts`).
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            let facts = ChromiumChromeClickFacts(
+                isLeftMouseDown: true,
+                windowIsKey: isKeyWindow,
+                keyWindow: .init(keyWindow: NSApp.keyWindow, for: self, fallback: NSApp.mainWindow),
+                isBlockedByModal: attachedSheet != nil || NSApp.modalWindow != nil
+            )
+            guard facts.takesKeysBeforeDispatch else { break }
+            chromiumChromeClickInFlight = true
+            isTakingKeysForChromiumChromeClick = true
+            makeKey()
+            isTakingKeysForChromiumChromeClick = false
+            super.sendEvent(event)
+            // A control's tracking loop consumes the release inside the press.
+            if NSEvent.pressedMouseButtons & 1 == 0 {
+                finishChromiumChromeClick()
+            }
+            return
+        case .leftMouseUp where chromiumChromeClickInFlight:
+            super.sendEvent(event)
+            finishChromiumChromeClick()
+            return
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
+
+    /// The press decided focus (a tab selection focuses its panel); restore
+    /// the window's target only if the window still has the keys, as a
+    /// window that became key without the press would have.
+    private func finishChromiumChromeClick() {
+        guard chromiumChromeClickInFlight else { return }
+        chromiumChromeClickInFlight = false
+        guard isKeyWindow,
+              let context = AppDelegate.shared?.senderRelativeMainWindowContext(for: self) else { return }
+        _ = context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
     }
 
     override func becomeKey() {

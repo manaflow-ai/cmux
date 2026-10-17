@@ -62,9 +62,23 @@ public final class CEFBrowserPage: BrowserPage {
         .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads,
     ]
 
+    /// An extension asked to move or resize this page's popup window
+    /// (`chrome.windows.update` on a `chrome.windows.create` popup): the
+    /// frame in screen points from the primary display's top-left. The
+    /// window showing the page follows.
+    public var onPopupWindowBoundsRequest: (@MainActor (CGRect) -> Void)?
+
+    /// cmux's header over the page window's side panel (`chrome.sidePanel`).
+    public private(set) lazy var sidePanel = CEFSidePanelController(browser: browser, shim: shimProvider)
+
+    /// The tab of an extension's popup window (`chrome.windows.create`).
+    public var isExtensionPopupWindow: Bool { browser.popupWindow != nil }
+
     /// The page's extension side (toolbar actions, extension calls); nil
     /// when the engine was created without extension support.
     public let extensionSupport: CEFExtensionPageSupport?
+    /// The engine's extension stores, handed to the pages this page opens.
+    private let extensionStores: CEFExtensionStores?
 
     /// Wraps a CEF browser and starts receiving its events.
     /// - Parameters:
@@ -81,6 +95,7 @@ public final class CEFBrowserPage: BrowserPage {
         self.browser = browser
         self.shimProvider = shim
         self.devToolsLayoutStore = devToolsLayoutStore
+        extensionStores = extensions
         features = CEFPageFeatures(
             shim: CEFShimPageFeatures(library: shim),
             browserID: { [weak browser] in browser?.browserID },
@@ -98,6 +113,9 @@ public final class CEFBrowserPage: BrowserPage {
         browser.onWindowCreated = { [weak self] id in
             self?.enableProtocolTelemetryIfWanted(browserID: id)
             self?.registerPendingUserScripts(browserID: id)
+        }
+        browser.onLeftScreen = { [weak self] in
+            self?.extensionSupport?.pageLeftScreen()
         }
     }
 
@@ -475,6 +493,8 @@ public final class CEFBrowserPage: BrowserPage {
             handleNewBrowser(popup, disposition: disposition, features: features, userGesture: userGesture)
         case .closeRequested:
             emit(.closeRequested)
+        case .popupWindowBoundsRequested(let bounds):
+            onPopupWindowBoundsRequest?(bounds)
         case .closed:
             // The runtime routes Chromium's before-close to the browser, not as a shim event.
             features.tearDown()
@@ -486,6 +506,13 @@ public final class CEFBrowserPage: BrowserPage {
 
     private func handle(_ event: CEFShimEvent) {
         features.handle(event)
+        // Esc (Windows key code 0x1B) the page did not handle while its content is fullscreen:
+        // leave fullscreen, as Chrome's Esc does. It is not also an unhandled Escape (a popup
+        // window would close on it).
+        if case .keyUnhandled(_, 0x1B, _) = event, browser.state.isFullscreen {
+            exitContentFullscreen()
+            return
+        }
         if let pageEvent = Self.pageEvent(forShimEvent: event) {
             if case .devToolsVisibilityChanged(let open) = pageEvent { devToolsVisible = open }
             emit(pageEvent)
@@ -499,6 +526,8 @@ public final class CEFBrowserPage: BrowserPage {
                                    defaultText: defaultText, isReload: isReload)
         case .jsDialogDismissed(_, let token):
             pendingDialogs.removeValue(forKey: token)?.cancel()
+        case .tab(.sidePanelChanged, _, _, _):
+            sidePanel.scheduleRefresh()
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
@@ -522,6 +551,9 @@ public final class CEFBrowserPage: BrowserPage {
             keyCode == 0x1B
                 ? BrowserPageEvent.unhandledEscape
                 : BrowserPageKey(windowsKeyCode: keyCode, shift: shift).map(BrowserPageEvent.unhandledKey)
+        // A link to another app; the shim cancelled it (external_url.h).
+        case .externalURL(_, let url, let userGesture):
+            URL(string: url).map { .externalAppRequested($0, userGesture: userGesture) }
         default: nil
         }
     }
@@ -559,6 +591,17 @@ public final class CEFBrowserPage: BrowserPage {
         }
     }
 
+    /// Ends the page's content fullscreen (`document.exitFullscreen()`); the
+    /// shim then reports the page leaving fullscreen.
+    public func exitContentFullscreen() {
+        guard browser.state.isFullscreen else { return }
+        Task { @MainActor [weak self] in
+            _ = try? await self?.evaluateJavaScript(
+                "document.fullscreenElement && document.exitFullscreen(); true", in: .page
+            )
+        }
+    }
+
     nonisolated static func defaultResponse(for kind: BrowserPageJavaScriptDialog.Kind) -> BrowserPageJavaScriptDialogResponse {
         switch kind {
         case .alert, .beforeUnload: .accept(text: nil)
@@ -588,12 +631,21 @@ public final class CEFBrowserPage: BrowserPage {
         let request = BrowserPageOpenRequest(url: popup.state.url, placement: placement, isUserGesture: userGesture)
         switch uiDelegate.page(self, openNewPage: request) {
         case .allowPopup:
-            let popupPage = CEFBrowserPage(browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore)
-            popupPage.rendererProcesses = rendererProcesses
+            let popupPage = makePopupPage(for: popup)
             uiDelegate.page(self, didCreatePopup: popupPage, for: request)
         case .handled, .block:
             popup.close()
         }
+    }
+
+    /// The page for a tab Chromium opened from this one: the same profile, so
+    /// it hosts the same extensions (toolbar, popups, extension commands).
+    func makePopupPage(for popup: CEFBrowser) -> CEFBrowserPage {
+        let page = CEFBrowserPage(
+            browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore, extensions: extensionStores
+        )
+        page.rendererProcesses = rendererProcesses
+        return page
     }
 
     /// Publishes the page's favicon as PNG data (`faviconChanged`): nil for

@@ -958,6 +958,7 @@ struct BrowserPanelView: View {
         } else {
             pendingFocusGainedSelectionIntent = .preserveFieldEditorSelection
             panel.endSuppressWebViewFocusForAddressBar()
+            panel.omniboxKeywordSession.end()
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
                 suppressNextFocusLostRevert = false
@@ -1933,6 +1934,9 @@ struct BrowserPanelView: View {
                 },
                 shouldSuppressWebViewFocus: {
                     panel.shouldSuppressWebViewFocus()
+                },
+                onPasteAndGo: { text in
+                    handleOmnibarPasteAndGo(text)
                 }
             )
                 .frame(height: chromeMetrics.omnibarFieldHeight)
@@ -1985,11 +1989,24 @@ struct BrowserPanelView: View {
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus
                         // and the address bar lets go.
+                        panel.noteEnginePageChosen()
                         onRequestPanelFocus()
                         if addressBarFocused {
                             setAddressBarFocused(false, reason: "chromiumPage.click")
                         }
                     },
+                    isDevToolsWindow: { window in panel.engineDevToolsContains(window: window) },
+                    onDevToolsChosen: { clicked in
+                        // As a click into WebKit's attached inspector: the pane
+                        // takes focus and the tools keep the keyboard.
+                        panel.noteEngineDevToolsTookKeyboard()
+                        guard clicked else { return }
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            setAddressBarFocused(false, reason: "chromiumDevTools.click")
+                        }
+                    },
+                    focusContent: { panel.focusEnginePageContent() },
                     onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) }
                 )
                 .overlay(engineFindOverlayView)
@@ -2711,20 +2728,37 @@ struct BrowserPanelView: View {
         case .commitSelectedSuggestion:
             commitSelectedSuggestion()
         case .navigate(let text):
-            if text != omnibarState.buffer {
-                // Reconcile the reducer with the live field before navigating so
-                // blur and URL-change handling see the text that was submitted.
-                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
-                applyOmnibarEffects(effects)
+            // An extension's keyword session takes Return (chrome.omnibox
+            // onInputEntered); nothing loads and the address bar goes back
+            // to the page's URL. Chromium panels only.
+            if panel.omniboxKeywordSession.enter(text: text, provider: panel.omniboxKeywordProvider) {
+                hideSuggestions()
+                setAddressBarFocused(false, reason: "omnibar.submit.extensionKeyword")
+                return
             }
-            // chrome://settings opens cmux Settings instead of loading: the
-            // address bar goes back to the page's URL (design review #21050).
-            let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
-            panel.navigateSmart(text)
-            hideSuggestions()
-            suppressNextFocusLostRevert = !opensCmuxPage
-            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+            navigateOmnibar(to: text)
         }
+    }
+
+    /// "Paste and Go" / "Paste and Search": the pasted text is submitted as typed text is.
+    private func handleOmnibarPasteAndGo(_ text: String) {
+        navigateOmnibar(to: text)
+    }
+
+    private func navigateOmnibar(to text: String) {
+        if text != omnibarState.buffer {
+            // Reconcile the reducer with the live field before navigating so
+            // blur and URL-change handling see the text that was submitted.
+            let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+            applyOmnibarEffects(effects)
+        }
+        // chrome://settings opens cmux Settings instead of loading: the
+        // address bar goes back to the page's URL (design review #21050).
+        let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
+        panel.navigateSmart(text)
+        hideSuggestions()
+        suppressNextFocusLostRevert = !opensCmuxPage
+        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
     }
 
     private func commitSelectedSuggestion() {
@@ -2746,6 +2780,15 @@ struct BrowserPanelView: View {
                     on: BrowserActionTarget(host: host, panelId: panelId)
                 )
             }
+        case .extensionKeyword(let extensionID, _, _, let content, _):
+            // The extension handles the chosen row (onInputEntered); the
+            // address bar goes back to the page's URL.
+            _ = panel.omniboxKeywordSession.enter(extensionID: extensionID, content: content,
+                                                  provider: panel.omniboxKeywordProvider)
+            hideSuggestions()
+            inlineCompletion = nil
+            setAddressBarFocused(false, reason: "suggestion.commit.extensionKeyword")
+            return
         default:
             panel.navigateSmart(suggestion.completion)
         }
@@ -2941,6 +2984,8 @@ struct BrowserPanelView: View {
             return
         }
 
+        if await refreshOmniboxKeywordSuggestions() { return }
+
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let fetchedHistoryEntries: [BrowserHistoryStore.Entry]
         if query.isEmpty {
@@ -3072,6 +3117,35 @@ struct BrowserPanelView: View {
 #endif
             }
         }
+    }
+
+    /// A Chromium panel's address bar in an extension's keyword session
+    /// (chrome.omnibox): the rows are the extension's, nothing goes to the
+    /// search engine. Returns false (and ends any session) when the text is
+    /// no keyword session; always false in a WebKit panel.
+    private func refreshOmniboxKeywordSuggestions() async -> Bool {
+        let buffer = omnibarState.buffer
+        guard let provider = panel.omniboxKeywordProvider,
+              let match = panel.omniboxKeywordSession.update(text: buffer, provider: provider) else {
+            panel.omniboxKeywordSession.end()
+            return false
+        }
+        let keyword = match.keyword, rest = match.rest
+        func show(_ suggestions: [BrowserOmniboxKeywordSuggestion]) {
+            let items = keyword.rows(text: rest, suggestions: suggestions).prefix(8).map {
+                OmnibarSuggestion(kind: .extensionKeyword(extensionID: $0.extensionID, keyword: keyword.keyword,
+                                                          name: keyword.name, content: $0.content,
+                                                          description: $0.description))
+            }
+            let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(Array(items)))
+            applyOmnibarEffects(effects)
+            inlineCompletion = nil
+        }
+        show([])
+        let suggestions = await provider.omniboxKeywordSuggestions(keyword.extensionID, text: rest)
+        guard !Task.isCancelled, addressBarFocused, omnibarState.buffer == buffer else { return true }
+        show(suggestions)
+        return true
     }
 
     private func staleRemoteSuggestionsForDisplay(
@@ -4137,6 +4211,9 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             title: String?
         )
         case remote(query: String)
+        /// A row of an extension's chrome.omnibox keyword session (Chromium
+        /// panels only): `content` goes to the extension when chosen.
+        case extensionKeyword(extensionID: String, keyword: String, name: String, content: String, description: String)
     }
 
     let kind: Kind
@@ -4154,6 +4231,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             return "switch-tab|\(host.identityKey)|\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
         case .remote(let query):
             return "remote|\(query.lowercased())"
+        case .extensionKeyword(let extensionID, _, _, let content, _):
+            return "extension-keyword|\(extensionID)|\(content)"
         }
     }
 
@@ -4164,6 +4243,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case .history(let url, _): return url
         case .switchToTab(_, _, _, let url, _): return url
         case .remote(let q): return q
+        case .extensionKeyword(_, let keyword, _, let content, _): return "\(keyword) \(content)"
         }
     }
 
@@ -4181,6 +4261,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
                 ? Self.singleLineText(title) : Self.displayURLText(for: url)
         case .remote(let q):
             return q
+        case .extensionKeyword(_, _, _, _, let description):
+            return Self.singleLineText(description)
         }
     }
 
@@ -4219,6 +4301,9 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         switch kind {
         case .switchToTab:
             return String(localized: "browser.switchToTab", defaultValue: "Switch to tab")
+        case .extensionKeyword(_, _, let name, _, _):
+            // The extension answering the keyword, as Chrome names it.
+            return name
         default:
             return nil
         }
@@ -4354,10 +4439,11 @@ func browserOmnibarFocusGainingClickShouldSelectAll(
 // Swift 6 SDK inherits MainActor isolation from NSResponder, so these
 // framework overrides are explicitly nonisolated; the field is still owned by
 // its main-thread SwiftUI representable.
-final class OmnibarNativeTextField: NSTextField {
+final class OmnibarNativeTextField: NSTextField, BrowserOmnibarPasteAndGoHandling {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    var onPasteAndGo: ((String) -> Void)?
     var suppressNextFocusReacquireOnEndEditing = false
     /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
     private var shiftClickAnchor: Int?
@@ -4390,6 +4476,12 @@ final class OmnibarNativeTextField: NSTextField {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    /// The field editor's "Paste and Go" row (the field is its delegate while editing).
+    func omnibarPasteAndGo(_ text: String) {
+        onPasteAndGo?(text)
+    }
+
     nonisolated override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
@@ -4586,6 +4678,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let onDeleteWordBackwardWithInlineSelection: () -> Void
     let onSelectionChanged: (NSRange, Bool) -> Void
     let shouldSuppressWebViewFocus: () -> Bool
+    /// The right-click "Paste and Go" / "Paste and Search" row with the pasted text.
+    var onPasteAndGo: (String) -> Void = { _ in }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -5176,6 +5270,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
         }
+        field.onPasteAndGo = { [weak coordinator = context.coordinator] text in
+            coordinator?.parent.onPasteAndGo(text)
+        }
         context.coordinator.parentField = field
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         return field
@@ -5586,6 +5683,8 @@ struct OmnibarSuggestionsView: View {
                         return "switchToTab"
                     case .remote:
                         return "remote"
+                    case .extensionKeyword:
+                        return "extensionKeyword"
                     }
                 }()
                 cmuxDebugLog("browser.suggestionClick index=\(idx) kind=\(suggestionKind) textBytes=\(item.listText.utf8.count)")

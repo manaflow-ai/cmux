@@ -94,4 +94,39 @@ import Testing
         )
         #expect(entries == [.engine(BrowserContextMenuItem(id: 10, title: "More", kind: .submenu, children: [item(11)]))])
     }
+
+    @Test func searchRowsUseTheCmuxSearchEngineInChromiumsPlace() throws {
+        let search = BrowserContextMenuWebSearch(
+            engineName: "DuckDuckGo", query: "hello world",
+            url: try #require(URL(string: "https://duckduckgo.com/?q=hello%20world"))
+        )
+        let entries = BrowserChromiumContextMenuComposer().compose(
+            items: [item(50150, "Copy"), item(50191, "Search Google for \u{201C}hello world\u{201D}"),
+                    item(50192, "Search Google in New Tab"), separator, item(50162, "Inspect")],
+            target: BrowserContextMenuTarget(selection: "hello world"),
+            defaultBrowserLink: nil,
+            webSearch: search,
+            hostGroups: []
+        )
+        #expect(entries == [.engine(item(50150, "Copy")), .host(.searchWeb(search)), .separator, .engine(item(50162, "Inspect"))])
+    }
+
+    @Test func chromiumSearchRowStaysWithoutACmuxSearch() {
+        let entries = BrowserChromiumContextMenuComposer().compose(
+            items: [item(50191, "Search Google")],
+            target: BrowserContextMenuTarget(selection: "x"), defaultBrowserLink: nil, webSearch: nil, hostGroups: []
+        )
+        #expect(entries == [.engine(item(50191, "Search Google"))])
+    }
+
+    @Test func noSearchRowWhenChromiumOffersNone() throws {
+        let search = BrowserContextMenuWebSearch(
+            engineName: "Bing", query: "x", url: try #require(URL(string: "https://www.bing.com/search?q=x"))
+        )
+        let entries = BrowserChromiumContextMenuComposer().compose(
+            items: [item(50150, "Copy")], target: BrowserContextMenuTarget(selection: "x"),
+            defaultBrowserLink: nil, webSearch: search, hostGroups: []
+        )
+        #expect(entries == [.engine(item(50150, "Copy"))])
+    }
 }
