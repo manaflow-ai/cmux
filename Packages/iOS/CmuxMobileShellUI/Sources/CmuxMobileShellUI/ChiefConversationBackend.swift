@@ -447,6 +447,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         _ message: MobileChiefMessage,
         clientMessageID: String? = nil
     ) -> ConversationMessage {
+        let resolvedClientMessageID = clientMessageID
+            ?? (message.authorKind == "human" ? message.clientMessageID : nil)
         let senderIsMe = withState { state in
             let isMe = message.authorID == state.meID || message.authorKind == "human"
             if isMe { state.meID = message.authorID }
@@ -462,7 +464,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         return ConversationMessage(
             id: message.id,
             seq: safeInt(message.seq),
-            clientMessageID: clientMessageID,
+            clientMessageID: resolvedClientMessageID,
             senderID: message.authorID,
             sentAt: message.at,
             text: text,
