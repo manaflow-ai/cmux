@@ -7,6 +7,12 @@ struct CloudMachineLinkErrorCategoryTests {
     func transportFailuresAreDaemonUnavailable() {
         #expect(CloudMachineLink.LinkError.timedOut.category == .daemonUnavailable)
         #expect(CloudMachineLink.LinkError.exited(status: 1, output: "daemon unavailable").category == .daemonUnavailable)
+        #expect(CloudMachineLink.LinkError.exited(status: 1, output: #"{"code":"transport.closed"}"#).category == .daemonUnavailable)
+        #expect(CloudMachineLink.LinkError.exited(status: 1, output: #"{"code":"transport.timeout"}"#).category == .daemonUnavailable)
+        #expect(CloudMachineLink.LinkError.exited(
+            status: 1,
+            output: #"{"code":"raw.command_failed","details":{"error":"transport.closed"}}"#
+        ).category == .daemonUnavailable)
     }
 
     @Test("client and request failures retain their own categories")

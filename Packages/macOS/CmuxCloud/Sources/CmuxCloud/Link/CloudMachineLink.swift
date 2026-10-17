@@ -106,10 +106,11 @@ public actor CloudMachineLink {
         public var category: Category {
             switch self {
             case .exited(_, let output):
-                // A reachable daemon reports a rejection as a JSON error object
-                // (`revision.conflict`, `selector.not_found`, ...). That is an
-                // answer, not an unavailable daemon.
-                return Self.isDaemonRejection(output) ? .other : .daemonUnavailable
+                // A structured error's code is authoritative. A reachable daemon
+                // rejecting the request (`revision.conflict`, `selector.not_found`)
+                // answered; only transport codes mean it is unavailable.
+                guard let code = Self.structuredErrorCode(output) else { return .daemonUnavailable }
+                return Self.transportErrorCodes.contains(code) ? .daemonUnavailable : .other
             case .timedOut:
                 return .daemonUnavailable
             case .clientMissing, .spawnFailed, .exitedBeforeSocket:
@@ -154,9 +155,21 @@ public actor CloudMachineLink {
             }
         }
 
-        private static func isDaemonRejection(_ output: String) -> Bool {
-            guard let data = output.data(using: .utf8) else { return false }
-            return (try? JSONSerialization.jsonObject(with: data)) is [String: Any]
+        /// Error codes the daemon or link report when the transport, not the
+        /// request, failed.
+        static let transportErrorCodes: Set<String> = ["transport.closed", "transport.timeout"]
+
+        /// The code of a structured error object, or nil when `output` is not one.
+        /// An object without a code is still a daemon answer and yields "".
+        private static func structuredErrorCode(_ output: String) -> String? {
+            guard let data = output.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            if let detail = (object["details"] as? [String: Any])?["error"] as? String,
+               transportErrorCodes.contains(detail) {
+                return detail
+            }
+            return (object["code"] as? String) ?? (object["error_code"] as? String) ?? ""
         }
 
         private static func sanitizedDetail(_ detail: String) -> String {
