@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings

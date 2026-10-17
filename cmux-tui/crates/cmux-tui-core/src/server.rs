@@ -121,6 +121,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_inventory;
+#[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
@@ -2749,6 +2751,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
