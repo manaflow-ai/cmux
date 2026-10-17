@@ -129,6 +129,8 @@ fn cmux_next_machine_catalog_agent_surface_mcp_exposes_the_typed_reader_opt_in()
         if tool.operation == ResourceOperation::MachineList {
             bad.remove("machine");
         }
-        assert!(tool.plan(&bad).is_err());
+        // Field types are checked by the authoritative native catalog, not
+        // duplicated in the MCP planner. Preserve malformed input for that refusal.
+        assert_eq!(tool.plan(&bad).unwrap().plan.params["catalog"], "true");
     }
 }
