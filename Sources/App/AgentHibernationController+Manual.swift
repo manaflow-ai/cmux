@@ -90,6 +90,7 @@ extension AgentHibernationController {
     static func manualHibernationRefusal(
         for record: AgentHibernationRecord,
         teardownInFlight: Bool,
+        trigger: AgentHibernationReclaimTrigger = .manual,
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> AgentHibernationManualRefusal? {
         if record.terminalPanel.isAgentHibernated {
@@ -98,7 +99,9 @@ extension AgentHibernationController {
                 : .alreadyHibernated
         }
         if teardownInFlight { return .teardownInProgress }
-        if record.isProtected { return .visible }
+        // Move to Cloud stops the agent so its session can leave; the pane
+        // holds its wake (see `SessionMoveToCloudAction`), so on screen is fine.
+        if record.isProtected, !trigger.allowsVisiblePanel { return .visible }
         if record.lifecycle == .unknown { return .lifecycleUnknown }
         if !record.lifecycle.allowsHibernation { return .agentBusy }
         if record.hasUnconfirmedTerminalInput { return .unconfirmedInput }
@@ -115,7 +118,8 @@ extension AgentHibernationController {
     func hibernateNow(
         workspaceId: UUID?,
         panelId: UUID,
-        index: RestorableAgentSessionIndex
+        index: RestorableAgentSessionIndex,
+        trigger: AgentHibernationReclaimTrigger = .manual
     ) async -> AgentHibernationManualRefusal? {
         guard let appDelegate = AppDelegate.shared,
               let located = appDelegate.workspaceContainingPanel(
@@ -142,7 +146,8 @@ extension AgentHibernationController {
         }
         if let refusal = Self.manualHibernationRefusal(
             for: record,
-            teardownInFlight: teardownInFlightByPanel[key] != nil
+            teardownInFlight: teardownInFlightByPanel[key] != nil,
+            trigger: trigger
         ) {
             return refusal
         }
@@ -152,7 +157,7 @@ extension AgentHibernationController {
 
         confirmations.removeValue(forKey: key)
         let requestID = UUID()
-        teardownInFlightByPanel[key] = InFlightTeardown(requestID: requestID, trigger: .manual)
+        teardownInFlightByPanel[key] = InFlightTeardown(requestID: requestID, trigger: trigger)
         let request = ConfirmedTeardownRequest(
             record: record,
             confirmationFingerprint: fingerprint,
@@ -160,7 +165,7 @@ extension AgentHibernationController {
             requestID: requestID,
             epoch: teardownValidationEpochByPanel[key] ?? 0,
             generation: teardownValidationGeneration,
-            trigger: .manual
+            trigger: trigger
         )
         let hibernatedCount = await withCheckedContinuation { continuation in
             beginConfirmedTeardowns([request], onCompletion: { count in

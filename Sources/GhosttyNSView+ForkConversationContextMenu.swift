@@ -27,7 +27,8 @@ extension GhosttyNSView {
         if appendCurrentSurfaceResumeMenuItems(to: menu) {
             menu.addItem(.separator())
         }
-        if appendForkCurrentAgentConversationMenuItems(to: menu) {
+        let addedFork = appendForkCurrentAgentConversationMenuItems(to: menu)
+        if appendMoveCurrentAgentConversationToCloudMenuItem(to: menu) || addedFork {
             menu.addItem(.separator())
         }
         appendMoveCurrentSurfaceMoveMenuItems(to: menu)
@@ -326,6 +327,33 @@ extension GhosttyNSView {
         menu.addItem(submenuItem)
 
         return true
+    }
+
+    /// Move to Cloud for this terminal's Claude, through ``SessionMoveToCloudAction``.
+    @discardableResult
+    func appendMoveCurrentAgentConversationToCloudMenuItem(to menu: NSMenu) -> Bool {
+        guard let panelId = terminalSurface?.id,
+              let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId),
+              SessionMoveToCloudAction.shared.canMove(workspace: located.workspace, panelId: panelId) != nil else {
+            return false
+        }
+        let item = menu.addItem(
+            withTitle: String(localized: "terminalContextMenu.moveConversationToCloud", defaultValue: "Move Conversation to Cloud"),
+            action: #selector(moveCurrentAgentConversationToCloud(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.image = NSImage(systemSymbolName: "icloud.and.arrow.up", accessibilityDescription: nil)
+        return true
+    }
+
+    @objc func moveCurrentAgentConversationToCloud(_ sender: Any?) {
+        guard let panelId = terminalSurface?.id,
+              let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId),
+              SessionMoveToCloudAction.shared.move(workspace: located.workspace, panelId: panelId, machine: nil) != nil else {
+            NSSound.beep()
+            return
+        }
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {

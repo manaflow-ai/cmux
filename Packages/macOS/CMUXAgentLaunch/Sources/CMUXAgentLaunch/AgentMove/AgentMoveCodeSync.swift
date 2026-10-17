@@ -11,12 +11,39 @@ struct AgentMoveCodeSync {
     let mover: AgentSessionMover
     let sessionID: String
     let pathMap: AgentMovePathMap
+    /// Create the checkout on a destination that has no copy of the repository.
+    let createsMissingCheckout: Bool
     private let scripts = AgentMoveScripts()
 
-    init(mover: AgentSessionMover, sessionID: String, pathMap: AgentMovePathMap) {
+    init(mover: AgentSessionMover, sessionID: String, pathMap: AgentMovePathMap, createsMissingCheckout: Bool = false) {
         self.mover = mover
         self.sessionID = sessionID
         self.pathMap = pathMap
+        self.createsMissingCheckout = createsMissingCheckout
+    }
+
+    /// How the destination checkout came to be.
+    private enum DestinationCheckout {
+        case existing
+        case addedWorktree
+        /// A new empty repository: no HEAD yet, nothing of the user's to protect.
+        case created
+    }
+
+    /// The source's `origin` as a new machine may keep it: no user or token
+    /// from an `http(s)` URL (they would sit in that machine's git config),
+    /// and nothing for a local path or `file://`, which only this Mac can reach.
+    static func shareableOrigin(_ origin: String) -> String? {
+        guard !origin.isEmpty else { return nil }
+        guard origin.contains("://") else {
+            return origin.hasPrefix("/") || origin.hasPrefix(".") || origin.hasPrefix("~") ? nil : origin
+        }
+        guard var components = URLComponents(string: origin), let scheme = components.scheme?.lowercased(), scheme != "file" else {
+            return nil
+        }
+        if scheme == "http" || scheme == "https" { components.user = nil }
+        components.password = nil
+        return components.string
     }
 
     private var ref: String { "refs/agent-move/\(sessionID)" }
@@ -34,8 +61,8 @@ struct AgentMoveCodeSync {
         let destinationTop = pathMap.destinationPath(for: top)
         try mover.requirePlain(destinationTop)
 
-        let addedWorktree = try ensureDestinationCheckout(source: source, top: top, destination: destination, destinationTop: destinationTop)
-        let resetFrom = try destinationResetPoint(destination: destination, checkout: destinationTop)
+        let checkout = try ensureDestinationCheckout(source: source, top: top, destination: destination, destinationTop: destinationTop)
+        let resetFrom = checkout == .created ? nil : try destinationResetPoint(destination: destination, checkout: destinationTop)
 
         let snapshotResult = try mover.shell(source, scripts.snapshot(checkout: top, ref: outgoingRef, sessionID: sessionID))
         guard snapshotResult.succeeded,
@@ -67,31 +94,42 @@ struct AgentMoveCodeSync {
         // refused or failed move leaves the source's previous record untouched.
         let promoted = try mover.shell(source, scripts.promoteSnapshot(checkout: top, outgoingRef: outgoingRef, ref: ref, snapshot: snapshot))
         guard promoted.succeeded else { throw AgentMoveError.gitFailed(step: "update-ref", detail: promoted.failureDetail) }
-        return .synced(checkout: destinationTop, head: head, branch: branch, snapshot: snapshot, addedWorktree: addedWorktree)
+        return .synced(checkout: destinationTop, head: head, branch: branch, snapshot: snapshot, addedWorktree: checkout == .addedWorktree)
     }
 
-    /// Uses an existing destination checkout, or adds a worktree of the same repository.
+    /// Uses an existing destination checkout, adds a worktree of the same
+    /// repository, or (``createsMissingCheckout``) creates an empty one.
     private func ensureDestinationCheckout(
         source: AgentMoveEndpoint,
         top: String,
         destination: AgentMoveEndpoint,
         destinationTop: String
-    ) throws -> Bool {
-        if try mover.shell(destination, scripts.isCheckout(destinationTop)).succeeded { return false }
+    ) throws -> DestinationCheckout {
+        if try mover.shell(destination, scripts.isCheckout(destinationTop)).succeeded { return .existing }
         let common = try mover.shell(source, scripts.commonGitDirectory(checkout: top))
         guard common.succeeded, !common.trimmedOutput.isEmpty else {
             throw AgentMoveError.gitFailed(step: "rev-parse", detail: common.failureDetail)
         }
         let destinationCommon = pathMap.destinationPath(for: common.trimmedOutput)
         guard try mover.shell(destination, scripts.isRepository(gitDirectory: destinationCommon)).succeeded else {
-            throw AgentMoveError.destinationRepositoryMissing(checkout: destinationTop, repository: destinationCommon)
+            // Never initialize inside another checkout (that repository is the
+            // user's) or over a folder with files the snapshot would overwrite.
+            guard createsMissingCheckout,
+                  try mover.shell(destination, scripts.enclosingCheckoutTop(destinationTop)).trimmedOutput.isEmpty,
+                  try mover.shell(destination, scripts.isMissingOrEmpty(destinationTop)).succeeded else {
+                throw AgentMoveError.destinationRepositoryMissing(checkout: destinationTop, repository: destinationCommon)
+            }
+            let origin = try mover.shell(source, scripts.originURL(checkout: top)).trimmedOutput
+            let created = try mover.shell(destination, scripts.initCheckout(path: destinationTop, origin: Self.shareableOrigin(origin)))
+            guard created.succeeded else { throw AgentMoveError.gitFailed(step: "init", detail: created.failureDetail) }
+            return .created
         }
         mover.report(.addingWorktree(path: destinationTop))
         let added = try mover.shell(destination, scripts.addWorktree(gitDirectory: destinationCommon, path: destinationTop))
         guard added.succeeded else {
             throw AgentMoveError.worktreeAddFailed(path: destinationTop, detail: added.failureDetail)
         }
-        return true
+        return .addedWorktree
     }
 
     /// The destination must be clean, or hold exactly the last snapshot it got for

@@ -279,6 +279,28 @@ extension Workspace {
         )
     }
 
+    /// Ends a stopped agent whose session moved to another machine, so neither
+    /// this run nor a relaunch resumes it on this Mac.
+    ///
+    /// The session gets the completed tombstone an exited agent gets, so the
+    /// next save carries no agent and a relaunch restores a plain terminal
+    /// (restore drops a hibernation record without its agent). The pane then
+    /// starts a plain shell, the way it looks after the agent exits. A pane
+    /// created with startup input (a restored resume command) stays asleep
+    /// instead: a new runtime would type that input again.
+    func endAgentHibernationAfterSessionMove(panelId: UUID) {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel else { return }
+        let agent = terminalPanel.agentHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId]
+        clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true)
+        if let agent {
+            markRestoredAgentCompleted(panelId: panelId, snapshot: agent)
+        }
+        guard terminalPanel.surface.initialInput == nil,
+              terminalPanel.endAgentHibernationWithoutResume() else { return }
+        clearAgentLifecycleStates(panelId: panelId)
+        discardAgentWakeVerification(panelId: panelId)
+    }
+
     func markRestoredAgentCompleted(
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot

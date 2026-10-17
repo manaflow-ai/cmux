@@ -66,10 +66,13 @@ extension AgentHibernationController {
                 TabManager.restorableAgentSnapshotFingerprint(record.agent) &&
             !record.terminalPanel.isAgentHibernated &&
             record.terminalPanel.surface.hasLiveSurface &&
-            AppDelegate.shared?.agentHibernationPanelIsProtected(
-                workspace: record.workspace,
-                panelId: record.key.panelId
-            ) == false &&
+            (
+                request.trigger.allowsVisiblePanel ||
+                    AppDelegate.shared?.agentHibernationPanelIsProtected(
+                        workspace: record.workspace,
+                        panelId: record.key.panelId
+                    ) == false
+            ) &&
             currentLifecycle.allowsHibernation &&
             (terminalInputByPanel[record.key] ?? 0) <=
                 (lifecycleChangeByPanel[record.key] ?? 0) &&

@@ -7505,7 +7505,10 @@ struct ContentView: View {
                 (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
-            if panelIsTerminal { Self.setCommandPaletteAgentMessagesContext(panelId: panelId, in: &snapshot) }
+            if panelIsTerminal {
+                Self.setCommandPaletteAgentMessagesContext(panelId: panelId, in: &snapshot)
+                Self.setCommandPaletteMoveToCloudContext(workspace: workspace, panelId: panelId, in: &snapshot)
+            }
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelSupportsDeepLinks, true)
             let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
@@ -8641,6 +8644,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteAgentMessagesContributions(subtitle: terminalPanelSubtitle))
+        contributions.append(contentsOf: Self.commandPaletteMoveToCloudContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -9613,6 +9617,7 @@ struct ContentView: View {
             }
         }
         registerAgentMessagesCommandPaletteHandlers(&registry)
+        registerMoveToCloudCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()

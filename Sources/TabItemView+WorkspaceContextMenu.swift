@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import SwiftUI
 
 /// Menu-open-deferred wrapper for a sidebar row's workspace context menu.
@@ -152,6 +153,8 @@ extension TabItemView {
             }
             .disabled(context.allRemoteTargetsDisconnected)
         }
+
+        workspaceCloudMoveContextMenuSection(isMulti: isMulti)
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
@@ -311,6 +314,35 @@ extension TabItemView {
                 workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
             .disabled(workspaceSnapshot.finderDirectoryPath == nil)
+        }
+    }
+}
+
+extension TabItemView {
+    /// Move to Cloud, matching the AppKit row menu; resolved when the menu
+    /// is realized, like the window-move targets.
+    @ViewBuilder
+    func workspaceCloudMoveContextMenuSection(isMulti: Bool) -> some View {
+        let action = SessionMoveToCloudAction.shared
+        if !isMulti,
+           let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first(where: { $0.id == workspaceId }),
+           let panelId = action.movablePanelId(in: workspace) {
+            let machines = CloudMenuModel.shared.machines
+            Divider()
+
+            Button(String(localized: "contextMenu.moveToCloud", defaultValue: "Move to Cloud")) {
+                if SessionMoveToCloudAction.shared.move(workspace: workspace, panelId: panelId, machine: nil) == nil { NSSound.beep() }
+            }
+
+            if !machines.isEmpty {
+                Menu(String(localized: "contextMenu.moveToCloudMachine", defaultValue: "Move to Cloud Machine")) {
+                    ForEach(machines) { machine in
+                        Button(machine.displayName) {
+                            if SessionMoveToCloudAction.shared.move(workspace: workspace, panelId: panelId, machine: machine.id) == nil { NSSound.beep() }
+                        }
+                    }
+                }
+            }
         }
     }
 }

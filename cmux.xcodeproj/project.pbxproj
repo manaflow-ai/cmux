@@ -1349,6 +1349,7 @@
 		37708E13930225D14409F461 /* CMUXCLI+Screenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50748DE10A0E397E5C77A025 /* CMUXCLI+Screenshot.swift */; };
 		A24420164F7D1D02F89B3E69 /* CMUXCLI+SemanticNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AE8B73B8979F37F85EB754 /* CMUXCLI+SemanticNotifications.swift */; };
 		C0DE5E5500000000000000A1 /* CMUXCLI+SessionMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */; };
+		C0DE5E5500000000000000C1 /* CMUXCLI+SessionMoveCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5E5500000000000000C2 /* CMUXCLI+SessionMoveCloud.swift */; };
 		C0DE64950000000000000001 /* CMUXCLI+SessionsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */; };
 		C0DE64960000000000000005 /* CMUXCLI+SessionsListClaudeWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */; };
 		C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */; };
@@ -1843,6 +1844,7 @@
 		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
 		4B3E7A9C0D1F2E5A6B7C8D01 /* ContentView+KeymapPresetCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3E7A9C0D1F2E5A6B7C8D02 /* ContentView+KeymapPresetCommands.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
+		A63C9688DB9B5E2BE408F48D /* ContentView+MoveToCloudCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C453CBD222014953FB16A733 /* ContentView+MoveToCloudCommandPalette.swift */; };
 		137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */; };
 		C0DEA7710000000000000003 /* ContentView+ProCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000004 /* ContentView+ProCommandPalette.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
@@ -3264,6 +3266,8 @@
 		850000000000000000000002 /* SessionIndexTableViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000001 /* SessionIndexTableViewportTests.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */; };
+		56D60C205F0916C9FAD74FEC /* SessionMoveToCloudAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBDD4CBB5E323389C53D88D7 /* SessionMoveToCloudAction.swift */; };
+		58F906966D80EF7568A2D5C6 /* SessionMoveToCloudActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A854B318208049DB5340DA31 /* SessionMoveToCloudActionTests.swift */; };
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000010 /* SessionNotificationSnapshot.swift */; };
 		A12980000000000000000001 /* SessionPanelSnapshot+TerminalTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12980000000000000000002 /* SessionPanelSnapshot+TerminalTitle.swift */; };
 		0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */; };
@@ -6045,6 +6049,7 @@
 		50748DE10A0E397E5C77A025 /* CMUXCLI+Screenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Screenshot.swift"; sourceTree = "<group>"; };
 		11AE8B73B8979F37F85EB754 /* CMUXCLI+SemanticNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SemanticNotifications.swift"; sourceTree = "<group>"; };
 		C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionMove.swift"; sourceTree = "<group>"; };
+		C0DE5E5500000000000000C2 /* CMUXCLI+SessionMoveCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionMoveCloud.swift"; sourceTree = "<group>"; };
 		C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsList.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListClaudeWorkflow.swift"; sourceTree = "<group>"; };
 		C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkDiagnostics.swift"; sourceTree = "<group>"; };
@@ -6423,6 +6428,7 @@
 		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
 		4B3E7A9C0D1F2E5A6B7C8D02 /* ContentView+KeymapPresetCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+KeymapPresetCommands.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		C453CBD222014953FB16A733 /* ContentView+MoveToCloudCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveToCloudCommandPalette.swift"; sourceTree = "<group>"; };
 		B4CD684C40FC4F36BD3A91EE /* ContentView+PaneResizeCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+PaneResizeCommands.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000004 /* ContentView+ProCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ProCommandPalette.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
@@ -7826,6 +7832,8 @@
 		850000000000000000000001 /* SessionIndexTableViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexTableViewportTests.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexViewTests.swift; sourceTree = "<group>"; };
+		CBDD4CBB5E323389C53D88D7 /* SessionMoveToCloudAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionMoveToCloudAction.swift; sourceTree = "<group>"; };
+		A854B318208049DB5340DA31 /* SessionMoveToCloudActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionMoveToCloudActionTests.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000010 /* SessionNotificationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNotificationSnapshot.swift; sourceTree = "<group>"; };
 		A12980000000000000000002 /* SessionPanelSnapshot+TerminalTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPanelSnapshot+TerminalTitle.swift"; sourceTree = "<group>"; };
 		0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistedVaultAgentRegistration.swift; sourceTree = "<group>"; };
@@ -12344,6 +12352,8 @@
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 				352D4A0BA53BF9B5B3480BE8 /* MainWindowHitTestMutationMonitor.swift */,
+				C453CBD222014953FB16A733 /* ContentView+MoveToCloudCommandPalette.swift */,
+				CBDD4CBB5E323389C53D88D7 /* SessionMoveToCloudAction.swift */,
 				588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */,
 				02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */,
 				BE0A832803DD479693FA71A0 /* HostAccountFlow+Analytics.swift */,
@@ -12612,6 +12622,7 @@
 				A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */,
 					C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */,
 					C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */,
+					C0DE5E5500000000000000C2 /* CMUXCLI+SessionMoveCloud.swift */,
 					C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */,
 					C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */,
 					C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */,
@@ -13931,6 +13942,7 @@
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 				DA688992ADFE3696B36EEC3D /* CloudStaleInventoryMaterializationTests.swift */,
 				BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */,
+				A854B318208049DB5340DA31 /* SessionMoveToCloudActionTests.swift */,
 				BA13D9C82962402EAA0FABC1 /* UpgradeAnalyticsTests.swift */,
 				6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */,
 				2B8ACF56AB5811EEC9D0203F /* SidebarCloudButtonActionTests.swift */,
@@ -15578,6 +15590,7 @@
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				4B3E7A9C0D1F2E5A6B7C8D01 /* ContentView+KeymapPresetCommands.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
+				A63C9688DB9B5E2BE408F48D /* ContentView+MoveToCloudCommandPalette.swift in Sources */,
 				137DEBC7453F4ABBBCB8D39A /* ContentView+PaneResizeCommands.swift in Sources */,
 				C0DEA7710000000000000003 /* ContentView+ProCommandPalette.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
@@ -16496,6 +16509,7 @@
 				850000000000000000000025 /* SessionIndexTableRowID.swift in Sources */,
 				850000000000000000000026 /* SessionIndexTableView.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
+				56D60C205F0916C9FAD74FEC /* SessionMoveToCloudAction.swift in Sources */,
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */,
 				A12980000000000000000001 /* SessionPanelSnapshot+TerminalTitle.swift in Sources */,
 				0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */,
@@ -17636,6 +17650,7 @@
 				37708E13930225D14409F461 /* CMUXCLI+Screenshot.swift in Sources */,
 				A24420164F7D1D02F89B3E69 /* CMUXCLI+SemanticNotifications.swift in Sources */,
 					C0DE5E5500000000000000A1 /* CMUXCLI+SessionMove.swift in Sources */,
+					C0DE5E5500000000000000C1 /* CMUXCLI+SessionMoveCloud.swift in Sources */,
 					C0DE64950000000000000001 /* CMUXCLI+SessionsList.swift in Sources */,
 					C0DE64960000000000000005 /* CMUXCLI+SessionsListClaudeWorkflow.swift in Sources */,
 					C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */,
@@ -18844,6 +18859,7 @@
 				850000000000000000000008 /* SessionIndexSyntheticCorpus.swift in Sources */,
 				850000000000000000000002 /* SessionIndexTableViewportTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
+				58F906966D80EF7568A2D5C6 /* SessionMoveToCloudActionTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,

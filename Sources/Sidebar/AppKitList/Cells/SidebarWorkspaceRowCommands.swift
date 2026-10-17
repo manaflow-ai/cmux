@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
@@ -281,6 +282,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             beginInlineRename: beginInlineRename
         )
         addRemoteSection(to: menu, tabManager: tabManager)
+        addCloudMoveItems(to: menu)
         addColorMenu(to: menu)
         addSSHErrorItem(to: menu)
         menu.addItem(.separator())
@@ -536,6 +538,29 @@ struct SidebarWorkspaceRowMenuBuilder {
                 workspace.disconnectRemoteConnection(clearConfiguration: false)
             }
         })
+    }
+
+    /// Move to Cloud for the row's Claude terminal; hidden for other rows.
+    private func addCloudMoveItems(to menu: NSMenu) {
+        let action = SessionMoveToCloudAction.shared
+        guard !isMulti, let panelId = action.movablePanelId(in: tab) else { return }
+        menu.addItem(.separator())
+        menu.addItem(item(String(localized: "contextMenu.moveToCloud", defaultValue: "Move to Cloud")) { [tab] in
+            if SessionMoveToCloudAction.shared.move(workspace: tab, panelId: panelId, machine: nil) == nil { NSSound.beep() }
+        })
+        CloudMenuModel.shared.menuWillOpen()
+        let machines = CloudMenuModel.shared.machines
+        guard !machines.isEmpty else { return }
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        for machine in machines {
+            submenu.addItem(item(machine.displayName) { [tab] in
+                if SessionMoveToCloudAction.shared.move(workspace: tab, panelId: panelId, machine: machine.id) == nil { NSSound.beep() }
+            })
+        }
+        let parent = item(String(localized: "contextMenu.moveToCloudMachine", defaultValue: "Move to Cloud Machine")) {}
+        parent.submenu = submenu
+        menu.addItem(parent)
     }
 
     private func addColorMenu(to menu: NSMenu) {

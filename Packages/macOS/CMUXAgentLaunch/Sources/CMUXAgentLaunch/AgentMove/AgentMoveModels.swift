@@ -12,6 +12,10 @@ public struct AgentMoveRequest: Sendable, Equatable {
     public var localHome: String
     /// Whether to carry the cwd's git checkout.
     public var carriesCode: Bool
+    /// Whether the destination is a fresh machine (a Cloud VM): a missing
+    /// checkout is created there (`git init`, the source's `origin`) and a
+    /// missing cwd folder made, instead of refusing the move.
+    public var createsMissingCheckout: Bool
 
     /// Creates a request.
     public init(
@@ -19,13 +23,15 @@ public struct AgentMoveRequest: Sendable, Equatable {
         source: AgentMoveEndpoint,
         destination: AgentMoveEndpoint,
         localHome: String,
-        carriesCode: Bool = true
+        carriesCode: Bool = true,
+        createsMissingCheckout: Bool = false
     ) {
         self.sessionID = sessionID
         self.source = source
         self.destination = destination
         self.localHome = localHome
         self.carriesCode = carriesCode
+        self.createsMissingCheckout = createsMissingCheckout
     }
 }
 

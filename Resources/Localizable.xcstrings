@@ -562033,55 +562033,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not; a Cloud machine\n    without the repository gets a new checkout with the same origin\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a terminal\non the machine for `cloud`, a local workspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), cloud\n                          (a Cloud machine picked like `cmux vm agent`), cloud:<machine>, or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nVerschiebt eine beendete Claude Code-Sitzung auf eine andere Maschine und setzt sie dort fort.\nBeende zuerst den Agenten: Die Verschiebung wird abgelehnt, solange die Sitzung auf einer Seite läuft.\n\nDie Verschiebung überträgt:\n  - den git-Checkout des cwd: HEAD (auf demselben Branch, wenn das sicher ist) sowie geänderte,\n    gelöschte und nicht ignorierte, nicht verfolgte Dateien; ein Worktree wird hinzugefügt, wenn\n    das Repository am Ziel existiert, der Pfad aber nicht\n  - das Transkript, sein Sitzungsverzeichnis, den Dateiverlauf und das Projektgedächtnis\n    (in beide Richtungen zusammengeführt, das Neueste gewinnt, nichts wird gelöscht)\n\nDanach öffnet sie am Ziel einen Workspace (`cmux ssh` für einen Host, einen lokalen Workspace\nfür `local`), der die Sitzung mit ihrem aufgezeichneten Launcher fortsetzt. Liegt das Home-\nVerzeichnis am Ziel nicht unter demselben absoluten Pfad, werden Pfade darunter umgeschrieben\nund das Projekt erhält einen neuen Slug.\n\nOptionen:\n  --to <destination>      SSH-Ziel (user@host oder ssh_config-Alias) oder local\n  --from <destination>    Wo die Sitzung jetzt ist (Standard: wohin die letzte Verschiebung sie gebracht hat, sonst local)\n  --name <title>          Workspace-Titel (Standard: die ersten 8 Zeichen der ID)\n  --no-code               Den git-Checkout nicht übertragen\n  --port <n>              SSH-Port\n  --identity <path>       SSH-Identitätsdatei\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --no-focus              Workspace öffnen, ohne dorthin zu wechseln\n\nBeispiele:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nVerschiebt eine beendete Claude Code-Sitzung auf eine andere Maschine und setzt sie dort fort.\nBeende zuerst den Agenten: Die Verschiebung wird abgelehnt, solange die Sitzung auf einer Seite läuft.\n\nDie Verschiebung überträgt:\n  - den git-Checkout des cwd: HEAD (auf demselben Branch, wenn das sicher ist) sowie geänderte,\n    gelöschte und nicht ignorierte, nicht verfolgte Dateien; ein Worktree wird hinzugefügt, wenn\n    das Repository am Ziel existiert, der Pfad aber nicht\n    eine Cloud-Maschine ohne das Repository erhält einen neuen Checkout mit demselben origin\n  - das Transkript, sein Sitzungsverzeichnis, den Dateiverlauf und das Projektgedächtnis\n    (in beide Richtungen zusammengeführt, das Neueste gewinnt, nichts wird gelöscht)\n\nDanach öffnet sie am Ziel einen Workspace (`cmux ssh` für einen Host, einen lokalen Workspace\nfür `local`), der die Sitzung mit ihrem aufgezeichneten Launcher fortsetzt. Liegt das Home-\nVerzeichnis am Ziel nicht unter demselben absoluten Pfad, werden Pfade darunter umgeschrieben\nund das Projekt erhält einen neuen Slug.\nFür `cloud` öffnet sie ein Terminal auf der Cloud-Maschine.\n\nOptionen:\n  --to <destination>      SSH-Ziel (user@host oder ssh_config-Alias), cloud (eine Cloud-Maschine, gewählt wie bei `cmux vm agent`), cloud:<machine> oder local\n  --from <destination>    Wo die Sitzung jetzt ist (Standard: wohin die letzte Verschiebung sie gebracht hat, sonst local)\n  --name <title>          Workspace-Titel (Standard: die ersten 8 Zeichen der ID)\n  --no-code               Den git-Checkout nicht übertragen\n  --port <n>              SSH-Port\n  --identity <path>       SSH-Identitätsdatei\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --no-focus              Workspace öffnen, ohne dorthin zu wechseln\n\nBeispiele:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nDéplace une session Claude Code arrêtée vers une autre machine et la reprend là-bas.\nQuittez d'abord l'agent : le déplacement est refusé tant que la session s'exécute d'un côté ou de l'autre.\n\nLe déplacement transfère :\n  - le checkout git du cwd : HEAD (sur la même branche quand c'est sûr) ainsi que les fichiers\n    modifiés, supprimés et non suivis non ignorés ; un worktree est ajouté quand le dépôt existe\n    sur la destination mais pas le chemin\n  - la transcription, son répertoire de session, l'historique des fichiers et la mémoire du\n    projet (fusionnée dans les deux sens, le plus récent l'emporte, rien n'est supprimé)\n\nIl ouvre ensuite un espace de travail sur la destination (`cmux ssh` pour un hôte, un espace\nlocal pour `local`) qui reprend la session avec son lanceur enregistré. Quand le dossier\npersonnel de destination n'a pas le même chemin absolu, les chemins qu'il contient sont\nconvertis et le projet reçoit un nouveau slug.\n\nOptions :\n  --to <destination>      Destination SSH (user@host ou alias ssh_config), ou local\n  --from <destination>    Où se trouve la session (par défaut : là où l'a mise le dernier déplacement, sinon local)\n  --name <title>          Titre de l'espace de travail (par défaut : les 8 premiers caractères de l'id)\n  --no-code               Ne pas transférer le checkout git\n  --port <n>              Port SSH\n  --identity <path>       Fichier d'identité SSH\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --no-focus              Ouvrir l'espace de travail sans y basculer\n\nExemples :\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "Utilisation: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nDéplace une session Claude Code arrêtée vers une autre machine et la reprend là-bas.\nQuittez d'abord l'agent : le déplacement est refusé tant que la session s'exécute d'un côté ou de l'autre.\n\nLe déplacement transfère :\n  - le checkout git du cwd : HEAD (sur la même branche quand c'est sûr) ainsi que les fichiers\n    modifiés, supprimés et non suivis non ignorés ; un worktree est ajouté quand le dépôt existe\n    sur la destination mais pas le chemin\n    une machine Cloud sans le dépôt reçoit un nouveau checkout avec le même origin\n  - la transcription, son répertoire de session, l'historique des fichiers et la mémoire du\n    projet (fusionnée dans les deux sens, le plus récent l'emporte, rien n'est supprimé)\n\nIl ouvre ensuite un espace de travail sur la destination (`cmux ssh` pour un hôte, un espace\nlocal pour `local`) qui reprend la session avec son lanceur enregistré. Quand le dossier\npersonnel de destination n'a pas le même chemin absolu, les chemins qu'il contient sont\nconvertis et le projet reçoit un nouveau slug.\nPour `cloud`, il ouvre un terminal sur la machine Cloud.\n\nOptions :\n  --to <destination>      Destination SSH (user@host ou alias ssh_config), cloud (une machine Cloud choisie comme avec `cmux vm agent`), cloud:<machine> ou local\n  --from <destination>    Où se trouve la session (par défaut : là où l'a mise le dernier déplacement, sinon local)\n  --name <title>          Titre de l'espace de travail (par défaut : les 8 premiers caractères de l'id)\n  --no-code               Ne pas transférer le checkout git\n  --port <n>              Port SSH\n  --identity <path>       Fichier d'identité SSH\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --no-focus              Ouvrir l'espace de travail sans y basculer\n\nExemples :\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nينقل جلسة Claude Code متوقفة إلى جهاز آخر ويستأنفها هناك.\nأغلق الوكيل أولًا: يُرفض النقل ما دامت الجلسة تعمل على أي من الجانبين.\n\nينقل الأمر:\n  - checkout الخاص بـ git في cwd: HEAD (على الفرع نفسه عندما يكون ذلك آمنًا) والملفات المعدّلة\n    والمحذوفة وغير المتتبعة وغير المتجاهلة؛ ويُضاف worktree عندما يوجد المستودع في الوجهة\n    ولا يوجد المسار\n  - نص الجلسة ودليل الجلسة وسجل الملفات ودليل ذاكرة المشروع\n    (مدمج في الاتجاهين، الأحدث يفوز، ولا يُحذف شيء)\n\nثم يفتح مساحة عمل في الوجهة (`cmux ssh` لمضيف، أو مساحة عمل محلية لـ `local`)\nتستأنف الجلسة بالمشغّل المسجّل لها. عندما لا يكون المجلد الرئيسي في الوجهة\nعلى المسار المطلق نفسه، تُحوَّل المسارات داخله\nويُعاد إنشاء slug للمشروع.\n\nالخيارات:\n  --to <destination>      وجهة SSH (user@host أو اسم مستعار من ssh_config)، أو local\n  --from <destination>    مكان الجلسة الآن (الافتراضي: حيث وضعها آخر نقل، وإلا local)\n  --name <title>          عنوان مساحة العمل (الافتراضي: أول 8 أحرف من المعرّف)\n  --no-code               لا تنقل checkout الخاص بـ git\n  --port <n>              منفذ SSH\n  --identity <path>       ملف هوية SSH\n  --ssh-option <opt>      خيار SSH إضافي -o (قابل للتكرار)\n  --no-focus              افتح مساحة العمل دون التبديل إليها\n\nأمثلة:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nينقل جلسة Claude Code متوقفة إلى جهاز آخر ويستأنفها هناك.\nأغلق الوكيل أولًا: يُرفض النقل ما دامت الجلسة تعمل على أي من الجانبين.\n\nينقل الأمر:\n  - checkout الخاص بـ git في cwd: HEAD (على الفرع نفسه عندما يكون ذلك آمنًا) والملفات المعدّلة\n    والمحذوفة وغير المتتبعة وغير المتجاهلة؛ ويُضاف worktree عندما يوجد المستودع في الوجهة\n    ولا يوجد المسار\n    الجهاز السحابي الذي لا يحتوي على المستودع يحصل على نسخة جديدة بنفس origin\n  - نص الجلسة ودليل الجلسة وسجل الملفات ودليل ذاكرة المشروع\n    (مدمج في الاتجاهين، الأحدث يفوز، ولا يُحذف شيء)\n\nثم يفتح مساحة عمل في الوجهة (`cmux ssh` لمضيف، أو مساحة عمل محلية لـ `local`)\nتستأنف الجلسة بالمشغّل المسجّل لها. عندما لا يكون المجلد الرئيسي في الوجهة\nعلى المسار المطلق نفسه، تُحوَّل المسارات داخله\nويُعاد إنشاء slug للمشروع.\nمع `cloud` تفتح طرفية على الجهاز السحابي.\n\nالخيارات:\n  --to <destination>      وجهة SSH (user@host أو اسم مستعار في ssh_config)، أو cloud (جهاز سحابي يُختار كما في `cmux vm agent`)، أو cloud:<machine>، أو local\n  --from <destination>    مكان الجلسة الآن (الافتراضي: حيث وضعها آخر نقل، وإلا local)\n  --name <title>          عنوان مساحة العمل (الافتراضي: أول 8 أحرف من المعرّف)\n  --no-code               لا تنقل checkout الخاص بـ git\n  --port <n>              منفذ SSH\n  --identity <path>       ملف هوية SSH\n  --ssh-option <opt>      خيار SSH إضافي -o (قابل للتكرار)\n  --no-focus              افتح مساحة العمل دون التبديل إليها\n\nأمثلة:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMueve una sesión detenida de Claude Code a otra máquina y la reanuda allí.\nSal primero del agente: el movimiento se rechaza mientras la sesión se ejecute en cualquiera de los lados.\n\nEl movimiento lleva:\n  - el checkout de git del cwd: HEAD (en la misma rama cuando es seguro) más los archivos\n    modificados, eliminados y sin seguimiento no ignorados; se añade un worktree cuando el\n    repositorio existe en el destino pero la ruta no\n  - la transcripción, su directorio de sesión, el historial de archivos y la memoria del\n    proyecto (combinada en ambos sentidos, gana la más reciente, no se borra nada)\n\nDespués abre un espacio de trabajo en el destino (`cmux ssh` para un host, uno local para\n`local`) que reanuda la sesión con su lanzador registrado. Cuando el home del destino no está\nen la misma ruta absoluta, las rutas bajo él se convierten\ny el proyecto recibe un nuevo slug.\n\nOpciones:\n  --to <destination>      Destino SSH (user@host o alias de ssh_config), o local\n  --from <destination>    Dónde está la sesión ahora (por defecto: donde la dejó el último movimiento, si no local)\n  --name <title>          Título del espacio de trabajo (por defecto: los primeros 8 caracteres del id)\n  --no-code               No llevar el checkout de git\n  --port <n>              Puerto SSH\n  --identity <path>       Archivo de identidad SSH\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --no-focus              Abrir el espacio de trabajo sin cambiar a él\n\nEjemplos:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "Uso: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nMueve una sesión detenida de Claude Code a otra máquina y la reanuda allí.\nSal primero del agente: el movimiento se rechaza mientras la sesión se ejecute en cualquiera de los lados.\n\nEl movimiento lleva:\n  - el checkout de git del cwd: HEAD (en la misma rama cuando es seguro) más los archivos\n    modificados, eliminados y sin seguimiento no ignorados; se añade un worktree cuando el\n    repositorio existe en el destino pero la ruta no\n    una máquina Cloud sin el repositorio recibe un checkout nuevo con el mismo origin\n  - la transcripción, su directorio de sesión, el historial de archivos y la memoria del\n    proyecto (combinada en ambos sentidos, gana la más reciente, no se borra nada)\n\nDespués abre un espacio de trabajo en el destino (`cmux ssh` para un host, uno local para\n`local`) que reanuda la sesión con su lanzador registrado. Cuando el home del destino no está\nen la misma ruta absoluta, las rutas bajo él se convierten\ny el proyecto recibe un nuevo slug.\nCon `cloud`, abre una terminal en la máquina Cloud.\n\nOpciones:\n  --to <destination>      Destino SSH (user@host o alias de ssh_config), cloud (una máquina Cloud elegida como en `cmux vm agent`), cloud:<machine> o local\n  --from <destination>    Dónde está la sesión ahora (por defecto: donde la dejó el último movimiento, si no local)\n  --name <title>          Título del espacio de trabajo (por defecto: los primeros 8 caracteres del id)\n  --no-code               No llevar el checkout de git\n  --port <n>              Puerto SSH\n  --identity <path>       Archivo de identidad SSH\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --no-focus              Abrir el espacio de trabajo sin cambiar a él\n\nEjemplos:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n將已停止的 Claude Code 工作階段移到另一台機器並在那裡恢復。\n請先結束代理：只要工作階段仍在任一端執行，移動就會被拒絕。\n\n移動會帶上：\n  - cwd 的 git checkout：HEAD（安全時使用同一分支）加上已修改、已刪除\n    和未追蹤且未忽略的檔案；若目的地有儲存庫\n    但沒有該路徑，會新增 worktree\n  - 對話紀錄、其工作階段目錄、檔案歷史與專案記憶目錄\n    （雙向合併，較新者優先，不刪除任何內容）\n\n接著在目的地開啟工作區（主機用 `cmux ssh`，`local` 則開本機工作區），\n以記錄的啟動器恢復工作階段。\n若目的地的主目錄不在相同的絕對路徑，其下的路徑會被對應，\n專案也會重新產生 slug。\n\n選項：\n  --to <destination>      SSH 目的地（user@host 或 ssh_config 別名），或 local\n  --from <destination>    工作階段目前所在位置（預設：上次移動所放的位置，否則為 local）\n  --name <title>          工作區標題（預設：ID 的前 8 個字元）\n  --no-code               不帶上 git checkout\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH 身分檔案\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --no-focus              開啟工作區但不切換過去\n\n範例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\n將已停止的 Claude Code 工作階段移到另一台機器並在那裡恢復。\n請先結束代理：只要工作階段仍在任一端執行，移動就會被拒絕。\n\n移動會帶上：\n  - cwd 的 git checkout：HEAD（安全時使用同一分支）加上已修改、已刪除\n    和未追蹤且未忽略的檔案；若目的地有儲存庫\n    但沒有該路徑，會新增 worktree\n    沒有該儲存庫的 Cloud 機器會建立新的 checkout，並使用相同的 origin\n  - 對話紀錄、其工作階段目錄、檔案歷史與專案記憶目錄\n    （雙向合併，較新者優先，不刪除任何內容）\n\n接著在目的地開啟工作區（主機用 `cmux ssh`，`local` 則開本機工作區），\n以記錄的啟動器恢復工作階段。\n若目的地的主目錄不在相同的絕對路徑，其下的路徑會被對應，\n專案也會重新產生 slug。\n使用 `cloud` 時，會在 Cloud 機器上開啟終端機。\n\n選項：\n  --to <destination>      SSH 目的地 (user@host 或 ssh_config 別名)、cloud (依 `cmux vm agent` 的方式選擇 Cloud 機器)、cloud:<machine> 或 local\n  --from <destination>    工作階段目前所在位置（預設：上次移動所放的位置，否則為 local）\n  --name <title>          工作區標題（預設：ID 的前 8 個字元）\n  --no-code               不帶上 git checkout\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH 身分檔案\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --no-focus              開啟工作區但不切換過去\n\n範例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n将已停止的 Claude Code 会话移到另一台机器并在那里恢复。\n请先退出代理：只要会话仍在任一端运行，移动就会被拒绝。\n\n移动会带上：\n  - cwd 的 git 检出：HEAD（安全时使用同一分支）以及已修改、已删除\n    和未跟踪且未忽略的文件；若目标上有仓库\n    但没有该路径，会添加 worktree\n  - 会话记录、其会话目录、文件历史和项目记忆目录\n    （双向合并，较新者优先，不删除任何内容）\n\n随后在目标上打开工作区（主机用 `cmux ssh`，`local` 则打开本地工作区），\n用记录的启动器恢复会话。\n若目标的主目录不在相同的绝对路径，其下的路径会被映射，\n项目也会重新生成 slug。\n\n选项：\n  --to <destination>      SSH 目标（user@host 或 ssh_config 别名），或 local\n  --from <destination>    会话当前所在位置（默认：上次移动放置的位置，否则为 local）\n  --name <title>          工作区标题（默认：ID 的前 8 个字符）\n  --no-code               不带上 git 检出\n  --port <n>              SSH 端口\n  --identity <path>       SSH 身份文件\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --no-focus              打开工作区但不切换过去\n\n示例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\n将已停止的 Claude Code 会话移到另一台机器并在那里恢复。\n请先退出代理：只要会话仍在任一端运行，移动就会被拒绝。\n\n移动会带上：\n  - cwd 的 git 检出：HEAD（安全时使用同一分支）以及已修改、已删除\n    和未跟踪且未忽略的文件；若目标上有仓库\n    但没有该路径，会添加 worktree\n    没有该仓库的 Cloud 机器会新建 checkout，并使用相同的 origin\n  - 会话记录、其会话目录、文件历史和项目记忆目录\n    （双向合并，较新者优先，不删除任何内容）\n\n随后在目标上打开工作区（主机用 `cmux ssh`，`local` 则打开本地工作区），\n用记录的启动器恢复会话。\n若目标的主目录不在相同的绝对路径，其下的路径会被映射，\n项目也会重新生成 slug。\n使用 `cloud` 时，会在 Cloud 机器上打开终端。\n\n选项：\n  --to <destination>      SSH 目标 (user@host 或 ssh_config 别名)、cloud (按 `cmux vm agent` 的方式选择 Cloud 机器)、cloud:<machine> 或 local\n  --from <destination>    会话当前所在位置（默认：上次移动放置的位置，否则为 local）\n  --name <title>          工作区标题（默认：ID 的前 8 个字符）\n  --no-code               不带上 git 检出\n  --port <n>              SSH 端口\n  --identity <path>       SSH 身份文件\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --no-focus              打开工作区但不切换过去\n\n示例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n중지된 Claude Code 세션을 다른 머신으로 옮기고 그곳에서 재개합니다.\n먼저 에이전트를 종료하세요. 어느 쪽에서든 세션이 실행 중이면 이동이 거부됩니다.\n\n이동하는 항목:\n  - cwd의 git 체크아웃: HEAD(안전하면 같은 브랜치)와 수정, 삭제,\n    무시되지 않은 추적 안 된 파일. 대상에 저장소는 있지만\n    경로가 없으면 worktree를 추가합니다\n  - 트랜스크립트, 세션 디렉터리, 파일 기록, 프로젝트 메모리 디렉터리\n    (양방향 병합, 최신 우선, 삭제 없음)\n\n그런 다음 대상에서 작업 공간(호스트는 `cmux ssh`, `local`은 로컬 작업 공간)을 열고\n기록된 런처로 세션을 재개합니다.\n대상의 홈이 같은 절대 경로에 있지 않으면 홈 아래 경로를 변환하고\n프로젝트 slug를 다시 만듭니다.\n\n옵션:\n  --to <destination>      SSH 대상(user@host 또는 ssh_config 별칭) 또는 local\n  --from <destination>    세션의 현재 위치(기본값: 마지막 이동으로 옮긴 곳, 없으면 local)\n  --name <title>          작업 공간 제목(기본값: ID의 처음 8자)\n  --no-code               git 체크아웃을 옮기지 않음\n  --port <n>              SSH 포트\n  --identity <path>       SSH ID 파일\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --no-focus              작업 공간으로 전환하지 않고 열기\n\n예시:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "사용법: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\n중지된 Claude Code 세션을 다른 머신으로 옮기고 그곳에서 재개합니다.\n먼저 에이전트를 종료하세요. 어느 쪽에서든 세션이 실행 중이면 이동이 거부됩니다.\n\n이동하는 항목:\n  - cwd의 git 체크아웃: HEAD(안전하면 같은 브랜치)와 수정, 삭제,\n    무시되지 않은 추적 안 된 파일. 대상에 저장소는 있지만\n    경로가 없으면 worktree를 추가합니다\n    저장소가 없는 Cloud 머신에는 같은 origin으로 새 체크아웃을 만듭니다\n  - 트랜스크립트, 세션 디렉터리, 파일 기록, 프로젝트 메모리 디렉터리\n    (양방향 병합, 최신 우선, 삭제 없음)\n\n그런 다음 대상에서 작업 공간(호스트는 `cmux ssh`, `local`은 로컬 작업 공간)을 열고\n기록된 런처로 세션을 재개합니다.\n대상의 홈이 같은 절대 경로에 있지 않으면 홈 아래 경로를 변환하고\n프로젝트 slug를 다시 만듭니다.\n`cloud`이면 Cloud 머신에서 터미널을 엽니다.\n\n옵션:\n  --to <destination>      SSH 대상(user@host 또는 ssh_config 별칭), cloud(`cmux vm agent`처럼 고른 Cloud 머신), cloud:<machine> 또는 local\n  --from <destination>    세션의 현재 위치(기본값: 마지막 이동으로 옮긴 곳, 없으면 local)\n  --name <title>          작업 공간 제목(기본값: ID의 처음 8자)\n  --no-code               git 체크아웃을 옮기지 않음\n  --port <n>              SSH 포트\n  --identity <path>       SSH ID 파일\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --no-focus              작업 공간으로 전환하지 않고 열기\n\n예시:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n停止した Claude Code セッションを別のマシンへ移動し、そこで再開します。\n先にエージェントを終了してください。どちらかでセッションが実行中の間は移動を拒否します。\n\n移動する内容:\n  - cwd の git チェックアウト: HEAD (安全なら同じブランチ) と、変更・削除されたファイル、\n    無視されていない未追跡ファイル。移動先にリポジトリはあるが\n    パスがない場合は worktree を追加します\n  - トランスクリプト、セッションディレクトリ、ファイル履歴、プロジェクトのメモリディレクトリ\n    (双方向にマージ、新しいほうを優先、削除はしません)\n\nその後、移動先でワークスペース (ホストなら `cmux ssh`、`local` ならローカルのワークスペース) を\n開き、記録されたランチャーでセッションを再開します。\n移動先のホームが同じ絶対パスにない場合は、ホーム配下のパスを変換し、\nプロジェクトの slug を作り直します。\n\nオプション:\n  --to <destination>      SSH 接続先 (user@host または ssh_config のエイリアス)、または local\n  --from <destination>    セッションの現在の場所 (既定: 前回の移動先、なければ local)\n  --name <title>          ワークスペースのタイトル (既定: ID の先頭 8 文字)\n  --no-code               git チェックアウトを移動しない\n  --port <n>              SSH ポート\n  --identity <path>       SSH の ID ファイル\n  --ssh-option <opt>      追加の SSH -o オプション (繰り返し可)\n  --no-focus              ワークスペースに切り替えずに開く\n\n例:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\n停止した Claude Code セッションを別のマシンへ移動し、そこで再開します。\n先にエージェントを終了してください。どちらかでセッションが実行中の間は移動を拒否します。\n\n移動する内容:\n  - cwd の git チェックアウト: HEAD (安全なら同じブランチ) と、変更・削除されたファイル、\n    無視されていない未追跡ファイル。移動先にリポジトリはあるが\n    パスがない場合は worktree を追加します\n    リポジトリのない Cloud マシンには、同じ origin で新しいチェックアウトを作成します\n  - トランスクリプト、セッションディレクトリ、ファイル履歴、プロジェクトのメモリディレクトリ\n    (双方向にマージ、新しいほうを優先、削除はしません)\n\nその後、移動先でワークスペース (ホストなら `cmux ssh`、`local` ならローカルのワークスペース) を\n開き、記録されたランチャーでセッションを再開します。\n移動先のホームが同じ絶対パスにない場合は、ホーム配下のパスを変換し、\nプロジェクトの slug を作り直します。\n`cloud` の場合は Cloud マシン上でターミナルを開きます。\n\nオプション:\n  --to <destination>      SSH 接続先 (user@host または ssh_config のエイリアス)、cloud (`cmux vm agent` と同じ方法で選ぶ Cloud マシン)、cloud:<machine>、または local\n  --from <destination>    セッションの現在の場所 (既定: 前回の移動先、なければ local)\n  --name <title>          ワークスペースのタイトル (既定: ID の先頭 8 文字)\n  --no-code               git チェックアウトを移動しない\n  --port <n>              SSH ポート\n  --identity <path>       SSH の ID ファイル\n  --ssh-option <opt>      追加の SSH -o オプション (繰り返し可)\n  --no-focus              ワークスペースに切り替えずに開く\n\n例:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         }
       }
@@ -562151,55 +562151,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر session فرعي غير معروف: %@. الاستخدام: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "أمر session فرعي غير معروف: %@. الاستخدام: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unbekannter session-Unterbefehl: %@. Verwendung: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Unbekannter session-Unterbefehl: %@. Verwendung: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subcomando de session desconocido: %@. Uso: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Subcomando de session desconocido: %@. Uso: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sous-commande session inconnue : %@. Utilisation : cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Sous-commande session inconnue : %@. Utilisation : cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な session サブコマンド: %@。使用方法: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "不明な session サブコマンド: %@。使用方法: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 session 하위 명령: %@. 사용법: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "알 수 없는 session 하위 명령: %@. 사용법: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         }
       }
@@ -563390,55 +563390,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Uso: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "Utilisation : cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "사용법: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "用法：cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux session move <session-id> --to <ssh-destination|local>"
+            "value": "用法：cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
           }
         }
       }
@@ -654414,6 +654414,1304 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 無法讀取此對話的 Codex 工作階段鎖定，因此無法確認此對話未被使用。請重新執行 'cmux restore --surface'。"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.cloudKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: could not create the Cloud SSH key."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: تعذّر إنشاء مفتاح SSH السحابي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Der Cloud-SSH-Schlüssel konnte nicht erstellt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no se pudo crear la clave SSH de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : impossible de créer la clé SSH Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud の SSH キーを作成できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud SSH 키를 만들 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：无法创建 Cloud SSH 密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：無法建立 Cloud SSH 金鑰。"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.cloudPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the temporary folder %@ has a space in its path; set TMPDIR to a path without one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: يحتوي مسار المجلد المؤقت %@ على مسافة؛ اضبط TMPDIR على مسار بلا مسافات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Der temporäre Ordner %@ enthält ein Leerzeichen im Pfad; setze TMPDIR auf einen Pfad ohne Leerzeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la carpeta temporal %@ tiene un espacio en su ruta; define TMPDIR con una ruta sin espacios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : le dossier temporaire %@ contient une espace dans son chemin ; définissez TMPDIR sur un chemin sans espace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 一時フォルダ %@ のパスに空白が含まれています。TMPDIR を空白のないパスに設定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 임시 폴더 %@ 경로에 공백이 있습니다. TMPDIR을 공백 없는 경로로 설정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：临时文件夹 %@ 的路径包含空格；请将 TMPDIR 设为不含空格的路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：暫存資料夾 %@ 的路徑含有空格；請將 TMPDIR 設為不含空格的路徑。"
+          }
+        }
+      }
+    },
+    "cli.session.move.progress.cloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud machine %@ (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: الجهاز السحابي %@ (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud-Maschine %@ (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: máquina Cloud %@ (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : machine Cloud %@ (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud マシン %@ (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Cloud 머신 %@ (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：Cloud 机器 %@ (%@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：Cloud 機器 %@ (%@)"
+          }
+        }
+      }
+    },
+    "command.moveAgentConversationToCloud.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Conversation to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل المحادثة إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversation in die Cloud verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover conversación a la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer la conversation vers le Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話をクラウドに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화를 클라우드로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将对话移到云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將對話移至雲端"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.moveConversationToCloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Conversation to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل المحادثة إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversation in die Cloud verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover conversación a la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer la conversation vers le Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話をクラウドに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화를 클라우드로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将对话移到云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將對話移至雲端"
+          }
+        }
+      }
+    },
+    "cloudMove.failed.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The move did not finish and the conversation stays on this Mac. Run cmux session move in a terminal to see the full output."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتمل النقل وتبقى المحادثة على هذا الـ Mac. شغّل cmux session move في طرفية لرؤية المخرجات كاملة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Verschieben wurde nicht abgeschlossen, die Konversation bleibt auf diesem Mac. Führe cmux session move in einem Terminal aus, um die vollständige Ausgabe zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El traslado no terminó y la conversación sigue en este Mac. Ejecuta cmux session move en una terminal para ver la salida completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le déplacement n’a pas abouti et la conversation reste sur ce Mac. Exécutez cmux session move dans un terminal pour voir la sortie complète."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動が完了しなかったため、会話はこのMacに残っています。完全な出力を確認するには、ターミナルで cmux session move を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이동이 완료되지 않아 대화는 이 Mac에 남아 있습니다. 전체 출력을 보려면 터미널에서 cmux session move를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动未完成，对话仍保留在这台 Mac 上。请在终端中运行 cmux session move 查看完整输出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動未完成，對話仍保留在這台 Mac 上。請在終端機中執行 cmux session move 以查看完整輸出。"
+          }
+        }
+      }
+    },
+    "cloudMove.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Move to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر النقل إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschieben in die Cloud fehlgeschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo mover a la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de déplacer vers le Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동할 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法移到云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法移至雲端"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.agentBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is working or waiting for input. Move it when the turn ends."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude يعمل أو ينتظر إدخالًا. انقله عند انتهاء الدور."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude arbeitet oder wartet auf eine Eingabe. Verschiebe es, wenn der Zug beendet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude está trabajando o esperando una respuesta. Muévelo cuando termine el turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude travaille ou attend une saisie. Déplacez-le une fois son tour terminé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeは作業中か、入力を待っています。ターンが終わってから移動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 작업 중이거나 입력을 기다리고 있습니다. 차례가 끝나면 이동하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在工作或等待输入。请在这一轮结束后再移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在工作或等待輸入。請在這一輪結束後再移動。"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude could not be stopped safely. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إيقاف Claude بأمان. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude konnte nicht sicher angehalten werden. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo detener Claude de forma segura. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude n’a pas pu être arrêté en toute sécurité. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeを安全に停止できませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude를 안전하게 중지할 수 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法安全地停止 Claude。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法安全地停止 Claude。請稍後再試。"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.lifecycleUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't tell whether Claude is idle."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux معرفة ما إذا كان Claude خاملًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann nicht erkennen, ob Claude untätig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede saber si Claude está inactivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas déterminer si Claude est inactif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはClaudeがアイドル状態かどうかを判断できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 Claude의 유휴 상태를 확인할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法判断 Claude 是否空闲。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法判斷 Claude 是否閒置。"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.processScopeUnsafe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is running other work, such as background jobs, that the move would stop."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغّل هذه الطرفية أعمالًا أخرى، مثل مهام الخلفية، سيوقفها النقل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Terminal läuft weitere Arbeit, etwa Hintergrundjobs, die das Verschieben beenden würde."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal está ejecutando otro trabajo, como tareas en segundo plano, que el traslado detendría."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal exécute d’autres tâches, comme des tâches en arrière-plan, que le déplacement arrêterait."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルでは、移動すると停止してしまうバックグラウンドジョブなどの作業が実行中です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에서 백그라운드 작업 등 이동하면 중단될 다른 작업이 실행 중입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端正在运行其他工作（例如后台任务），移动会使其停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機正在執行其他工作（例如背景工作），移動會使其停止。"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.recentlyActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude was active a moment ago. Try again in a few seconds."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان Claude نشطًا قبل لحظة. حاول مرة أخرى بعد بضع ثوانٍ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude war gerade eben aktiv. Versuche es in ein paar Sekunden erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude estuvo activo hace un momento. Inténtalo de nuevo en unos segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude était actif il y a un instant. Réessayez dans quelques secondes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeは少し前まで動作していました。数秒後にもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 방금 전까지 활동했습니다. 몇 초 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 刚刚仍在活动。请几秒后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 剛剛仍在活動。請幾秒後再試。"
+          }
+        }
+      }
+    },
+    "cloudMove.refusal.unconfirmedInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude has typed input it has not received yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لدى Claude إدخال مكتوب لم يستلمه بعد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hat getippte Eingaben, die es noch nicht erhalten hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude tiene texto escrito que aún no ha recibido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a une saisie qu’il n’a pas encore reçue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeには、まだ受け取っていない入力があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude에 아직 받지 않은 입력이 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 有尚未收到的输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 有尚未收到的輸入。"
+          }
+        }
+      }
+    },
+    "cloudMove.status.moving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving to Cloud…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ النقل إلى السحابة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird in die Cloud verschoben…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moviendo a la nube…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacement vers le Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移到云端…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移至雲端…"
+          }
+        }
+      }
+    },
+    "cloudMove.status.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving to Cloud: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ النقل إلى السحابة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird in die Cloud verschoben: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moviendo a la nube: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacement vers le Cloud : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動中: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동 중: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移到云端：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在移至雲端：%@"
+          }
+        }
+      }
+    },
+    "cloudMove.status.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not moved to Cloud: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُنقل إلى السحابة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht in die Cloud verschoben: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se movió a la nube: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non déplacé vers le Cloud : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動しませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동하지 않음: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未移到云端：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未移至雲端：%@"
+          }
+        }
+      }
+    },
+    "cloudMove.status.stopping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping Claude to move it to Cloud…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إيقاف Claude لنقله إلى السحابة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude wird für das Verschieben in die Cloud angehalten…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deteniendo Claude para moverlo a la nube…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêt de Claude pour le déplacer vers le Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動するためにClaudeを停止しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동하기 위해 Claude를 중지하는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止 Claude 以移到云端…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止 Claude 以移至雲端…"
+          }
+        }
+      }
+    },
+    "contextMenu.moveToCloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Cloud verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer vers le Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至雲端"
+          }
+        }
+      }
+    },
+    "contextMenu.moveToCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Cloud Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى جهاز سحابي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Cloud-Maschine verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a una máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer vers une machine Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신으로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到云端机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至雲端機器"
+          }
+        }
+      }
+    },
+    "cloudMove.movedWithoutTerminal.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation is on the Cloud machine now, but its terminal didn't open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أصبحت المحادثة الآن على جهاز السحابة، لكن لم تُفتح الطرفية الخاصة بها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Unterhaltung ist jetzt auf der Cloud-Maschine, aber ihr Terminal wurde nicht geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conversación ya está en la máquina en la nube, pero su terminal no se abrió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conversation se trouve désormais sur la machine Cloud, mais son terminal ne s’est pas ouvert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話はクラウドマシンに移動しましたが、そのターミナルを開けませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화가 이제 클라우드 머신에 있지만 해당 터미널이 열리지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话现在已在云端机器上，但其终端未能打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話現在已在雲端機器上，但其終端機未能開啟。"
+          }
+        }
+      }
+    },
+    "cloudMove.movedWithoutTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved to Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النقل إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Cloud verschoben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido a la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacé vers le Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに移動しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드로 이동됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移至云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移至雲端"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.cloudTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the conversation moved to Cloud machine %@, but its terminal did not open (%@). Open a terminal on that machine and run `claude --resume %@` in %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: نُقلت المحادثة إلى جهاز Cloud ‏%@، لكن الطرفية الخاصة بها لم تُفتح (%@). افتح طرفية على ذلك الجهاز وشغّل `claude --resume %@` في %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Unterhaltung wurde auf die Cloud-Maschine %@ verschoben, aber ihr Terminal wurde nicht geöffnet (%@). Öffne ein Terminal auf dieser Maschine und führe `claude --resume %@` in %@ aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la conversación se movió a la máquina de Cloud %@, pero su terminal no se abrió (%@). Abre una terminal en esa máquina y ejecuta `claude --resume %@` en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la conversation a été déplacée vers la machine Cloud %@, mais son terminal ne s’est pas ouvert (%@). Ouvrez un terminal sur cette machine et exécutez `claude --resume %@` dans %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 会話は Cloud マシン %1$@ に移動しましたが、ターミナルが開きませんでした（%2$@）。そのマシンでターミナルを開き、%4$@ で `claude --resume %3$@` を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대화가 Cloud 머신 %1$@(으)로 이동했지만 터미널이 열리지 않았습니다(%2$@). 해당 머신에서 터미널을 열고 %4$@에서 `claude --resume %3$@`을(를) 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：对话已移至 Cloud 机器 %1$@，但其终端未打开（%2$@）。请在该机器上打开终端，并在 %4$@ 中运行 `claude --resume %3$@`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：對話已移至 Cloud 機器 %1$@，但其終端機未開啟（%2$@）。請在該機器上開啟終端機，並在 %4$@ 中執行 `claude --resume %3$@`。"
           }
         }
       }
