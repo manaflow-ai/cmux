@@ -15,8 +15,10 @@ import WebKit
 @MainActor
 @Suite(.serialized) struct BrowserPanelEngineTests {
     @MainActor
-    final class FakeChromiumPage: BrowserPage, BrowserPagePlaceholderColoring {
+    final class FakeChromiumPage: BrowserPage, BrowserPagePlaceholderColoring, BrowserExtensionHostProviding {
         var placeholderColor: NSColor = .clear
+        var extensionHost: (any BrowserExtensionHosting)?
+        private(set) var evaluatedScripts: [String] = []
         var engineKind: BrowserEngineKind { .chromium }
         var capabilities: BrowserEngineCapabilities { [.devToolsProtocol] }
         var presentation: BrowserPagePresentation { .childWindow }
@@ -49,7 +51,10 @@ import WebKit
         func reload() {}
         func reloadFromOrigin() {}
         func stop() { stopCount += 1 }
-        func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any? { nil }
+        func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any? {
+            evaluatedScripts.append(script)
+            return nil
+        }
         func callAsyncJavaScript(_ body: String, arguments: [String: any Sendable], in world: BrowserPageScriptWorld) async throws -> Any? { nil }
         func addUserScript(_ script: BrowserPageUserScript) { userScripts.append(script) }
         func removeAllUserScripts() {}
@@ -84,6 +89,45 @@ import WebKit
             pages.append(page)
             return page
         }
+    }
+
+    @MainActor
+    final class FakeExtensionBackend: BrowserExtensionBackend {
+        var supportsManagement: Bool { true }
+        var commands: [BrowserExtensionCommand] = []
+        private(set) var ranCommands: [String] = []
+        func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])? { ([], commands) }
+        func setEnabled(_ id: String, _ enabled: Bool) -> Bool { false }
+        func uninstall(_ id: String) -> Bool { false }
+        func reload(_ id: String) -> Bool { false }
+        func setPinned(_ id: String, _ pinned: Bool) -> Bool { false }
+        func openOptions(_ id: String, from tab: (any BrowserExtensionTab)?) -> Bool { false }
+        func loadUnpacked(at path: String) -> Bool { false }
+        func runCommand(_ command: BrowserExtensionCommand, in tab: any BrowserExtensionTab) -> Bool {
+            ranCommands.append(command.name)
+            return true
+        }
+    }
+
+    @MainActor
+    final class FakeExtensionHost: BrowserExtensionHosting, BrowserExtensionTab {
+        let extensionStore: BrowserExtensionStore
+        var extensionTab: any BrowserExtensionTab { self }
+        var extensionActions: [BrowserExtensionAction] { [] }
+        var openExtensionPopup: String? { nil }
+        var extensionActionRequestHandler: (@MainActor (String) -> Void)?
+        private(set) var requestedActions: [String] = []
+
+        init(backend: FakeExtensionBackend) {
+            extensionStore = BrowserExtensionStore(profileID: UUID(), backend: backend)
+            extensionStore.refresh()
+        }
+
+        func runExtensionAction(_ id: String, anchor: CGRect) -> Bool { true }
+        func hideExtensionPopup() {}
+        func refreshExtensionActions() {}
+        func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint) {}
+        func requestExtensionAction(_ extensionID: String) { requestedActions.append(extensionID) }
     }
 
     private func runtime(
@@ -416,5 +460,122 @@ import WebKit
         )
         panel.close()
         #expect(provider.pages.first?.closeCount == 1)
+    }
+
+    /// A Chromium panel whose page sits in a shown window, as a pane shows it.
+    private func shownChromiumPanel(
+        _ provider: FakeChromiumProvider
+    ) throws -> (panel: BrowserPanel, page: FakeChromiumPage, window: NSWindow) {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com/"),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        let page = try #require(provider.pages.first)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        page.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        window.contentView?.addSubview(page.contentView)
+        window.orderBack(nil)
+        return (panel, page, window)
+    }
+
+    private func escape(at timestamp: TimeInterval) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: timestamp, windowNumber: 0,
+            context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53
+        ))
+    }
+
+    /// Browser focus mode works for a Chromium page as for a WebKit one: it
+    /// enters with the page focused, and a double Escape leaves it. The
+    /// Chromium page draws in a child window, so the panel's WebKit view is
+    /// never in a window (it was the only view focus mode checked).
+    @Test func chromiumPanelEntersFocusModeAndDoubleEscapeLeavesIt() throws {
+        let provider = FakeChromiumProvider()
+        let (panel, page, window) = try shownChromiumPanel(provider)
+        defer { panel.close(); window.close() }
+
+        #expect(panel.canEnterBrowserFocusMode)
+        #expect(panel.setBrowserFocusModeActive(true, reason: "unit.chromium", focusWebView: true))
+        #expect(panel.isBrowserFocusModeActive)
+        #expect(page.focusChanges.last == true)
+
+        let start = ProcessInfo.processInfo.systemUptime
+        #expect(panel.handleBrowserFocusModeKeyEvent(try escape(at: start), reason: "unit.first") == .forwardToWebView)
+        #expect(panel.isBrowserFocusModeActive)
+        #expect(panel.handleBrowserFocusModeKeyEvent(try escape(at: start + 0.05), reason: "unit.second") == .consume)
+        #expect(!panel.isBrowserFocusModeActive)
+    }
+
+    /// A `chrome.commands` shortcut runs for the focused Chromium panel (the
+    /// shortcut monitor calls this for a key no cmux shortcut took), and not
+    /// in browser focus mode, where every key is the page's.
+    @Test func extensionShortcutRunsInAChromiumPanelExceptInFocusMode() throws {
+        let provider = FakeChromiumProvider()
+        let (panel, page, window) = try shownChromiumPanel(provider)
+        defer { panel.close(); window.close() }
+        let backend = FakeExtensionBackend()
+        backend.commands = [BrowserExtensionCommand(extensionID: "ext", name: "_execute_action", keyCode: 0x59, modifiers: 16 | 2)]
+        let host = FakeExtensionHost(backend: backend)
+        page.extensionHost = host
+        let commandShiftY = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "Y", charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16
+        ))
+
+        #expect(panel.runExtensionShortcut(for: commandShiftY))
+        #expect(host.requestedActions == ["ext"])
+
+        #expect(panel.setBrowserFocusModeActive(true, reason: "unit.extensionShortcut", focusWebView: true))
+        #expect(!panel.runExtensionShortcut(for: commandShiftY))
+        #expect(host.requestedActions == ["ext"])
+    }
+
+    @Test func webKitPanelHasNoExtensionShortcuts() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), engineRuntime: runtime())
+        defer { panel.close() }
+        let commandShiftY = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "Y", charactersIgnoringModifiers: "y", isARepeat: false, keyCode: 16
+        ))
+        #expect(!panel.runExtensionShortcut(for: commandShiftY))
+    }
+
+    /// Cmd-L then Escape: the address bar's page-focus scripts run in the
+    /// Chromium page (not the panel's unused WebKit view), and leaving the
+    /// address bar gives the page the keyboard back.
+    @Test func leavingTheAddressBarReturnsTheKeyboardToTheChromiumPage() async throws {
+        let provider = FakeChromiumProvider()
+        let (panel, page, window) = try shownChromiumPanel(provider)
+        defer { panel.close(); window.close() }
+
+        let adapter = BrowserOmnibarPageFocusAdapter(panel: panel)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            adapter.evaluateOmnibarPageFocusScript("probe()") { _, _ in continuation.resume() }
+        }
+        #expect(page.evaluatedScripts == ["probe()"])
+
+        let focusesBefore = page.focusChanges.count
+        var returned = false
+        // Completes after the previously focused field's restore ran in the page.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            returned = panel.returnFocusToEnginePageAfterAddressBar { continuation.resume() }
+            if !returned { continuation.resume() }
+        }
+        #expect(returned)
+        #expect(page.focusChanges.count == focusesBefore + 1)
+        #expect(page.focusChanges.last == true)
+        #expect(page.evaluatedScripts.count > 1)
+    }
+
+    @Test func webKitPanelLeavesTheAddressBarThroughWebKit() {
+        let panel = BrowserPanel(workspaceId: UUID(), engineRuntime: runtime())
+        defer { panel.close() }
+        #expect(!panel.returnFocusToEnginePageAfterAddressBar {})
     }
 }
