@@ -57,9 +57,18 @@ extension GhosttyNSView {
         let inject = {
             // Diff against what clients recently read, on the main thread
             // where the snapshot lives.
-            let inserted = self.accessibilityScreenTextEnabled
-                ? self.terminalAccessibilityText.insertedText(settingValue: content)
-                : content
+            let inserted: String
+            if self.accessibilityScreenTextEnabled {
+                inserted = self.terminalAccessibilityText.insertedText(settingValue: content)
+            } else {
+                // In opt-out mode the value is the native selection rather
+                // than the rendered screen, so derive a suffix from the
+                // value the client read immediately before writing it.
+                let snapshot = (self.accessibilityValue() as? String) ?? ""
+                inserted = content.hasPrefix(snapshot)
+                    ? String(content.dropFirst(snapshot.count))
+                    : content
+            }
             self.insertAccessibilityCommittedText(inserted)
         }
         if Thread.isMainThread {
