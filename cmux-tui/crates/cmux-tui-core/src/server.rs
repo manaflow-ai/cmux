@@ -14616,10 +14616,7 @@ mod tests {
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let colors = Arc::new(TerminalColors::default());
-        assert!(
-            try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors))
-                .is_err()
-        );
+        assert!(try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors)).is_err());
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let mut oversized = AttachFrame::Output(vec![0; ATTACH_OUTPUT_COALESCE_MAX_BYTES]);
