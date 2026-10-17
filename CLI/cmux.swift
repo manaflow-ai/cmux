@@ -29766,7 +29766,6 @@ struct CMUXCLI {
                 return
             }
 
-            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
             if parsed.hasFlag("-h") {
@@ -29782,14 +29781,18 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if parsed.hasFlag("-h"),
-               let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
-                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                    direction = anchoredTarget.direction
-                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
-                }
+            var target: (workspaceId: String, paneId: String?, surfaceId: String)
+            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
+               let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                direction = anchoredTarget.direction
+                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+            } else {
+                // Resolve an ordinary target only after attempting the managed
+                // layout anchor. This lets a stale -t pane/surface fall back to
+                // the live leader when a teammate was closed outside the shim.
+                target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             }
 
             // tmux semantics: the new pane takes focus unless -d ("don't focus
@@ -30402,10 +30405,12 @@ struct CMUXCLI {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     try withLockedTmuxCompatStore { store in
                         let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let existingMainPaneWidth = store.mainVerticalLayouts[workspaceId]?.mainPaneWidthFraction
                         let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                         store.mainVerticalLayouts[workspaceId] = MainVerticalState(
                             mainSurfaceId: callerSurface,
-                            lastColumnSurfaceId: seedColumn
+                            lastColumnSurfaceId: seedColumn,
+                            mainPaneWidthFraction: existingMainPaneWidth
                         )
                     }
                 }
@@ -38575,6 +38580,12 @@ export default {
                 ?? normalizedHookValue(env["PWD"])
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        if def.name == "codex",
+           codexHookIsInternalSession(input: input, cwd: hookCwd, environment: env) {
+            telemetry.breadcrumb("codex-hook.internal-session-suppressed")
+            print("{}")
+            return
+        }
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
             guard !relayOrigin else { return nil }
             return mapped?.pid ?? inferredPID
