@@ -2,6 +2,7 @@ import CmuxFoundation
 import CmuxCore
 import AppKit
 import CmuxCommandPalette
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -698,6 +699,9 @@ final class VSCodeServeWebController {
             "--host", "127.0.0.1",
             "--port", "0",
             "--connection-token-file", connectionTokenFileURL.path,
+            // Foundation reflects the app's launch-time AppleLanguages override
+            // and the system preference when no app override is selected.
+            "--locale", AppLanguage.system.resolvedVSCodeLocale(),
         ]
         process.environment = launchConfiguration.environment
 
