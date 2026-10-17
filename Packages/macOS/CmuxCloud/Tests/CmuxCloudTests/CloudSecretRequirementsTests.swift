@@ -166,6 +166,15 @@ import Testing
         ]).map(\.name) == ["DATABASE_URL"])
     }
 
+    /// The vault refuses these names, so a requirement for one could never be met.
+    @Test
+    func declarationsTheVaultCannotStoreAreIgnored() {
+        #expect(CloudSecretRequirements.declared(files: [
+            ".cmux/cloud.json": #"{"env": ["my-key", "1TOKEN", "API_KEY"]}"#,
+            ".devcontainer/devcontainer.json": #"{"secrets": {"API.KEY": {}, "GH_TOKEN": {}}}"#,
+        ]).map(\.name) == ["API_KEY", "GH_TOKEN"])
+    }
+
     @Test
     func checkoutResolvesOriginFromConfigAndWorktrees() throws {
         let root = try makeRepository([
