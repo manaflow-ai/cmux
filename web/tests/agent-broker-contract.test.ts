@@ -4,7 +4,6 @@ import {
   AGENT_BROKER_PROTOCOL_VERSION,
   AgentBrokerInputError,
   assertAgentBrokerEnvelope,
-  assertAgentBrokerEnvelope,
   requestDigest,
   type AgentBrokerEnvelope,
   type AgentBrokerJobState,
