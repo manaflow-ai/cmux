@@ -92,6 +92,32 @@ final class CloudAgentReadinessModelTests: XCTestCase {
         XCTAssertTrue(model.assessments.isEmpty)
     }
 
+    /// `probed` describes the rows shown; an unavailable answer shows none.
+    func testAnUnavailableCheckAfterAProbeClearsProbed() async {
+        final class Answer: @unchecked Sendable {
+            var supported = true
+        }
+        let answer = Answer()
+        let model = CloudAgentReadinessModel(
+            machineID: "vm-1",
+            machineLabel: nil,
+            service: service(calls: Calls()) {
+                answer.supported
+                    ? VMExecResult(exitCode: 0, stdout: Self.output, stderr: "")
+                    : VMExecResult(exitCode: 127, stdout: "", stderr: "sh: not found")
+            }
+        )
+        model.check(probe: true)
+        await waitUntilSettled(model)
+        XCTAssertTrue(model.probed)
+
+        answer.supported = false
+        model.check(probe: false)
+        await waitUntilSettled(model)
+        XCTAssertEqual(model.phase, .unavailable)
+        XCTAssertFalse(model.probed)
+    }
+
     func testAFailedCheckShowsFixedCopy() async {
         struct Boom: Error {}
         let model = CloudAgentReadinessModel(
