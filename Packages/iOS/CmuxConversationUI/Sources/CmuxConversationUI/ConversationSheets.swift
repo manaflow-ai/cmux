@@ -118,14 +118,14 @@ struct ConversationModelSettingsSheet: View {
                         }
                         dismiss()
                     } label: {
-                        // Put the identifier on the label rather than the
-                        // toolbar Button container.  iPadOS otherwise exposes
-                        // both the toolbar item and its child with the same
-                        // identifier, so an exact-match automation query
-                        // cannot choose a single target.
                         Text(ConversationL10n.value("conversation.done", "Done"))
-                            .accessibilityIdentifier("ConversationSettingsDone")
                     }
+                    // A toolbar item adds an accessibility wrapper around its
+                    // Button.  Collapse the label into one actionable element
+                    // before assigning the identifier so iPadOS does not
+                    // expose both wrapper and child as exact matches.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("ConversationSettingsDone")
                 }
             }
             .task {

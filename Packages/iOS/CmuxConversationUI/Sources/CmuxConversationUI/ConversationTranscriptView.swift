@@ -117,6 +117,17 @@ private struct ConversationItemRow: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                         }
+                        // Keep a compact result summary in the collapsed
+                        // transcript.  Besides making the latest outcome
+                        // scannable, this gives VoiceOver and UI automation a
+                        // stable text target while the full detail remains
+                        // available through expansion.
+                        if item.kind == .result, !item.displayText.isEmpty {
+                            Text(item.displayText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
                         if isExpanded { detailView }
                     }
                     .padding(12)
