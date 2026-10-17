@@ -5,6 +5,7 @@
 mod watch;
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,8 +69,7 @@ impl Owner {
                     "_acpmux/harness/inventory/watch" => {
                         if hold_watch {
                             let _ = watch_ready_tx.send(());
-                            let _ =
-                                watch_release_rx.recv_timeout(std::time::Duration::from_secs(5));
+                            let _ = watch_release_rx.recv_timeout(Duration::from_secs(5));
                         }
                         inventory.clone()
                     }
@@ -107,8 +107,7 @@ impl Owner {
 
     pub(super) fn notify(&mut self, value: Value) {
         if self.current.is_none() {
-            self.current =
-                Some(self.connections.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+            self.current = Some(self.connections.recv_timeout(Duration::from_secs(5)).unwrap());
         }
         let stream = self.current.as_mut().unwrap();
         writeln!(
@@ -121,14 +120,12 @@ impl Owner {
     }
 
     pub(super) fn wait_closed(&self) {
-        self.closed
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("owner link stayed open");
+        self.closed.recv_timeout(Duration::from_secs(5)).expect("owner link stayed open");
     }
 
     pub(super) fn wait_for_watch(&self) {
         self.watch_ready
-            .recv_timeout(std::time::Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(5))
             .expect("watch request did not reach the owner");
     }
 
@@ -138,11 +135,10 @@ impl Owner {
 
     pub(super) fn assert_transport_closed(&mut self) {
         if self.current.is_none() {
-            self.current =
-                Some(self.connections.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+            self.current = Some(self.connections.recv_timeout(Duration::from_secs(5)).unwrap());
         }
         let stream = self.current.as_mut().unwrap();
-        stream.set_read_timeout(Some(std::time::Duration::from_millis(500))).unwrap();
+        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
         assert_eq!(
             stream.read(&mut [0u8; 1]).expect("native cancellation did not close the link"),
             0
@@ -154,10 +150,10 @@ impl Drop for Owner {
     fn drop(&mut self) {
         self.release_watch();
         if let Some(stream) = self.current.take() {
-            let _ = stream.shutdown(std::net::Shutdown::Both);
+            let _ = stream.shutdown(Shutdown::Both);
         }
         for stream in self.connections.try_iter() {
-            let _ = stream.shutdown(std::net::Shutdown::Both);
+            let _ = stream.shutdown(Shutdown::Both);
         }
         // Wake accept when a policy test correctly made no connection.
         let _ = UnixStream::connect(&self.socket);

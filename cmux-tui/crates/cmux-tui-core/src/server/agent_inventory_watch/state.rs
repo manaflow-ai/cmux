@@ -142,7 +142,7 @@ impl Watch {
         Ok(())
     }
     pub(super) fn activate(&self, id: Option<Value>, initial: &Value) -> Result<bool, Failure> {
-        let revision = super::revision(initial)?;
+        let revision = revision(initial)?;
         let mux = self.mux.upgrade().ok_or(Failure::Unavailable)?;
         mux.control_clients
             .agent_sessions
@@ -186,7 +186,7 @@ impl Watch {
         if !state.negotiated || state.phase == Phase::Closed {
             return Ok(());
         }
-        let revision = super::revision(value)?;
+        let revision = revision(value)?;
         if state.revision.is_some_and(|old| revision <= old) {
             return Ok(());
         }

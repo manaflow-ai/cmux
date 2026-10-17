@@ -107,6 +107,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessions {
     socket: RwLock<Option<PathBuf>>,
+    #[cfg(test)]
+    inventory_socket_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Bounded cache reads share this owner's socket, never its start path.
     pub(super) inventory_reads: AtomicUsize,
     pub(super) inventory_watches: super::agent_inventory::watch::Watches,
@@ -140,6 +142,13 @@ impl AgentSessions {
             *current = socket;
             changed
         };
+        #[cfg(test)]
+        if changed {
+            let hook = self.inventory_socket_hook.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
         if changed {
             self.inventory_watches.stop_all();
         }
@@ -147,6 +156,11 @@ impl AgentSessions {
 
     pub(crate) fn socket(&self) -> Option<PathBuf> {
         self.socket.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    #[cfg(test)]
+    pub(in crate::server) fn set_inventory_socket_test_hook(&self, hook: Box<dyn FnOnce() + Send>) {
+        *self.inventory_socket_hook.lock().unwrap_or_else(|e| e.into_inner()) = Some(hook);
     }
 
     /// Linearizes a cache-watch receipt or invalidation before socket replacement.

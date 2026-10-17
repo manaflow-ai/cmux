@@ -98,7 +98,8 @@ fn cmux_next_inventory_native_watch_ignores_replays_and_retires_on_socket_replac
 fn cmux_next_inventory_native_watch_disallows_websocket_and_remote_carriers() {
     let owner = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
     let mux = owner.mux("inventory-watch-policy");
-    let (writer, outbound) = MessageWriter::queued();
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     for (transport, code) in [
@@ -225,4 +226,36 @@ fn cmux_next_inventory_native_watch_socket_replacement_cancels_a_pending_handsha
     owner.release_watch();
     owner.wait_closed();
     assert!(client.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none());
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_replacement_cleanup_preserves_a_new_socket_lease() {
+    let old = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mut next = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = old.mux("inventory-watch-replacement-race");
+    let (entered, changed) = std::sync::mpsc::channel();
+    let (release, resume) = std::sync::mpsc::channel();
+    mux.control_clients.agent_sessions.set_inventory_socket_test_hook(Box::new(move || {
+        entered.send(()).unwrap();
+        resume.recv_timeout(WAIT).expect("replacement barrier was not released");
+    }));
+    let replacing = mux.clone();
+    let next_socket = next.socket.clone();
+    let replacement = std::thread::spawn(move || replacing.set_acpmux_socket(Some(next_socket)));
+    changed.recv_timeout(WAIT).expect("socket was not replaced");
+    let mut client = Client::connect(&mux, "inventory-watch-new-during-cleanup");
+    let ack = client.request(request(&mux, true));
+    // Always release/join the setter, even if an enabling assertion fails.
+    release.send(()).unwrap();
+    replacement.join().unwrap();
+    assert_eq!(ack["ok"], true, "{ack}");
+    assert!(
+        client.named_event("agent-inventory-watch-ended", Duration::from_millis(100)).is_none(),
+        "old replacement cleanup retired a newly admitted lease"
+    );
+    next.notify(snapshot(2));
+    let event =
+        client.named_event("agent-inventory-changed", WAIT).expect("new lease invalidation");
+    assert_eq!(event["watch_id"], ack["data"]["watch_id"]);
+    assert_eq!(event["revision"], 2);
 }
