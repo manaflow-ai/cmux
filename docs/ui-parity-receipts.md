@@ -153,13 +153,13 @@ measurements.
   screenshots both show the prompt, workspace suggestion, tab result, and session list; narrow truncates
   long session labels cleanly without overflow.
 
-  - [normal dark receipt](../../briefs/workspace-switch-journey-20261017/visual-normal-dark.json) —
+  - [normal dark receipt](/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/visual-normal-dark.json) —
     PNG SHA256 `e2b4f06d45c7c7a89c80f992b18eeac7b0ee3e3535f8f40273bb98008f910e49`
-  - [normal light receipt](../../briefs/workspace-switch-journey-20261017/visual-normal-light.json) —
+  - [normal light receipt](/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/visual-normal-light.json) —
     PNG SHA256 `0b04f2ec8cdda21b310e515627f5de9b579a53416fcf5b54b8ecf8a6324eecb9`
-  - [narrow dark receipt](../../briefs/workspace-switch-journey-20261017/visual-narrow-dark.json) —
+  - [narrow dark receipt](/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/visual-narrow-dark.json) —
     PNG SHA256 `e3678b846ddd1f5acf07ab0a60c6a632e3f45fb267026cfcd183754d82161aa8`
-  - [narrow light receipt](../../briefs/workspace-switch-journey-20261017/visual-narrow-light.json) —
+  - [narrow light receipt](/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/visual-narrow-light.json) —
     PNG SHA256 `3465374f72b35c9d6a5f829443957db852e395824ff7e00b02f6b6577960fbdc9`
 
   The play report remains warning-only: the type step observed one test-time long frame over 33 ms
