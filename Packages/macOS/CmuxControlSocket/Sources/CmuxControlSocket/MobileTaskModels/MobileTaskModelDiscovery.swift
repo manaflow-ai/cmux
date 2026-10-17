@@ -2,6 +2,8 @@ public import Foundation
 
 /// Actor-isolated, per-provider cache around task model discovery.
 public actor MobileTaskModelDiscovery {
+    /// Reads the current host setting for a custom Claude executable.
+    public typealias CustomClaudePath = @Sendable () async -> String?
     /// Asynchronous clock read used for cache expiry.
     public typealias Now = @Sendable () async -> Date
 
@@ -27,10 +29,12 @@ public actor MobileTaskModelDiscovery {
     ///   - strategy: Provider-specific discovery implementation.
     ///   - now: Injected clock read.
     ///   - cacheTTL: Cache lifetime in seconds.
+    ///   - customClaudePath: Current host setting; `nil` uses login-shell `PATH`.
     public init(
         strategy: MobileTaskModelProviderStrategy,
         now: @escaping Now = { Date() },
-        cacheTTL: TimeInterval = MobileTaskModelDiscovery.defaultCacheTTL
+        cacheTTL: TimeInterval = MobileTaskModelDiscovery.defaultCacheTTL,
+        customClaudePath: @escaping CustomClaudePath = { nil }
     ) {
         self.strategy = strategy
         self.now = now
@@ -42,10 +46,12 @@ public actor MobileTaskModelDiscovery {
     /// - Parameters:
     ///   - homeDirectory: Current user's home directory.
     ///   - shellPath: Login shell used to resolve the user's CLI `PATH`.
+    ///   - customClaudePath: Reads the host setting on each discovery request.
     /// - Returns: A ten-minute cached discovery actor.
     public static func live(
         homeDirectory: URL,
-        shellPath: String
+        shellPath: String,
+        customClaudePath: @escaping CustomClaudePath = { nil }
     ) -> MobileTaskModelDiscovery {
         let shellRunner = MobileTaskModelShellRunner(shellPath: shellPath)
         let strategy = MobileTaskModelProviderStrategy(
