@@ -8,6 +8,8 @@ extension AgentPaneView {
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
     public func archiveChat() { send("archiveChat") }
+    /// Opt-Cmd-B with `agentChat.sideColumn`: the page runs its New tab / Hide tabs, the chat's side column.
+    public func toggleSideColumn() { send("sideTabs") }
     private func send(_ command: String) {
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }

@@ -47,6 +47,17 @@ extension AgentTabStore {
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
         }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
+        // The side column's tiles page: Files' tree or Changes' diff as a tab in the page's own pane.
+        model.header?.openHere = { [weak self] action, cwd in
+            let tab = self?.resolve(provisional) ?? provisional
+            let folder = cwd ?? self?.lookup(tab)?.store.tab(id: tab)?.cwd
+            switch action {
+            case AgentChatSplitToggles.files: actions.openFiles(folder, on: tab)
+            case AgentChatSplitToggles.changes:
+                actions.runBeside(AgentChatSplitToggles.changes, arguments: folder.map { ["path": .string($0)] } ?? [:], on: tab)
+            default: break
+            }
+        }
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
@@ -57,7 +68,9 @@ extension AgentTabStore {
     private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
         let chat = resolve(provisional)
         // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
-        guard let newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        guard var newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        // The chat's side column (`agentChat.sideColumn`) starts as tiles of what it can hold.
+        if split, AgentPaneTunables.sideColumn.value { newTab.page.surfaces = true }
         return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 

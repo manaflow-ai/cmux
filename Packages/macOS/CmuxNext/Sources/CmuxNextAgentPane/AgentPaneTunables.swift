@@ -77,6 +77,16 @@ public nonisolated struct AgentPaneTunables {
         help: "With a panel beside an agent chat, Terminal and Browser add a tab to it instead of another split, and the chat header keeps its tools in its ... menu.",
         default: false, code: "AgentPaneTunables.panelTabs")
 
+    /// The agent chat's side column on Opt-Cmd-B (Lucas 2026-10-17, after T3 Code's surface panel): Toggle
+    /// Right Sidebar runs the focused chat's New tab / Hide tabs, so a column of panes opens beside the
+    /// chat (a New Tab page whose tiles open a terminal, browser, files or changes there) and hides
+    /// again, closing nothing. Off, Toggle Right Sidebar reports that cmux-next has no right sidebar.
+    /// Read when the app starts.
+    public static let sideColumn = Tunable<Bool>.toggle(
+        "agentChat.sideColumn", .panes, "Opt-Cmd-B opens the chat's side column",
+        help: "Toggle Right Sidebar shows and hides a column of panes beside the focused agent chat, starting with a page of tiles for a terminal, browser, files or changes. Relaunch to apply.",
+        default: false, code: "AgentPaneTunables.sideColumn")
+
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
     public static let chatWidth = Tunable<ChatWidth>.choice(
@@ -192,5 +202,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

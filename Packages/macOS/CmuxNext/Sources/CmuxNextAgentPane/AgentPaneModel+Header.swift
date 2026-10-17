@@ -35,6 +35,9 @@ public struct AgentPaneHeaderHooks {
     /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
     /// end, cx-ncc.77.1); the answer is pushed with the header state.
     public var refreshPullRequest: (@MainActor () -> Void)?
+    /// The side column's tiles page (`pane.action {id: "here:<action>"}`, `agentChat.sideColumn`): opens
+    /// Files' tree or Changes' diff as a tab in the page's own pane, with the folder the page names.
+    public var openHere: (@MainActor (_ action: String, _ cwd: String?) -> Void)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -92,6 +95,8 @@ extension AgentPaneModel {
 
     /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
     static let sideTabsAction = "sideTabs"
+    /// The side column's tiles (`pane.action {id: "here:files"}`): the view opens in the page's own pane.
+    static let herePrefix = "here:"
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
     public static let previewAction = "preview"
 
@@ -116,6 +121,13 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")
             }
             return AgentPaneReply.success()
+        case .paneAction(let id, let cwd, _) where id.hasPrefix(Self.herePrefix):
+            // Only the side column's tiles page, a New Tab page, opens a view in its own pane.
+            guard newTab != nil, let here = header?.openHere else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action \(id)")
+            }
+            here(String(id.dropFirst(Self.herePrefix.count)), cwd)
+            return AgentPaneReply.success(["ran": true])
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return header?.respond(toOther: id, session: newTab == nil ? sessionId : nil) ?? AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")

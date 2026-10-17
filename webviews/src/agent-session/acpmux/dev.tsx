@@ -36,8 +36,13 @@ import { seedDevRecents } from "./devRecents";
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
 if (devHost) installDevHost(devHost);
-else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
-  window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession) {
+  // `?newtab` opens the page as a New Tab page; `?newtab=surfaces` as an agent chat's side column.
+  const newTab = params.has("newtab")
+    ? { newTab: { kind: "agent", ...(params.get("newtab") === "surfaces" ? { surfaces: true } : {}) } }
+    : {};
+  window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock", ...newTab }) };
+}
 if (params.get("recents") === "demo") seedDevRecents();
 // `?data-<name>=<value>` sets what the app's Debug choices set on <html> before the page loads
 // (AgentPaneTunables.documentAttributes), e.g. `?mock&data-thought-style=brain`.

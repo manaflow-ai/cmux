@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 
 /// Sidebar actions (category `sidebar`) beyond `toggleSidebar` (bound in
 /// `AppActions`). cmux-next has no right sidebar, file explorer or session
@@ -23,8 +24,11 @@ enum SidebarHandlers {
             ("match-terminal-background", ["palette.toggleMatchTerminalBackground"]),
         ]
         for (feature, ids) in features {
-            for id in ids { registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature)) }
+            for id in ids where !(id == "toggleRightSidebar" && AgentPaneTunables.sideColumn.value) {
+                registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
+            }
         }
+        if AgentPaneTunables.sideColumn.value { bindSideColumn(into: registry, context: context) }
         let checklist: [ActionID] = [
             "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem",
             "checklistOpenAsPane", "checklistAttachImages",
@@ -32,5 +36,22 @@ enum SidebarHandlers {
         for id in checklist {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("workspace-checklist-v1"))
         }
+    }
+
+    /// Toggle Right Sidebar (Opt-Cmd-B) with Debug Settings `agentChat.sideColumn` (Lucas 2026-10-17):
+    /// the agent chat's side column, the panes beside it. The chat's own New tab / Hide tabs runs it
+    /// (AgentChatSplitToggles.sideTabs): beside a lone chat a New Tab page opens in a column on its
+    /// right; with panes beside the chat they hide (the chat zooms, closing nothing) and show again.
+    /// The focused chat, else a chat showing in the window, takes it.
+    private static func bindSideColumn(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("toggleRightSidebar", run: { invocation in
+            let tabs = context.services.agentTabs
+            let focused = context.scope(invocation).pane
+            let panes = [focused].compactMap { $0 } + (context.services.windows.active?.content?.panes.values.map { $0 } ?? [])
+            guard let view = panes.lazy.compactMap({ $0.currentTabKey.flatMap(tabs.existingView) }).first else {
+                return context.refuse(RefusalStrings.needsAppCapability("right-sidebar"))
+            }
+            view.toggleSideColumn()
+        })
     }
 }

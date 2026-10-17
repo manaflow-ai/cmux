@@ -40,6 +40,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
+import { SurfaceLauncher, type Surface } from "./newtab/SurfaceLauncher";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -3253,6 +3254,8 @@ function AcpmuxPane() {
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
+  /// Opt-Cmd-B (Debug Settings agentChat.sideColumn): the chat's New tab / Hide tabs.
+  const sideTabsRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
@@ -3455,6 +3458,7 @@ function AcpmuxPane() {
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
+        if (name === "sideTabs") sideTabsRef.current?.();
         if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
@@ -4352,6 +4356,7 @@ function AcpmuxPane() {
         setHeaderState({ sideTabs: result?.shown === true }),
       ),
     );
+  sideTabsRef.current = toggleSideTabs;
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
   // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
   // closing an archived chat's tab is the host's (a tab is the window's).
@@ -4609,6 +4614,18 @@ function AcpmuxPane() {
     }
   }, []);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  /// A tile of the chat's side column (newtab/SurfaceLauncher.tsx): Terminal and Browser replace the
+  /// page, as its create buttons do; Files and Changes open in this pane (`pane.action` `here:`); New
+  /// chat shows the usual New Tab screen in place.
+  const pickSurface = (surface: Surface, page: NewTabHost) => {
+    const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
+    const cwd = page.cwd ? { cwd: page.cwd } : {};
+    if (surface === "terminal") ignore(callNative("tab.open", { kind: "terminal", text: "", run: false, ...cwd }));
+    else if (surface === "browser") ignore(callNative("tab.open", { kind: "browser", text: "" }));
+    else if (surface === "files") ignore(callNative("pane.action", { id: "here:files", ...cwd }));
+    else if (surface === "changes") ignore(callNative("pane.action", { id: "here:openDiffViewer", ...cwd }));
+    else setNewTab({ ...page, surfaces: false });
+  };
   const chatFromNewTab = (text: string, cwd?: string) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
@@ -5301,6 +5318,8 @@ function AcpmuxPane() {
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
             />
+          ) : showNewTab && newTab.surfaces ? (
+            <SurfaceLauncher onPick={(surface) => pickSurface(surface, newTab)} />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}

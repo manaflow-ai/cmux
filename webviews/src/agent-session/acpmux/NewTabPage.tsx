@@ -95,6 +95,9 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
+  /// The page opened as an agent chat's side column (Debug Settings `agentChat.sideColumn`): it shows
+  /// window tiles of what the column can hold (newtab/SurfaceLauncher.tsx) until one is picked.
+  surfaces?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -138,6 +141,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
+    ...(object.surfaces === true ? { surfaces: true } : {}),
   };
 }
 
