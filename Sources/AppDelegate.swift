@@ -38,6 +38,7 @@ import Darwin
 import CmuxFoundation
 import CmuxSentryReporting
 import CmuxSidebar
+import CmuxStatusBar
 import CmuxGit
 import os
 
@@ -587,6 +588,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    /// Runs `statusBar.command` once for the app; every window's bar reads it.
+    let statusBarFeed = StatusBarFeed()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -10769,6 +10772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
             .environment(browserDataImportCoordinator)
+            .environment(statusBarFeed)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
