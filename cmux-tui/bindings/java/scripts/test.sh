@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 CLASSPATH="$ROOT/build/classes:$ROOT/build/test-classes"
 for test_class in \
+  com.cmux.MachineCatalogTest \
   com.cmux.raw.GeneratedCoverageTest \
   com.cmux.raw.StreamModeTest \
   com.cmux.raw.LifecycleTest \
