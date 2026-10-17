@@ -20,22 +20,30 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/**
- * Builds the command understood by the existing cmux terminal bridge. The
- * redeemed route is a short-lived capability; it is passed only to the
- * terminal process and never persisted by the board.
- */
+/** Builds a safe CLI fallback for hosts that need to open the worker manually. */
 export function runAttachCommand(ticket: RunAttachTicket, now = Date.now()): string {
   const endpoint = endpointOf(ticket);
   const expiry = typeof endpoint.expiresAtUnix === "number" ? endpoint.expiresAtUnix : ticket.expiresAtUnix;
   if (typeof expiry === "number" && Number.isFinite(expiry) && expiry * 1_000 <= now) {
-    throw new RunApiHttpError(410, "This worker terminal endpoint has expired. Request a fresh attach ticket.", "run_attach_expired");
+    throw new RunApiHttpError(
+      410,
+      "This worker terminal endpoint has expired. Request a fresh attach ticket.",
+      "run_attach_expired",
+    );
   }
   if (endpoint.transport !== "cmux-remote" || typeof endpoint.route !== "string" || !endpoint.route) {
-    throw new RunApiHttpError(409, "This worker does not expose a cmux terminal endpoint.", "run_attach_transport_unsupported");
+    throw new RunApiHttpError(
+      409,
+      "This worker does not expose a cmux terminal endpoint.",
+      "run_attach_transport_unsupported",
+    );
   }
   if (endpoint.trustedCarrier !== true) {
-    throw new RunApiHttpError(409, "This worker requires device enrollment before terminal attach.", "run_attach_enrollment_required");
+    throw new RunApiHttpError(
+      409,
+      "This worker requires device enrollment before terminal attach.",
+      "run_attach_enrollment_required",
+    );
   }
   if (typeof endpoint.session !== "string" || !endpoint.session) {
     throw new RunApiHttpError(502, "Run attach returned no worker session.", "run_attach_invalid");
@@ -52,15 +60,25 @@ export function runAttachCommand(ticket: RunAttachTicket, now = Date.now()): str
 }
 
 /**
- * Opens the worker in a real cmux terminal tab through the existing pane
- * bridge. `tab.open` owns tab creation and starts the command in that tab, so
- * the Run board never has to own a socket, daemon, or terminal lifetime.
+ * Opens the worker in a real cmux terminal/session through the native bridge.
+ * The host resolves the redeemed VM and terminal ids against its enrolled
+ * daemon registry; route credentials never enter a shell command.
  */
 export async function attachRunTerminal(ticket: RunAttachTicket, send: RunAttachNative = postNative): Promise<void> {
-  await send("tab.open", {
-    kind: "terminal",
-    text: runAttachCommand(ticket),
-    run: true,
-    keep: true,
+  const endpoint = endpointOf(ticket);
+  // The native bridge resolves the redeemed VM/terminal ids against its
+  // enrolled daemon registry. The route is intentionally not sent to a shell,
+  // where it could land in argv or history.
+  await send("run.attach", {
+    runId: ticket.runId,
+    attemptId: ticket.attemptId,
+    provider: ticket.provider,
+    providerVmId: ticket.providerVmId,
+    providerWorkspaceId: ticket.providerWorkspaceId,
+    providerTerminalId: ticket.providerTerminalId,
+    route: endpoint.route,
+    session: endpoint.session,
+    trustedCarrier: endpoint.trustedCarrier,
+    expiresAtUnix: endpoint.expiresAtUnix ?? ticket.expiresAtUnix,
   });
 }

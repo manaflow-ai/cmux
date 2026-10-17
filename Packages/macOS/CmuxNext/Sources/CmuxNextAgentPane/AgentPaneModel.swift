@@ -32,6 +32,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// A redeemed Run attempt asks the native host to open its enrolled worker terminal.
+    @ObservationIgnored public var onRunAttach: (@MainActor (AgentPaneRunAttach) async throws -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
@@ -233,6 +235,14 @@ public final class AgentPaneModel {
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(request)
             return AgentPaneReply.success()
+        case .runAttach(let request):
+            guard let onRunAttach else { return Self.unsupported("run.attach") }
+            do {
+                try await onRunAttach(request)
+                return AgentPaneReply.success()
+            } catch {
+                return AgentPaneReply.failure(code: "run_attach_failed", message: String(describing: error))
+            }
         case .typeAhead(let text):
             guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)

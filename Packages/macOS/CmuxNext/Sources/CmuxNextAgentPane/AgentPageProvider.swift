@@ -28,7 +28,7 @@ public nonisolated struct AgentPageOps {
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
             "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation",
-            "pane.edit", "tab.open", "tab.typeAhead", "tab.jump",
+            "pane.edit", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
             "newTab.remember", "newTab.inputReady", "newTab.touched", "newTab.context", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "chat.archive", "chat.markUnread", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get",

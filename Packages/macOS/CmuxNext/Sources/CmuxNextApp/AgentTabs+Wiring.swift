@@ -127,6 +127,23 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        tabs.runAttach = { [weak services] key, request in
+            guard let services, let (_, pane) = services.locateTab(key),
+                  let home = services.machines.daemon(forPane: pane),
+                  let homeConnection = home.connection,
+                  let worker = services.machines.daemon(machine: request.providerVMID),
+                  worker.connection != nil,
+                  let identity = worker.identity else {
+                throw DaemonError.notConnected
+            }
+            guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.remoteTerminalTabs])
+            }
+            let sessionName = services.machines.machineName(request.providerVMID) ?? request.providerVMID
+            let ref = RemoteTerminalRef(sessionID: identity.sessionID,
+                                        terminalID: TerminalID(rawValue: request.providerTerminalID), sessionName: sessionName)
+            _ = try await homeConnection.newRemoteTerminalTab(ref, in: pane.handle, title: RemoteStrings.terminalOn(sessionName))
+        }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
         tabs.gitLink = { [weak services, weak tabs] key in

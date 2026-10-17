@@ -25,6 +25,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
     case openTab(AgentPaneOpenTab)
+    /// Opens a redeemed durable Run attempt in an enrolled worker terminal.
+    case runAttach(AgentPaneRunAttach)
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
