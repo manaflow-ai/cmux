@@ -58,7 +58,7 @@ struct ConversationComposerArea: View {
                                 .font(.subheadline.weight(.bold))
                                 .frame(width: 44, height: 44)
                                 .background(canSend ? Color.accentColor : Color(uiColor: .tertiarySystemFill), in: Circle())
-                                .foregroundStyle(canSend ? .white : .tertiary)
+                                .foregroundStyle(canSend ? Color.white : Color.secondary)
                         }
                         .disabled(!canSend)
                         // A context menu owns the long press. It prevents the
