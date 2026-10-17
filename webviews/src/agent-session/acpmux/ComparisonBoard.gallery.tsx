@@ -5,7 +5,6 @@ import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
 import { ComposerPickers, type ComposerPermissionAccess, type ComposerPermissionGrant } from "./ComposerPickers";
 import { Composer } from "./Composer";
-import { EffortTrack } from "./EffortTrack";
 import { SessionPreviewCard, SessionSidebar } from "./SessionSidebar";
 import { setComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
@@ -19,14 +18,6 @@ type Props = {
   defaultSection?: "overview" | "slider" | "sidebar";
   queued?: boolean;
 };
-
-const efforts = [
-  { id: "minimal", name: "Minimal" },
-  { id: "low", name: "Low" },
-  { id: "medium", name: "Medium" },
-  { id: "high", name: "High", recommended: true },
-  { id: "xhigh", name: "Xhigh" },
-];
 
 const sessions = [
   session({
@@ -266,42 +257,32 @@ function ComparisonBoard({
                 </div>
               </div>
             </div>
-            <Composer
-              snapshot={composerSnapshot}
-              sessionId={composerSnapshot.summary?.sessionId}
-              chips={function ComparisonComposerChips({
-                snapshot,
-                permissionAccess,
-              }: {
-                snapshot: AcpmuxSnapshot;
-                permissionAccess?: ComposerPermissionAccess;
-              }) {
-                return (
-                  <ComposerPickers
-                    snapshot={snapshot}
-                    permissionAccess={permissionAccess}
-                    onModel={setModel}
-                    onMode={setMode}
-                    onEffort={(_, value) => setEffort(value)}
-                    showPlan
-                  />
-                );
-              }}
-              permissionAccess={{ grants }}
-              onSend={() => undefined}
-              onStop={() => undefined}
-              onMode={setMode}
-            />
-            <div
-              className="cmux-comparison-slider-specimen"
-              aria-label={`Visible ${sliderStyle} effort control specimen`}
-            >
-              <EffortTrack
-                efforts={efforts}
-                current={effort}
-                fallback="high"
-                onPick={setEffort}
-                sliderStyle={sliderStyle}
+            <div className="acpmux-shell cmux-comparison-composer-shell">
+              <Composer
+                snapshot={composerSnapshot}
+                sessionId={composerSnapshot.summary?.sessionId}
+                chips={function ComparisonComposerChips({
+                  snapshot,
+                  permissionAccess,
+                }: {
+                  snapshot: AcpmuxSnapshot;
+                  permissionAccess?: ComposerPermissionAccess;
+                }) {
+                  return (
+                    <ComposerPickers
+                      snapshot={snapshot}
+                      permissionAccess={permissionAccess}
+                      onModel={setModel}
+                      onMode={setMode}
+                      onEffort={(_, value) => setEffort(value)}
+                      showPlan
+                    />
+                  );
+                }}
+                permissionAccess={{ grants }}
+                onSend={() => undefined}
+                onStop={() => undefined}
+                onMode={setMode}
               />
             </div>
           </div>
