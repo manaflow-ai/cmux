@@ -26,7 +26,13 @@ final class NativeConversationService {
     private var retirementTask: Task<Void, Never>?
     private var isShuttingDown = false
 
-    init(auth: AuthCoordinator, directory: URL, loadBroker: @escaping BrokerLoader = NativeConversationService.loadFromDisk) {
+    init(
+        auth: AuthCoordinator,
+        directory: URL,
+        loadBroker: @escaping BrokerLoader = { directory in
+            try await NativeConversationService.loadFromDisk(directory)
+        }
+    ) {
         self.auth = auth
         self.directory = directory
         self.loadBroker = loadBroker
