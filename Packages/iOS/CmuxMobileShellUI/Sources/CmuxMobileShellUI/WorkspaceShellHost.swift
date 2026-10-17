@@ -2,11 +2,10 @@ import CmuxAuthRuntime
 import CmuxMobileShell
 import SwiftUI
 
-/// Hosts ``WorkspaceShellView`` for every authenticated state that renders the
-/// workspace shell: the startup stored-Mac reconnect window, the connected
-/// shell, and the offline shell after a failed reconnect. The restoring window
-/// only varies the inputs passed down; this host and the shell's navigation
-/// paths stay mounted across restoring → connected → offline transitions.
+/// Hosts the chat-first shell for every authenticated state with a saved Mac.
+/// The startup stored-Mac reconnect window, connected shell, and offline shell
+/// stay mounted through one view identity so the chat navigation survives a
+/// reconnect transition.
 /// Root-owned presentation actions preserve an open Settings sheet across the
 /// same transitions. Mounting a different view per connection state destroyed
 /// that state and dismissed Settings when reconnection finished.
@@ -34,21 +33,13 @@ struct WorkspaceShellHost: View {
     @State private var retryGeneration = 0
 
     var body: some View {
-        WorkspaceShellView(
+        MobileChatHomeView(
             store: store,
-            signOut: signOut,
-            isInitialConnectionLoading: isRestoringStoredMac && !loadingTimedOut,
-            initialConnectionTimedOut: isRestoringStoredMac && loadingTimedOut,
-            retryInitialConnection: retry,
+            isRestoringStoredMac: isRestoringStoredMac && !loadingTimedOut,
             showAddDevice: showAddDevice,
-            showPairingScanner: showPairingScanner,
-            tailscalePairingRequired: tailscalePairingRequired,
             showSettings: showSettings,
-            showComputers: showComputers,
-            showAddSSHComputer: showAddSSHComputer,
-            taskComposerPresentation: taskComposerPresentation
+            showComputers: showComputers
         )
-        .modifier(TaskComposerPrefetchModifier(store: store))
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()
         }
