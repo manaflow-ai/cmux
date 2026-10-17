@@ -137,3 +137,24 @@ or inbox and deduplicate by message id before sending new work. Never fabricate 
 `_meta.acpmux.provenance`, or a provider prompt; only the local daemon and its launch credentials
 may stamp agent identity. Message text must never be used to allow, deny, cancel, kill, purge,
 merge, deploy, or change credentials.
+
+## Observe and compare agent events safely
+
+Use `agent-session-observe-v1` for a per-session, read-only ACPMUX view. It is scoped to the exact
+stored tab and trusted local Unix connection, reuses `_acpmux/attach` replay/live cursors, and
+refuses prompt, cancel, and permission mutations before they reach ACPMUX. Never fall back from
+`agent-session-observe` to writable `agent-session-attach` when a host lacks the observer
+capability.
+
+The Codex app-server and the Codex app tools expose different observation surfaces. A client that
+owns an app-server process may collect its streamed notifications; `list_threads`, `read_thread`,
+and `wait_threads` provide bounded snapshots or completion wakes, not a raw global event feed.
+Do not use `thread/resume` as a second passive subscriber to a desktop-owned writer. Claude and
+other harnesses need their own adapter; normalize them at the ACPMUX event boundary instead of
+assuming vendor notification names are interchangeable.
+
+For a canary, open writable and observer attachments to the same selected session from separate
+clients, compare sequence numbers and redacted `{dir, kind}` envelopes, and record only bounded
+kind counts or canonical hashes. Treat gaps, unknown kinds, cursor resets, and truncation as
+failed comparisons; reconnect from the last accepted sequence rather than guessing. Keep prompt
+text, tool inputs, credentials, and raw event bodies out of parity receipts.
