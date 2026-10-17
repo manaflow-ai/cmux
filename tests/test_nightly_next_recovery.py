@@ -393,6 +393,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("remote-daemon-assets/cmuxd-remote-*", upload)
         self.assertIn("recovery-source-archive", upload)
 
+    def test_recovered_publication_smokes_and_transfers_its_dmg_digest(self):
+        jobs = workflow()["jobs"]
+        recovery = jobs["recover-nightly-next-notarization"]
+        smoke = step(recovery, "Smoke recovered DMG")
+        self.assertIn("scripts/ci/smoke-dmg.sh", smoke["run"])
+        self.assertIn("RECOVERED_IMMUTABLE", smoke["run"])
+        upload = step(recovery, "Upload recovered tested DMG digests")["with"]
+        self.assertEqual(upload["name"], "cmux-nightly-recovered-tested-arm64")
+        self.assertIn("recovered-tested/tested-arm64.sha256", upload["path"])
+        publish = jobs["publish-nightly"]
+        self.assertEqual(step(publish, "Download tested DMG digests")["if"], "steps.source.outputs.source == 'own'")
+        recovered = step(publish, "Download recovered tested DMG digests")
+        self.assertEqual(recovered["if"], "steps.source.outputs.source == 'recovered'")
+        self.assertEqual(recovered["with"]["pattern"], "cmux-nightly-recovered-tested-*")
+
 
 def job_runs(name: str, results: dict, outputs: dict) -> bool:
     """Whether GitHub would run job `name` after jobs that ended with `results`
@@ -418,7 +433,7 @@ class FailureIssueTests(unittest.TestCase):
 
     def publication(self, source, **results):
         jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
-                "build-sign-notarize-nightly", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
+                "build-sign-notarize-nightly", "verify-signed-nightly", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
                 "sign-release-notes", "publish-release-notes")
         outcome = dict.fromkeys(jobs, "success")
         if source == "recovered":

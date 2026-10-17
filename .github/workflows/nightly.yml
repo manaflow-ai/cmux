@@ -3836,6 +3836,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             {
               echo "RECOVERED_APP=$dir/$APP_NAME"
+              echo "RECOVERED_DMG=recovered/$DMG_NAME"
               echo "RECOVERED_IMMUTABLE=recovered/$IMMUTABLE_NAME"
             } >> "$GITHUB_ENV"
             echo "### Continued nightly-next run $run_id (build $BUILD, $BUILD_SHA): Apple accepted it" >> "$GITHUB_STEP_SUMMARY"
@@ -3864,6 +3865,35 @@ jobs:
           fi
           python3 scripts/ci/nightly-next-guard.py appcast recovered/appcast-arm64.xml
           ls -l recovered
+
+      # Recovery publishes a DMG created in an earlier run, so the current
+      # verifier cannot have recorded its bytes. Smoke that exact accepted DMG
+      # here and hand the digest to publish-nightly with the recovered variant.
+      - name: Smoke recovered DMG
+        if: steps.continue.outputs.accepted == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p recovered-tested
+          ./scripts/ci/smoke-dmg.sh "$RECOVERED_DMG" "$CHANNEL" 3>"$RUNNER_TEMP/recovered-tested.line"
+          tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/recovered-tested.line")"
+          [ -n "$tested" ] || { echo "smoke-dmg.sh reported no tested digest" >&2; exit 1; }
+          : > recovered-tested/tested-arm64.sha256
+          for dmg in "$RECOVERED_DMG" "$RECOVERED_IMMUTABLE"; do
+            [ -f "$dmg" ] || { echo "missing recovered DMG: $dmg" >&2; exit 1; }
+            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+            [ "$actual" = "$tested" ] || { echo "$(basename "$dmg") differs from the DMG that was launched" >&2; exit 1; }
+            printf '%s  %s\n' "$actual" "$(basename "$dmg")" >> recovered-tested/tested-arm64.sha256
+          done
+          cat recovered-tested/tested-arm64.sha256
+
+      - name: Upload recovered tested DMG digests
+        if: steps.continue.outputs.accepted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-recovered-tested-arm64
+          path: recovered-tested/tested-arm64.sha256
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload the recovered variant
         if: steps.continue.outputs.accepted == 'true'
@@ -3993,9 +4023,18 @@ jobs:
 
       # Publish only the bytes that verify-signed-nightly launched.
       - name: Download tested DMG digests
+        if: steps.source.outputs.source == 'own'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: cmux-nightly-tested-*
+          path: tested
+          merge-multiple: true
+
+      - name: Download recovered tested DMG digests
+        if: steps.source.outputs.source == 'recovered'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-nightly-recovered-tested-*
           path: tested
           merge-multiple: true
 
