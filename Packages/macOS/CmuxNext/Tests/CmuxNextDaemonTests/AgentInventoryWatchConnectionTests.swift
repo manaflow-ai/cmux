@@ -62,7 +62,8 @@ struct AgentInventoryWatchConnectionTests {
             for (index, call) in calls.enumerated() {
                 #expect(call["expected_machine_id"] == .string(machine.rawValue))
                 #expect(call["enabled"] == .bool(index == 0))
-                #expect(Set(call.objectValue?.keys.map { $0 } ?? []) == ["id", "cmd", "enabled", "expected_machine_id"])
+                guard case .object(let fields) = call else { Issue.record("watch request object"); continue }
+                #expect(Set(fields.keys) == ["id", "cmd", "enabled", "expected_machine_id"])
             }
             await connection.close()
         } catch {
