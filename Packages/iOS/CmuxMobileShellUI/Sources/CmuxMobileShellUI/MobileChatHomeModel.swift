@@ -19,6 +19,7 @@ final class MobileChatHomeModel {
     private var conversationTasks: [String: Task<Void, Never>] = [:]
     private var openSessionIDs: Set<String> = []
     private var pendingLocalMessages: [String: [ChatMessage]] = [:]
+    private var refreshGeneration = UUID()
 
     isolated deinit {
         sessionEventsTask?.cancel()
@@ -27,12 +28,15 @@ final class MobileChatHomeModel {
 
     /// Loads the current Mac's chat roster and starts the roster event stream.
     func refresh(using store: CMUXMobileShellStore) async {
+        let generation = UUID()
+        refreshGeneration = generation
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
         conversationTasks.values.forEach { $0.cancel() }
         conversationTasks.removeAll()
-        source = store.makeChatEventSource()
-        guard let source else {
+        source = nil
+        guard let nextSource = store.makeChatEventSource() else {
+            guard refreshGeneration == generation else { return }
             sessions = []
             errorMessage = store.connectionState == .connected
                 ? "Chat is unavailable on this computer."
@@ -43,23 +47,31 @@ final class MobileChatHomeModel {
 
         isLoadingSessions = true
         do {
-            let loaded = try await source.sessions(workspaceID: nil)
+            let loaded = try await nextSource.sessions(workspaceID: nil)
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
+            source = nextSource
             sessions = Self.sortedSessions(loaded.filter(Self.isSupported))
             errorMessage = nil
-            startSessionEvents(from: source)
+            startSessionEvents(from: nextSource, generation: generation)
             for sessionID in openSessionIDs {
-                open(sessionID: sessionID)
+                open(sessionID: sessionID, generation: generation)
             }
         } catch is CancellationError {
             return
         } catch {
+            guard refreshGeneration == generation else { return }
             errorMessage = "Chats could not be loaded."
         }
+        guard refreshGeneration == generation else { return }
         isLoadingSessions = false
     }
 
     /// Loads one transcript and keeps it current while the conversation is open.
     func open(sessionID: String) {
+        open(sessionID: sessionID, generation: refreshGeneration)
+    }
+
+    private func open(sessionID: String, generation: UUID) {
         openSessionIDs.insert(sessionID)
         guard let source else { return }
         conversationTasks[sessionID]?.cancel()
@@ -71,7 +83,8 @@ final class MobileChatHomeModel {
                     beforeSeq: nil,
                     limit: 200
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      self?.refreshGeneration == generation else { return }
                 if let self {
                     let local = self.pendingLocalMessages[sessionID, default: []]
                     self.messagesBySessionID[sessionID] = Self.mergedMessages(
@@ -82,7 +95,8 @@ final class MobileChatHomeModel {
                 self?.loadingSessionIDs.remove(sessionID)
                 let events = await source.events(sessionID: sessionID)
                 for await event in events {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled,
+                          self?.refreshGeneration == generation else { return }
                     self?.apply(event, to: sessionID)
                 }
             } catch is CancellationError {
@@ -207,11 +221,12 @@ final class MobileChatHomeModel {
         isLoadingSessions = false
     }
 
-    private func startSessionEvents(from source: MobileChatEventSource) {
+    private func startSessionEvents(from source: MobileChatEventSource, generation: UUID) {
         sessionEventsTask = Task { [weak self] in
             let events = await source.sessionEvents()
             for await frame in events {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      self?.refreshGeneration == generation else { return }
                 self?.apply(frame.event, to: frame.sessionID)
             }
         }

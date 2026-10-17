@@ -1545,6 +1545,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
+
+    /// Changes whenever the foreground RPC client is replaced, including a
+    /// same-state route recovery while ``connectionState`` remains connected.
+    /// Consumers that hold subscriptions include this identity in their
+    /// refresh key so they do not keep listening to a retired client.
+    public var chatConnectionGeneration: UUID { connectionGeneration }
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []

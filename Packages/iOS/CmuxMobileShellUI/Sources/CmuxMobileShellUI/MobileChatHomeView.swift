@@ -132,19 +132,22 @@ public struct MobileChatHomeView: View {
                 Task { await model.refresh(using: store) }
             }
         }
-        .task(id: store.connectionState) {
+        .task(id: chatRefreshIdentity) {
             if usesPreviewData {
                 model.loadPreview()
             } else {
                 await model.refresh(using: store)
             }
         }
-        .onChange(of: store.connectedMacDeviceID) { _, _ in
-            Task { await model.refresh(using: store) }
-        }
         .onChange(of: model.sessions) { _, _ in
             resolvePendingLaunch()
         }
+    }
+
+    /// Includes the transport generation because a route can replace its RPC
+    /// client while the shell remains in the connected state.
+    private var chatRefreshIdentity: String {
+        "\(store.connectionState)-\(store.chatConnectionGeneration.uuidString)-\(store.connectedMacDeviceID ?? "")"
     }
 
     private func openSession(_ sessionID: String) {
