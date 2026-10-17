@@ -90,16 +90,28 @@ struct AgentTabContent {
     /// `view` 400 ms after it painted here (its chats and chips in), clear areas left clear (the pane
     /// paints under it): what the next New Tab page draws until it paints (cx-ec99). The first page's
     /// first paint on the theme's color showed under each Cmd-T: no chats, no model (Leo 2026-10-13).
+    /// A page gives it once per size and appearance, and again only when the held frame is another
+    /// size or appearance; one capture per page at a time, and none for a page that does not show
+    /// by then (a switch away, a parked page): a tab switch takes no snapshot (perf-tabs I6).
     private func rememberNewTabFrame(of view: AgentPaneView) {
         let images = pane.services.agentTabs.launchImages
-        view.model.whenPainted { [weak view, weak paneView = pane.view] in
+        let redraw = view.redraw
+        guard !redraw.givesNewTabFrame else { return }
+        redraw.givesNewTabFrame = true
+        view.model.whenPainted { [weak view, weak paneView = pane.view, weak redraw] in
             let settle = DemandTimer(owner: "newTab.frame.settle")
             settle.schedule(after: .milliseconds(400)) { @MainActor in
                 withExtendedLifetime(settle) {}
-                guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost) else { return }
+                defer { redraw?.givesNewTabFrame = false }
+                guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost),
+                      view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
-                guard size != .zero, let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
+                guard size != .zero else { return }
+                if let given = view.redraw.givenNewTabFrame, given.size == size, given.appearance == appearance,
+                   images.hasNewTabFrame(size: size, appearance: appearance) { return }
+                guard let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
                 images.rememberNewTabFrame(image, size: size, appearance: appearance)
+                view.redraw.givenNewTabFrame = (size, appearance)
             }
         }
     }

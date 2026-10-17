@@ -76,11 +76,24 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
         for key in effects.evicted {
-            terminals.removeValue(forKey: key)?.close()
+            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
         presenters = presenters.filter { $0.value.value != nil }
         presentationChanges.notify()
+    }
+
+    /// A hidden terminal leaves the warm set: its last picture (rendered off the main thread)
+    /// stays for its hover card and drag, then the surface closes. Its view leaves the pane now.
+    private func evict(_ entry: TerminalEntry, key: String) {
+        entry.session.view.removeFromSuperview()
+        Task { [weak self] in
+            let image = TerminalOutput.shows(entry.session) ? await entry.session.snapshotInBackground(maxPixelSize: 480) : nil
+            entry.close()
+            // Not when the tab closed (no record) or has a live surface again meanwhile.
+            guard let image, let self, self.terminals[key] == nil, self.lifecycle.record(key) != nil else { return }
+            self.previews.insert(image, for: key)
+        }
     }
 
     // MARK: Lifecycle effects
@@ -140,18 +153,10 @@ extension TabContentCache {
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
         if let entry = terminals[key] {
+            // No picture on a switch: a live terminal renders its hover or drag thumbnail when one is
+            // asked for (`previewImage`); one leaving the warm set leaves one behind (`evict`).
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
-            // Rendered off the main thread; kept only while this hide is
-            // still the tab's latest transition.
-            Task { [weak self] in
-                guard TerminalOutput.shows(entry.session), let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
-                guard let self, self.terminals[key] === entry, self.lifecycle.accepts(key, token) else {
-                    self?.trace(key, "preview \(token) dropped (stale)")
-                    return
-                }
-                self.previews.insert(image, for: key)
-            }
         }
         if let entry = browsers[key] {
             // Only a page that was on screen: a page created or restored
