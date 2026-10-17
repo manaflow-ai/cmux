@@ -52,7 +52,7 @@ PINNED_JOB_NAMES = (
     (
         "scripts/ci/nightly_sign_admit.py",
         ".github/workflows/nightly.yml",
-        "prepare-nightly-variant",
+        "build-sign-notarize-nightly",
     ),
     # The persistent-pool rescue waits for the job that runs the pool picker.
     (

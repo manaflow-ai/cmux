@@ -572,9 +572,9 @@ done
 # job's strip, so it must run strip-release-bundle.sh again after that install.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
-  job == "prepare-nightly-variant:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
-  job == "prepare-nightly-variant:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
-  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
   END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"

@@ -118,6 +118,9 @@
          location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
+         location = "group:CmuxSSHClipboardTrust">
+      </FileRef>
+      <FileRef
          location = "group:CmuxUpdater">
       </FileRef>
    </Group>
