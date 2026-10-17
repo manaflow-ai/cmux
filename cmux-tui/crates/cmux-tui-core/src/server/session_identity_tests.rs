@@ -81,3 +81,7 @@ fn cmux_next_machine_owner_identity_survives_a_persistent_daemon_reopen() {
     assert_eq!(first["registry_id"], second["registry_id"]);
     assert_ne!(first["generation"], second["generation"]);
 }
+
+#[cfg(unix)]
+#[path = "machine_catalog_tests.rs"]
+mod machine_catalog_tests;
