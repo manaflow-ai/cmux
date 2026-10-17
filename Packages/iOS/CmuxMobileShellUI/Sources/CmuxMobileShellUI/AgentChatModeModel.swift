@@ -145,6 +145,7 @@ final class AgentChatModeModel {
     private var historyCursors: [String: Int] = [:]
     private var historyHasMore: [String: Bool] = [:]
     private var transcriptRevisions: [String: Int] = [:]
+    private var usageRevisions: [String: Int] = [:]
     private var historyResetTokens: [String: Int] = [:]
     /// Highest host session revision observed for each id. Transcript and
     /// lifecycle pushes can share a revision, so this is intentionally
@@ -584,6 +585,7 @@ final class AgentChatModeModel {
         transcriptRevisions = [:]
         historyResetTokens = [:]
         latestVersionBySession = [:]
+        usageRevisions = [:]
         pendingSendsBySession = [:]
         inFlightSendsBySession = [:]
         lastTurnBySession = [:]
@@ -1316,6 +1318,7 @@ final class AgentChatModeModel {
             while true {
                 let before = resetRequest ? nil : historyCursors[sessionID]
                 let revisionAtStart = transcriptRevisions[sessionID, default: 0]
+                let usageRevisionAtStart = usageRevisions[sessionID, default: 0]
                 let resetTokenAtStart = historyResetTokens[sessionID, default: 0]
                 let page = try await source.history(sessionID: sessionID, beforeSeq: before, limit: 80)
                 guard !Task.isCancelled,
@@ -1359,9 +1362,11 @@ final class AgentChatModeModel {
                         )
                     }
                 }
-                if let usage = page.usage {
+                if usageRevisionAtStart == usageRevisions[sessionID, default: 0],
+                   let usage = page.usage {
                     usageBySession[sessionID] = usage
-                } else if resetRequest {
+                } else if resetRequest,
+                          usageRevisionAtStart == usageRevisions[sessionID, default: 0] {
                     usageBySession[sessionID] = nil
                 }
                 reconcilePendingPrompts(sessionID: sessionID)
@@ -1445,6 +1450,7 @@ final class AgentChatModeModel {
             messagesBySession[sessionID] = nil
             terminalBlocksBySession[sessionID] = nil
             usageBySession[sessionID] = nil
+            usageRevisions[sessionID] = nil
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
@@ -1487,6 +1493,7 @@ final class AgentChatModeModel {
             }
         case .usageChanged(let usage):
             usageBySession[sessionID] = usage
+            usageRevisions[sessionID, default: 0] &+= 1
         case .reset:
             transcriptRevisions[sessionID, default: 0] &+= 1
             historyResetTokens[sessionID, default: 0] &+= 1
@@ -1495,6 +1502,7 @@ final class AgentChatModeModel {
             messagesBySession[sessionID] = []
             terminalBlocksBySession[sessionID] = []
             usageBySession[sessionID] = nil
+            usageRevisions[sessionID, default: 0] &+= 1
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
