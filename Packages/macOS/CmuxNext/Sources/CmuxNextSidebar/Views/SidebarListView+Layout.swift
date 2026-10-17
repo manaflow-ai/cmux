@@ -94,7 +94,12 @@ extension SidebarListView {
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
-        defer { updateHover() }
+        let previousHoverSuppression = suppressHoverEffects
+        suppressHoverEffects = true
+        defer {
+            suppressHoverEffects = previousHoverSuppression
+            updateHover()
+        }
         let old = displayed
         displayed = layout
         groupEditing.adoptReidentified(from: old, to: layout)
@@ -259,6 +264,9 @@ extension SidebarListView {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        let followed = hoverFollowsScroll
+        hoverFollowsScroll = true
+        defer { hoverFollowsScroll = followed }
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]
@@ -274,9 +282,6 @@ extension SidebarListView {
             rowViews[row.key] = view
         }
         pruneOffscreen()
-        let followed = hoverFollowsScroll
-        hoverFollowsScroll = true
-        defer { hoverFollowsScroll = followed }
         updateHover()
     }
     func pruneOffscreen() {
