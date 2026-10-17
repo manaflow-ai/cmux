@@ -233,8 +233,8 @@ impl Supervisor {
             });
         }
         let host = inner.hosts.get_mut(key).expect("host record");
-        for run in host.queued_runs.drain(..) {
-            process.send(&run);
+        for run in std::mem::take(&mut host.queued_runs) {
+            run.dispatch(host, &process);
         }
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -277,6 +277,7 @@ impl Supervisor {
             for (_, respond) in host.runs {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.host", reason))));
             }
+            outs.extend(host.queued_runs.into_iter().map(|run| run.refuse("apps.host", reason)));
         }
         outs.push(Out::Broadcast(
             json!({ "event": "apps-host", "app": key.app, "state": "crashed", "reason": reason }),
@@ -365,7 +366,7 @@ impl Supervisor {
         outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
         if let Some(host) = inner.hosts.get_mut(&key) {
             host.grant = Grant { revoked: true, ..Grant::default() };
-            host.queued_runs.clear();
+            outs.extend(host.queued_runs.drain(..).map(|run| run.refuse("apps.disabled", reason)));
             for (_, respond) in host.runs.drain() {
                 outs.push(Out::Respond(respond, Err(ApiError::new("apps.disabled", reason))));
             }
