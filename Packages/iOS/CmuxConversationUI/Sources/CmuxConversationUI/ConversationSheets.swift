@@ -207,6 +207,7 @@ struct ConversationFilesSheet: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("ConversationFilesSheetItem-\(entry.diff.path)")
                     }
                 }
                 // Keep a little real table content below the final file row.

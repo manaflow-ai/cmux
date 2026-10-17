@@ -333,7 +333,11 @@ final class NativeConversationUITests: XCTestCase {
             try openFilesSheet(in: app)
             XCTAssertTrue(app.descendants(matching: .any)["ConversationFilesSheet"].waitForExistence(timeout: 5))
             capture(app, name: "native-files-diff-list")
-            let path = app.buttons["Sources/App.swift"]
+            // The transcript also contains a Sources/App.swift card behind the
+            // sheet. Target the sheet's stable row identifier so XCTest does
+            // not resolve the covered transcript card and report it as
+            // non-hittable.
+            let path = app.buttons["ConversationFilesSheetItem-Sources/App.swift"]
             XCTAssertTrue(path.waitForExistence(timeout: 3))
             if !path.isHittable {
                 let filesSheet = app.descendants(matching: .any)["ConversationFilesSheet"]
