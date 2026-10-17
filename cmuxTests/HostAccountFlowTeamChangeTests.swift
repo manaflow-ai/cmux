@@ -38,8 +38,39 @@ struct HostAccountFlowTeamChangeTests {
             accountID: "fixture",
             isPro: true,
             canManageBilling: true,
-            tier: .pro
+            tier: .pro,
+            teamID: "team-a"
         ))
+    }
+
+    @Test func lateBillingResponseDoesNotApplyAfterTeamSwitch() async throws {
+        let planClient = BillingPlanClient(
+            session: BillingPlanCallbackURLProtocol.session(
+                body: """
+                {"authenticated":true,"billingAvailable":true,"planId":"pro",
+                 "subscriptionPlanId":"pro","isPro":true,"billingManagement":"stripe",
+                 "teamPlanId":"free","teamBillingManagement":"none"}
+                """,
+                holdResponse: true
+            )
+        )
+        let client = TeamChangeAuthClient()
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(
+            client: client,
+            billingPlanClient: planClient
+        )
+
+        let refresh = Task { await flow.refreshBillingPlan() }
+        await Task.detached {
+            BillingPlanCallbackURLProtocol.waitForRequest()
+        }.value
+
+        try await flow.selectTeam(id: "team-b")
+        BillingPlanCallbackURLProtocol.releaseResponse()
+        await refresh.value
+
+        #expect(flow.confirmedTeamID == "team-b")
+        #expect(flow.billingPlanState == .unknown)
     }
 
     @Test func switchDuringPendingCreateIsRefusedAndTheCreateCompletes() async throws {
@@ -223,18 +254,36 @@ private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Send
     // The suite creates one stub session at a time, and each response body is
     // immutable for the lifetime of that session.
     nonisolated(unsafe) private static var responseBody = Data()
+    nonisolated(unsafe) private static var holdResponse = false
+    nonisolated(unsafe) private static var requestStarted = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) private static var responseRelease = DispatchSemaphore(value: 0)
 
-    static func session(body: String) -> URLSession {
+    static func session(body: String, holdResponse: Bool = false) -> URLSession {
         responseBody = Data(body.utf8)
+        self.holdResponse = holdResponse
+        requestStarted = DispatchSemaphore(value: 0)
+        responseRelease = DispatchSemaphore(value: 0)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [BillingPlanCallbackURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    static func waitForRequest() {
+        requestStarted.wait()
+    }
+
+    static func releaseResponse() {
+        responseRelease.signal()
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if Self.holdResponse {
+            Self.requestStarted.signal()
+            Self.responseRelease.wait()
+        }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
