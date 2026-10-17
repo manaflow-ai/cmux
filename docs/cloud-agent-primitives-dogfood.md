@@ -137,6 +137,112 @@ In a folder with a `package.json` whose `dev` script starts a server on a known 
 | 8.5 | `cmux vm fork <m>` and `cmux vm env ls <fork>` | the fork inherits `~/.config/cmux/env` |
 | 8.6 | `cmux vm resize <m> --disk 64` | `Unknown vm command` (disk growth is not possible today); the machine's sidebar context menu has no "Increase Disk" item |
 
+### Client sleep and network interruption
+
+This is the manual smoke requested by [#3776](https://github.com/manaflow-ai/cmux/issues/3776).
+It can run independently of the checklist above. It requires a Mac, a running
+[tagged build](../skills/cmux-dev-workflow/references/tagged-builds.md), an SSH test
+host, and an existing Cloud test machine with a disposable workspace. The tagged
+build must already have access to that machine; a local-backend build alone does
+not provide Cloud access. Do not provision a machine just to run this check.
+
+Use only disposable panes with no real work running. Sleep and network changes
+affect every app on the Mac, so the tester chooses when to interrupt it manually.
+Do not kill shared SSH masters or remote daemons, change firewall/VPN settings,
+or relaunch the user's main cmux. Run local commands from the checkout root with
+the tagged CLI; never use `/tmp/cmux-cli`.
+
+Replace the quoted placeholders, then open each route separately:
+
+```bash
+export CMUX_TAG='<your-test-tag>'
+scripts/cmux-debug-cli.sh ssh '<test-ssh-host>'
+scripts/cmux-debug-cli.sh vm ssh '<existing-test-machine-id>'
+scripts/cmux-debug-cli.sh vm workspace open '<existing-test-machine-id>' '<disposable-workspace-id>'
+```
+
+Record the opening command, actual transport, and opening output with every result.
+Interactive `cmux ssh` uses the
+[SSH cmux-tui path](../CLI/CMUXCLI+SSHTui.swift), normal Cloud workspace opens use
+cmux-tui, and `vm ssh` is an explicit SSH diagnostic path
+([CLI routing](../CLI/cmux.swift)). If the provider's SSH endpoint is unsupported
+or absent, `vm ssh` falls back to the shared Cloud route and prints
+`transport=cmux-remote`; record that as Cloud coverage, not SSH coverage.
+A pass on one route does not establish a pass
+on another, or on restored legacy persistent-PTY workspaces.
+
+In each disposable remote pane, start `/bin/sh` to make the fixture independent
+of the login shell, then run:
+
+```sh
+CMUX_SLEEP_SMOKE="sleep-smoke-$$"
+export CMUX_SLEEP_SMOKE
+printf 'shell=%s marker=%s\n' "$$" "$CMUX_SLEEP_SMOKE"
+sh -c 'i=0; while :; do i=$((i + 1)); printf "child=%s tick=%s marker=%s\n" "$$" "$i" "$CMUX_SLEEP_SMOKE"; sleep 5; done'
+```
+
+Note the shell PID, child PID, marker, and last tick. Use two panes for a route
+where splits are supported, and leave one in the background during recovery.
+For each case, wait for two new ticks after reconnect; replayed scrollback alone
+does not prove the process survived.
+
+| Case | Action | Pass / evidence to retain |
+|---|---|---|
+| Local sleep | Put the Mac to sleep manually for at least three minutes, wake it, and wait for the network to return. Repeat once after a successful recovery. | Each pane automatically recovers when its transport supports it; the same child PID and marker continue with increasing ticks. Otherwise the UI clearly reports the ended session. Record reconnect duration and any manual action needed; manual Reconnect does not count as automatic recovery. |
+| Network outage | While the Mac stays awake, manually disconnect its active network paths for at least three minutes, then restore them. Do not disconnect the remote host. | The pane shows a reconnecting/disconnected state instead of silently accepting input into a dead connection. Apply the same process-identity check as the sleep case. If it parks or reaches an error state, retain that result before testing explicit Reconnect. |
+| Remote exit while detached | In a **fresh disposable pane**, replace its login shell with the command below, then interrupt the client network for three minutes. | After recovery, the UI makes the exit/lost-session state clear. An unchanged-looking prompt with lost state is a failure. Legacy PTY recovery may explicitly announce that the session was lost and a new shell is starting; record that as a replacement, not process preservation. |
+
+After the continuity cases, stop the synthetic loop with Ctrl-C and run
+`printf 'shell=%s marker=%s\n' "$$" "$CMUX_SLEEP_SMOKE"`. The original shell PID
+and marker must still match if the route reported that the session survived.
+
+If also testing a restored legacy PTY wrapper that advertises **input discarded**,
+stop the tick loop and run this input receiver before a separate network outage:
+
+```sh
+sh -c 'while IFS= read -r line; do printf "received=%s\n" "$line"; done'
+```
+
+During the outage, wait until the wrapper visibly reports **input discarded**
+and has entered retry/backoff before typing `cmux-smoke-queued-input` and Enter.
+Input entered before disconnect detection is outside this check. After recovery, type
+`cmux-smoke-fresh-input` and Enter. Require a
+`received=cmux-smoke-fresh-input` line; queued input must not produce a `received=`
+line. Check before pressing Ctrl-C, which could itself flush queued input and
+hide a failure. The receiver never executes the text. Mark this legacy-wrapper
+case not applicable for the cmux-tui routes instead of assuming identical input
+buffering policies.
+
+The exit fixture deliberately ends only that disposable pane's shell:
+
+```sh
+exec /bin/sh -c 'printf "exit-fixture=%s\n" "$$"; sleep 60; exit 7'
+```
+
+If the active login shell does not support this command, use a disposable POSIX
+login-shell account for the exit case. Do not replace a shell containing real jobs.
+Finish by restoring the Mac's network, stopping the synthetic loops with Ctrl-C,
+and closing only the panes created for this smoke.
+
+Existing automated coverage helps diagnose failures but does not execute a real
+Mac sleep or a Cloud outage:
+
+- [SSHTuiMigrationTests](../cmuxTests/SSHTuiMigrationTests.swift): SSH carrier retry
+  policy and session identity across carrier replacement
+- [SSHDeepSleepReattachTests](../cmuxTests/SSHDeepSleepReattachTests.swift): legacy
+  placeholder recovery, ended sessions, authentication failures, and retry budgets
+- [RemoteReconnectPolicyTests](../Packages/macOS/CmuxRemoteSession/Tests/CmuxRemoteSessionTests/RemoteReconnectPolicyTests.swift):
+  wake re-arming, stale proxy callbacks, and transport-dependent cleanup
+- [SSHPTYAttachRetryScriptBuilderTests](../Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SSHPTYAttachRetryScriptBuilderTests.swift):
+  retry limits, reconnect status, cancellation, and queued input discard
+- [CLISSHPTYAttachSessionLostRespawnTests](../cmuxTests/CLISSHPTYAttachSessionLostRespawnTests.swift):
+  explicit lost-session notice and legacy shell replacement
+
+Report the exact app commit/tag, macOS version, route, interruption duration,
+before/after PIDs and markers, reconnect duration, and screenshots of status or
+exit messages. Mark every unrun route/case **not run**, including any missing
+Cloud access. This checklist is a procedure, not a recorded runtime pass.
+
 ## 9. Help and grammar
 
 | # | Command | Pass |
