@@ -42,14 +42,14 @@ struct WebDriverAgentDriverTests {
         #expect(receipt.screenSequence == 2)
 
         let requests = StubWDAURLProtocol.recorder.requests
-        #expect(requests.map { $0.url?.path } == [
+        #expect(requests.map { $0.request.url?.path } == [
             "/status",
             "/window/size",
             "/screenshot",
             "/source",
             "/wda/tap",
         ])
-        let tapBody = try #require(requests.last?.httpBody)
+        let tapBody = try #require(requests.last?.body)
         let tapJSON = try #require(JSONSerialization.jsonObject(with: tapBody) as? [String: Any])
         #expect((tapJSON["x"] as? Double) == 214)
         #expect((tapJSON["y"] as? Double) == 231.5)
@@ -118,18 +118,38 @@ private final class StubWDAURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 private final class WDARequestRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedRequests: [URLRequest] = []
+    struct Capture: @unchecked Sendable {
+        let request: URLRequest
+        let body: Data?
+    }
 
-    var requests: [URLRequest] {
+    private let lock = NSLock()
+    private var storedRequests: [Capture] = []
+
+    var requests: [Capture] {
         lock.withLock { storedRequests }
     }
 
     func record(_ request: URLRequest) {
-        lock.withLock { storedRequests.append(request) }
+        let body = request.httpBody ?? request.httpBodyStream.flatMap(Self.read)
+        lock.withLock { storedRequests.append(.init(request: request, body: body)) }
     }
 
     func reset() {
         lock.withLock { storedRequests.removeAll() }
+    }
+
+    private static func read(_ stream: InputStream) -> Data? {
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4 * 1024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
     }
 }
