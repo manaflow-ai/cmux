@@ -33,7 +33,7 @@ extension BrowserPanel {
         }
         guard let url, url.absoluteString != blankURLString else { return }
         engineFailedNavigationURL = url
-        if currentURL != url { currentURL = url }
+        showEngineAddress(url)
     }
 
     /// The non-WebKit page started a load: the failure it replaces is over.
@@ -81,7 +81,7 @@ extension BrowserPanel {
               let page = enginePage as? any BrowserPageNavigationRestoring,
               page.restoreNavigation(state, fallbackURL: displayURL) else { return false }
         shouldRenderWebView = true
-        if let displayURL { currentURL = displayURL }
+        if let displayURL { showEngineAddress(displayURL) }
         return true
     }
 }

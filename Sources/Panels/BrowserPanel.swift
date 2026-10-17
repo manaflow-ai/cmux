@@ -6839,6 +6839,12 @@ extension BrowserPanel {
         if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
     }
 
+    /// Shows `url` in the address bar for a non-WebKit page (a failed load,
+    /// a restored history) that sends no address change of its own.
+    func showEngineAddress(_ url: URL) {
+        if currentURL != url { currentURL = url }
+    }
+
     /// Publishes a non-WebKit page's favicon.
     func applyEnginePageFavicon(_ pngData: Data?) {
         faviconPNGData = pngData
