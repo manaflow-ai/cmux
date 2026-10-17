@@ -190,7 +190,10 @@ fi
 # a changed default still needs a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
-  echo "left: $defaults_snapshot (waits for the action and settings exports; their Mac job did not regenerate them)"
+  waits=()
+  (( unverified_exports )) && waits+=("action")
+  (( unverified_settings )) && waits+=("settings")
+  echo "left: $defaults_snapshot (waits for the ${waits[*]} exports; their Mac job did not regenerate them)"
 elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
   before="$(cksum < "$repo/$defaults_snapshot" 2>/dev/null || true)"
   (cd "$repo" && python3 scripts/ci/defaults_guard.py snapshot >/dev/null)

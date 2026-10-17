@@ -100,7 +100,6 @@ on:
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
-      - scripts/ci/defaults_guard.py
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -267,7 +266,6 @@ on:
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
-      - scripts/ci/defaults_guard.py
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -2290,12 +2288,16 @@ jobs:
           if [[ "${{ steps.graph.outcome }}" == failure ]]; then
             python3 scripts/cmux-next/ci-target-graph.py
           fi
-          if [[ "${{ steps.settings.outcome }}" == failure ]]; then
-            # As the fleet export step does: the export tests write the files
-            # (into the checkout and a scratch copy), then the snapshot follows.
+          # The Swift settings export only when the source stamp is stale (a
+          # stale snapshot alone needs only the snapshot below). It writes the
+          # files into the checkout, as the fleet export step does, and fails
+          # when the stamp still does not match afterwards.
+          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
             scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
-            python3 scripts/ci/defaults_guard.py snapshot
           fi
+          # The defaults snapshot reads the action and settings exports, so it
+          # follows whichever of them was regenerated.
+          python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
           # commit, whose context the head may not have.
@@ -2332,7 +2334,7 @@ jobs:
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
             [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot (the base autofix copies them on feat-cmux-next)"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"

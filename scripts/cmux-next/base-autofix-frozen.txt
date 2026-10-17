@@ -14,11 +14,9 @@ webviews/src/pages/settings/*
 docs/mdm/*
 # Pure generator output of the settings export tests (regenerate-settings-exports.sh on a
 # Mac; defaults_guard.py check-fresh finds a stale one from its source stamp): the bot
-# copies them in (hq-11, 2026-10-17). The settings sources stay frozen.
+# copies them in (hq-11, 2026-10-16). The settings sources stay frozen.
 !schemas/settings/settings-schema.json
-!docs/mdm/com.manaflow.cmux.json
-!docs/mdm/com.manaflow.cmux.plist
-!docs/mdm/com.manaflow.cmux.intune.plist
+!docs/mdm/com.manaflow.cmux*
 !docs/mdm/cmux-example.mobileconfig
 !docs/mdm/managed-preferences.md
 # The bot pushes with GITHUB_TOKEN, which cannot push workflow files.

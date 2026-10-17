@@ -139,9 +139,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      exports: ${{ steps.regenerate.outputs.exports }}
+      exports: ${{ steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true' }}
       # The exports on this tree are current: regenerated, or already fresh.
-      verified: ${{ steps.regenerate.outcome == 'success' }}
+      # Skipped (that area did not change) counts as current.
+      verified: ${{ steps.actions.outcome != 'failure' }}
+      settings_verified: ${{ steps.settings.outcome != 'failure' }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -197,32 +199,44 @@ jobs:
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
 
-      - name: Regenerate the action and settings exports
-        id: regenerate
+      - name: Regenerate the action exports
+        id: actions
+        if: needs.action-areas.outputs.actions == 'true'
         continue-on-error: true
-        env:
-          ACTIONS: ${{ needs.action-areas.outputs.actions }}
-          SETTINGS: ${{ needs.action-areas.outputs.settings }}
         run: |
           set -euo pipefail
-          : > "$RUNNER_TEMP/action-exports.txt"
-          if [[ "$ACTIONS" == true ]]; then
-            scripts/cmux-next/regenerate-action-exports.sh "$RUNNER_TEMP/action-exports" | tee -a "$RUNNER_TEMP/action-exports.txt"
-          fi
-          if [[ "$SETTINGS" == true ]]; then
-            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/action-exports" | tee -a "$RUNNER_TEMP/action-exports.txt"
-          fi
+          scripts/cmux-next/regenerate-action-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # The settings exports and their source stamp, into the same artifact.
+      - name: Regenerate the settings exports
+        id: settings
+        if: needs.action-areas.outputs.settings == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.regenerate.outputs.exports == 'true'
+        if: steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
           retention-days: 1
+
+      # A failed regeneration must not end in a successful run: the next run
+      # diffs from the last successful one, and would drop this change.
+      - name: Fail when a regeneration failed
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
+        run: |
+          echo "::error::regenerating the exports failed (actions: ${{ steps.actions.outcome }}, settings: ${{ steps.settings.outcome }}); the repairs that follow them wait"
+          exit 1
 
   # `vp fmt` needs webviews' installed packages, so it runs here with a
   # read-only token (installed without lifecycle scripts) and hands its diff to
@@ -358,6 +372,7 @@ jobs:
           ACTIONS: ${{ steps.areas.outputs.actions }}
           SETTINGS: ${{ steps.areas.outputs.settings }}
           EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
+          SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings_verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           FMT: ${{ steps.areas.outputs.fmt }}
@@ -379,7 +394,7 @@ jobs:
           # exports, so they wait while the exports' inputs changed unverified.
           [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && args+=(--unverified-exports)
           # The defaults snapshot follows the settings exports the same way.
-          [[ "$SETTINGS" == true && "$EXPORTS_VERIFIED" != true ]] && args+=(--unverified-settings-exports)
+          [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           patch="$RUNNER_TEMP/webviews-fmt/webviews-fmt.patch"

@@ -43,6 +43,13 @@ CMUX_UPDATE_MDM_SCHEMA=1 swift test --skip-build --filter ManagedPreferencesMani
 CMUX_UPDATE_ACTION_SURFACES=1 swift test --skip-build --filter SettingsSchemaExportTests || status=$?
 (( status == 0 )) || echo "::warning::a settings export test failed (exit $status); the exports were still regenerated"
 cd "$root"
+# A file the exporters wrote that this list does not name would be left stale
+# by the bots while the stamp says fresh: refuse it.
+listed="$(printf '%s\n' "${exports[@]}")"
+while IFS= read -r path; do
+  [[ -n "$path" ]] || continue
+  grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
+done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings schemas/settings-export | cut -c4-)
 for file in "${exports[@]}"; do
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
   # An export that is not committed yet (the first stamp) counts as changed.
@@ -51,3 +58,6 @@ for file in "${exports[@]}"; do
   cp "$file" "$out/$file"
   echo "regenerated: $file"
 done
+# The stamp must now match the sources: an export test that failed before it
+# wrote leaves the stamp stale, and that is a failed regeneration, not a fresh one.
+python3 scripts/ci/defaults_guard.py check-stamp

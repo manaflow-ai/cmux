@@ -117,14 +117,13 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
-    # The settings exports, their source stamp and the defaults snapshot
+    # The settings exports and their source stamp
     # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
     # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # (The defaults snapshot and defaults_guard.py are checked on Linux.)
     "schemas/settings/settings-schema.json",
     "schemas/settings-export/",
-    "schemas/defaults/cmux-next.json",
     "docs/mdm/",
-    "scripts/ci/defaults_guard.py",
     "scripts/cmux-next/regenerate-settings-exports.sh",
 )
 
