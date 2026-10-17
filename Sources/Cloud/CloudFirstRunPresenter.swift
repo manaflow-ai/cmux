@@ -41,6 +41,8 @@ final class CloudFirstRunPresenter {
             (hostWindow ?? sheetWindow).makeKeyAndOrderFront(nil)
             return
         }
+        // Shown again by hand: an errand the person left for no longer brings it back.
+        detour = nil
         let model = self.model ?? makeModel()
         self.model = model
         let actions = CloudFirstRunSheetActions(
@@ -52,7 +54,7 @@ final class CloudFirstRunPresenter {
                     preferredWindow: preferredWindow,
                     onDismiss: {
                         // Let the secrets sheet finish closing before attaching again.
-                        DispatchQueue.main.async { CloudFirstRunPresenter.shared.resumeAfterDetour() }
+                        DispatchQueue.main.async { CloudFirstRunPresenter.shared.resumeAfterDetour(.secretsDismissed) }
                     }
                 )
             }
@@ -117,12 +119,19 @@ final class CloudFirstRunPresenter {
         detourWindow = preferredWindow
     }
 
-    fileprivate func resumeAfterDetour() {
+    /// What may end a detour: only closing Cloud Secrets ends a secrets errand.
+    enum DetourSignal {
+        case secretsDismissed
+        case accountsChanged
+    }
+
+    fileprivate func resumeAfterDetour(_ signal: DetourSignal) {
         guard let detour, sheetWindow == nil, let model else { return }
-        switch detour {
-        case .secrets: break
-        case .subscription:
+        switch (detour, signal) {
+        case (.secrets, .secretsDismissed): break
+        case (.subscription, .accountsChanged):
             guard model.keySource.isReady else { return }
+        default: return
         }
         self.detour = nil
         present(preferredWindow: detourWindow)
@@ -181,7 +190,7 @@ final class CloudFirstRunPresenter {
             Task { @MainActor in
                 guard let store, let model else { return }
                 model.refreshKeys()
-                CloudFirstRunPresenter.shared.resumeAfterDetour()
+                CloudFirstRunPresenter.shared.resumeAfterDetour(.accountsChanged)
                 followAccounts(store: store, model: model)
             }
         }

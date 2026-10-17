@@ -42,6 +42,7 @@ final class CloudSecretsSheetPresenter {
     ) {
         if sheetWindow != nil {
             if presentedMachineID == machineID {
+                self.onDismiss = self.onDismiss ?? onDismiss
                 (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
                 return
             }
