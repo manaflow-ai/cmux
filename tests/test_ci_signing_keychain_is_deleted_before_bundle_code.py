@@ -258,7 +258,7 @@ def check_scripts(failures: list[str]) -> None:
     create = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" create')
     package = index_of(stapled, '"$PACKAGE_TOOL"')
     delete = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" delete', last=True)
-    continuation = index_of(stapled, '"$RESUME_TOOL" "$OUTER_STATE"', last=True)
+    continuation = index_of(stapled, 'continue_stapled "$OUTER_STATE"', last=True)
     if not (0 <= first < create < package < delete < continuation):
         failures.append(
             "scripts/ci/resume-stapled-app-notarization.sh: create the signing keychain after the first "
