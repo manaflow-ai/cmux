@@ -31,15 +31,37 @@ public actor WebDriverAgentDriver: PhoneDriver {
 
     private let configuration: Configuration
     private let urlSession: URLSession
+    private var currentGeometry: PhoneDisplayGeometry
     private var sequence: UInt64 = 0
 
-    public init(configuration: Configuration, urlSession: URLSession = .shared) {
+    public init(configuration: Configuration, urlSession: URLSession? = nil) {
         self.configuration = configuration
-        self.urlSession = urlSession
+        self.urlSession = urlSession ?? URLSession(
+            configuration: .ephemeral,
+            delegate: NoRedirectDelegate(),
+            delegateQueue: nil
+        )
+        currentGeometry = configuration.geometry
     }
 
     public func device() async throws -> PhoneDevice {
         _ = try await request(path: "/status", method: "GET")
+        if let sizeResponse = try? await request(path: "/window/size", method: "GET") {
+            guard let widthValue = sizeResponse["value"]?["width"]?.doubleValue,
+                  let heightValue = sizeResponse["value"]?["height"]?.doubleValue,
+                  let width = Self.validatedDimension(widthValue),
+                  let height = Self.validatedDimension(heightValue)
+            else {
+                throw PhoneDriverError.malformedResponse("WDA window size was not a finite positive integer")
+            }
+            currentGeometry = PhoneDisplayGeometry(
+                width: width,
+                height: height,
+                scale: currentGeometry.scale,
+                orientation: currentGeometry.orientation,
+                safeInsets: currentGeometry.safeInsets
+            )
+        }
         return PhoneDevice(
             id: configuration.deviceID,
             name: configuration.name,
@@ -47,7 +69,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             osVersion: configuration.osVersion,
             source: .webDriverAgent,
             state: .available,
-            geometry: configuration.geometry,
+            geometry: currentGeometry,
             capabilities: .init(
                 screenSnapshot: true,
                 screenStream: true,
@@ -60,6 +82,13 @@ public actor WebDriverAgentDriver: PhoneDriver {
         )
     }
 
+    private static func validatedDimension(_ value: Double) -> Int? {
+        guard value.isFinite, value >= 1, value.rounded() == value,
+              value <= Double(Int.max)
+        else { return nil }
+        return Int(exactly: value)
+    }
+
     public func snapshot() async throws -> PhoneScreenFrame {
         let response = try await request(path: "/screenshot", method: "GET")
         guard let base64 = response["value"]?.stringValue,
@@ -70,9 +99,9 @@ public actor WebDriverAgentDriver: PhoneDriver {
         sequence += 1
         return PhoneScreenFrame(
             sequence: sequence,
-            width: configuration.geometry.width,
-            height: configuration.geometry.height,
-            orientation: configuration.geometry.orientation,
+            width: currentGeometry.width,
+            height: currentGeometry.height,
+            orientation: currentGeometry.orientation,
             data: data
         )
     }
@@ -86,7 +115,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
-        let geometry = configuration.geometry
+        let geometry = currentGeometry
         let response: PhoneJSONValue
         switch action.kind {
         case .tap:
@@ -167,13 +196,19 @@ public actor WebDriverAgentDriver: PhoneDriver {
             throw PhoneDriverError.transport("invalid WDA base URL")
         }
         if let question = path.firstIndex(of: "?") {
-            components.path += String(path[..<question])
+            components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                + "/" + String(path[..<question]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             components.percentEncodedQuery = String(path[path.index(after: question)...])
         } else {
-            components.path += path
+            components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                + "/" + path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
         guard let url = components.url else {
             throw PhoneDriverError.transport("invalid WDA endpoint")
+        }
+        guard ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? ""),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            throw PhoneDriverError.transport("WDA endpoint must be loopback HTTP(S)")
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -183,11 +218,17 @@ public actor WebDriverAgentDriver: PhoneDriver {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let (data, response) = try await urlSession.data(for: request)
+        guard data.count <= PhoneProtocol.maxLineBytes * 2 else {
+            throw PhoneDriverError.malformedResponse("WDA response exceeded the bounded response size")
+        }
         guard let http = response as? HTTPURLResponse else {
             throw PhoneDriverError.transport("WDA returned a non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
             throw PhoneDriverError.transport("WDA HTTP status \(http.statusCode)")
+        }
+        guard http.url?.host?.lowercased() == url.host?.lowercased() else {
+            throw PhoneDriverError.transport("WDA redirect left the loopback endpoint")
         }
         let decoded = try? JSONDecoder().decode(PhoneJSONValue.self, from: data)
         guard let decoded else {
@@ -229,11 +270,23 @@ public actor WebDriverAgentDriver: PhoneDriver {
               let height = (value["height"] ?? value["h"])?.doubleValue
         else { return .init(x: 0, y: 0, width: 0, height: 0) }
         return .init(
-            x: x / Double(configuration.geometry.width),
-            y: y / Double(configuration.geometry.height),
-            width: width / Double(configuration.geometry.width),
-            height: height / Double(configuration.geometry.height)
+            x: x / Double(currentGeometry.width),
+            y: y / Double(currentGeometry.height),
+            width: width / Double(currentGeometry.width),
+            height: height / Double(currentGeometry.height)
         )
+    }
+}
+
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
 

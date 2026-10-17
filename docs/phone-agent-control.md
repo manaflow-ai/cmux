@@ -27,14 +27,16 @@ printf '%s\n' \
 
 For a persistent local socket, run `swift run cmux-phone tcp-server --port 0`.
 The command prints the selected port and binds only to `127.0.0.1`; clients
-still use the same newline envelopes and session lifecycle.
+still use the same newline envelopes and session lifecycle. Select a source with
+`--source mock`, `--source wda --url http://127.0.0.1:8100`, or
+`--source mirroring` on macOS.
 
 The protocol is newline-delimited JSON (`cmux.phone` version 1). Requests have
 an id, method, optional session id, and JSON parameters. Responses echo the id;
-events carry a session id and monotonic sequence. Control lines are capped at
-64 KiB. Screens are represented as base64 PNG/JPEG in the response model for
-the local MVP; a native streaming transport can add binary frame delivery
-without changing action semantics.
+events carry a session id and monotonic sequence. Incoming control requests are
+capped at 64 KiB; response and event lines are capped at 8 MiB so a normal
+base64 PNG can travel through the local MVP. A native binary frame transport
+can lower the response-line limit later without changing action semantics.
 
 ## Sources and capabilities
 

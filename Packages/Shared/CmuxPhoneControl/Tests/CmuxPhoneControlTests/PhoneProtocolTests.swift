@@ -51,10 +51,26 @@ struct PhoneProtocolTests {
             type: .request,
             id: "large",
             method: "device.list",
-            params: .object(["payload": .string(String(repeating: "x", count: 70_000))])
+            params: .object(["payload": .string(String(repeating: "x", count: PhoneProtocol.maxRequestLineBytes))])
         )
         #expect(throws: PhoneWireCodecError.lineTooLarge) {
             try codec.encode(oversized)
+        }
+
+        let screenshotResponse = PhoneEnvelope.response(
+            id: "frame",
+            result: .object(["data": .string(String(repeating: "x", count: 100_000))])
+        )
+        #expect(try codec.encode(screenshotResponse).count > 100_000)
+
+        var requestDecoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
+        let oversizedRequest = Data(
+            ("{\"protocol\":\"cmux.phone\",\"version\":1,\"type\":\"request\",\"id\":\"large\",\"method\":\"device.list\",\"params\":{\"x\":\""
+             + String(repeating: "x", count: PhoneProtocol.maxRequestLineBytes)
+             + "\"}}\n").utf8
+        )
+        #expect(throws: PhoneWireCodecError.lineTooLarge) {
+            _ = try requestDecoder.append(oversizedRequest)
         }
     }
 

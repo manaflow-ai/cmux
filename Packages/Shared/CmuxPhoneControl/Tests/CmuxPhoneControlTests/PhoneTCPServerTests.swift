@@ -33,6 +33,74 @@ struct PhoneTCPServerTests {
         #expect(response?.id == "tcp-1")
     }
 
+    @Test
+    func sessionsAreIsolatedPerConnection() async throws {
+        let server = try PhoneTCPServer(port: 0, driver: MockPhoneDriver())
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let first = try await connect(to: port)
+        let second = try await connect(to: port)
+        defer {
+            first.cancel()
+            second.cancel()
+        }
+
+        let firstResponse = try await roundTrip(
+            .request(id: "first-open", method: "session.open"),
+            on: first
+        )
+        let secondResponse = try await roundTrip(
+            .request(id: "second-open", method: "session.open"),
+            on: second
+        )
+        #expect(firstResponse.type == .response)
+        #expect(secondResponse.type == .response)
+        #expect(firstResponse.sessionID != secondResponse.sessionID)
+    }
+
+    @Test
+    func stoppingPreventsRestartAndClearsPort() async throws {
+        let server = try PhoneTCPServer(port: 0, driver: MockPhoneDriver())
+        _ = try await server.start()
+        server.stop()
+
+        #expect(server.port == nil)
+        var restartError: PhoneDriverError?
+        do {
+            _ = try await server.start()
+        } catch let error as PhoneDriverError {
+            restartError = error
+        } catch {
+            Issue.record("unexpected restart error: \(error)")
+        }
+        #expect(restartError == .transport("TCP listener stopped"))
+    }
+
+    private func connect(to port: UInt16) async throws -> NWConnection {
+        let connection = NWConnection(
+            host: "127.0.0.1",
+            port: NWEndpoint.Port(rawValue: port)!,
+            using: .tcp
+        )
+        try await waitUntilReady(connection)
+        return connection
+    }
+
+    private func roundTrip(
+        _ request: PhoneEnvelope,
+        on connection: NWConnection
+    ) async throws -> PhoneEnvelope {
+        try await send(try PhoneWireCodec().encode(request), on: connection)
+        var decoder = PhoneLineDecoder()
+        while true {
+            let bytes = try await receive(on: connection)
+            if let response = try decoder.append(bytes).first {
+                return response
+            }
+        }
+    }
+
     private func waitUntilReady(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { continuation in
             connection.stateUpdateHandler = { state in

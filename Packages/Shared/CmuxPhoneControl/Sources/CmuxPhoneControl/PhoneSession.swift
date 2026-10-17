@@ -1,11 +1,20 @@
 import Foundation
 
 public actor PhoneSession {
+    private struct ActionRecord: Sendable {
+        let request: PhoneActionRequest
+        let receipt: PhoneActionReceipt
+    }
+
+    private static let maxActionRecords = 256
+    private static let maxActionIDBytes = 256
     public nonisolated let id: String
 
     private let driver: any PhoneDriver
     private var currentSequence: UInt64 = 0
     private var closed = false
+    private var actionRecords: [String: ActionRecord] = [:]
+    private var actionRecordOrder: [String] = []
 
     public init(id: String = UUID().uuidString.lowercased(), driver: any PhoneDriver) {
         self.id = id
@@ -67,6 +76,26 @@ public actor PhoneSession {
 
             case "action.tap", "action.swipe", "action.long_press", "action.type", "action.press":
                 let action = try decodeAction(method: method, params: request.params)
+                if let previous = actionRecords[action.actionID] {
+                    guard previous.request == action else {
+                        throw PhoneError(
+                            code: "action_id_conflict",
+                            message: "action_id was already used for a different action"
+                        )
+                    }
+                    let duplicate = PhoneActionReceipt(
+                        actionID: previous.receipt.actionID,
+                        accepted: previous.receipt.accepted,
+                        duplicate: true,
+                        screenSequence: previous.receipt.screenSequence,
+                        detail: previous.receipt.detail
+                    )
+                    return [.response(
+                        id: requestID,
+                        sessionID: id,
+                        result: try PhoneJSONValue(duplicate)
+                    )]
+                }
                 if let expected = action.screenSequence, expected != currentSequence {
                     throw PhoneError(
                         code: "stale_screen",
@@ -77,6 +106,7 @@ public actor PhoneSession {
                 }
                 let receipt = try await driver.perform(action)
                 currentSequence = receipt.screenSequence
+                remember(action: action, receipt: receipt)
                 let response = PhoneEnvelope.response(
                     id: requestID,
                     sessionID: id,
@@ -98,6 +128,18 @@ public actor PhoneSession {
             }
         } catch let error as PhoneError {
             return [.failure(id: requestID, sessionID: id, error: error)]
+        } catch let error as PhoneDriverError {
+            let (code, retryable): (String, Bool) = switch error {
+            case .unsupported: ("capability_unavailable", false)
+            case .unavailable: ("device_unavailable", true)
+            case .transport: ("transport_error", true)
+            case .malformedResponse: ("malformed_driver_response", false)
+            }
+            return [.failure(
+                id: requestID,
+                sessionID: id,
+                error: PhoneError(code: code, message: String(describing: error), retryable: retryable)
+            )]
         } catch {
             return [.failure(
                 id: requestID,
@@ -107,13 +149,24 @@ public actor PhoneSession {
         }
     }
 
+    private func remember(action: PhoneActionRequest, receipt: PhoneActionReceipt) {
+        actionRecords[action.actionID] = ActionRecord(request: action, receipt: receipt)
+        actionRecordOrder.removeAll { $0 == action.actionID }
+        actionRecordOrder.append(action.actionID)
+        if actionRecordOrder.count > Self.maxActionRecords {
+            let evicted = actionRecordOrder.removeFirst()
+            actionRecords.removeValue(forKey: evicted)
+        }
+    }
+
     private func decodeAction(method: String, params: PhoneJSONValue?) throws -> PhoneActionRequest {
         guard let params else {
             throw PhoneError(code: "invalid_action", message: "action params are required")
         }
         let actionID = params["action_id"]?.stringValue
             ?? params["actionId"]?.stringValue
-        guard let actionID, !actionID.isEmpty else {
+        guard let actionID, !actionID.isEmpty,
+              actionID.utf8.count <= Self.maxActionIDBytes else {
             throw PhoneError(code: "invalid_action", message: "action_id is required for replay safety")
         }
         let kind: PhoneActionKind
@@ -125,10 +178,28 @@ public actor PhoneSession {
         case "action.press": kind = .press
         default: throw PhoneError(code: "invalid_action", message: "unsupported action")
         }
-        let screenSequence = params["screen_seq"]?.doubleValue.map(UInt64.init)
+        let screenSequence = try exactUInt(params["screen_seq"]?.doubleValue, field: "screen_seq")
         let point = try decodePoint(params["point"])
         let endPoint = try decodePoint(params["end_point"] ?? params["endPoint"])
-        let duration = params["duration_ms"]?.doubleValue.map(Int.init)
+        let duration = try exactDuration(params["duration_ms"]?.doubleValue)
+        switch kind {
+        case .tap, .longPress:
+            guard point != nil, endPoint == nil else {
+                throw PhoneError(code: "invalid_action", message: "\(kind.rawValue) requires point")
+            }
+        case .swipe:
+            guard point != nil, endPoint != nil else {
+                throw PhoneError(code: "invalid_action", message: "swipe requires point and end_point")
+            }
+        case .type:
+            guard let text = params["text"]?.stringValue, !text.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "type requires non-empty text")
+            }
+        case .press:
+            guard let button = params["button"]?.stringValue, !button.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "press requires button")
+            }
+        }
         return PhoneActionRequest(
             actionID: actionID,
             kind: kind,
@@ -149,6 +220,22 @@ public actor PhoneSession {
         let point = PhonePoint(x: x, y: y)
         try point.validated()
         return point
+    }
+
+    private func exactUInt(_ value: Double?, field: String) throws -> UInt64? {
+        guard let value else { return nil }
+        guard value.isFinite, value >= 0, value.rounded() == value, value <= Double(Int64.max) else {
+            throw PhoneError(code: "invalid_action", message: "\(field) must be a non-negative integer")
+        }
+        return UInt64(value)
+    }
+
+    private func exactDuration(_ value: Double?) throws -> Int? {
+        guard let value else { return nil }
+        guard value.isFinite, value.rounded() == value, (1...60_000).contains(value) else {
+            throw PhoneError(code: "invalid_action", message: "duration_ms must be between 1 and 60000")
+        }
+        return Int(value)
     }
 }
 
@@ -191,7 +278,11 @@ public actor PhoneControlServer {
                 guard let session else {
                     throw PhoneError(code: "session_required", message: "open a session first")
                 }
-                return await session.handle(request)
+                let responses = await session.handle(request)
+                if method == "session.close" {
+                    self.session = nil
+                }
+                return responses
             }
         } catch let error as PhoneError {
             return [.failure(id: requestID, error: error)]
@@ -201,5 +292,9 @@ public actor PhoneControlServer {
                 error: PhoneError(code: "driver_error", message: String(describing: error), retryable: true)
             )]
         }
+    }
+
+    public func resetSession() {
+        session = nil
     }
 }

@@ -7,14 +7,24 @@ import Network
 /// callers must opt into forwarding this socket beyond loopback.
 public final class PhoneTCPServer: @unchecked Sendable {
     private final class ConnectionState: @unchecked Sendable {
-        var decoder = PhoneLineDecoder()
+        let id = UUID()
+        var decoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
+        let controlServer: PhoneControlServer
+
+        init(driver: any PhoneDriver) {
+            controlServer = PhoneControlServer(driver: driver)
+        }
     }
 
     private let listener: NWListener
     private let queue: DispatchQueue
-    private let controlServer: PhoneControlServer
+    private let driver: any PhoneDriver
+    private let stateLock = NSLock()
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
-    private var readyResult: Result<UInt16, Error>?
+    private var readyPort: UInt16?
+    private var startInProgress = false
+    private var stopped = false
+    private var connections: [UUID: NWConnection] = [:]
 
     public init(
         port: UInt16 = 0,
@@ -32,15 +42,34 @@ public final class PhoneTCPServer: @unchecked Sendable {
         )
         listener = try NWListener(using: parameters)
         self.queue = queue
-        controlServer = PhoneControlServer(driver: driver)
+        self.driver = driver
     }
 
     public var port: UInt16? {
-        listener.port?.rawValue
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return readyPort
     }
 
     public func start() async throws -> UInt16 {
         try await withCheckedThrowingContinuation { continuation in
+            stateLock.lock()
+            if stopped {
+                stateLock.unlock()
+                continuation.resume(throwing: PhoneDriverError.transport("TCP listener stopped"))
+                return
+            }
+            if let readyPort {
+                stateLock.unlock()
+                continuation.resume(returning: readyPort)
+                return
+            }
+            if startInProgress {
+                stateLock.unlock()
+                continuation.resume(throwing: PhoneDriverError.transport("TCP listener start already in progress"))
+                return
+            }
+            startInProgress = true
             readyContinuation = continuation
             listener.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
@@ -58,28 +87,71 @@ public final class PhoneTCPServer: @unchecked Sendable {
             listener.newConnectionHandler = { [weak self] connection in
                 self?.accept(connection)
             }
+            stateLock.unlock()
             listener.start(queue: queue)
         }
     }
 
     public func stop() {
+        stateLock.lock()
+        stopped = true
+        startInProgress = false
+        let continuation = readyContinuation
+        readyContinuation = nil
+        readyPort = nil
+        let connections = Array(self.connections.values)
+        self.connections.removeAll()
+        stateLock.unlock()
+        continuation?.resume(throwing: PhoneDriverError.transport("TCP listener stopped"))
         listener.cancel()
+        for connection in connections {
+            connection.cancel()
+        }
     }
 
     private func finishReady(_ result: Result<UInt16, Error>) {
-        guard let continuation = readyContinuation else {
-            readyResult = result
-            return
+        stateLock.lock()
+        var result = result
+        if case .success(let port) = result, port == 0 {
+            result = .failure(PhoneDriverError.transport("TCP listener reported no port"))
         }
+        if case .success(let port) = result {
+            if stopped {
+                result = .failure(PhoneDriverError.transport("TCP listener stopped"))
+            } else {
+                readyPort = port
+            }
+        }
+        if case .failure = result {
+            readyPort = nil
+            if !stopped { stopped = true }
+        }
+        startInProgress = false
+        let continuation = readyContinuation
         readyContinuation = nil
+        stateLock.unlock()
+        guard let continuation else { return }
         continuation.resume(with: result)
     }
 
     private func accept(_ connection: NWConnection) {
-        let state = ConnectionState()
-        connection.stateUpdateHandler = { state in
-            if case .failed = state {
-                connection.cancel()
+        let state = ConnectionState(driver: driver)
+        stateLock.lock()
+        guard !stopped else {
+            stateLock.unlock()
+            connection.cancel()
+            return
+        }
+        connections[state.id] = connection
+        stateLock.unlock()
+
+        connection.stateUpdateHandler = { [weak self, weak connection] networkState in
+            guard let self, let connection else { return }
+            switch networkState {
+            case .failed, .cancelled:
+                self.finishConnection(id: state.id, connection: connection)
+            default:
+                break
             }
         }
         connection.start(queue: queue)
@@ -87,29 +159,41 @@ public final class PhoneTCPServer: @unchecked Sendable {
     }
 
     private func receive(on connection: NWConnection, state: ConnectionState) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: PhoneProtocol.maxLineBytes) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: PhoneProtocol.maxRequestLineBytes) {
             [weak self, weak connection] data, _, isComplete, error in
             guard let self, let connection else { return }
             if let error {
-                connection.cancel()
+                self.finishConnection(id: state.id, connection: connection)
                 _ = error
                 return
             }
             if let data, !data.isEmpty {
                 do {
                     let requests = try state.decoder.append(data)
+                    guard !requests.isEmpty else {
+                        self.receive(on: connection, state: state)
+                        return
+                    }
                     Task {
-                        var output = Data()
-                        let codec = PhoneWireCodec()
-                        for request in requests {
-                            for response in await self.controlServer.handle(request) {
-                                output.append(try codec.encode(response))
+                        do {
+                            var output = Data()
+                            let codec = PhoneWireCodec()
+                            for request in requests {
+                                for response in await state.controlServer.handle(request) {
+                                    output.append(try codec.encode(response))
+                                }
                             }
+                            connection.send(content: output, completion: .contentProcessed { [weak self, weak connection] error in
+                                guard let self, let connection else { return }
+                                if error != nil {
+                                    self.finishConnection(id: state.id, connection: connection)
+                                } else {
+                                    self.receive(on: connection, state: state)
+                                }
+                            })
+                        } catch {
+                            self.sendErrorAndClose(connection, error: error)
                         }
-                        connection.send(content: output, completion: .contentProcessed { [weak self, weak connection] _ in
-                            guard let self, let connection else { return }
-                            self.receive(on: connection, state: state)
-                        })
                     }
                 } catch {
                     let envelope = PhoneEnvelope.failure(
@@ -125,11 +209,32 @@ public final class PhoneTCPServer: @unchecked Sendable {
                     }
                 }
             } else if isComplete {
-                connection.cancel()
+                self.finishConnection(id: state.id, connection: connection)
             } else {
                 self.receive(on: connection, state: state)
             }
         }
+    }
+
+    private func finishConnection(id: UUID, connection: NWConnection) {
+        stateLock.lock()
+        connections.removeValue(forKey: id)
+        stateLock.unlock()
+        connection.cancel()
+    }
+
+    private func sendErrorAndClose(_ connection: NWConnection, error: Error) {
+        let envelope = PhoneEnvelope.failure(
+            id: nil,
+            error: PhoneError(code: "response_too_large", message: String(describing: error))
+        )
+        guard let encoded = try? PhoneWireCodec().encode(envelope) else {
+            connection.cancel()
+            return
+        }
+        connection.send(content: encoded, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
     }
 }
 #endif

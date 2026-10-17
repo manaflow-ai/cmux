@@ -3,35 +3,33 @@ import CmuxPhoneControl
 
 @main
 struct CmuxPhoneCommand {
-    static func main() async {
+    static func main() async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let command = arguments.first ?? "help"
 
-        do {
-            switch command {
-            case "help", "--help", "-h":
-                printUsage()
-            case "self-test":
-                try await runSelfTest()
-            case "mock-server":
-                try await runLineServer(driver: MockPhoneDriver())
-            case "wda-server":
-                let url = try parseURL(arguments: Array(arguments.dropFirst()))
-                let configuration = WebDriverAgentDriver.Configuration(baseURL: url)
-                try await runLineServer(driver: WebDriverAgentDriver(configuration: configuration))
-            #if canImport(Network)
-            case "tcp-server":
-                let port = try parsePort(arguments: Array(arguments.dropFirst()))
-                let server = try PhoneTCPServer(port: port, driver: MockPhoneDriver())
-                let actualPort = try await server.start()
-                print("cmux-phone listening on 127.0.0.1:\(actualPort)")
-                dispatchMain()
-            #endif
-            default:
-                throw CLIError.usage("unknown command: \(command)")
-            }
-        } catch {
-            fputs("cmux-phone: \(error)\n", stderr)
+        switch command {
+        case "help", "--help", "-h":
+            printUsage()
+        case "self-test":
+            try await runSelfTest()
+        case "mock-server":
+            try await runLineServer(driver: MockPhoneDriver())
+        case "wda-server":
+            let url = try parseURL(arguments: Array(arguments.dropFirst()))
+            let configuration = WebDriverAgentDriver.Configuration(baseURL: url)
+            try await runLineServer(driver: WebDriverAgentDriver(configuration: configuration))
+        #if canImport(Network)
+        case "tcp-server":
+            let serverArguments = Array(arguments.dropFirst())
+            let port = try parsePort(arguments: serverArguments)
+            let driver = try makeDriver(arguments: serverArguments)
+            let server = try PhoneTCPServer(port: port, driver: driver)
+            let actualPort = try await server.start()
+            print("cmux-phone listening on 127.0.0.1:\(actualPort)")
+            dispatchMain()
+        #endif
+        default:
+            throw CLIError.usage("unknown command: \(command)")
         }
     }
 
@@ -85,7 +83,7 @@ struct CmuxPhoneCommand {
 
     private static func runLineServer(driver: any PhoneDriver) async throws {
         let server = PhoneControlServer(driver: driver)
-        var decoder = PhoneLineDecoder()
+        var decoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
         let input = FileHandle.standardInput.readDataToEndOfFile()
         let messages = try decoder.append(input)
         let codec = PhoneWireCodec()
@@ -112,6 +110,31 @@ struct CmuxPhoneCommand {
         return port
     }
 
+    private static func makeDriver(arguments: [String]) throws -> any PhoneDriver {
+        let source: String
+        if let index = arguments.firstIndex(of: "--source"), arguments.indices.contains(index + 1) {
+            source = arguments[index + 1]
+        } else {
+            source = "mock"
+        }
+        switch source {
+        case "mock":
+            return MockPhoneDriver()
+        case "wda":
+            return WebDriverAgentDriver(
+                configuration: .init(baseURL: try parseURL(arguments: arguments))
+            )
+        case "mirroring":
+            #if os(macOS)
+            return MacIPhoneMirroringDriver()
+            #else
+            throw CLIError.usage("the mirroring source is only available on macOS")
+            #endif
+        default:
+            throw CLIError.usage("unknown --source \(source); use mock, wda, or mirroring")
+        }
+    }
+
     private static func printUsage() {
         print("""
         cmux-phone — local agent control channel for a connected phone
@@ -120,7 +143,8 @@ struct CmuxPhoneCommand {
           self-test                 Run a deterministic end-to-end protocol check.
           mock-server               Read newline JSON requests from stdin.
           wda-server --url URL      Use a loopback WebDriverAgent HTTP endpoint.
-          tcp-server --port PORT    Serve the mock source on loopback TCP.
+          tcp-server --port PORT    Serve a source on loopback TCP.
+                                    Add --source mock|wda|mirroring.
 
         The line protocol is versioned as cmux.phone v1. Keep WDA forwarded to
         localhost; it is a developer adapter and must not be exposed on a LAN.

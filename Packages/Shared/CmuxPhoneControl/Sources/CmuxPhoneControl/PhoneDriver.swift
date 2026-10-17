@@ -66,7 +66,12 @@ public actor MockPhoneDriver: PhoneDriver {
             id: "root",
             role: "window",
             label: "Mock iPhone",
-            bounds: .init(x: 0, y: 0, width: 390, height: 844),
+            bounds: .init(
+                x: 0,
+                y: 0,
+                width: Double(deviceValue.geometry.width),
+                height: Double(deviceValue.geometry.height)
+            ),
             actions: ["tap"],
             children: [
                 PhoneUIElement(
@@ -90,15 +95,26 @@ public actor MockPhoneDriver: PhoneDriver {
                 detail: previous.detail
             )
         }
-        guard let point = action.point else {
-            throw PhoneError(code: "invalid_action", message: "mock actions require a point")
-        }
-        try point.validated()
-        if let endPoint = action.endPoint {
+        switch action.kind {
+        case .tap, .longPress:
+            guard let point = action.point else {
+                throw PhoneError(code: "invalid_action", message: "action requires a point")
+            }
+            try point.validated()
+        case .swipe:
+            guard let point = action.point, let endPoint = action.endPoint else {
+                throw PhoneError(code: "invalid_action", message: "swipe requires point and end_point")
+            }
+            try point.validated()
             try endPoint.validated()
-        }
-        guard action.kind != .type || !(action.text ?? "").isEmpty else {
-            throw PhoneError(code: "invalid_action", message: "text action requires non-empty text")
+        case .type:
+            guard let text = action.text, !text.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "text action requires non-empty text")
+            }
+        case .press:
+            guard let button = action.button, !button.isEmpty else {
+                throw PhoneError(code: "invalid_action", message: "press requires button")
+            }
         }
         currentFrame = PhoneScreenFrame(
             sequence: currentFrame.sequence + 1,
