@@ -408,6 +408,7 @@ export async function ingestRunEvent(input: {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
+    await checkLease(tx, input);
     {
       const duplicate = (await tx.select().from(runEvents).where(and(
         eq(runEvents.runId, input.runId),
@@ -416,7 +417,6 @@ export async function ingestRunEvent(input: {
       )).limit(1))[0];
       if (duplicate) return duplicate;
     }
-    await checkLease(tx, input);
     if (input.attemptSequence !== undefined) {
       const last = (await tx.select({ max: sql<number>`coalesce(max(${runEvents.attemptSequence}), -1)` }).from(runEvents).where(and(
         eq(runEvents.attemptId, input.attemptId),
@@ -501,12 +501,12 @@ export async function recordRunArtifact(input: {
   return db.transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
+    await checkLease(tx, input);
     const duplicate = (await tx.select().from(runArtifacts).where(and(eq(runArtifacts.attemptId, input.attemptId), eq(runArtifacts.name, input.name))).limit(1))[0];
     if (duplicate) {
       if (duplicate.digest !== input.digest || duplicate.sizeBytes !== input.sizeBytes || duplicate.uri !== input.uri) throw new RunArtifactConflictError("artifact name already exists with different manifest");
       return duplicate;
     }
-    await checkLease(tx, input);
     const artifact = (await tx.insert(runArtifacts).values({
       runId: input.runId,
       attemptId: input.attemptId,
