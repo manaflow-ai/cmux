@@ -188,6 +188,7 @@ export function ChiefDock({
           onClick={() => setExpanded((value) => !value)}
         >
           <img src={CHIEF_AVATAR} alt="" aria-hidden="true" />
+          {attention > 0 && <span className="acpmux-chief-dock-badge" aria-label={`${attention}`}>{attention}</span>}
         </button>
         <div className="acpmux-chief-dock-rail">
           <button
