@@ -110,6 +110,28 @@ struct MobileChatEventSourceIntegrationTests {
     }
 
     @Test
+    func sessionLaunchActionsDecodeTypedHostResults() async throws {
+        let transport = MobileChatRPCTransport(sessions: Self.sessions)
+        let client = try Self.client(transport: transport)
+        defer { Task { await client.disconnect() } }
+        let source = MobileChatEventSource(client: client)
+
+        let fork = try await source.fork(sessionID: "codex-session")
+        let resume = try await source.resume(sessionID: "claude-session")
+        let reopen = try await source.reopen(sessionID: "opencode-session")
+
+        #expect(fork.action == .fork)
+        #expect(fork.parentSessionID == "codex-session")
+        #expect(fork.terminalID == "codex-session-terminal")
+        #expect(resume.action == .resume)
+        #expect(reopen.action == .reopen)
+        let requests = await transport.requests()
+        #expect(requests.filter { $0.method == "mobile.chat.fork" }.map(\.sessionID) == ["codex-session"])
+        #expect(requests.filter { $0.method == "mobile.chat.resume" }.map(\.sessionID) == ["claude-session"])
+        #expect(requests.filter { $0.method == "mobile.chat.reopen" }.map(\.sessionID) == ["opencode-session"])
+    }
+
+    @Test
     func filtersChatMessageEventsBySessionAndPreservesProviderIdentity() async throws {
         let transport = MobileChatRPCTransport(sessions: Self.sessions)
         let client = try Self.client(transport: transport)
@@ -384,6 +406,14 @@ private actor MobileChatRPCTransport: CmxByteTransport {
             result = ["text": "# \(session.agentKind.displayName)\n\nHistory for \(session.agentKind.displayName)"]
         case "mobile.chat.rename", "mobile.chat.delete":
             result = [:]
+        case "mobile.chat.fork", "mobile.chat.resume", "mobile.chat.reopen":
+            let sessionID = try #require(params["session_id"] as? String)
+            let action = try #require(ChatSessionLaunchResult.Action(rawValue: method.replacingOccurrences(of: "mobile.chat.", with: "")))
+            result = try jsonObject(ChatSessionLaunchResult(
+                action: action,
+                parentSessionID: sessionID,
+                terminalID: "(sessionID)-terminal"
+            ))
         default:
             result = [:]
         }
