@@ -28,3 +28,12 @@ extension AgentPaneTopStripStyleTests {
         #expect(AgentPaneTunables.topStripStyle.descriptor.key == "agentPane.debug.topStripStyle")
     }
 }
+
+struct AgentPaneReasoningSliderStyleTests {
+    @Test func offersAccentAndMinimalWithAccentAsTheDefault() {
+        #expect(AgentPaneReasoningSliderStyle.allCases.map(\.rawValue) == ["accent", "minimal"])
+        #expect(AgentPaneTunables.reasoningSliderStyle.descriptor.key == "agent.reasoningSliderStyle")
+        #expect(AgentPaneTunables.reasoningSliderStyle.value == .accent)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.reasoningSliderStyle" })
+    }
+}
