@@ -299,8 +299,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             state = appendItem(state, kind: .result, text: "Workspace is ready.")
         }
         if scenario != .empty && scenario != .emptyFiles && scenario != .noGit && scenario != .noLastTurn {
-            var diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
-            if scenario == .noLastTurn { diff.comparison = "unstaged" }
+            let diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
             state = appendItem(state, kind: .files, text: nil, diff: diff)
         }
         switch scenario {
