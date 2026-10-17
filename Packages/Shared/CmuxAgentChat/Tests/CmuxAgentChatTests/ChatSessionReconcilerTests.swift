@@ -80,15 +80,42 @@ struct ChatSessionReconcilerTests {
         var reducer = ChatSessionReconciler()
         let eventDate = Date(timeIntervalSince1970: 123)
         reducer.replace(with: [descriptor("s", version: 1)])
-        let stateApplied = reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: eventDate)))
+        let stateApplied = reducer.apply(
+            sessionID: "s",
+            event: .stateChanged(.needsInput(since: eventDate), version: nil)
+        )
         #expect(stateApplied)
         #expect(reducer.descriptor(for: "s")?.state.needsAttention == true)
-        let duplicateStateApplied = reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: eventDate)))
+        let duplicateStateApplied = reducer.apply(
+            sessionID: "s",
+            event: .stateChanged(.needsInput(since: eventDate), version: nil)
+        )
         let removed = reducer.apply(sessionID: "s", event: .sessionRemoved(version: 2))
         let removedAgain = reducer.apply(sessionID: "s", event: .sessionRemoved(version: 3))
         #expect(!duplicateStateApplied)
         #expect(removed)
         #expect(!removedAgain)
+    }
+
+    @Test("A stale versioned state push cannot overwrite a newer descriptor")
+    func versionedStatePushesAreMonotonic() {
+        var reducer = ChatSessionReconciler()
+        let date = Date(timeIntervalSince1970: 123)
+        reducer.replace(with: [descriptor("s", version: 5)])
+
+        let stale = reducer.apply(
+            sessionID: "s",
+            event: .stateChanged(.working(since: date), version: 4)
+        )
+        #expect(!stale)
+        #expect(reducer.descriptor(for: "s")?.state == .idle)
+
+        let current = reducer.apply(
+            sessionID: "s",
+            event: .stateChanged(.working(since: date), version: 6)
+        )
+        #expect(current)
+        #expect(reducer.descriptor(for: "s")?.version == 6)
     }
 
     @Test("A stale descriptor cannot resurrect a removed session")

@@ -289,6 +289,9 @@ extension TerminalController {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
+        if let endedError = mobileChatEndedSessionError(sessionID: sessionID) {
+            return endedError
+        }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
@@ -362,6 +365,9 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
+        if let endedError = mobileChatEndedSessionError(sessionID: sessionID) {
+            return endedError
+        }
         let hard = (params["hard"] as? Bool) ?? false
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
@@ -385,6 +391,9 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id"),
               let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
+        }
+        if let endedError = mobileChatEndedSessionError(sessionID: sessionID) {
+            return endedError
         }
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
@@ -443,6 +452,24 @@ extension TerminalController {
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")
         #endif
         return nil
+    }
+
+    /// Mutating chat actions must remain read-only for ended sessions even if
+    /// a stale client bypasses the iOS composer gates and calls the RPC
+    /// directly. History remains available through the separate read path.
+    private func mobileChatEndedSessionError(sessionID: String) -> V2CallResult? {
+        guard let record = agentChatTranscriptService?.sessionRecord(sessionID: sessionID),
+              record.state == .ended else {
+            return nil
+        }
+        return .err(
+            code: "session_ended",
+            message: String(
+                localized: "mobile.chat.error.sessionEnded",
+                defaultValue: "This agent session has ended and cannot receive messages."
+            ),
+            data: ["session_id": sessionID]
+        )
     }
 
     /// Whether a workspace/surface pair resolves to a live terminal panel.

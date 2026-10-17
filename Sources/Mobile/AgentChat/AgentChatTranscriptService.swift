@@ -662,7 +662,10 @@ final class AgentChatTranscriptService {
             return
         }
         if stateChanged {
-            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: record.sessionID,
+                event: .stateChanged(record.state, version: record.version)
+            ))
         }
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the

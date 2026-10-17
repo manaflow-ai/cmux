@@ -400,8 +400,8 @@ final class MobileChatStore {
             }) {
                 streamingProse = nil
             }
-        case .stateChanged(let state):
-            if reconciler.apply(sessionID: sessionID, event: .stateChanged(state)) {
+        case .stateChanged(let state, let version):
+            if reconciler.apply(sessionID: sessionID, event: .stateChanged(state, version: version)) {
                 publishSessions()
             }
         case .descriptorChanged(let descriptor):

@@ -78,11 +78,13 @@ public struct ChatSessionReconciler: Sendable, Equatable {
         switch event {
         case .descriptorChanged(let descriptor):
             return upsert(descriptor)
-        case .stateChanged(let state):
+        case .stateChanged(let state, let version):
             guard var descriptor = descriptorsByID[sessionID] else { return false }
             guard descriptor.state != state else { return false }
+            let nextVersion = version ?? (descriptor.version + 1)
+            guard nextVersion > descriptor.version else { return false }
             descriptor = descriptor.withState(state)
-            descriptor.version += 1
+            descriptor.version = nextVersion
             return upsert(descriptor)
         case .sessionRemoved(let version):
             if let existing = descriptorsByID[sessionID], version < existing.version {

@@ -7,7 +7,10 @@ public enum ChatSessionEvent: Sendable, Equatable {
     /// ``ChatMessage/id``.
     case updated([ChatMessage])
     /// The session's live activity state changed.
-    case stateChanged(ChatAgentState)
+    ///
+    /// New hosts include the authoritative descriptor revision. Older hosts
+    /// omit it; clients retain the legacy `nil` path for wire compatibility.
+    case stateChanged(ChatAgentState, version: Int?)
     /// The session's descriptor changed (title, terminal binding, ...).
     case descriptorChanged(ChatSessionDescriptor)
     /// The producing host removed this session from its live registry.
@@ -67,7 +70,10 @@ extension ChatSessionEvent: Codable {
         case .updated:
             self = .updated(try container.decode([ChatMessage].self, forKey: .messages))
         case .stateChanged:
-            self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
+            self = .stateChanged(
+                try container.decode(ChatAgentState.self, forKey: .state),
+                version: try container.decodeIfPresent(Int.self, forKey: .version)
+            )
         case .descriptorChanged:
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
         case .sessionRemoved:
@@ -95,9 +101,10 @@ extension ChatSessionEvent: Codable {
         case .updated(let messages):
             try container.encode(EventName.updated.rawValue, forKey: .event)
             try container.encode(messages, forKey: .messages)
-        case .stateChanged(let state):
+        case .stateChanged(let state, let version):
             try container.encode(EventName.stateChanged.rawValue, forKey: .event)
             try container.encode(state, forKey: .state)
+            try container.encodeIfPresent(version, forKey: .version)
         case .descriptorChanged(let descriptor):
             try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
             try container.encode(descriptor, forKey: .descriptor)
