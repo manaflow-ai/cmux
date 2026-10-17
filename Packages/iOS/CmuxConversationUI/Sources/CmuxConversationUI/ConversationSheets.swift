@@ -120,12 +120,12 @@ struct ConversationModelSettingsSheet: View {
                     } label: {
                         Text(ConversationL10n.value("conversation.done", "Done"))
                     }
-                    // A toolbar item adds an accessibility wrapper around its
-                    // Button.  Collapse the label into one actionable element
-                    // before assigning the identifier so iPadOS does not
-                    // expose both wrapper and child as exact matches.
-                    .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("ConversationSettingsDone")
+                    // A toolbar item adds an accessibility wrapper around its
+                    // Button.  Apply the identifier before collapsing the
+                    // children so iPadOS keeps only one exact match, matching
+                    // the working toolbar pattern used by the task list.
+                    .accessibilityElement(children: .ignore)
                 }
             }
             .task {
