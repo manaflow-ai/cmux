@@ -303,14 +303,17 @@ final class AgentChatModeModel {
         let pendingAttachments = attachments
         draft = ""
         attachments = []
+        let generation = sourceGeneration
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
             try await source.steer(
                 text: text,
                 attachments: pendingAttachments.map(\.outbound),
                 sessionID: selectedSessionID
             )
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
             draft = text
             attachments = pendingAttachments
             errorMessage = error.localizedDescription
@@ -390,9 +393,12 @@ final class AgentChatModeModel {
         guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         guard interruptingSessionIDs.insert(selectedSessionID).inserted else { return }
         defer { interruptingSessionIDs.remove(selectedSessionID) }
+        let generation = sourceGeneration
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
             try await source.interrupt(sessionID: selectedSessionID, hard: hard)
         } catch {
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -409,14 +415,17 @@ final class AgentChatModeModel {
               let queued = lastTurnBySession[selectedSessionID],
               retryingSessionIDs.insert(selectedSessionID).inserted else { return }
         defer { retryingSessionIDs.remove(selectedSessionID) }
+        let generation = sourceGeneration
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
             try await source.send(
                 text: queued.text,
                 attachments: queued.attachments.map(\.outbound),
                 sessionID: selectedSessionID
             )
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -434,6 +443,7 @@ final class AgentChatModeModel {
                 answeringRequestKeys.remove(requestKey)
             }
         }
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
             try await source.answer(optionIndex: optionIndex, requestID: requestID, sessionID: selectedSessionID)
             guard generation == sourceGeneration else { return }
@@ -448,8 +458,6 @@ final class AgentChatModeModel {
 
     private func loadAndObserve(source: any AgentChatSessionSource, generation: Int) async {
         guard !Task.isCancelled, generation == sourceGeneration else { return }
-        await loadSessions(source: source, generation: generation)
-        guard !Task.isCancelled, generation == sourceGeneration else { return }
         await observeHostEvents(source: source, generation: generation)
     }
 
@@ -460,9 +468,14 @@ final class AgentChatModeModel {
             guard !Task.isCancelled, generation == sourceGeneration else { return }
             connectionState = .connected
             reconnectAttempt = 0
+            // Register the stream before taking the authoritative snapshot.
+            // The stream has no replay cursor, so listing first leaves a gap
+            // in which a state/session event can be lost permanently.
+            await loadSessions(source: source, generation: generation)
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             for await frame in stream {
                 guard !Task.isCancelled, generation == sourceGeneration else { return }
-                apply(frame.event, to: frame.sessionID)
+                apply(frame.event, to: frame.sessionID, version: frame.version)
                 if frame.event.eventIsDescriptorChange {
                     if let descriptor = try? await source.session(sessionID: frame.sessionID) {
                         guard !Task.isCancelled, generation == sourceGeneration else { return }
@@ -652,14 +665,20 @@ final class AgentChatModeModel {
         }
     }
 
-    private func apply(_ event: ChatSessionEvent, to sessionID: String) {
+    private func apply(_ event: ChatSessionEvent, to sessionID: String, version: Int? = nil) {
         switch event {
         case .appended(let messages): upsertMessages(messages, sessionID: sessionID)
         case .updated(let messages): upsertMessages(messages, sessionID: sessionID)
         case .streamingProse(let message): streamingBySession[sessionID] = message
         case .stateChanged(let state):
             guard let old = sessions.first(where: { $0.id == sessionID }) else { return }
-            upsert(old.withState(state))
+            // State pushes now carry the same monotonic revision as the
+            // descriptor mutation that produced them. Ignore a stale push
+            // that arrives after a newer snapshot/descriptor event. Older
+            // hosts omit the frame revision and retain the best-effort legacy
+            // behavior for compatibility.
+            if let version, version <= old.version { return }
+            upsert(old.withState(state, version: version))
         case .descriptorChanged(let descriptor): upsert(descriptor)
         case .sessionRemoved:
             let version: Int
@@ -720,6 +739,8 @@ final class AgentChatModeModel {
             // retry replay a prompt from the conversation that was just
             // discarded; the replacement history will seed the latest user
             // prompt again when it arrives.
+            pendingSendsBySession[sessionID] = nil
+            sendingSessionIDs.remove(sessionID)
             lastTurnBySession[sessionID] = nil
             if selectedSessionID == sessionID, let source {
                 let generation = sourceGeneration

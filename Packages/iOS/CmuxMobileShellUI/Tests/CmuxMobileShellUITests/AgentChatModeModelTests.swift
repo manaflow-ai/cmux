@@ -139,6 +139,37 @@ import Testing
         #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
     }
 
+    @Test func staleVersionedStatePushCannotOverwriteNewerDescriptor() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+
+        let newer = ChatSessionDescriptor(
+            id: "session",
+            agentKind: .codex,
+            title: "Newer",
+            state: .working(since: Date(timeIntervalSince1970: 20)),
+            lastActivityAt: Date(timeIntervalSince1970: 20),
+            version: 3
+        )
+        await source.emitHost(sessionID: "session", event: .descriptorChanged(newer), version: 3)
+        await source.emitHost(
+            sessionID: "session",
+            event: .stateChanged(.idle),
+            version: 2
+        )
+        await settle()
+
+        #expect(model.selectedSession?.title == "Newer")
+        #expect(model.selectedSession?.state == newer.state)
+        #expect(model.selectedSession?.version == 3)
+    }
+
     @Test func sessionStreamEOFReloadsHistoryBeforeResubscribing() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -560,8 +591,8 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
         }
     }
 
-    func emitHost(sessionID: String, event: ChatSessionEvent) {
-        let frame = ChatSessionEventFrame(sessionID: sessionID, event: event)
+    func emitHost(sessionID: String, event: ChatSessionEvent, version: Int? = nil) {
+        let frame = ChatSessionEventFrame(sessionID: sessionID, event: event, version: version)
         if let hostContinuation {
             hostContinuation.yield(frame)
         } else {

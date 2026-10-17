@@ -115,7 +115,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     ///
     /// - Parameter newState: The state to set.
     /// - Returns: The updated descriptor.
-    public func withState(_ newState: ChatAgentState) -> ChatSessionDescriptor {
+    public func withState(_ newState: ChatAgentState, version: Int? = nil) -> ChatSessionDescriptor {
         ChatSessionDescriptor(
             id: id,
             agentKind: agentKind,
@@ -126,7 +126,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
             workingDirectory: workingDirectory,
             state: newState,
             lastActivityAt: lastActivityAt,
-            version: version
+            version: version ?? self.version
         )
     }
 
