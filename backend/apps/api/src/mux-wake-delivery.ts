@@ -24,6 +24,8 @@ export interface Wake {
   readonly conversation: string
   readonly seq: number
   readonly reason: string
+  /** When MuxDO committed it (ms); absent on a resend from the alarm. */
+  readonly at?: number
 }
 
 const ready = new WeakSet<SqlStorage>()

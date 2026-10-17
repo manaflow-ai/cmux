@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
+import { DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
@@ -340,6 +340,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
     const want = earliest(this.engine.outbox.nextDueAt(now), this.wakeAt(now))
     if (want === null) return
+    // A Chief's wake goes at once, not after the alarm fires (and after a running alarm's slow projection):
+    // a person waits on it (staging: 1-2.4 s from the message to the brain). The alarm still drains everything,
+    // so a failed send here is retried there; MuxDO takes a repeated delivery once (item ids).
+    const engine = this.engine
+    if (engine.outbox.dueChannels(now).some(isWakeChannel)) this.ctx.waitUntil(drainOutboxChannels(engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel).catch(() => undefined))
     // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
     const at = Math.max(want, now)
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
