@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
 import json
 import os
 from pathlib import Path
@@ -102,7 +103,7 @@ def _api(token: str, submission_id: str) -> tuple[int, dict]:
         except (json.JSONDecodeError, OSError):
             body = {}
         return error.code, body
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
         # No answer from Apple (network, time-out, a body that is not JSON):
         # the caller reports a failed query (exit 3), never a verdict.
         return 0, {"error": f"{type(error).__name__}: {error}"}

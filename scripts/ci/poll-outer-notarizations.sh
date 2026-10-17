@@ -113,7 +113,7 @@ while :; do
       if [ "${result_of[$variant]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -le $((current + SLACK_SECONDS)) ]; then
         # Due within the slack: its continuation waits for the deadline.
         result_of[$variant]=fallback
-        echo "::warning::$variant: the DMG around the stapled app is not Accepted and its 6 h deadline is $((deadline - current)) s away; its continuation waits for it and ships the accepted first DMG"
+        echo "::warning::$variant: the DMG around the stapled app is not Accepted and its 6 h deadline is $(date -u -d "@$deadline" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$deadline" +%Y-%m-%dT%H:%M:%SZ) (epoch $deadline); its continuation waits for it and ships the accepted first DMG"
       fi
     done
     echo "::warning::the polling budget ended before every outer DMG was decided; continue the rest with resume-nightly-notarization.yml"

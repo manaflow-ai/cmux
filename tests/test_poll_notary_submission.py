@@ -62,7 +62,9 @@ class PollNotarySubmissionTests(unittest.TestCase):
 
     def test_network_errors_and_bad_json_are_failed_queries(self) -> None:
         import urllib.error
-        for error in (urllib.error.URLError("unreachable"), TimeoutError("timed out"), json.JSONDecodeError("bad", "x", 0)):
+        import http.client
+        for error in (urllib.error.URLError("unreachable"), TimeoutError("timed out"), json.JSONDecodeError("bad", "x", 0),
+                      http.client.IncompleteRead(b""), http.client.LineTooLong("header line")):
             with self.subTest(error=type(error).__name__), patch.object(MODULE, "_token", return_value="fixture-token"), \
                     patch.object(MODULE.urllib.request, "urlopen", side_effect=error):
                 result = MODULE.main([str(self.state), "--output", str(self.output)])

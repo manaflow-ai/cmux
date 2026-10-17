@@ -583,7 +583,9 @@ jobs:
 
   staple-outer:
     needs: [preflight, poll-outer]
-    if: needs.poll-outer.outputs.decided == 'true'
+    # always(): a failed variant makes the poll exit 1, but the variants it
+    # decided still continue.
+    if: always() && needs.poll-outer.result != 'cancelled' && needs.poll-outer.outputs.decided == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -853,7 +855,9 @@ jobs:
 
   staple-stapled:
     needs: [preflight, poll-stapled]
-    if: needs.poll-stapled.outputs.decided == 'true'
+    # always(): a failed variant makes the poll exit 1, but the variants it
+    # decided still continue.
+    if: always() && needs.poll-stapled.result != 'cancelled' && needs.poll-stapled.outputs.decided == 'true'
     strategy:
       fail-fast: false
       matrix:
