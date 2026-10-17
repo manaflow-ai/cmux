@@ -511,7 +511,12 @@ final class SidebarListView: NSView {
         defer {
             if let windowPoint, let window {
                 hoverCards.pointerMoved(to: window.convertPoint(toScreen: windowPoint))
-            } else {
+            } else if !hoverFollowsScroll || hoverCards.machine.activeTarget != nil {
+                // A scroll under a stationary pointer must not repeatedly
+                // hit-test the whole hover-card source graph when no card is
+                // pending or shown. HoverCardMachine's stillPointerDelay
+                // intentionally suppresses that card; the row hover below is
+                // still updated for the visible sidebar view.
                 hoverCards.geometryChanged(in: window)
             }
         }
