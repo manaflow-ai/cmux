@@ -8741,7 +8741,8 @@ an agent or an MCP server, and every unknown param is
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
-(acpmux refused), `agent_session.unknown_permission`.
+(acpmux refused), `agent_session.unknown_permission`, and
+`agent_session.read_only` (a mutation sent to an observation attachment).
 
 ### agent-session-attach
 
@@ -8763,6 +8764,18 @@ acpmux line over 32 MiB). The close is a control message and can arrive before
 records still queued, which may be dropped; what the client received is
 always a gap-free prefix of the log, so it attaches again with `after_seq` set
 to the newest seq it holds. A record never overtakes the attach reply.
+
+### agent-session-observe
+
+`agent-session-observe-v1` is advertised with `agent-session-attach-v1` when
+the daemon resolved its acpmux socket. `{id, cmd:"agent-session-observe",
+surface, after_seq?, before_seq?, limit?, kinds?}` creates a read-only
+attachment and answers the same page as `agent-session-attach`. It emits the
+same `agent-session-record`, `agent-session-changed`, and
+`agent-session-closed` events, and clients resume from the newest received
+`seq` after a `lagged`, `overflow`, `acpmux_closed`, `too_large`, or `detached`
+close. `agent-session-prompt`, `agent-session-cancel`, and
+`agent-session-permission` are refused before acpmux is called.
 
 ### agent-session-events
 
