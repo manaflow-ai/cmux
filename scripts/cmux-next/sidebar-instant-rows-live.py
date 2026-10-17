@@ -31,12 +31,15 @@ and x5, a refused close, a sidebar tab row open and close (Show Tabs Under
 Workspaces on), and the tab strip open and close (frames only). Exit 1 when a
 check fails. The app is stopped by the caller ($NX_APP_STOP), never here.
 """
-import argparse, json, os, socket, sys, threading, time
+import argparse, json, os, socket, subprocess, sys, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--socket", default=os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{os.environ.get('NX_APP_TAG', '')}.sock")
 parser.add_argument("--seconds", type=float, default=1.6)
+# `--trace`: an Instruments Time Profiler trace of the app over the close scenarios (`<out>/close.trace`, and its
+# time-profile table as `<out>/close-time-profile.xml`), to name the code behind a stall.
+parser.add_argument("--trace", action="store_true")
 opts = parser.parse_args()
 failures = []
 
@@ -115,14 +118,14 @@ def scenario(name, presses, gap=0.033, settle=None, record=True):
             asked = time.time()  # the time the request left: a sample asked after a press returned must show it
             report = window_report()
             rows = [r for r in report.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
-            samples.append((asked, rows, report.get("selection")))
+            samples.append((asked, rows, selected_key(rows)))
 
     sampler = threading.Thread(target=sample, daemon=True)
     time.sleep(0.15)  # test harness: still frames before the change
     pressed = []
     sampler.start()
     for press in presses:
-        shown = window_report().get("selection")
+        shown = selected_key(workspace_rows())
         sent = time.time()
         action(press)
         pressed.append((sent, time.time(), shown))
@@ -171,8 +174,12 @@ def check_instant(name, samples, before, pressed, expect_new):
     check(f"{name} instant", not late and not bad, "; ".join(late + bad) or "every row final from the first sample after its press")
 
 
-def selection_key(selection):
-    return f"workspace({selection})" if selection and not str(selection).startswith("workspace(") else selection
+def selected_key(rows):
+    return next((r["key"] for r in rows if r.get("selected")), None)
+
+
+def selection_key(key):
+    return key
 
 
 # A sample asked this long after a press was sent is answered after the app ran the press's own turn.
@@ -239,6 +246,31 @@ def check_smooth(name, motion):
     return fades
 
 
+def start_trace():
+    """xctrace attached to the app (its main executable under NX_APP); returns the process, or None."""
+    app = os.path.basename((os.environ.get("NX_APP") or "").rstrip("/"))
+    found = subprocess.run(["pgrep", "-f", f"{app}/Contents/MacOS/"], capture_output=True, text=True).stdout.split() if app else []
+    pid = next((p for p in found if "Helper" not in subprocess.run(["ps", "-o", "comm=", "-p", p], capture_output=True, text=True).stdout), None)
+    if pid is None:
+        print("trace: no app process", flush=True)
+        return None
+    trace = os.path.join(opts.out, "close.trace")
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", pid, "--time-limit", "40s",
+                             "--output", trace, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    time.sleep(3)  # test harness: xctrace attaches before the scenarios
+    return proc
+
+
+def stop_trace(proc):
+    if proc is None:
+        return
+    proc.terminate()  # our own child: xctrace ends the recording and writes the trace
+    proc.wait()
+    trace = os.path.join(opts.out, "close.trace")
+    subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                    '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", os.path.join(opts.out, "close-time-profile.xml")])
+
+
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 90):
         sys.exit("the app does not answer on " + opts.socket)
@@ -257,6 +289,7 @@ def main():
     check_instant("cmd-n-x5", samples, before, pressed, 5)
     check_smooth("cmd-n-x5", motion)
 
+    tracer = start_trace() if opts.trace else None
     samples, motion, before, pressed = scenario("close-x1", ["closeWorkspace"], record=False)
     check_close("close-x1", samples, pressed, motion)
     check_smooth("close-x1", motion)
@@ -265,6 +298,11 @@ def main():
     check_close("close-x5", samples, pressed, motion)
     check_smooth("close-x5", motion)
     check("close-x5 count", len(workspace_rows()) == len(before) - 5, f"{len(before)} -> {len(workspace_rows())}")
+    stop_trace(tracer)
+    for _ in range(3):
+        action("newTab")
+    wait(lambda: len(workspace_rows()) >= len(before) - 5 + 3, 10)
+    time.sleep(1.0)  # test harness: the creates settle
     _, motion, before, _ = scenario("close-x1-recorded", ["closeWorkspace"])
     check_smooth("close-x1-recorded", motion)
     rpc("debug.sidebar_rows", {"refuse_next_close": True})

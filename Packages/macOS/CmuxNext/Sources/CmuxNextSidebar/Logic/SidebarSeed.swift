@@ -63,6 +63,7 @@ public struct SidebarSeed {
         } else {
             sections.removeAll { !listed.contains($0.id) }
             placeholderSections.formIntersection(listed)
+            grace.keep(listed)
         }
         return result
     }

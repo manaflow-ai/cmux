@@ -7,8 +7,8 @@ import Observation
 /// and its selection leave them out from the press: the row starts its close
 /// animation and the selection moves in that turn, while the daemon request
 /// runs behind. A refused close lists the row again (it opens like a new row)
-/// and says so in a toast. A window keeps a closing workspace when it would
-/// list nothing else: a window closes with its last workspace, never empty.
+/// and says so in a toast. A close that would leave its window's room with no
+/// other row is not hidden: a window closes with its last workspace, never empty.
 @MainActor @Observable
 public final class ClosingWorkspaces {
     public static let shared = ClosingWorkspaces()
@@ -27,17 +27,17 @@ public final class ClosingWorkspaces {
         throw ClosingWorkspacesRefusal()
     }
 
-    /// Starts the close of `id`. `listed` says whether a store still lists a
-    /// workspace: the closes whose workspace is gone are forgotten here.
-    public func begin(_ id: String, listed: (String) -> Bool) {
-        ids = ids.filter(listed).union([id])
+    /// Starts the close of `id`, one of `members` (its window's rows in the room it shows). False, and nothing
+    /// hidden, when no other member would be left.
+    public func begin(_ id: String, among members: [String]) -> Bool {
+        guard members.contains(where: { $0 != id && !ids.contains($0) }) else { return false }
+        ids.insert(id)
+        return true
     }
 
-    /// The daemon answered the close of `id`. A refusal lists the row again
-    /// and shows the toast in `window`; a close that went through stays
-    /// hidden while a store still lists it (`listed`), until `begin` forgets it.
-    public func end(_ id: String, refused: Bool, listed: Bool, in window: NSWindow?) {
-        guard refused || !listed else { return }
+    /// The close of `id` ended: the daemon refused it, or the store applied its result (the row is gone
+    /// from the store). A refusal lists the row again and shows the toast in `window`.
+    public func end(_ id: String, refused: Bool, in window: NSWindow?) {
         ids.remove(id)
         guard refused, let window else { return }
         CmuxToastCenter.shared.show(CmuxToast(id: "workspace-close-refused", message: Strings.closeRefused), in: window)

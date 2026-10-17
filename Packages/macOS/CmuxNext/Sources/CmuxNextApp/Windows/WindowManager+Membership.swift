@@ -79,7 +79,7 @@ extension WindowManager {
             if visible.isEmpty, !waiting,
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.visible(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = ClosingWorkspaces.shared.survivors(WindowProfiles.visible(window.workspaceIDs, profile: fallback, machines: machines))
             }
             // A room change shows the workspace last shown in that room.
             var wanted = preferred[window.id] ?? []
@@ -91,13 +91,17 @@ extension WindowManager {
         }
     }
 
-    /// A close the person asked for (`ClosingWorkspaces`): the selections leave the closing workspaces, and `window`'s
-    /// sidebar (the row starts closing, the next row is selected) and content show it in this turn, not an observation hop later.
-    func showClosing(in window: String?) {
+    /// A close the person asked for (`ClosingWorkspaces`): `id` leaves its window `window` now, unless no other row of
+    /// the room it shows would be left (then false). The selections move, and `window`'s sidebar (the row starts closing,
+    /// the next row is selected) and content show it in this turn, not an observation hop later.
+    func closeInstantly(_ id: String, in window: String?) -> Bool {
+        guard let window, let controller = controller(for: window) else { return false }
+        let room = WindowProfiles.visible(registry.members(of: window), profile: controller.state.profileID, machines: services.machines)
+        guard ClosingWorkspaces.shared.begin(id, among: room) else { return false }
         repairSelections(previous: [:])
-        guard let window, let controller = controller(for: window) else { return }
         controller.sidebar.sameTurn.syncNow(rows: true)
         controller.showWorkspace(requested: controller.state.workspaceID)
+        return true
     }
 
     /// Makes the first open receiver key, else our frontmost window.

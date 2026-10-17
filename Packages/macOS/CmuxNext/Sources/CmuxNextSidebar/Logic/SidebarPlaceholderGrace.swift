@@ -32,6 +32,11 @@ public final class SidebarPlaceholderGrace {
         return false
     }
 
+    /// Forgets the sections not in `listed` (a section that left waits again when it comes back).
+    func keep(_ listed: Set<SectionID>) {
+        for section in Set(waits.keys).union(ended) where !listed.contains(section) { reset(section) }
+    }
+
     /// `section` stopped loading: a later connect waits again.
     func reset(_ section: SectionID) {
         waits.removeValue(forKey: section)?.cancel()
