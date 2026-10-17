@@ -213,21 +213,25 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             }
             _ = try await client.approve(conversation: conversationID, request: approval.request, choice: optionID)
         case "question":
-            guard let question = part.question, question.isPending else {
+            guard let question = part.question else {
+                throw unsupported("question cards")
+            }
+            guard question.isPending else {
                 throw ConversationBackendError(code: -1, message: "That question was already answered")
             }
-            // `chief.answer` accepts labels or ids. The generic poll exposes
-            // the first item; preserve Chief's native recommendation for any
-            // additional items so a multi-item ask still submits a complete
-            // answer rather than failing with an incomplete card.
-            let choices = question.items.enumerated().map { index, item in
-                if index == 0 { return optionID }
-                return item.options.first?.id ?? ""
-            }.filter { !$0.isEmpty }
+            guard let item = Self.pollQuestion(from: question) else {
+                throw unsupported("multi-item or multi-select question cards")
+            }
+            guard item.options.contains(where: { $0.id == optionID }) else {
+                throw ConversationBackendError(code: -1, message: "That question option is no longer available")
+            }
+            // The generic poll can represent one single-select item. Do not
+            // invent answers for hidden items or collapse a multi-select ask
+            // into one selection; those require the complete question form.
             _ = try await client.answer(
                 conversation: conversationID,
                 message: messageID,
-                choices: choices,
+                choices: [optionID],
                 text: nil
             )
         default:
@@ -480,8 +484,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     options: options.map { ConversationPollOption(id: $0, text: $0) }
                 )
             }
-            if let question = part.question, part.kind == "question", question.isPending,
-               let item = question.items.first, !item.options.isEmpty {
+            if let question = part.question, part.kind == "question",
+               let item = pollQuestion(from: question) {
                 return ConversationPoll(
                     question: item.prompt,
                     options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
@@ -489,6 +493,21 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    /// The generic conversation poll has one radio-style option list. A Chief
+    /// question with multiple items or multi-select semantics must stay a
+    /// transcript-only card until a full question form is available; filling
+    /// its hidden selections with defaults can trigger an unintended action.
+    private static func pollQuestion(from question: MobileChiefQuestion) -> MobileChiefQuestion.Item? {
+        guard question.isPending,
+              question.items.count == 1,
+              let item = question.items.first,
+              !item.multiSelect,
+              !item.options.isEmpty else {
+            return nil
+        }
+        return item
     }
 
     /// Text shown after an approval/question is answered or cancelled. This

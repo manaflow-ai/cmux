@@ -60,4 +60,69 @@ struct ChiefConversationBackendTests {
         #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
         #expect(ChiefConversationBackend.receiptText(from: message) == "Which region?\n✓ US")
     }
+
+    @Test
+    func multiItemQuestionDoesNotInventHiddenSelections() {
+        let question = MobileChiefQuestion(
+            id: "question-2",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [
+                .init(
+                    id: "q0",
+                    prompt: "Which region?",
+                    options: [.init(id: "us", label: "US")]
+                ),
+                .init(
+                    id: "q1",
+                    prompt: "Which tier?",
+                    options: [.init(id: "pro", label: "Pro")]
+                )
+            ]
+        )
+        let message = MobileChiefMessage(
+            id: "question-message-2",
+            seq: 3,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: question.transcriptText,
+            at: Date(),
+            parts: ["question"],
+            partPayloads: [MobileChiefPart(kind: "question", question: question)]
+        )
+
+        #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
+    }
+
+    @Test
+    func multiSelectQuestionDoesNotCollapseToOneChoice() {
+        let question = MobileChiefQuestion(
+            id: "question-3",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [
+                .init(
+                    id: "q0",
+                    prompt: "Which features?",
+                    options: [
+                        .init(id: "logs", label: "Logs"),
+                        .init(id: "metrics", label: "Metrics")
+                    ],
+                    multiSelect: true
+                )
+            ]
+        )
+        let message = MobileChiefMessage(
+            id: "question-message-3",
+            seq: 4,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: question.transcriptText,
+            at: Date(),
+            parts: ["question"],
+            partPayloads: [MobileChiefPart(kind: "question", question: question)]
+        )
+
+        #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
+    }
 }
