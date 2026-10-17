@@ -658052,6 +658052,242 @@
         }
       }
     },
+    "chief.firstRun.intro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief runs your coding agents and terminals."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief steuert deine Coding-Agents und Terminals."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gère vos agents de code et vos terminaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدير Chief وكلاء البرمجة والطرفيات لديك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gestiona tus agentes de código y tus terminales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 管理你的程式設計代理和終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 管理你的编程代理和终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 코딩 에이전트와 터미널을 관리합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief はコーディングエージェントとターミナルを管理します。"
+          }
+        }
+      }
+    },
+    "chief.firstRun.intro.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts coding agents, checks on them and reports back."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet Coding-Agents, behält sie im Blick und berichtet dir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lance des agents de code, les surveille et vous fait un compte rendu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل وكلاء البرمجة ويتابعهم ويطلعك على النتائج."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia agentes de código, los supervisa y te informa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動程式設計代理、追蹤進度並向你回報。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动编程代理、跟进进度并向你汇报。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트를 시작하고 진행 상황을 확인해 알려 줍니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントを起動し、様子を確認して報告します。"
+          }
+        }
+      }
+    },
+    "chief.firstRun.intro.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reads and drives your terminals and workspaces."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liest und bedient deine Terminals und Workspaces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit et pilote vos terminaux et vos espaces de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقرأ الطرفيات ومساحات العمل لديك ويتحكم بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lee y controla tus terminales y espacios de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取並操作你的終端機和工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取并操作你的终端和工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널과 워크스페이스를 읽고 조작합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルとワークスペースを読み取り、操作します。"
+          }
+        }
+      }
+    },
+    "chief.firstRun.intro.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creates Cloud machines and shows their desktops for computer use."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt Cloud-Maschinen und zeigt ihre Desktops für Computer Use."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crée des machines Cloud et affiche leur bureau pour l’utilisation de l’ordinateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينشئ أجهزة Cloud ويعرض أسطح مكتبها لاستخدام الكمبيوتر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea máquinas Cloud y muestra sus escritorios para el uso del ordenador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立 Cloud 機器並顯示其桌面以操作電腦。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建 Cloud 机器并显示其桌面以操作电脑。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신을 만들고 컴퓨터 사용을 위해 데스크톱을 보여 줍니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを作成し、コンピューター操作のためにデスクトップを表示します。"
+          }
+        }
+      }
+    },
     "chief.firstRun.prompt.agentStatus": {
       "extractionState": "manual",
       "localizations": {

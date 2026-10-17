@@ -7172,13 +7172,15 @@ extension TabManager {
         }
 
         // Determine selection before mutating @Published properties.
-        let newSelectedId: UUID?
+        let savedSelection: Workspace?
         if let selectedWorkspaceIndex,
            newTabs.indices.contains(selectedWorkspaceIndex) {
-            newSelectedId = newTabs[selectedWorkspaceIndex].id
+            savedSelection = newTabs[selectedWorkspaceIndex]
         } else {
-            newSelectedId = newTabs.first?.id
+            savedSelection = newTabs.first
         }
+        // A window opens on a terminal; Chief Home stays one click away in the sidebar.
+        let newSelectedId = ChiefHomeNavigation.openingWorkspace(savedSelection, in: newTabs)?.id
 
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.

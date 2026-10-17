@@ -3,8 +3,8 @@ import CmuxHomeRender
 import QuartzCore
 
 /// The empty Chief conversation's first-run panel, between the header and
-/// the message box. Labels and actions only, no lines about what Chief is
-/// (cmux-next `HomeFirstRunView`). Hidden once the conversation has a
+/// the message box: a short intro to what Chief does, then labels and
+/// actions (cmux-next `HomeFirstRunView`). Hidden once the conversation has a
 /// message (``ChiefTranscriptView``), with a short fade and lift.
 ///
 /// One centered column for everything, as wide as the widest line of chips
@@ -16,6 +16,9 @@ import QuartzCore
 /// home; `topics/first-run.md`, Cursor's quiet getting-started card). In a
 /// tall pane the group rises up to 24 pt more, so the space under the header
 /// is not all void while the group stays anchored to the composer.
+/// 0. The intro: one line saying what Chief is, then three lines with a
+///    glyph each for what it does (agents, terminals, Cloud machines and
+///    their desktops). Plain text, no buttons.
 /// 1. "Open a terminal" and "Start an agent" (when the app wires them), each
 ///    with its configured shortcut at the trailing edge: bordered buttons.
 /// 2. "Your agents": up to five workspaces with an agent, most urgent first,
@@ -34,7 +37,7 @@ import QuartzCore
 ///
 /// Nothing runs under the compose field: chips that do not fit are dropped
 /// from the end, then agent rows (least urgent first) with their heading,
-/// then the hint, then the action rows.
+/// then the intro, then the hint, then the action rows.
 final class ChiefFirstRunView: NSView {
     /// The column's widest; the three chips (about 600 pt) wrap 2 + 1 inside it.
     static let maxWidth: CGFloat = 560
@@ -52,6 +55,13 @@ final class ChiefFirstRunView: NSView {
     private(set) var agentRows: [ChiefFirstRunRow] = []
     private(set) var agents: [ChiefAgentGlance] = []
     let agentsHeader = NSTextField(labelWithString: ChiefStrings.firstRunAgentsHeader)
+    let introTitle = NSTextField(wrappingLabelWithString: ChiefStrings.firstRunIntroTitle)
+    /// The intro's lines, each after its glyph in ``introGlyphs``.
+    let introLines = [ChiefStrings.firstRunIntroAgents, ChiefStrings.firstRunIntroTerminals,
+                      ChiefStrings.firstRunIntroCloud].map(NSTextField.init(wrappingLabelWithString:))
+    private let introGlyphs = ["square.stack.3d.up", "terminal", "display"].map { symbol in
+        NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
+    }
     let hint = NSTextField(labelWithString: "")
     private let prompts = ChiefStarterPrompt.all
 
@@ -87,6 +97,18 @@ final class ChiefFirstRunView: NSView {
         hint.isHidden = true
         content.addSubview(agentsHeader)
         content.addSubview(hint)
+        introTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        for label in [introTitle] + introLines {
+            label.isSelectable = false
+            label.setAccessibilityRole(.staticText)
+            content.addSubview(label)
+        }
+        for line in introLines { line.font = .systemFont(ofSize: 13) }
+        for glyph in introGlyphs {
+            glyph.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            glyph.setAccessibilityElement(false)
+            content.addSubview(glyph)
+        }
 
         chipGroup.setAccessibilityElement(true)
         chipGroup.setAccessibilityRole(.group)
@@ -222,6 +244,9 @@ final class ChiefFirstRunView: NSView {
         guard let theme else { return }
         agentsHeader.textColor = theme.textTertiary
         hint.textColor = theme.textTertiary
+        introTitle.textColor = theme.textPrimary
+        for line in introLines { line.textColor = theme.textSecondary }
+        for glyph in introGlyphs { glyph.contentTintColor = theme.textSecondary }
         let pressed = theme.mix(theme.isDark ? 0.17 : 0.11)
         let rowColors = ChiefFirstRunRow.Colors(text: theme.textPrimary, glyph: theme.textSecondary,
                                                 trailing: theme.textTertiary, fill: theme.raisedFill,
@@ -409,6 +434,12 @@ final class ChiefFirstRunView: NSView {
         let row = ChiefFirstRunRow.height, gap: CGFloat = 6, group: CGFloat = 14
         let headerHeight = ceil(agentsHeader.intrinsicContentSize.height)
         let hintHeight = ceil(hint.intrinsicContentSize.height)
+        // The intro's lines wrap inside the column, after a glyph 12 pt in.
+        let glyphSize: CGFloat = 16, textInset: CGFloat = 12 + glyphSize + 8
+        let titleHeight = Self.wrappedHeight(introTitle, width: width - 24)
+        let lineHeights = introLines.map { Self.wrappedHeight($0, width: width - textInset - 12) }
+        let introHeight = titleHeight + lineHeights.reduce(0) { $0 + gap + $1 }
+        var showsIntro = true
         var showsActions = !actionRows.isEmpty
         var showsHint = !hint.stringValue.isEmpty
         var agentCount = agentRows.count
@@ -416,8 +447,13 @@ final class ChiefFirstRunView: NSView {
         func columnHeight() -> CGFloat {
             var height: CGFloat = 0
             var blocks = 0
+            if showsIntro {
+                height += introHeight
+                blocks += 1
+            }
             if showsActions {
-                height += CGFloat(actionRows.count) * row + CGFloat(actionRows.count - 1) * gap
+                height += (blocks > 0 ? group : 0) + CGFloat(actionRows.count) * row
+                    + CGFloat(actionRows.count - 1) * gap
                 blocks += 1
             }
             if agentCount > 0 {
@@ -431,6 +467,7 @@ final class ChiefFirstRunView: NSView {
             return height
         }
         while agentCount > 0, columnHeight() > room { agentCount -= 1 }
+        if columnHeight() > room { showsIntro = false }
         if columnHeight() > room { showsHint = false }
         if columnHeight() > room { showsActions = false }
 
@@ -441,9 +478,31 @@ final class ChiefFirstRunView: NSView {
         let lift = min(24, max(0, room - column - 120) / 4)
         var y = max(0, floor(room - column - lift))
         var placedBlock = false
+        setHidden(introTitle, !showsIntro)
+        for (line, glyph) in zip(introLines, introGlyphs) {
+            setHidden(line, !showsIntro)
+            setHidden(glyph, !showsIntro)
+        }
+        if showsIntro {
+            introTitle.alignment = rtl ? .right : .left
+            introTitle.frame = CGRect(x: x + 12, y: y, width: max(0, width - 24), height: titleHeight)
+            y += titleHeight
+            for ((line, glyph), height) in zip(zip(introLines, introGlyphs), lineHeights) {
+                y += gap
+                let textWidth = max(0, width - textInset - 12)
+                line.alignment = rtl ? .right : .left
+                line.frame = CGRect(x: rtl ? x + 12 : x + textInset, y: y, width: textWidth, height: height)
+                let firstLine = ceil(line.font?.boundingRectForFont.height ?? glyphSize)
+                glyph.frame = CGRect(x: rtl ? x + width - 12 - glyphSize : x + 12,
+                                     y: y + max(0, floor((min(height, firstLine) - glyphSize) / 2)),
+                                     width: glyphSize, height: glyphSize)
+            }
+            placedBlock = true
+        }
         for (index, actionRow) in actionRows.enumerated() {
             setHidden(actionRow, !showsActions)
             guard showsActions else { continue }
+            if index == 0, placedBlock { y += group }
             if index > 0 { y += gap }
             actionRow.frame = CGRect(x: x, y: y, width: width, height: row)
             y += row
@@ -472,6 +531,12 @@ final class ChiefFirstRunView: NSView {
         }
         for columnRow in columnRows { columnRow.width = width }
         chainKeyViews()
+    }
+
+    /// The height `label` needs at `width`, wrapping.
+    private static func wrappedHeight(_ label: NSTextField, width: CGFloat) -> CGFloat {
+        guard width > 0, let cell = label.cell else { return 0 }
+        return ceil(cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height)
     }
 
     private func setHidden(_ view: NSView, _ hidden: Bool) {
