@@ -643,6 +643,14 @@ final class AgentChatTranscriptService {
         if let title = batch.discoveredTitle {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
+        let authoritativeMessages = batch.appended + batch.updated
+        if removeResolvedAttentionMessages(sessionID: sessionID, messages: authoritativeMessages) {
+            // The live parser's question IDs are authoritative. Attention
+            // cards use a local identity, so reset the projection once to
+            // prevent an optimistic card from appearing beside its resolved
+            // transcript counterpart.
+            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
+        }
         if !batch.appended.isEmpty {
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
@@ -676,6 +684,23 @@ final class AgentChatTranscriptService {
     private func updateLatestTranscriptSeq(sessionID: String, messages: [ChatMessage]) {
         guard let maxSeq = messages.map(\.seq).max() else { return }
         latestTranscriptSeqBySessionID[sessionID] = max(latestTranscriptSeqBySessionID[sessionID] ?? -1, maxSeq)
+    }
+
+    private func removeResolvedAttentionMessages(sessionID: String, messages: [ChatMessage]) -> Bool {
+        let resolvedRequestIDs = Set(messages.compactMap { message -> String? in
+            guard case .question(let question) = message.kind,
+                  question.selectedOptionLabel != nil else { return nil }
+            return question.requestID
+        })
+        guard !resolvedRequestIDs.isEmpty,
+              var pending = pendingAttentionMessages[sessionID] else { return false }
+        let originalCount = pending.count
+        pending = pending.filter { _, message in
+            guard let requestID = Self.attentionRequestID(for: message) else { return true }
+            return !resolvedRequestIDs.contains(requestID)
+        }
+        pendingAttentionMessages[sessionID] = pending
+        return pending.count != originalCount
     }
 
     private static func completedAssistantTurnTimestamp(in messages: [ChatMessage]) -> Date? {
@@ -871,7 +896,7 @@ final class AgentChatTranscriptService {
                 guard question.selectedOptionLabel == nil else { continue }
                 replacement = ChatMessage(
                     id: message.id, seq: message.seq, role: message.role, timestamp: message.timestamp,
-                    kind: .question(ChatQuestion(prompt: question.prompt, options: question.options, selectedOptionLabel: resolution == .approved ? question.options.first?.label : "Dismissed", questionID: question.questionID, requestID: question.requestID))
+                            kind: .question(ChatQuestion(prompt: question.prompt, options: question.options, selectedOptionLabel: resolution == .approved ? "Answered" : "Dismissed", questionID: question.questionID, requestID: question.requestID))
                 )
             default:
                 replacement = nil
