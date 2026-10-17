@@ -147,7 +147,7 @@ extension AgentChatTranscriptService {
             let options = question.options.map {
                 ChatQuestion.Option(label: $0.label, detail: $0.description, id: $0.id)
             }
-            ParsedQuestion(
+            return ParsedQuestion(
                 id: question.id,
                 prompt: question.prompt.isEmpty ? "The agent is waiting for an answer" : question.prompt,
                 options: options.isEmpty ? [ChatQuestion.Option(label: "Continue", id: "continue")] : options,
