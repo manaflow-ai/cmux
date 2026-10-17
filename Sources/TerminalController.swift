@@ -6890,12 +6890,17 @@ class TerminalController {
             requestId: requestId,
             decision: .question(selections: selections)
         )
-        Task { @MainActor in
-            TerminalController.shared.noteAgentChatStructuredReply(
-                requestID: requestId,
-                resolution: .approved,
-                selection: selections.first
-            )
+        // A multi-question request must be reconciled from the provider hook:
+        // the immediate attention projection accepts one label only, and
+        // applying the first label to every card would display false answers.
+        if selections.count == 1 {
+            Task { @MainActor in
+                TerminalController.shared.noteAgentChatStructuredReply(
+                    requestID: requestId,
+                    resolution: .approved,
+                    selection: selections[0]
+                )
+            }
         }
         return .ok(["delivered": true])
     }
