@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+import Foundation
 
 /// Artifact RPC access for the shell store: an event source bound to the
 /// current Mac connection, consumed by the terminal/panel artifact loaders.
