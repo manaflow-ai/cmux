@@ -5568,7 +5568,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// (socket focus policy), and the panel keeps its ID. Returns nil when the
     /// panel is not a browser, or while restore is still assembling layout.
     func browserPanelForAutomation(_ panelId: UUID) -> BrowserPanel? {
-        if let browserPanel = panels[panelId] as? BrowserPanel { return browserPanel }
+        if let browserPanel = panels[panelId] as? BrowserPanel {
+            // Automation drives it from now on: no saved password fills in it.
+            browserPanel.markAgentDriven()
+            return browserPanel
+        }
         guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
               sessionRestoreLayoutSuppressionDepth == 0 else {
             return nil
@@ -5579,7 +5583,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 "panel=\(panelId.uuidString.prefix(8)) reason=automation"
         )
 #endif
-        return materializeDeferredBrowserPanel(deferredPanel)
+        let browserPanel = materializeDeferredBrowserPanel(deferredPanel)
+        browserPanel?.markAgentDriven()
+        return browserPanel
     }
 
     /// Returns the current panel after materializing a deferred browser when needed.

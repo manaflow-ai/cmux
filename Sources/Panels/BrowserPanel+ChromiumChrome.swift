@@ -161,6 +161,8 @@ final class BrowserPanelEnginePageDelegate: BrowserPageUIDelegate {
     lazy var downloadLedger = BrowserPageDownloadLedger(temporaryDirectory: BrowserDownloadDelegate.tempDir)
     /// Engine download ids the person paused.
     var pausedDownloadIDs: Set<String> = []
+    /// The strip's questions for the engine's waiting password offers, by offer id.
+    var passwordPromptIDs: [Int: UUID] = [:]
 
     func page(_ page: any BrowserPage, decidePolicyFor action: BrowserPageNavigationAction) async -> BrowserPageNavigationDecision {
         .allow

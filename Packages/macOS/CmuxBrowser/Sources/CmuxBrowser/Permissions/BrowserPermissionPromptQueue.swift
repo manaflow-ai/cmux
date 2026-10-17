@@ -1,7 +1,10 @@
 public import Foundation
 import Observation
 
-/// One question in a panel's permission prompt bar.
+/// One question in a panel's prompt bar: a site's permission request, or
+/// the password manager's offer to save a sign-in (design spec §4 and §8b:
+/// the save-password strip is a member of the same strip family, asked one
+/// at a time with the panel's other questions).
 public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
     /// The buttons a prompt offers.
     public enum Style: Equatable, Sendable {
@@ -13,6 +16,10 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         case systemBlocked
         /// The device is managed by the organization: Not now only.
         case systemManaged
+        /// A submitted sign-in: Never for this site · Not now · **Save**, or
+        /// Not now · **Update** for a saved one (Chromium's update bubble
+        /// has no Never either).
+        case savePassword(isUpdate: Bool)
     }
 
     /// What the strip says.
@@ -23,6 +30,9 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         case systemBlocked
         /// The devices are managed on this Mac (the page was already denied).
         case systemManaged
+        /// Save (or update) the password of a sign-in the page submitted.
+        /// The password itself never leaves the engine.
+        case savePassword(username: String, isUpdate: Bool)
     }
 
     public let id: UUID
@@ -55,11 +65,29 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         }
     }
 
+    /// The password manager's question for `origin`: the answers are
+    /// ``BrowserPermissionPromptAnswer/allowAndRemember`` (Save or Update),
+    /// ``BrowserPermissionPromptAnswer/block`` (Never for this site) and
+    /// ``BrowserPermissionPromptAnswer/notNow``.
+    public static func savePassword(
+        origin: URL, username: String, isUpdate: Bool, id: UUID = UUID()
+    ) -> BrowserPermissionPrompt {
+        BrowserPermissionPrompt(id: id, kinds: [], origin: origin, variant: .savePassword(username: username, isUpdate: isUpdate))
+    }
+
+    /// Whether this is the password manager's question rather than a site's
+    /// permission request. Navigation does not end it: the engine ends it.
+    public var isPasswordPrompt: Bool {
+        if case .savePassword = variant { return true }
+        return false
+    }
+
     /// The prompt's buttons: capture devices get Chrome's three answers.
     public var style: Style {
         switch variant {
         case .systemBlocked: return .systemBlocked
         case .systemManaged: return .systemManaged
+        case .savePassword(_, let isUpdate): return .savePassword(isUpdate: isUpdate)
         case .ask: return kinds.allSatisfy { $0 == .camera || $0 == .microphone } ? .captureDevices : .blockOrAllow
         }
     }
@@ -71,9 +99,10 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
         kinds == [.clipboardRead] ? .allowOnce : .allowAndRemember
     }
 
-    /// Whether `other` asks the same origin about the same kinds.
+    /// Whether `other` asks the same origin about the same kinds. Each
+    /// password offer is its own question: the engine ends them one by one.
     func asksSameQuestion(as other: BrowserPermissionPrompt) -> Bool {
-        variant == other.variant
+        !isPasswordPrompt && variant == other.variant
             && Set(kinds) == Set(other.kinds)
             && Self.key(origin) == Self.key(other.origin)
             && embeddingOrigin.map(Self.key) == other.embeddingOrigin.map(Self.key)
@@ -105,14 +134,16 @@ public struct BrowserPermissionPrompt: Identifiable, Equatable, Sendable {
 /// The person's answer in the prompt bar.
 public enum BrowserPermissionPromptAnswer: Equatable, Sendable {
     /// "Allow while visiting the site" or "Allow": granted and remembered.
+    /// "Save" or "Update" in the save-password strip.
     case allowAndRemember
     /// "Allow this time": granted, not remembered.
     case allowOnce
-    /// "Never allow" or "Block": denied and remembered.
+    /// "Never allow" or "Block": denied and remembered. "Never for this
+    /// site" in the save-password strip.
     case block
     /// "Open System Settings" (system-blocked strip).
     case openSystemSettings
-    /// "Not now" (system-blocked or managed strip).
+    /// "Not now" (system-blocked, managed or save-password strip).
     case notNow
 }
 
@@ -161,12 +192,26 @@ public final class BrowserPermissionPromptQueue {
         finish(id, nil)
     }
 
-    /// Ends every question without an answer (navigation, panel closed).
+    /// Ends every question without an answer (panel closed).
     public func cancelAll() {
-        let ended = prompts.flatMap { completions[$0.id] ?? [] }
-        guard !ended.isEmpty else { return }
-        prompts.removeAll()
-        completions.removeAll()
+        cancelAll { _ in true }
+    }
+
+    /// Ends the site's permission questions without an answer (navigation,
+    /// the engine ended its question). The password manager's questions stay:
+    /// Chromium asks to save a sign-in after the page it submitted navigates,
+    /// and ends that question itself.
+    public func cancelPermissionPrompts() {
+        cancelAll { !$0.isPasswordPrompt }
+    }
+
+    private func cancelAll(where shouldEnd: (BrowserPermissionPrompt) -> Bool) {
+        let ending = prompts.filter(shouldEnd)
+        let ended = ending.flatMap { completions[$0.id] ?? [] }
+        guard !ending.isEmpty else { return }
+        let ids = Set(ending.map(\.id))
+        prompts.removeAll { ids.contains($0.id) }
+        for id in ids { completions.removeValue(forKey: id) }
         for completion in ended {
             completion(nil)
         }

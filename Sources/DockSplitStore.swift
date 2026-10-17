@@ -448,12 +448,18 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// restore placeholder in place without changing focus. Nil when the
     /// panel is not a browser or restore is still in progress.
     func browserPanelForAutomation(_ panelId: UUID) -> BrowserPanel? {
-        if let browserPanel = panels[panelId] as? BrowserPanel { return browserPanel }
+        if let browserPanel = panels[panelId] as? BrowserPanel {
+            // Automation drives it from now on: no saved password fills in it.
+            browserPanel.markAgentDriven()
+            return browserPanel
+        }
         guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
               sessionRestoreDepth == 0 else {
             return nil
         }
-        return materializeDeferredBrowserPanel(deferredPanel)
+        let browserPanel = materializeDeferredBrowserPanel(deferredPanel)
+        browserPanel?.markAgentDriven()
+        return browserPanel
     }
 
     /// Requests a deferred browser transition from the Dock owner.

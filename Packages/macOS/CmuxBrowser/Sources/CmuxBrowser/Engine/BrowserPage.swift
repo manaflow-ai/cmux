@@ -152,6 +152,15 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
     /// `String.isRefusedForAgentNavigation` is cancelled in the engine.
     /// - Parameter enabled: `true` while an agent drives the page.
     func setAgentNavigationGuard(_ enabled: Bool)
+    /// Marks the page driven by an agent (socket or CLI), for the rest of its
+    /// life: the engine never fills a saved password in it again, nor offers
+    /// to save one, so an automated click cannot hand a password to page
+    /// script. Popups it opens afterwards are marked too.
+    /// - Returns: `true` when the page was live and not marked yet, so a
+    ///   password filled before may still sit in it; the engine reopens the
+    ///   page and the caller's operation should be retried.
+    @discardableResult
+    func markAgentDriven() -> Bool
     /// The back/forward history with page state, for restoring later.
     /// - Returns: The state, or `nil` when the engine cannot export it now.
     func exportRestoreState() -> BrowserPageRestoreState?
@@ -167,6 +176,12 @@ extension BrowserPage {
     /// Engines without privileged internal pages (WebKit) need no guard.
     /// - Parameter enabled: Ignored.
     public func setAgentNavigationGuard(_ enabled: Bool) {}
+
+    /// Engines without a password manager of their own (WebKit) have
+    /// nothing to turn off.
+    /// - Returns: `false`.
+    @discardableResult
+    public func markAgentDriven() -> Bool { false }
 
     /// Runs a find-in-page script in the page world, so the shared find
     /// service works on every engine.

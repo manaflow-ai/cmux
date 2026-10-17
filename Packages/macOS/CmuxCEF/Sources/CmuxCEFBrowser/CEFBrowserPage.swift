@@ -50,6 +50,14 @@ public final class CEFBrowserPage: BrowserPage {
     )
     /// Permission prompts and downloads of this page (CEFBrowserPage+Data.swift).
     let dataBridge = CEFBrowserPageDataBridge()
+    /// Password filling and save offers (CEFBrowserPage+Passwords.swift): the
+    /// per-tab fill switch last sent, the browser it was sent to, and the save
+    /// offers waiting for the person, by Chromium prompt id.
+    var passwords = (
+        fill: PasswordFillState(), browserID: Int32?.none, offers: [Int32: Task<Void, Never>]()
+    )
+    /// `true` once an agent drove the page (``markAgentDriven()``); never cleared.
+    public internal(set) var isAgentDriven = false
     /// DevTools protocol events automation reads back, and whether automation
     /// asked for them, per Chromium browser (CEFBrowserPage+ProtocolTelemetry).
     var telemetry = (
@@ -96,9 +104,13 @@ public final class CEFBrowserPage: BrowserPage {
             self?.handle(event)
         }
         browser.onWindowCreated = { [weak self] id in
+            // Before the first document: an agent-driven page never fills.
+            self?.applyPasswordFill()
             self?.enableProtocolTelemetryIfWanted(browserID: id)
             self?.registerPendingUserScripts(browserID: id)
         }
+        // A popup's browser exists already.
+        applyPasswordFill()
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -441,6 +453,7 @@ public final class CEFBrowserPage: BrowserPage {
         guard !isClosed else { return }
         isClosed = true
         dataBridge.pageWillClose(self)
+        endPasswordOffers(answer: false)
         pendingDialogs.values.forEach { $0.cancel() }
         pendingDialogs.removeAll()
         features.tearDown()
@@ -456,6 +469,7 @@ public final class CEFBrowserPage: BrowserPage {
         case .stateChanged(let cefState):
             // The browser may have been created since the guard was set.
             applyNavigationGuardIfNeeded()
+            applyPasswordFill()
             extensionSupport?.noteBrowserID()
             emit(.stateChanged(Self.pageState(cefState)))
             if cefState.faviconURL != lastFaviconURL {
@@ -499,6 +513,8 @@ public final class CEFBrowserPage: BrowserPage {
                                    defaultText: defaultText, isReload: isReload)
         case .jsDialogDismissed(_, let token):
             pendingDialogs.removeValue(forKey: token)?.cancel()
+        case .passwordPrompt(_, let promptID, let json):
+            handlePasswordPrompt(promptID: promptID, json: json)
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
@@ -585,6 +601,9 @@ public final class CEFBrowserPage: BrowserPage {
         case .allowPopup:
             let popupPage = CEFBrowserPage(browser: popup, shim: shimProvider, devToolsLayoutStore: devToolsLayoutStore)
             popupPage.rendererProcesses = rendererProcesses
+            // An agent's page reaches its popups through window.opener and
+            // window.open handles: they never fill a password either.
+            if isAgentDriven { popupPage.markAgentDriven() }
             uiDelegate.page(self, didCreatePopup: popupPage, for: request)
         case .handled, .block:
             popup.close()
