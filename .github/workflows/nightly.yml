@@ -1799,9 +1799,11 @@ jobs:
           cache-all-crates: true
 
       # The resolved cmux-tui publication carries an attested, checksum-verified
-      # acpmux companion for this exact tree. Fetch it before the existing helper
-      # step so build-acpmux.sh seeds its commit-addressed cache and only invokes
-      # Cargo when the publication predates acpmux or lacks the requested slice.
+      # acpmux companion for this exact tree. Fetch only that companion before the
+      # existing helper step so build-acpmux.sh seeds its commit-addressed cache
+      # and only invokes Cargo when the publication predates acpmux or lacks the
+      # requested slice. The daemon's other companions are fetched later by the
+      # bundle job and do not belong in this app-build transfer.
       # Fast and build-only runs do not resolve a published tree and keep their
       # existing local-build paths.
       - name: Fetch the resolved cmux-tui tree companions
@@ -1811,7 +1813,7 @@ jobs:
           CMUX_TUI_TREE_TARGET: aarch64-apple-darwin
         run: |
           set -euo pipefail
-          scripts/cmux-next/pin-cmux-tui.sh fetch
+          scripts/cmux-next/pin-cmux-tui.sh fetch-acpmux
           acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
           [[ -x "$acpmux_bin" ]] || { echo "error: fetched tree has no executable acpmux companion" >&2; exit 1; }
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
