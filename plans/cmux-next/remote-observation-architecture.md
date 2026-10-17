@@ -165,6 +165,35 @@ Coordination lanes C02, C14, C18, and C04 should consume this receipt shape
 directly. They may add product-specific state names, but must not invent a
 second screenshot manifest, transition ID, or runner-failure taxonomy.
 
+## Visual evidence feed projection
+
+The PR, bead, chat, and source-head feed (canonical bead `cx-4oa.1` under epic
+`cx-4oa`) is a projection over the existing Beads/HQ/gallery records; it is not
+a second database. A feed item keeps the
+authoritative record IDs and embeds the receipt cases needed to open or compare
+evidence:
+
+```text
+bead_id             canonical bead/task ID
+pull_request        repository and PR number
+chat_id             Codex/Cmux chat or lane identity
+source_head         exact commit, matching the receipt
+hosted_url          clickable dogfood/review URL, when available
+build               tag, host, artifact URL, sha256, and capture metadata
+cases[]             visual cases and per-case verdicts
+evidence_gap        explicit gap such as missing-clickable-build
+receipt_id          immutable observation receipt ID
+retry_message_id    mailbox idempotency key reused on retry
+```
+
+The projection reads authoritative state by these IDs and may cache only a
+bounded, disposable index. A missing hosted URL or build artifact remains an
+evidence gap; the feed must not synthesize a green state from a receipt alone.
+Retries update delivery status under the same `receipt_id` and
+`retry_message_id`, preserving the original artifact hashes and source head.
+Consumers can therefore compare PRs, beads, and chats without inventing a
+lane-specific manifest or mutating the source of truth.
+
 ## Reconnect and backpressure
 
 - Keep one in-flight read per `(machine, session, generation)`.
