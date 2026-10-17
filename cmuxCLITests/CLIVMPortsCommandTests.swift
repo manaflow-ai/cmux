@@ -104,6 +104,20 @@ struct CLIVMPortsCommandTests {
         #expect(live.stdout.contains("http://10.140.85.1:3000"))
     }
 
+    @Test("vm open with an invalid port prints usage and leaves a paused machine asleep")
+    func openInvalidPortDoesNotWake() throws {
+        let respond: @Sendable (String, [String: Any]) -> [String: Any]? = { method, params in
+            method == "vm.status" ? ["id": params["id"] ?? "", "status": "paused"] : [:]
+        }
+        for port in ["0", "65536", "nope"] {
+            let (result, requests) = try runCLI(["vm", "open", "vivid-newt", port], respond: respond)
+            #expect(result.status != 0)
+            #expect(result.stderr.contains("cmux vm open"), Comment(rawValue: result.stderr))
+            #expect(!result.stderr.contains("Waking"), Comment(rawValue: result.stderr))
+            #expect(!requests.contains("vm.resume"), "an invalid port must not wake the machine (\(port))")
+        }
+    }
+
     // MARK: - vm share
 
     @Test("vm share with no flag says who can open the port and writes nothing")
@@ -281,7 +295,7 @@ private final class PublicationFixture: @unchecked Sendable {
 }
 
 /// Answers newline-delimited v2 requests from a closure, across any number of connections.
-private final class ScriptedVMSocketServer: @unchecked Sendable {
+final class ScriptedVMSocketServer: @unchecked Sendable {
     let path: String
     private let respond: @Sendable (String, [String: Any]) -> [String: Any]?
     private let queue = DispatchQueue(label: "com.cmux.tests.vm-ports-socket", attributes: .concurrent)

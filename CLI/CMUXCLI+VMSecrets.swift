@@ -849,11 +849,17 @@ extension CMUXCLI {
             case 0x04 where bytes.isEmpty:
                 // Ctrl-D on an empty line: no value.
                 throw CLIError(message: String(localized: "cloudSecrets.cli.set.noInput", defaultValue: "vm secrets set: no value entered"), exitCode: 2)
+            case 0x04:
+                // Ctrl-D after input ends the value, as in canonical mode.
+                return try vmSecretsEnteredValue(String(decoding: bytes, as: UTF8.self))
             case 0x7F, 0x08:
                 // Backspace removes one whole UTF-8 character.
                 while let last = bytes.popLast(), last & 0xC0 == 0x80 {}
             case 0x15:
                 bytes.removeAll()
+            case 0x00..<0x20:
+                // Other control bytes are never part of a pasted key.
+                continue
             default:
                 bytes.append(byte)
             }
@@ -1388,6 +1394,11 @@ private func vmSecretsSuspendWithTerminalRestored(_ signalNumber: Int32) {
         _ = tcsetattr(STDIN_FILENO, TCSANOW, &saved)
     }
     signal(SIGTSTP, SIG_DFL)
+    // The handler runs with SIGTSTP blocked; unblock it so raise() stops the process now.
+    var unblock = sigset_t()
+    sigemptyset(&unblock)
+    sigaddset(&unblock, SIGTSTP)
+    _ = sigprocmask(SIG_UNBLOCK, &unblock, nil)
     raise(SIGTSTP)
     // Continued.
     signal(SIGTSTP, vmSecretsSuspendWithTerminalRestored)

@@ -7341,16 +7341,24 @@ struct CMUXCLI {
                 guard let rawTarget = openArgs.first, let target = Self.parseVMOpenTarget(rawTarget), openArgs.count <= 2 else {
                     throw CLIError(message: Self.vmOpenUsage)
                 }
+                let portRequest: (vmId: String, port: Int)?
+                if let portArg = openArgs.dropFirst().first {
+                    // Validate the complete port form before waking the machine. An invalid
+                    // request must not change a parked machine's state.
+                    guard case .machine(let vmId) = target, let parsedPort = Int(portArg), (1...65535).contains(parsedPort) else {
+                        throw CLIError(message: Self.vmOpenUsage)
+                    }
+                    portRequest = (vmId: vmId, port: parsedPort)
+                } else {
+                    portRequest = nil
+                }
                 // Every open form needs the machine awake; a paused one wakes first, with one line.
                 if !printOnly {
                     try wakeVMIfParked(machine: target.machine, knownStatus: nil, client: client)
                 }
-                if let portArg = openArgs.dropFirst().first {
+                if let portRequest {
                     // `vm open <id> <port>`: exactly the port form, nothing else takes a second positional.
-                    guard case .machine(let vmId) = target, let port = Int(portArg), (1...65535).contains(port) else {
-                        throw CLIError(message: Self.vmOpenUsage)
-                    }
-                    try openVMPort(vmId: vmId, port: port, printOnly: printOnly, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput, force: forcePortOpen)
+                    try openVMPort(vmId: portRequest.vmId, port: portRequest.port, printOnly: printOnly, workspaceRaw: workspaceOpt, client: client, jsonOutput: jsonOutput, force: forcePortOpen)
                     break
                 }
                 if case .machine(let vmId) = target {
@@ -21280,6 +21288,10 @@ struct CMUXCLI {
                 localized: "cli.vm.resize.helpDescription",
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
+            let statusDescription = String(
+                localized: "cli.vm.help.status",
+                defaultValue: "Print the machine's ID and status; --json includes provider and image."
+            )
             // The first screen of `cmux vm --help`: the five commands that take someone
             // from nothing to an agent working on their repo. The full list follows.
             let quickStart = String(
@@ -21360,7 +21372,7 @@ struct CMUXCLI {
 
             More:
               base open|reset           Base, your persistent cloud workspace.
-              status <id>               Provider, status, and image.
+              status <id>               \(statusDescription)
               stats <id>                CPU, memory, and disk right now.
               resize <id>               \(resizeDescription)
               network <id> …            \(networkDescription)

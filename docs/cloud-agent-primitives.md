@@ -19,7 +19,7 @@ keep running when the laptop closes.
 | `vm dev` (detect/record/replay environment, named workspace) | designed (cloud-project-environments.md) |
 | `vm push --watch` (fs-event incremental sync) | next |
 | Browser device authentication (`cmux open-url`, `BROWSER`, OS URL openers; exact terminal projection, acknowledgement, headless fallback) | implemented; updated guest/Mac binaries required |
-| `vm repo clone <url>` (clone *in* the cloud — big repos never transit the Mac; gh auth via edge-injected credentials, never a token in the guest) | next |
+| `vm clone <repo> [--agent …]` (clone *in* the cloud — big repos never transit the Mac; the vault's `GH_TOKEN` reaches the machine and git's credential helper reads it) | shipped |
 
 ## Goal 2 — agents that outlive the laptop
 
@@ -122,7 +122,8 @@ The checklist an agent runs through, each item a primitive (not a doc):
    `--layout` document + geometry-honoring open; `--command`/`--port` override.
 4. ~~`vm push --watch`~~ shipped (mtime/size scan, same excludes); `vm push --secret`
    shipped (one file over the link into `cmux file receive`, the env receiver
-   generalized). Still open: `vm repo clone`, recipe `services`.
+   generalized). ~~`vm clone <repo>`~~ shipped (the vault's `GH_TOKEN` reaches
+   the machine for git's credential helper); still open: recipe `services`.
 5. ~~`vm agent --wait --output`~~ shipped on `vm agent`, `vm run`, and the in-VM
    `cmux agent`/peer `cmux vm agent` (until-done, exit code passes through).
    Still open: push-notification forwarding for the ledger, `--fan-out` (today:

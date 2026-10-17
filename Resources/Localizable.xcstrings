@@ -691597,65 +691597,6 @@
         }
       }
     },
-    "cloudPort.share.changeFailed.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The change could not be confirmed. Check the port's sharing and try again."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Änderung konnte nicht bestätigt werden. Prüfen Sie die Freigabe des Ports und versuchen Sie es erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La modification n’a pas pu être confirmée. Vérifiez le partage du port et réessayez."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تأكيد التغيير. تحقّق من مشاركة المنفذ وحاول مرة أخرى."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo confirmar el cambio. Revisa cómo se comparte el puerto y vuelve a intentarlo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法確認此變更。請檢查此連接埠的分享設定，然後再試一次。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法确认此更改。请检查此端口的共享设置，然后重试。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "변경 사항을 확인할 수 없습니다. 포트 공유 설정을 확인한 후 다시 시도하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更を確認できませんでした。ポートの共有設定を確認して、もう一度お試しください。"
-          }
-        }
-      }
-    },
     "cloudAgentReadiness.socket.unknownAgent": {
       "extractionState": "manual",
       "localizations": {
@@ -694643,6 +694584,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "復元したマシンの環境を消去できませんでした"
+          }
+        }
+      }
+    },
+    "cli.vm.help.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the machine's ID and status; --json includes provider and image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض معرّف الجهاز وحالته؛ يتضمن --json المزوّد والصورة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen-ID und Status ausgeben; --json enthält Anbieter und Image."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el ID y el estado de la máquina; --json incluye el proveedor y la imagen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’identifiant et l’état de la machine ; --json inclut le fournisseur et l’image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの ID と状態を表示します。--json にはプロバイダーとイメージが含まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 ID와 상태를 표시합니다. --json에는 제공자와 이미지가 포함됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示机器 ID 和状态；--json 包含提供商和映像。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示機器 ID 與狀態；--json 會包含提供者與映像檔。"
+          }
+        }
+      }
+    },
+    "cloudPort.share.changeFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change could not be confirmed. Check the port's sharing and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Änderung konnte nicht bestätigt werden. Prüfen Sie die Freigabe des Ports und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modification n’a pas pu être confirmée. Vérifiez le partage du port et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تأكيد التغيير. تحقّق من مشاركة المنفذ وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo confirmar el cambio. Revisa cómo se comparte el puerto y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認此變更。請檢查此連接埠的分享設定，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认此更改。请检查此端口的共享设置，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항을 확인할 수 없습니다. 포트 공유 설정을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を確認できませんでした。ポートの共有設定を確認して、もう一度お試しください。"
           }
         }
       }

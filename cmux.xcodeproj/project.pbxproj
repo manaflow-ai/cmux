@@ -758,6 +758,7 @@
 		C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */; };
 		3D3B43A3F3CF6535DC4DF2FA /* CLIVMPortsCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA13C235FC0F26002718351 /* CLIVMPortsCommandTests.swift */; };
 		3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */; };
+		A1B014A9E72F69352472398B /* CLIVMSecretsHiddenPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C716499D973D8CC1CE9DFAAE /* CLIVMSecretsHiddenPromptTests.swift */; };
 		06406B9742920E4E096310FE /* CLIVMSecretsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8861B269BB70AC3CA1C54119 /* CLIVMSecretsTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
 		C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000055 /* CLIWelcomeTests.swift */; };
@@ -5560,6 +5561,7 @@
 		7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMLayoutEnvTests.swift; sourceTree = "<group>"; };
 		0DA13C235FC0F26002718351 /* CLIVMPortsCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMPortsCommandTests.swift; sourceTree = "<group>"; };
 		BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMReadyPollIntervalTests.swift; sourceTree = "<group>"; };
+		C716499D973D8CC1CE9DFAAE /* CLIVMSecretsHiddenPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMSecretsHiddenPromptTests.swift; sourceTree = "<group>"; };
 		8861B269BB70AC3CA1C54119 /* CLIVMSecretsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVMSecretsTests.swift"; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000055 /* CLIWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWelcomeTests.swift; sourceTree = "<group>"; };
@@ -9599,6 +9601,7 @@
 				BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */,
 				3E18C2CC11FD283EAA50B7D6 /* CLIJumpToLastPromptTests.swift */,
 				0DA13C235FC0F26002718351 /* CLIVMPortsCommandTests.swift */,
+				C716499D973D8CC1CE9DFAAE /* CLIVMSecretsHiddenPromptTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -14960,6 +14963,7 @@
 				C5E74B39873F2DF220584A49 /* CLIVersionSkewErrorTests.swift in Sources */,
 				3D3B43A3F3CF6535DC4DF2FA /* CLIVMPortsCommandTests.swift in Sources */,
 				3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */,
+				A1B014A9E72F69352472398B /* CLIVMSecretsHiddenPromptTests.swift in Sources */,
 				C11757000000000000000056 /* CLIWelcomeTests.swift in Sources */,
 				C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */,
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
