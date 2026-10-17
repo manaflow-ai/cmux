@@ -39,7 +39,7 @@ export function createRuntimePromotionAdapter(): AttemptPromotionRuntimePort {
           idempotencyKey: `run-promotion:${input.requestKey}`,
           requestDigest: `promotion:${input.runId}:${input.attemptId}`,
           version: 1,
-        });
+        }).onConflictDoNothing();
       }
       const workspace = (await cloudDb().select().from(cloudRuntimeWorkspaces)
         .where(eq(cloudRuntimeWorkspaces.runtimeId, runtime.id)).limit(1))[0];
