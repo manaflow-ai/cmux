@@ -62,14 +62,19 @@ extension TabCell {
 /// hides the part under the selected pill. At rest no tab overlaps
 /// another, so every mask comes off.
 enum TabOcclusion {
-    static func apply(cells: [TabID: TabCell], selected: TabID?, in clip: CALayer?) {
-        let cover = selected.flatMap { id -> CGRect? in
+    /// `band`: the fixed pinned band (`TabScrollMapping.band`). With one, pinned and unpinned tabs never
+    /// cross (the unpinned ones scroll under the band, clipped), so a pill covers only its own region's tabs.
+    static func apply(cells: [TabID: TabCell], selected: TabID?, in clip: CALayer?, band: CGFloat = 0) {
+        let cover = selected.flatMap { id -> (rect: CGRect, isPinned: Bool)? in
             guard let cell = cells[id], cell.frame.width > 0 else { return nil }
-            return cell.layer.convert(cell.pillFrameInCell, to: clip)
+            return (cell.layer.convert(cell.pillFrameInCell, to: clip), cell.item.isPinned)
         }
         for (id, cell) in cells {
             // The selected tab itself is never covered, even one selected mid-crossing.
-            let crossing = cover.flatMap { cover in id != selected && !cell.isLifted && cell.frame.intersects(cover) ? cover : nil }
+            let crossing = cover.flatMap { cover in
+                id != selected && !cell.isLifted && (band <= 0 || cell.item.isPinned == cover.isPinned)
+                    && cell.frame.intersects(cover.rect) ? cover.rect : nil
+            }
             cell.occlude(by: crossing.map { clip?.convert($0, to: cell.layer) ?? $0 })
         }
     }

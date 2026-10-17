@@ -1302,7 +1302,8 @@ done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
   "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
-  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" --require-stapled-app' \
+  'stapled_flag=(--require-stapled-app)' \
+  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
   grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
 done

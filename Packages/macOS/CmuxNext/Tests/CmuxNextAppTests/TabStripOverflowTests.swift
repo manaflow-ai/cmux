@@ -88,7 +88,9 @@ import Testing
         defer { roomy.window.orderOut(nil) }
         #expect(roomy.strip.overflowHint?.isHidden ?? true)
 
-        let crowded = Harness(count: 40)
+        // An 854 pt strip: the tab strip of an 1100 pt window, where nxdog108-v1 never showed the hint (the
+        // hint needed a strip 2.5 times its own width).
+        let crowded = Harness(count: 40, width: 854)
         defer { crowded.window.orderOut(nil) }
         let hint = try #require(crowded.strip.overflowHint)
         #expect(!hint.isHidden, "a crowded Shrink strip shows no hint")
