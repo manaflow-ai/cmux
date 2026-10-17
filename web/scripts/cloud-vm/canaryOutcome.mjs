@@ -61,3 +61,28 @@ export function edgeCanaryProblems({
   }
   return problems;
 }
+
+/**
+ * Freestyle can briefly miss a newly installed forwarding-DNS answer even
+ * after the same guest has successfully reached the edge. Retry only that
+ * resolver failure; HTTP/authentication failures remain visible immediately.
+ */
+export async function retryGuestEdgeRequest(
+  run,
+  host,
+  { attempts = 4, delayMs = 1_000 } = {},
+) {
+  let result;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    result = await run();
+    if (!guestEdgeDnsFailure(result, host) || attempt + 1 >= attempts) return result;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return result;
+}
+
+function guestEdgeDnsFailure(result, host) {
+  if (!result || typeof host !== "string" || host === "") return false;
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  return output.includes(`Could not resolve host: ${host}`);
+}
