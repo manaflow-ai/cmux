@@ -23,4 +23,17 @@ extension CmuxTuiSurfaceProvider {
         }
         update(summary: next)
     }
+
+    /// Refreshes once a cached port scan expires. Later cache hits join the
+    /// pending rescan, and the rescan itself scans, so this never repeats alone.
+    func scheduleTrailingPortRescan(after delay: TimeInterval, lifecycle: UInt64) {
+        guard trailingPortRescan == nil else { return }
+        trailingPortRescan = Task { [weak self, attachmentClock] in
+            do { try await attachmentClock.sleep(for: .seconds(delay)) } catch { return }
+            guard let self else { return }
+            self.trailingPortRescan = nil
+            guard self.isCurrentLifecycleGeneration(lifecycle), self.isRegisteredInCatalog() else { return }
+            self.scheduleRefresh()
+        }
+    }
 }

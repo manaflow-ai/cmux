@@ -105,6 +105,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
+    /// The one refresh a cache-served port scan schedules for its cache expiry.
+    var trailingPortRescan: Task<Void, Never>?
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
     func publishPortDiscovery() {
@@ -248,6 +250,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
         scheduledRefreshForce = false
+        trailingPortRescan?.cancel()
+        trailingPortRescan = nil
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
@@ -1570,6 +1574,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let previousState = portDiscovery.state
         if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
             if portDiscovery.state != previousState { publishPortDiscovery() }
+            // The refresh that hit the cache may follow a server starting, so
+            // rescan once the cache expires instead of waiting for the next poll.
+            if let delay = portDiscovery.rescanDelay(at: Date.now) {
+                scheduleTrailingPortRescan(after: delay, lifecycle: lifecycle)
+            }
             return cached.ports.filter {
                 !CmuxTuiSnapshotParser.internalPorts.contains($0)
                     && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))

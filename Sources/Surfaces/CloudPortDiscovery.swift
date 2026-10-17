@@ -12,7 +12,9 @@ struct CloudPortDiscovery: Sendable {
     private var requestID: UInt64 = 0
     private var activeScan: UInt64?
     private var blocker: CloudPortDiscoveryState?
-    private let cacheLifetime: TimeInterval = 30
+    /// Throttles scans during a burst of refreshes. Short, because a refresh
+    /// served from the cache only schedules a trailing rescan for its expiry.
+    private let cacheLifetime: TimeInterval = 5
 
     /// SSH machines reach their ports over the SSH link's loopback forward, so they opt in with `allowLoopback`.
     mutating func reconcile(supportsPreviews: Bool, isAwake: Bool, privateAddress: String?, allowLoopback: Bool = false) {
@@ -40,7 +42,8 @@ struct CloudPortDiscovery: Sendable {
     @discardableResult
     mutating func request() -> UInt64 {
         wasRequested = true
-        if blocker == nil { state = .loading }
+        // A repeated request keeps the settled inventory visible, as a rescan does.
+        if blocker == nil, scan == nil { state = .loading }
         return requestID
     }
 
@@ -61,6 +64,14 @@ struct CloudPortDiscovery: Sendable {
               now.timeIntervalSince(scannedAt) < cacheLifetime else { return nil }
         if let scan { state = scan.state }
         return scan
+    }
+
+    /// How long until the cached scan expires, so a refresh it answered can
+    /// rescan then; nil when no cached scan is live.
+    func rescanDelay(at now: Date) -> TimeInterval? {
+        guard let scannedAt else { return nil }
+        let remaining = cacheLifetime - now.timeIntervalSince(scannedAt)
+        return remaining > 0 ? remaining : nil
     }
 
     /// A rescan keeps the settled result visible; only a machine with no inventory shows loading.
