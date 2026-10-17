@@ -335,6 +335,19 @@ final class NativeConversationUITests: XCTestCase {
             capture(app, name: "native-files-diff-list")
             let path = app.buttons["Sources/App.swift"]
             XCTAssertTrue(path.waitForExistence(timeout: 3))
+            if !path.isHittable {
+                // The files sheet opens at its medium detent on iPadOS.  The
+                // fixture's last row can therefore sit just below the
+                // viewport even though it exists in the list.  Exercise the
+                // same scroll a user would perform before opening it.
+                let list = app.tables.firstMatch
+                if list.exists {
+                    list.swipeUp()
+                } else {
+                    app.swipeUp()
+                }
+            }
+            XCTAssertTrue(path.isHittable)
             path.tap()
             XCTAssertTrue(app.descendants(matching: .any)["ConversationDiffView-Sources/App.swift"].waitForExistence(timeout: 5))
             capture(app, name: "native-files-diff-expanded")
