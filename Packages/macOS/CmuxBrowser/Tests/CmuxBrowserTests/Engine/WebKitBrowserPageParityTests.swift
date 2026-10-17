@@ -68,7 +68,7 @@ struct WebKitBrowserPageParityTests {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static let resultShapes: [String] = [
+    private nonisolated static let resultShapes: [String] = [
         "1 + 2",
         "'text'",
         "true",
