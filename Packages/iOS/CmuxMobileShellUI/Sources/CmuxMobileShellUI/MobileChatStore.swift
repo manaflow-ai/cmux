@@ -35,6 +35,11 @@ final class MobileChatStore {
     private var reconciler = ChatSessionReconciler()
     private var messageByID: [String: ChatMessage] = [:]
     private var blockByID: [Int: TerminalCommandBlock] = [:]
+    /// The local row shown while a prompt is in flight. The host publishes an
+    /// authoritative user row asynchronously; keeping this identity lets the
+    /// reducer replace the optimistic row instead of rendering both copies.
+    private var pendingOptimisticMessageID: String?
+    private var pendingOptimisticText: String?
 
     private(set) var sessions: [ChatSessionDescriptor] = []
     private(set) var selectedSessionID: String?
@@ -158,9 +163,12 @@ final class MobileChatStore {
         // The host will publish the authoritative row. This optimistic row
         // keeps the composer responsive while a remote Mac is waking up.
         if !text.isEmpty {
+            let optimisticID = "local-\(UUID().uuidString)"
+            pendingOptimisticMessageID = optimisticID
+            pendingOptimisticText = text
             appendOptimistic(
                 ChatMessage(
-                    id: "local-\(UUID().uuidString)",
+                    id: optimisticID,
                     seq: (messages.last?.seq ?? 0) + 1,
                     role: .user,
                     timestamp: Date(),
@@ -187,6 +195,7 @@ final class MobileChatStore {
                       sendGeneration == self.sendGeneration,
                       self.selectedSessionID == sessionID else { return }
                 self.errorMessage = Self.message(for: error)
+                self.removePendingOptimisticMessage()
                 self.draft = text
                 self.stagedAttachments = attachments
             }
@@ -317,6 +326,8 @@ final class MobileChatStore {
         terminalBlocks = []
         messageByID = [:]
         blockByID = [:]
+        pendingOptimisticMessageID = nil
+        pendingOptimisticText = nil
         streamingProse = nil
         hasMoreHistory = false
         isLoadingOlder = false
@@ -374,6 +385,7 @@ final class MobileChatStore {
         switch event {
         case .appended(let incoming), .updated(let incoming):
             for message in incoming { messageByID[message.id] = message }
+            reconcilePendingOptimisticMessage(with: incoming)
             messages = messageByID.values.sorted { lhs, rhs in
                 lhs.seq == rhs.seq ? lhs.id < rhs.id : lhs.seq < rhs.seq
             }
@@ -408,6 +420,8 @@ final class MobileChatStore {
         if replacing {
             messageByID = [:]
             blockByID = [:]
+            pendingOptimisticMessageID = nil
+            pendingOptimisticText = nil
         }
         for message in page.messages { messageByID[message.id] = message }
         for block in page.terminalBlocks ?? [] { blockByID[block.id] = block }
@@ -423,6 +437,31 @@ final class MobileChatStore {
         messages = messageByID.values.sorted { lhs, rhs in
             lhs.seq == rhs.seq ? lhs.id < rhs.id : lhs.seq < rhs.seq
         }
+    }
+
+    private func reconcilePendingOptimisticMessage(with incoming: [ChatMessage]) {
+        guard let pendingID = pendingOptimisticMessageID,
+              let pendingText = pendingOptimisticText else { return }
+        let receivedAuthoritativeRow = incoming.contains { message in
+            guard message.role == .user else { return false }
+            guard case .prose(let prose) = message.kind else { return false }
+            return prose.text == pendingText
+        }
+        guard receivedAuthoritativeRow else { return }
+        messageByID.removeValue(forKey: pendingID)
+        pendingOptimisticMessageID = nil
+        pendingOptimisticText = nil
+    }
+
+    private func removePendingOptimisticMessage() {
+        if let pendingOptimisticMessageID {
+            messageByID.removeValue(forKey: pendingOptimisticMessageID)
+            messages = messageByID.values.sorted { lhs, rhs in
+                lhs.seq == rhs.seq ? lhs.id < rhs.id : lhs.seq < rhs.seq
+            }
+        }
+        pendingOptimisticMessageID = nil
+        pendingOptimisticText = nil
     }
 
     private func publishSessions() {
@@ -458,6 +497,8 @@ final class MobileChatStore {
         terminalBlocks = []
         messageByID = [:]
         blockByID = [:]
+        pendingOptimisticMessageID = nil
+        pendingOptimisticText = nil
         streamingProse = nil
         hasMoreHistory = false
         isLoadingOlder = false
