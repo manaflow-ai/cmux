@@ -162,18 +162,10 @@ struct ChiefConversationBackendTests {
         let unsupportedQuestion = MobileChiefQuestion(
             id: "question-4",
             source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
-            items: [
-                .init(
-                    id: "q0",
-                    prompt: "Which region?",
-                    options: [.init(id: "us", label: "US")]
-                ),
-                .init(
-                    id: "q1",
-                    prompt: "Which tier?",
-                    options: [.init(id: "pro", label: "Pro")]
-                )
-            ]
+            // An empty question is the unsupported shape. Multi-item asks
+            // are supported through the full composer and must remain
+            // eligible as the first pending card.
+            items: []
         )
         let supportedQuestion = MobileChiefQuestion(
             id: "question-5",
