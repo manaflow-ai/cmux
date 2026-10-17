@@ -4,7 +4,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { StrictMode, useRef, useState } from "react";
+import { type CSSProperties, StrictMode, useRef, useState } from "react";
 
 const scope = globalThis as Record<string, unknown>;
 const globals = [
@@ -23,15 +23,16 @@ const globals = [
 const saved = globals.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
-const observers: { target: Element | null; disconnects: number }[] = [];
+const observers: { target: Element | null; disconnects: number; resize(): void }[] = [];
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><div id=root></div>");
   Object.assign(window, {
     matchMedia: () => ({ matches: false }),
     ResizeObserver: class {
-      state = { target: null as Element | null, disconnects: 0 };
-      constructor() {
+      state = { target: null as Element | null, disconnects: 0, resize: () => {} };
+      constructor(callback: ResizeObserverCallback) {
+        this.state.resize = () => callback([], this as unknown as ResizeObserver);
         observers.push(this.state);
       }
       observe(target: Element) {
@@ -96,9 +97,9 @@ test("does not remeasure when the owner rerenders with the same list signature",
     rects += 1;
     return new DOMRect(0, 0, 100, 20);
   };
-  scope.getComputedStyle = ((...args: Parameters<typeof getComputedStyle>) => {
+  scope.getComputedStyle = (() => {
     computedStyles += 1;
-    return originalGetComputedStyle(...args);
+    return { transform: "none" } as CSSStyleDeclaration;
   }) as typeof getComputedStyle;
 
   try {
@@ -127,7 +128,11 @@ test("observes a replacement list root when its row keys stay the same", async (
     const list = useRef<HTMLDivElement>(null);
     replace = () => setVersion((value) => value + 1);
     useListMotion(list, ".row", ["a"]);
-    return <div key={version} ref={list}><div className="row" /></div>;
+    return (
+      <div key={version} ref={list}>
+        <div className="row" />
+      </div>
+    );
   }
   const start = observers.length;
   root = createRoot(host);
@@ -151,12 +156,22 @@ test("keeps resize observation after Strict Mode replays effects", async () => {
   function Harness() {
     const list = useRef<HTMLDivElement>(null);
     useListMotion(list, ".row", ["a"]);
-    return <div ref={list}><div className="row" /></div>;
+    return (
+      <div ref={list}>
+        <div className="row" />
+      </div>
+    );
   }
   const start = observers.length;
   root = createRoot(host);
   try {
-    await act(async () => root!.render(<StrictMode><Harness /></StrictMode>));
+    await act(async () =>
+      root!.render(
+        <StrictMode>
+          <Harness />
+        </StrictMode>,
+      ),
+    );
     expect(observers.slice(start).some((observer) => observer.disconnects > 0)).toBe(true);
     const active = observers.slice(start).filter((observer) => observer.target);
     expect(active.length).toBe(1);
@@ -164,5 +179,66 @@ test("keeps resize observation after Strict Mode replays effects", async () => {
   } finally {
     await act(async () => root?.unmount());
     root = undefined;
+  }
+});
+
+test.each([false, true])("resized rows retain reorder motion with reduced motion %s", async (reduced) => {
+  const { useListMotion } = await import("../src/agent-session/acpmux/newtab/listMotion");
+  let reorder!: () => void;
+  let spacing = 20;
+  function Harness() {
+    const [keys, setKeys] = useState(["a", "b"]);
+    const list = useRef<HTMLDivElement>(null);
+    reorder = () => setKeys(["b", "a", "c"]);
+    useListMotion(list, ".row", keys);
+    return (
+      <div ref={list} style={{ "--agent-motion-move": "100ms", "--agent-motion-in": "50ms" } as CSSProperties}>
+        {keys.map((key) => (
+          <div key={key} className="row" data-key={key} />
+        ))}
+      </div>
+    );
+  }
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalAnimate = HTMLElement.prototype.animate;
+  const originalMedia = scope.matchMedia;
+  const motions: { key: string | undefined; frames: Keyframe[] }[] = [];
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    const index = this.dataset.key ? [...this.parentElement!.children].indexOf(this) : 0;
+    return new DOMRect(0, index * spacing, 100, spacing);
+  };
+  HTMLElement.prototype.animate = function (frames) {
+    motions.push({ key: this.dataset.key, frames: frames as Keyframe[] });
+    return { cancel() {} } as Animation;
+  };
+  scope.matchMedia = () => ({ matches: reduced });
+  const start = observers.length;
+  root = createRoot(host);
+  try {
+    await act(async () => root!.render(<Harness />));
+    expect(motions).toEqual([]);
+    // A pane resize can change the layout without causing the owner to render.
+    spacing = 30;
+    observers
+      .slice(start)
+      .find((observer) => observer.target)
+      ?.resize();
+    await act(async () => reorder());
+    expect(motions).toEqual([
+      ...(reduced
+        ? []
+        : [
+            { key: "b", frames: [{ transform: "translate(0px, 30px)" }, { transform: "none" }] },
+            { key: "a", frames: [{ transform: "translate(0px, -30px)" }, { transform: "none" }] },
+          ]),
+      { key: "c", frames: [{ opacity: 0 }, { opacity: 1 }] },
+    ]);
+  } finally {
+    await act(async () => root?.unmount());
+    root = undefined;
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+    if (originalAnimate) HTMLElement.prototype.animate = originalAnimate;
+    else delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+    scope.matchMedia = originalMedia;
   }
 });
