@@ -5,13 +5,12 @@ import Testing
 
 @Suite struct MobileCoreRPCNotificationFeedAuthTests {
     @Test(arguments: [
-        "feed.text",
         "notification.feed.list",
         "notification.feed.mark_read",
         "notification.feed.mark_unread",
         "notification.feed.mark_all_read",
     ])
-    func feedRequestsUseAccountAuthorizationWithoutWorkspaceTicketScope(method: String) async throws {
+    func notificationFeedRequestsUseAccountAuthorizationWithoutWorkspaceTicketScope(method: String) async throws {
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58_465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(

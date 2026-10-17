@@ -72,7 +72,6 @@ debug.window.screenshot
 debug.window_hints
 debug.workspace_todo.checklist_add_field
 dogfood.feedback.submit
-feed.text
 mobile.dev_stack_auth.configure
 mobile.directory.list
 mobile.directory.search

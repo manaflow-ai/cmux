@@ -15680,19 +15680,6 @@ class TerminalController {
                 params: request.params,
                 responseID: request.id.map { String(describing: $0) }
             )
-        case "feed.list":
-            result = await v2MobileFeedList(
-                params: request.params,
-                responseID: request.id.map { String(describing: $0) }
-            )
-        case "feed.text":
-            result = v2MobileFeedText(params: request.params)
-        case "feed.permission.reply":
-            result = v2FeedPermissionReply(params: request.params)
-        case "feed.question.reply":
-            result = v2FeedQuestionReply(params: request.params)
-        case "feed.exit_plan.reply":
-            result = v2FeedExitPlanReply(params: request.params)
         case "notification.feed.mark_read":
             result = v2MobileNotificationFeedMarkRead(params: request.params)
         case "notification.feed.mark_unread":
@@ -16796,12 +16783,6 @@ class TerminalController {
         }
 
         terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
-
-        if submitted,
-           let rawEventID = v2String(params, "feed_event_id"),
-           let eventID = UUID(uuidString: rawEventID) {
-            _ = FeedCoordinator.shared.store?.recordTerminalReply(eventID, text: text)
-        }
 
         #if DEBUG
         cmuxDebugLog(
