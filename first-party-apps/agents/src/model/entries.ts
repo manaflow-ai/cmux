@@ -25,7 +25,25 @@ export type CliEntry = {
   accounts: Account[]
 }
 
-export type Machine = { id: string; name: string; origin: string; status: string; os?: string | null }
+export type Machine = {
+  id: string
+  name: string
+  origin: string
+  status: string
+  os?: string | null
+  platform?: { os?: string | null; arch?: string | null } | null
+  capabilities?: string[]
+}
+
+const CAPABILITY_NAME = /^[a-z][a-z0-9_.-]{0,63}$/
+
+/** A bounded, non-secret capability summary suitable for a machine header. */
+export function capabilitySummary(machine: Pick<Machine, "capabilities">): string | null {
+  const names = [...new Set(machine.capabilities ?? [])]
+    .filter((name): name is string => CAPABILITY_NAME.test(name))
+    .slice(0, 8)
+  return names.length ? names.map((name) => name.replaceAll("_", " ")).join(" · ") : null
+}
 
 export type Status = "missing" | "current" | "update" | "ahead" | "unknown"
 
