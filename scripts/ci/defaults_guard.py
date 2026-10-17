@@ -561,6 +561,14 @@ def command_check_fresh(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def command_check_stamp(args: argparse.Namespace) -> int:
+    """Only the settings export stamp: exit 1 when the exports need the Swift export."""
+    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None))
+    for line in notes + problems:
+        print(line)
+    return 1 if problems else 0
+
+
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
@@ -616,6 +624,9 @@ def main(argv: list[str]) -> int:
     fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources, and the settings export stamp matches the CmuxNextSettings sources")
     fresh.add_argument("--ref", help="a commit to check instead of the working tree")
     fresh.set_defaults(run=command_check_fresh)
+    stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
+    stamp.add_argument("--ref", help="a commit to check instead of the working tree")
+    stamp.set_defaults(run=command_check_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")
