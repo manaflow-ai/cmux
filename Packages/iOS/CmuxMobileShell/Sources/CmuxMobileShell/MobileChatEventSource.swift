@@ -90,7 +90,7 @@ public actor MobileChatEventSource: ChatEventSource {
         case .other: throw NSError(domain: "MobileChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported agent"])
         }
         var params: [String: Any] = [
-            "title": "(agent.displayName) chat",
+            "title": "\(agent.displayName) chat",
             "initial_command": command,
         ]
         if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
