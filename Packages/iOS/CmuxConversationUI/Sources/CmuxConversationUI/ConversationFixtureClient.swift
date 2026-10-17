@@ -14,6 +14,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case emptyList = "empty-list"
         case approval
         case question
+        case singleQuestion = "single-question-custom-answer"
         case secretQuestion = "secret-question"
         case files
         case noGit = "no-git"
@@ -22,8 +23,13 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case artifact
         case asyncQuestion = "async-question"
         case running
+        case stopWithLiveTool = "stop-with-live-tool"
         case queue
         case steer
+        case streamingAssistant = "streaming-assistant-delta"
+        case rejectedCommand = "rejected-command"
+        case uncertainCommand = "uncertain-command"
+        case reconnectedPending = "reconnected-pending-request"
         case disconnected
 
         public init(rawValue: String) {
@@ -32,6 +38,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             case "empty": self = .empty
             case "empty-list": self = .emptyList
             case "question": self = .question
+            case "single-question-custom-answer": self = .singleQuestion
             case "secret-question": self = .secretQuestion
             case "files": self = .files
             case "no-git": self = .noGit
@@ -40,8 +47,13 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             case "artifact": self = .artifact
             case "async-question": self = .asyncQuestion
             case "running": self = .running
+            case "stop-with-live-tool": self = .stopWithLiveTool
             case "queue": self = .queue
             case "steer": self = .steer
+            case "streaming-assistant-delta": self = .streamingAssistant
+            case "rejected-command": self = .rejectedCommand
+            case "uncertain-command": self = .uncertainCommand
+            case "reconnected-pending-request": self = .reconnectedPending
             case "disconnected": self = .disconnected
             default: self = .all
             }
@@ -61,6 +73,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     }
 
     private var sessions: [ConversationID: SessionState]
+    private var streamedSessions: Set<ConversationID> = []
     private let scenario: Scenario
     private let capabilities: ConversationCapabilities
 
@@ -75,7 +88,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         if selectedScenario == .steer { fixtureFeatures.removeAll { $0 == "queue" } }
         self.capabilities = ConversationCapabilities(
             protocolVersion: "fixture/1",
-            features: fixtureFeatures,
+            features: Set(fixtureFeatures),
             models: ["fixture-model"],
             efforts: ["fast", "balanced", "thorough"],
             speeds: ["standard", "quick"],
@@ -139,7 +152,11 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     public func snapshot(sessionID: ConversationID) async throws -> ConversationSnapshot {
         seedIfNeeded()
         guard let state = sessions[sessionID] else { throw FixtureError.missingSession }
-        return makeSnapshot(state)
+        let snapshot = makeSnapshot(state)
+        if scenario == .streamingAssistant, streamedSessions.insert(sessionID).inserted {
+            Task { await self.emitStreamingAssistantDelta(sessionID: sessionID) }
+        }
+        return snapshot
     }
 
     public func replay(sessionID: ConversationID, after: ConversationCursor) async throws -> [ConversationEvent] {
@@ -161,7 +178,9 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(sessionID: sessionID, token: token) }
         }
-        if scenario == .disconnected { continuation.finish(throwing: FixtureError.disconnected) }
+        if scenario == .disconnected || scenario == .reconnectedPending {
+            continuation.finish(throwing: FixtureError.disconnected)
+        }
         return stream
     }
 
@@ -170,12 +189,20 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         let receipt: ConversationReceipt
         switch command.command {
         case .startTurn(let text, _, _):
-            state.isRunning = true
-            state = appendItem(state, kind: .message, role: "user", text: text)
-            state = appendItem(state, kind: .reasoning, text: "Working through the request…")
-            state = appendTool(state, name: "shell", input: .string("pwd"), output: nil, status: .running)
-            receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
-            state = appendEvent(state, kind: .run, state: "running")
+            if scenario == .rejectedCommand || scenario == .uncertainCommand {
+                let receiptState: ConversationReceiptState = scenario == .rejectedCommand ? .rejected : .uncertain
+                let reason = scenario == .rejectedCommand
+                    ? "The fixture rejected this command."
+                    : "The fixture cannot confirm this command outcome."
+                receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: receiptState, reason: reason, generation: state.session.generation)
+            } else {
+                state.isRunning = true
+                state = appendItem(state, kind: .message, role: "user", text: text)
+                state = appendItem(state, kind: .reasoning, text: "Working through the request…")
+                state = appendTool(state, name: "shell", input: .string("pwd"), output: nil, status: .running)
+                receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
+                state = appendEvent(state, kind: .run, state: "running")
+            }
         case .queue(let text):
             let item = ConversationQueueItem(id: ConversationItemID(rawValue: "queue-\(UUID().uuidString)"), commandID: command.commandID, text: text, position: state.queued.count)
             state.queued.append(item)
@@ -196,8 +223,10 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
         case .interrupt:
             state.isRunning = false
-            state = appendTool(state, name: "shell", input: .string("pwd"), output: .string("/tmp/cmux-fixture"), status: .success)
-            state = appendItem(state, kind: .result, text: "Codex run stopped")
+            if scenario != .stopWithLiveTool {
+                state = appendTool(state, name: "shell", input: .string("pwd"), output: .string("/tmp/cmux-fixture"), status: .success)
+                state = appendItem(state, kind: .result, text: "Codex run stopped")
+            }
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .run, state: "stopped")
         case .answerQuestion(let requestID, let answers):
@@ -211,7 +240,12 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             var resolvedRequest = answeredRequest
             resolvedRequest?.state = .answered
-            state = appendEvent(state, kind: .request, request: resolvedRequest ?? state.pendingRequests.first)
+            if let resolvedRequest {
+                state = appendEvent(state, kind: .request, request: resolvedRequest)
+            }
+            if let nextRequest = state.pendingRequests.first {
+                state = appendEvent(state, kind: .request, request: nextRequest)
+            }
         case .resolveApproval(let requestID, let decision):
             let approvalRequest = state.pendingRequests.first(where: { $0.id == requestID })
             state.pendingRequests.removeAll { $0.id == requestID }
@@ -264,7 +298,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             state = appendTool(state, name: "shell", input: .object(["command": .string("pwd")]), output: .string("/tmp/cmux-fixture"), status: .success)
             state = appendItem(state, kind: .result, text: "Workspace is ready.")
         }
-        if scenario != .empty && scenario != .emptyFiles && scenario != .noGit {
+        if scenario != .empty && scenario != .emptyFiles && scenario != .noGit && scenario != .noLastTurn {
             var diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
             if scenario == .noLastTurn { diff.comparison = "unstaged" }
             state = appendItem(state, kind: .files, text: nil, diff: diff)
@@ -274,6 +308,8 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             if scenario == .approval { state.pendingRequests = [approvalRequest(generation: state.session.generation)] }
         case .question:
             state.pendingRequests = [questionRequest(generation: state.session.generation, index: 0)]
+        case .singleQuestion:
+            state.pendingRequests = [singleQuestionRequest(generation: state.session.generation)]
         case .secretQuestion:
             state.pendingRequests = [ConversationRequest(id: ConversationRequestID(rawValue: "fixture-secret-question"), generation: state.session.generation, kind: "question", question: ConversationQuestion(category: "Credentials", prompt: "Enter the workspace token", options: [], allowsCustomAnswer: true, isSecret: true))]
         case .asyncQuestion:
@@ -284,9 +320,13 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
             let artifact = ConversationArtifact(artifactID: "fixture-artifact", fileName: "report.txt", mediaType: "text/plain", byteCount: Int64(payload.count), sha256: hash)
             state = appendItem(state, kind: .artifact, text: nil, artifact: artifact)
-        case .running, .queue, .steer:
+        case .running, .stopWithLiveTool, .queue, .steer:
             state.isRunning = true
             state = appendTool(state, name: "shell", input: .string("swift test"), output: nil, status: .running)
+        case .streamingAssistant, .rejectedCommand, .uncertainCommand:
+            state = appendItem(state, kind: .message, role: "assistant", text: "Streaming")
+        case .reconnectedPending:
+            state.pendingRequests = [approvalRequest(generation: state.session.generation)]
         case .disconnected:
             let payload = Data("cmux fixture artifact\n".utf8)
             let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
@@ -303,6 +343,22 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         let options = [ConversationQuestionOption(id: "yes", label: "Yes", detail: "Continue with the plan"), ConversationQuestionOption(id: "no", label: "No", detail: "Stop here")]
         let prompt = index == 0 ? "Should I continue?" : "What should I call the result?"
         return ConversationRequest(id: ConversationRequestID(rawValue: "fixture-question-\(index)"), generation: generation, kind: "question", question: ConversationQuestion(category: "Plan", prompt: prompt, options: options, allowsCustomAnswer: true, index: index, total: 2))
+    }
+
+    private func singleQuestionRequest(generation: ConversationGeneration) -> ConversationRequest {
+        ConversationRequest(
+            id: ConversationRequestID(rawValue: "fixture-single-question"),
+            generation: generation,
+            kind: "question",
+            question: ConversationQuestion(
+                category: "Custom answer",
+                prompt: "What should I call the result?",
+                options: [],
+                allowsCustomAnswer: true,
+                index: 0,
+                total: 1
+            )
+        )
     }
 
     private func makeSnapshot(_ state: SessionState) -> ConversationSnapshot {
@@ -330,13 +386,35 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         return state
     }
 
-    private func appendEvent(_ state: SessionState, kind: ConversationEventKind, item: ConversationItem? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state eventState: String? = nil) -> SessionState {
+    private func appendEvent(_ state: SessionState, kind: ConversationEventKind, item: ConversationItem? = nil, itemUpdate: ConversationItemUpdateMode? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state eventState: String? = nil) -> SessionState {
         var state = state
         state.cursor += 1
-        let event = ConversationEvent(sessionID: state.session.id, sequence: state.cursor, generation: state.session.generation, kind: kind, item: item, request: request, queue: queue, receipt: receipt, state: eventState)
+        let event = ConversationEvent(sessionID: state.session.id, sequence: state.cursor, generation: state.session.generation, kind: kind, item: item, itemUpdate: itemUpdate, request: request, queue: queue, receipt: receipt, state: eventState)
         state.history.append(event)
         for continuation in state.continuations.values { continuation.yield(event) }
         return state
+    }
+
+    private func emitStreamingAssistantDelta(sessionID: ConversationID) {
+        guard var state = sessions[sessionID],
+              let index = state.items.lastIndex(where: { $0.kind == .message && $0.role?.lowercased() == "assistant" }) else { return }
+        let previous = state.items[index]
+        let delta = " assistant output"
+        let sequence = state.cursor + 1
+        let update = ConversationItem(
+            id: previous.id,
+            sequence: sequence,
+            turnID: previous.turnID,
+            kind: .message,
+            role: previous.role,
+            text: delta,
+            rawPayload: previous.rawPayload
+        )
+        var full = previous
+        full.text = (previous.text ?? "") + delta
+        state.items[index] = full
+        state = appendEvent(state, kind: .item, item: update, itemUpdate: .appendText)
+        sessions[sessionID] = state
     }
 
     private func removeContinuation(sessionID: ConversationID, token: UUID) {

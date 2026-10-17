@@ -206,6 +206,7 @@ struct ConversationQuestionCard: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("ConversationQuestionSendButton")
                     Spacer()
                 }
             }

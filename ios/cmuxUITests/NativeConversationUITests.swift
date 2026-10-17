@@ -4,9 +4,9 @@ import XCTest
 /// transport, so these tests exercise the production model and views while
 /// remaining deterministic on isolated simulators.
 final class NativeConversationUITests: XCTestCase {
-    /// The matrix intentionally names each reviewable state. Queue lifecycle
-    /// and question paging each produce multiple captures from one scenario,
-    /// while still sharing setup and keeping the test runtime bounded.
+    /// The manifest names every reviewable state. Queue lifecycle and question
+    /// paging each produce multiple captures from one scenario, while still
+    /// sharing setup and keeping the test runtime bounded.
     private enum MatrixState: String, CaseIterable {
         case taskList = "task-list"
         case taskDetail = "task-detail"
@@ -16,10 +16,16 @@ final class NativeConversationUITests: XCTestCase {
         case queueLifecycle = "queue-add-edit-cancel"
         case steerReceipt = "steer-receipt"
         case stopReceipt = "stop-receipt"
+        case stopWithLiveTool = "stop-with-live-tool"
         case approval = "approval"
         case questionPaging = "question-paging"
+        case singleQuestionCustomAnswer = "single-question-custom-answer"
         case asyncQuestion = "async-question"
-        case reconnectDisconnected = "reconnect-disconnected"
+        case reconnectedPendingRequest = "reconnected-pending-request"
+        case disconnectedRetainedTranscript = "disconnected-retained-transcript"
+        case streamingAssistantDelta = "streaming-assistant-delta"
+        case rejectedCommand = "rejected-command"
+        case uncertainCommand = "uncertain-command"
         case modelSettings = "model-settings"
         case filesDiff = "files-diff"
         case emptyFiles = "empty-files"
@@ -35,8 +41,13 @@ final class NativeConversationUITests: XCTestCase {
             switch self {
             case .approval: "approval"
             case .questionPaging: "question"
+            case .singleQuestionCustomAnswer: "single-question-custom-answer"
             case .asyncQuestion: "async-question"
-            case .reconnectDisconnected: "disconnected"
+            case .reconnectedPendingRequest: "reconnected-pending-request"
+            case .disconnectedRetainedTranscript: "disconnected"
+            case .streamingAssistantDelta: "streaming-assistant-delta"
+            case .rejectedCommand: "rejected-command"
+            case .uncertainCommand: "uncertain-command"
             case .filesDiff: "files"
             case .emptyFiles: "empty-files"
             case .noGit: "no-git"
@@ -47,6 +58,7 @@ final class NativeConversationUITests: XCTestCase {
             case .steerQueueMenu, .queueLifecycle: "queue"
             case .steerReceipt: "steer"
             case .stopReceipt: "running"
+            case .stopWithLiveTool: "stop-with-live-tool"
             default: "all"
             }
         }
@@ -58,8 +70,20 @@ final class NativeConversationUITests: XCTestCase {
 
     @MainActor
     func testNativeConversationStateMatrix() throws {
+        continueAfterFailure = true
+        let manifest = MatrixState.allCases.map(\.rawValue)
+        if let data = try? JSONSerialization.data(withJSONObject: ["states": manifest], options: [.prettyPrinted, .sortedKeys]) {
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            attachment.name = "native-conversation-state-manifest.json"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         for state in MatrixState.allCases {
-            try exercise(state)
+            do {
+                try exercise(state)
+            } catch {
+                XCTFail("\(state.rawValue) evidence case failed before capture: \(error)")
+            }
         }
     }
 
@@ -182,6 +206,16 @@ final class NativeConversationUITests: XCTestCase {
             XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             capture(app, name: "native-stop-receipt")
 
+        case .stopWithLiveTool:
+            try openDetail(in: app)
+            let stop = app.buttons["ConversationStopButton"]
+            XCTAssertTrue(stop.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.otherElements["ConversationTool-shell"].waitForExistence(timeout: 5))
+            stop.tap()
+            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 5), "stopping keeps the live tool visible")
+            capture(app, name: "native-stop-with-live-tool")
+
         case .approval:
             try openDetail(in: app)
             let request = app.otherElements["ConversationBlockingRequest-fixture-approval"]
@@ -203,18 +237,65 @@ final class NativeConversationUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts["2 of 2"].waitForExistence(timeout: 5))
             capture(app, name: "native-question-page-2")
 
+        case .singleQuestionCustomAnswer:
+            try openDetail(in: app)
+            XCTAssertTrue(app.otherElements["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
+            let customAnswer = app.textFields["ConversationQuestionCustomAnswer"]
+            XCTAssertTrue(customAnswer.waitForExistence(timeout: 3))
+            capture(app, name: "native-single-question-custom-answer")
+            customAnswer.tap()
+            customAnswer.typeText("a custom answer")
+            app.buttons["ConversationQuestionSendButton"].tap()
+            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            capture(app, name: "native-single-question-custom-answer-applied")
+
         case .asyncQuestion:
             try openDetail(in: app)
             let question = app.otherElements["ConversationAsyncQuestion"]
             XCTAssertTrue(question.waitForExistence(timeout: 5))
             capture(app, name: "native-async-question")
 
-        case .reconnectDisconnected:
+        case .reconnectedPendingRequest:
+            try openDetail(in: app)
+            XCTAssertTrue(app.otherElements["ConversationBlockingRequest-fixture-approval"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.images["Disconnected"].waitForExistence(timeout: 5))
+            capture(app, name: "native-reconnected-pending-request")
+
+        case .disconnectedRetainedTranscript:
             try openDetail(in: app)
             XCTAssertTrue(app.otherElements["ConversationTranscript"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.staticTexts["Workspace is ready."].waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["ConversationSendButton"].isEnabled)
-            capture(app, name: "native-reconnect-disconnected-retained")
+            capture(app, name: "native-disconnected-retained-transcript")
+
+        case .streamingAssistantDelta:
+            try openDetail(in: app)
+            XCTAssertTrue(app.staticTexts["Streaming"].waitForExistence(timeout: 5))
+            capture(app, name: "native-streaming-assistant-initial")
+            XCTAssertTrue(app.staticTexts["Streaming assistant output"].waitForExistence(timeout: 5))
+            capture(app, name: "native-streaming-assistant-delta")
+
+        case .rejectedCommand:
+            try openDetail(in: app)
+            let composer = app.textViews["ConversationComposerTextEditor"]
+            XCTAssertTrue(composer.waitForExistence(timeout: 5))
+            composer.tap()
+            composer.typeText("reject this command")
+            app.buttons["ConversationSendButton"].tap()
+            XCTAssertTrue(app.otherElements["ConversationErrorNotice"].waitForExistence(timeout: 5))
+            XCTAssertTrue((composer.value as? String ?? "").contains("reject this command"))
+            capture(app, name: "native-rejected-command")
+
+        case .uncertainCommand:
+            try openDetail(in: app)
+            let composer = app.textViews["ConversationComposerTextEditor"]
+            XCTAssertTrue(composer.waitForExistence(timeout: 5))
+            composer.tap()
+            composer.typeText("uncertain command")
+            app.buttons["ConversationSendButton"].tap()
+            XCTAssertTrue(app.otherElements["ConversationUncertainReceipt"].waitForExistence(timeout: 5))
+            XCTAssertTrue((composer.value as? String ?? "").contains("uncertain command"))
+            capture(app, name: "native-uncertain-command")
 
         case .modelSettings:
             try openDetail(in: app)
@@ -257,9 +338,6 @@ final class NativeConversationUITests: XCTestCase {
         case .noLastTurn:
             try openDetail(in: app)
             try openFilesSheet(in: app)
-            let lastTurn = app.buttons["Last turn"]
-            XCTAssertTrue(lastTurn.waitForExistence(timeout: 3))
-            lastTurn.tap()
             XCTAssertTrue(app.otherElements["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
             capture(app, name: "native-no-last-turn")
 
