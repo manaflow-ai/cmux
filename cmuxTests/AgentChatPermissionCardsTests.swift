@@ -141,7 +141,7 @@ struct AgentChatPermissionCardsTests {
         )
         defer { service.shutdown() }
         let sessionID = UUID().uuidString
-        service.noteHookEvent(WorkstreamEvent(
+        let questionEvent = WorkstreamEvent(
             sessionId: sessionID,
             hookEventName: .askUserQuestion,
             source: "opencode",
@@ -149,7 +149,8 @@ struct AgentChatPermissionCardsTests {
             toolInputJSON: #"{"questions":[{"id":"q1","question":"Which file?","options":[{"id":"a","label":"README"},{"id":"b","label":"Source"}]},{"id":"q2","question":"Which mode?","options":[{"id":"r","label":"Read"},{"id":"w","label":"Write"}]}]}"#,
             requestId: "opencode-question-1",
             receivedAt: Date(timeIntervalSince1970: 200)
-        ))
+        )
+        service.noteHookEvent(questionEvent)
 
         let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
         let message = try #require(page.messages.first)
@@ -187,6 +188,16 @@ struct AgentChatPermissionCardsTests {
             return
         }
         #expect(resolved.selectedOptionLabel == "Source")
+
+        // A later request with the same payload gets a fresh group and keeps
+        // the completed cards in history instead of overwriting their ids.
+        service.noteHookEvent(questionEvent)
+        let repeatedPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        #expect(repeatedPage.messages.count == 4)
+        #expect(repeatedPage.messages.dropFirst(2).allSatisfy {
+            guard case .question(let question) = $0.kind else { return false }
+            return question.selectedOptionLabel == nil
+        })
     }
 
     @MainActor

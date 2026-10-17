@@ -79,20 +79,22 @@ extension AgentChatTranscriptService {
         var records = questionRecordsBySessionID[sessionID, default: [:]]
         guard !records.values.contains(where: {
             $0.selectedOptionLabel == nil
-                && ($0.groupID == fingerprint
+                && ($0.requestFingerprint == fingerprint
                     || $0.identity == fingerprint
                     || (rawRequestID != nil && $0.rawRequestID == rawRequestID))
         }) else { return }
-        let groupID = fingerprint
+        let groupOrdinal = nextPermissionOrdinalBySessionID[sessionID, default: 0]
+        let groupID = "\(fingerprint):group-\(groupOrdinal)"
         let questionCount = parsed.count
         var messages: [ChatMessage] = []
         for (questionIndex, question) in parsed.enumerated() {
             let ordinal = nextPermissionOrdinalBySessionID[sessionID, default: 0]
             nextPermissionOrdinalBySessionID[sessionID] = ordinal + 1
-            let identity = "\(fingerprint):q\(questionIndex)"
+            let identity = "\(groupID):q\(questionIndex)"
             let record = QuestionRecord(
                 identity: identity,
                 groupID: groupID,
+                requestFingerprint: fingerprint,
                 questionIndex: questionIndex,
                 questionCount: questionCount,
                 questionID: question.id,

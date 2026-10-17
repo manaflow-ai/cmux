@@ -67,6 +67,7 @@ final class AgentChatTranscriptService {
     struct QuestionRecord {
         let identity: String
         let groupID: String
+        let requestFingerprint: String
         let questionIndex: Int
         let questionCount: Int
         let questionID: String?

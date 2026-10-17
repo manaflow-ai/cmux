@@ -417,6 +417,7 @@ public actor AgentChatTranscriptTailer {
             hasTimestamps = false
             prepared = sqlite3_prepare_v2(database, queries[1], -1, &statement, nil)
         }
+        let legacyQueryUnavailable = prepared != SQLITE_OK
         var drafts: [OpenCodeDraft] = []
         if prepared == SQLITE_OK, let statement {
             defer { sqlite3_finalize(statement) }
@@ -484,9 +485,20 @@ public actor AgentChatTranscriptTailer {
         // legacy `message`/`part` projection alongside the canonical table,
         // while an empty canonical result for an older session should still
         // fall back to those legacy rows.
-        if let sessionMessages = readOpenCodeSessionMessages(database: database, sessionID: querySessionID),
-           !sessionMessages.isEmpty {
-            drafts = sessionMessages
+        if let sessionMessages = readOpenCodeSessionMessages(database: database, sessionID: querySessionID) {
+            if !sessionMessages.isEmpty {
+                drafts = sessionMessages
+            } else if legacyQueryUnavailable {
+                // The canonical table exists and was read successfully but
+                // has no rows for this session. Preserve that valid empty
+                // result even when the legacy projection is not present.
+                drafts = []
+            }
+        } else if legacyQueryUnavailable {
+            // Both legacy queries failed to prepare and the canonical read
+            // was unavailable. Do not manufacture an empty transcript from a
+            // transient schema/connection failure.
+            return nil
         }
 
         let messages = drafts.enumerated().map { index, draft in
