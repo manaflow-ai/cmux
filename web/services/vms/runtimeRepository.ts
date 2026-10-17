@@ -86,12 +86,12 @@ function updateSet(input: UpdateRuntimeInput): Record<string, unknown> {
   return set;
 }
 
-function updateConditions(input: UpdateRuntimeInput, ownerTeamId: string, placementMutation: boolean) {
+function updateConditions(input: UpdateRuntimeInput, ownerTeamId: string) {
   const conditions = [
     eq(cloudRuntimes.id, input.runtimeId),
     eq(cloudRuntimes.ownerTeamId, ownerTeamId),
   ];
-  if (placementMutation && input.expectedPlacementGeneration !== undefined) {
+  if (input.expectedPlacementGeneration !== undefined) {
     conditions.push(eq(cloudRuntimes.placementGeneration, input.expectedPlacementGeneration));
   }
   if (input.expectedLeaseGeneration !== undefined) {
@@ -182,7 +182,7 @@ export async function updateRuntime(input: UpdateRuntimeInput): Promise<RuntimeR
   // The placement and lease counters use SQL expressions (`column + 1`), so
   // this local update map intentionally permits both values and SQL wrappers.
   const set = updateSet(input);
-  const conditions = updateConditions(input, ownerTeamId, placementMutation);
+  const conditions = updateConditions(input, ownerTeamId);
 
   const [updated] = await cloudDb().update(cloudRuntimes).set(set as never).where(and(...conditions)).returning();
   if (updated) return updated;
