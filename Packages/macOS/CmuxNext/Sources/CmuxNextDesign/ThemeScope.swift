@@ -54,58 +54,68 @@ public final class ThemeScope {
     /// Changes the per-surface backgrounds and repaints this scope and its
     /// descendants (every owner re-reads its fill in its theme hook).
     public func setSurfaceBackgrounds(_ backgrounds: SurfaceBackgrounds) {
-        guard selectedSurfaceBackgrounds != backgrounds else { return }
-        selectedSurfaceBackgrounds = backgrounds
-        repaintBackdropArt()
+        ThemeRepaint.batch {
+            guard selectedSurfaceBackgrounds != backgrounds else { return }
+            selectedSurfaceBackgrounds = backgrounds
+            repaintBackdropArt()
+        }
     }
 
     /// Changes the selected bundled or system image and repaints descendants.
     public func setBackdropSelection(_ selection: BackdropSelection?) {
-        guard selectedBackdropSelection != selection else { return }
-        selectedBackdropSelection = selection
-        // Settings pick the art before the first window: start decoding it now, so that window
-        // finds it ready.
-        BackdropImageStore.shared.prewarm(selection)
-        repaintBackdropArt()
+        ThemeRepaint.batch {
+            guard selectedBackdropSelection != selection else { return }
+            selectedBackdropSelection = selection
+            // Settings pick the art before the first window: start decoding it now, so that window
+            // finds it ready.
+            BackdropImageStore.shared.prewarm(selection)
+            repaintBackdropArt()
+        }
     }
 
     /// Gives this scope its own background over its ancestors' (a workspace's own pick, cx-t2x.5):
     /// `.none` is plain glass even under art, `.inherit` follows the ancestors again.
     public func pinBackdrop(_ pin: BackdropPin) {
-        let (selection, none): (BackdropSelection?, Bool) = switch pin {
-        case .inherit: (nil, false)
-        case .none: (nil, true)
-        case .selection(let selection): (selection, false)
+        ThemeRepaint.batch {
+            let (selection, none): (BackdropSelection?, Bool) = switch pin {
+            case .inherit: (nil, false)
+            case .none: (nil, true)
+            case .selection(let selection): (selection, false)
+            }
+            guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
+            selectedBackdropSelection = selection
+            pinsNoBackdrop = none
+            isPinned = selection != nil
+            BackdropImageStore.shared.prewarm(selection)
+            repaintBackdropArt()
+            // The rooms showing this scope draw its background.
+            for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
         }
-        guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
-        selectedBackdropSelection = selection
-        pinsNoBackdrop = none
-        isPinned = selection != nil
-        BackdropImageStore.shared.prewarm(selection)
-        repaintBackdropArt()
-        // The rooms showing this scope draw its background.
-        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
     }
 
     /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...0.95 so
     /// the art always shows; nil follows the work's own tint.
     public func pinBackdropTint(_ tint: Double?) {
-        // A non-finite tint (a hand-edited "nan") follows the work's.
-        let tint = tint.flatMap { $0.isFinite ? min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) : nil }
-        guard pinnedTint != tint else { return }
-        pinnedTint = tint
-        repaintBackdropArt()
-        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+        ThemeRepaint.batch {
+            // A non-finite tint (a hand-edited "nan") follows the work's.
+            let tint = tint.flatMap { $0.isFinite ? min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) : nil }
+            guard pinnedTint != tint else { return }
+            pinnedTint = tint
+            repaintBackdropArt()
+            for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+        }
     }
 
     /// Changes live tuning without changing theme colors or persisted settings.
     public func setAppearanceTuning(_ tuning: AppearanceTuning) {
-        let clamped = AppearanceTuning(glassTransparency: tuning.glassTransparency,
-                                       hue: tuning.hue,
-                                       saturation: tuning.saturation)
-        guard selectedAppearanceTuning != clamped else { return }
-        selectedAppearanceTuning = clamped
-        repaintBackdropArt()
+        ThemeRepaint.batch {
+            let clamped = AppearanceTuning(glassTransparency: tuning.glassTransparency,
+                                           hue: tuning.hue,
+                                           saturation: tuning.saturation)
+            guard selectedAppearanceTuning != clamped else { return }
+            selectedAppearanceTuning = clamped
+            repaintBackdropArt()
+        }
     }
 
     /// The theme's own accent (`ThemeInput.accentColor`) this scope inherits, apart from Art Color.
@@ -222,11 +232,13 @@ public final class ThemeScope {
     /// a nil spec (or nil input) clears it and inherits again. Repaints
     /// what this scope draws, its colors blending when `animated`.
     public func setOverride(_ spec: ThemeSpec?, input: ThemeInput?, animated: Bool = true) {
-        let resolved = spec == nil ? nil : input
-        self.spec = resolved == nil ? nil : spec
-        guard resolved != overrideInput else { return }
-        overrideInput = resolved
-        update(animated: animated, repaint: true)
+        ThemeRepaint.batch {
+            let resolved = spec == nil ? nil : input
+            self.spec = resolved == nil ? nil : spec
+            guard resolved != overrideInput else { return }
+            overrideInput = resolved
+            update(animated: animated, repaint: true)
+        }
     }
 
     /// The nearest scope (this one or an ancestor) without a chrome
@@ -239,39 +251,45 @@ public final class ThemeScope {
 
     /// Sets `emphasis` and repaints what this scope roots when it changed.
     public func setEmphasis(_ emphasis: ChromeEmphasis, animated: Bool = true) {
-        guard emphasis != self.emphasis else { return }
-        self.emphasis = emphasis
-        refreshDisplay(animated: animated, repaint: true)
+        ThemeRepaint.batch {
+            guard emphasis != self.emphasis else { return }
+            self.emphasis = emphasis
+            refreshDisplay(animated: animated, repaint: true)
+        }
     }
 
     /// Moves this scope under another parent (a workspace shown in another
     /// window, a terminal moved to another workspace).
     public func setParent(_ newParent: ThemeScope, animated: Bool = false) {
-        guard newParent !== parent, newParent !== self else { return }
-        parent?.children.remove(self)
-        parent = newParent
-        newParent.children.add(self)
-        for view in roots.allObjects { applyAppearance(to: view) }
-        update(animated: animated, repaint: true)
+        ThemeRepaint.batch {
+            guard newParent !== parent, newParent !== self else { return }
+            parent?.children.remove(self)
+            parent = newParent
+            newParent.children.add(self)
+            for view in roots.allObjects { applyAppearance(to: view) }
+            update(animated: animated, repaint: true)
+        }
     }
 
     /// Draws this scope's own views and windows in `scope`'s colors (nil:
     /// its own). Children keep inheriting this scope's own theme, so a
     /// parked workspace never takes the shown one's colors.
     public func show(_ scope: ThemeScope?, animated: Bool = false) {
-        guard scope !== shown else { return }
-        // A chain that leads back here would never resolve its colors.
-        var next = scope
-        while let candidate = next {
-            if candidate === self { return }
-            next = candidate.shown
+        ThemeRepaint.batch {
+            guard scope !== shown else { return }
+            // A chain that leads back here would never resolve its colors.
+            var next = scope
+            while let candidate = next {
+                if candidate === self { return }
+                next = candidate.shown
+            }
+            let backdrop = (backdropSelection, backdropTintOpacity)
+            shown?.viewers.remove(self)
+            shown = scope
+            scope?.viewers.add(self)
+            refreshDisplay(animated: animated, repaint: true)
+            if backdropSelection != backdrop.0 || backdropTintOpacity != backdrop.1 { repaintBackdropArt() }
         }
-        let backdrop = (backdropSelection, backdropTintOpacity)
-        shown?.viewers.remove(self)
-        shown = scope
-        scope?.viewers.add(self)
-        refreshDisplay(animated: animated, repaint: true)
-        if backdropSelection != backdrop.0 || backdropTintOpacity != backdrop.1 { repaintBackdropArt() }
     }
 
     /// Repaints and notifies when `tokens` moved away from what was last
@@ -279,16 +297,22 @@ public final class ThemeScope {
     /// two applies changed.
     private func refreshDisplay(animated: Bool, repaint: Bool) {
         let now = tokens, previous = displayed
-        // The windows take the new light/dark first: a child root that compares with it then
-        // never inherits the old one for a moment (now that the room follows a workspace of any
-        // light/dark).
+        // The windows take the new light/dark before any hook of the batch runs (and after it
+        // recorded the colors on screen): a child root that compares with it then never inherits
+        // the old one for a moment (now that the room follows a workspace of any light/dark).
         if repaint, now != previous {
-            for window in windows.allObjects where window.appearance?.name != appearance.name { window.appearance = appearance }
+            ThemeRepaint.beforeHooks { [weak self] in
+                guard let self else { return }
+                for window in self.windows.allObjects where window.appearance?.name != self.appearance.name { window.appearance = self.appearance }
+            }
         }
         // A child root's explicit appearance compares with this scope's light/dark: only a flip
         // can change it.
         if now.isDark != previous.isDark {
-            for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
+            ThemeRepaint.beforeHooks { [weak self] in
+                guard let self else { return }
+                for child in self.children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
+            }
         }
         guard now != previous else { return }
         displayed = now
@@ -305,14 +329,18 @@ public final class ThemeScope {
     /// Called by `ThemeStore.shared` after a Ghostty config change. The
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
-        update(animated: false, repaint: false)
+        ThemeRepaint.batch {
+            update(animated: false, repaint: false)
+        }
     }
 
     /// Art Color turned on or off: the config's own colors did not change, so every scope below
     /// re-derives its accent itself.
     func accentSourceDidChange() {
-        update(animated: false, repaint: false)
-        for child in children.allObjects { child.accentSourceDidChange() }
+        ThemeRepaint.batch {
+            update(animated: false, repaint: false)
+            for child in children.allObjects { child.accentSourceDidChange() }
+        }
     }
 
     private func update(animated: Bool, repaint: Bool) {
@@ -324,7 +352,12 @@ public final class ThemeScope {
         }
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
-        defer { for view in roots.allObjects { applyAppearance(to: view) } }
+        defer {
+            ThemeRepaint.beforeHooks { [weak self] in
+                guard let self else { return }
+                for view in self.roots.allObjects { self.applyAppearance(to: view) }
+            }
+        }
         guard next != input else { return }
         input = next
         let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
@@ -339,21 +372,25 @@ public final class ThemeScope {
 
     /// Makes `view` and its subtree draw in this scope and repaints it.
     public func root(_ view: NSView) {
-        if let previous = ThemeScopeRegistry.scope(of: view), previous !== self { previous.roots.remove(view) }
-        ThemeScopeRegistry.setScope(self, of: view)
-        roots.add(view)
-        applyAppearance(to: view)
-        ThemeRepaint.run(under: [view], scope: self, transition: nil)
+        ThemeRepaint.batch {
+            if let previous = ThemeScopeRegistry.scope(of: view), previous !== self { previous.roots.remove(view) }
+            ThemeScopeRegistry.setScope(self, of: view)
+            roots.add(view)
+            applyAppearance(to: view)
+            ThemeRepaint.request(view, roots: { [view] }, scope: self, animated: false)
+        }
     }
 
     /// Makes `window` (a main window or a panel it owns) draw in this scope:
     /// its appearance, and every view in it that roots no other scope.
     public func adopt(_ window: NSWindow) {
-        if let previous = ThemeScopeRegistry.scope(of: window), previous !== self { previous.windows.remove(window) }
-        ThemeScopeRegistry.setScope(self, of: window)
-        windows.add(window)
-        window.appearance = appearance
-        if let content = window.contentView { ThemeRepaint.run(under: [content], scope: self, transition: nil) }
+        ThemeRepaint.batch {
+            if let previous = ThemeScopeRegistry.scope(of: window), previous !== self { previous.windows.remove(window) }
+            ThemeScopeRegistry.setScope(self, of: window)
+            windows.add(window)
+            window.appearance = appearance
+            if let content = window.contentView { ThemeRepaint.request(content, roots: { [content] }, scope: self, animated: false) }
+        }
     }
 
     /// Calls `responder.themeDidChange()` after every change of this scope's
@@ -390,11 +427,16 @@ public final class ThemeScope {
         let now = tokens
         // A non-opaque window's shadow follows its content's alpha.
         let shadowMoved = previous.map { $0.backgroundOpacity != now.backgroundOpacity || $0.isDark != now.isDark } ?? true
-        for window in windows.allObjects {
-            if window.appearance?.name != appearance.name { window.appearance = appearance }
-            if shadowMoved { window.invalidateShadow() }
+        ThemeRepaint.beforeHooks { [weak self] in
+            guard let self else { return }
+            for window in self.windows.allObjects {
+                if window.appearance?.name != self.appearance.name { window.appearance = self.appearance }
+                if shadowMoved { window.invalidateShadow() }
+            }
         }
-        let regions = windows.allObjects.compactMap(\.contentView) + roots.allObjects
-        ThemeRepaint.run(under: regions, scope: self, transition: animated ? .current : nil)
+        ThemeRepaint.request(self, roots: { [weak self] in
+            guard let self else { return [] }
+            return self.windows.allObjects.compactMap(\.contentView) + self.roots.allObjects
+        }, scope: self, animated: animated)
     }
 }
