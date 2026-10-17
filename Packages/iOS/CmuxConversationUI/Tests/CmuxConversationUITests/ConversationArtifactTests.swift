@@ -105,6 +105,8 @@ private actor ArtifactTestClient: ConversationArtifactClient {
 
     nonisolated func receipt(_ query: ConversationReceiptQuery) async throws -> ConversationReceipt? { nil }
 
+    nonisolated func receipt(sessionID: ConversationID, commandID: ConversationCommandID) async throws -> ConversationReceipt? { nil }
+
     func artifactChunk(_ query: ConversationArtifactQuery) async throws -> ConversationArtifactChunk {
         let chunkSize = max(1, data.count / 2)
         let offset = Int(query.offset)

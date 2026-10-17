@@ -56,7 +56,7 @@ struct ConversationTaskListView: View {
         .sheet(item: $editingSession) { session in
             NavigationStack {
                 Form {
-                    TextField("Task name", text: $renameText)
+                    TextField(ConversationL10n.value("conversation.task_name", "Task name"), text: $renameText)
                         .textInputAutocapitalization(.sentences)
                         .accessibilityIdentifier("ConversationRenameField")
                 }

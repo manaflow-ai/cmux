@@ -51,7 +51,7 @@ private struct ConversationWelcomeView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(.blue)
-            Text(ConversationL10n.value("conversation.welcome.title", "Work with \(provider.displayName)"))
+            Text(ConversationL10n.value("conversation.welcome.title", "Work with") + " " + provider.displayName)
                 .font(.title3.weight(.semibold))
             Text(ConversationL10n.value("conversation.welcome.body", "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."))
                 .font(.subheadline)
@@ -72,6 +72,18 @@ private struct ConversationItemRow: View {
 
     private var isUser: Bool { item.kind == .message && item.role?.lowercased() == "user" }
     private var isCollapsible: Bool { [.reasoning, .plan, .tool, .result, .files, .artifact, .child, .usage].contains(item.kind) }
+
+    private var testIdentifier: String {
+        switch item.kind {
+        case .tool: return "ConversationTool-\(item.tool?.name ?? item.id.rawValue)"
+        case .reasoning: return "ConversationReasoning-\(item.id.rawValue)"
+        case .plan: return "ConversationPlan-\(item.id.rawValue)"
+        case .result: return "ConversationResult-\(item.id.rawValue)"
+        case .files: return "ConversationFilesItem-\(item.id.rawValue)"
+        case .artifact: return "ConversationArtifact-\(item.artifact?.artifactID ?? item.id.rawValue)"
+        default: return "ConversationItem-\(item.id.rawValue)"
+        }
+    }
 
     var body: some View {
         Group {
@@ -122,7 +134,7 @@ private struct ConversationItemRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .accessibilityIdentifier("ConversationItem-\(item.id.rawValue)")
+        .accessibilityIdentifier(testIdentifier)
     }
 
     private var iconName: String {
@@ -275,7 +287,7 @@ private struct ConversationQueuedRow: View {
             }
             .sheet(isPresented: $isEditing) {
                 NavigationStack {
-                    Form { TextField("Queued message", text: $text, axis: .vertical).lineLimit(3...8) }
+                    Form { TextField(ConversationL10n.value("conversation.queued_message", "Queued message"), text: $text, axis: .vertical).lineLimit(3...8) }
                         .navigationTitle(ConversationL10n.value("conversation.edit_queued", "Edit queued message"))
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.cancel", "Cancel")) { isEditing = false } }
@@ -285,7 +297,7 @@ private struct ConversationQueuedRow: View {
                 .presentationDetents([.medium])
             }
         }
-        .accessibilityIdentifier("ConversationQueued-\(item.id.rawValue)")
+        .accessibilityIdentifier("ConversationQueuedRow-\(item.position)")
     }
 }
 

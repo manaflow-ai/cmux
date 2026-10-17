@@ -1,25 +1,36 @@
 #if DEBUG
 import CmuxConversation
+import CryptoKit
 import Foundation
 
 /// Deterministic in-process host used only by DEBUG simulator UI verification.
 /// It drives the same client/model/view path as production and exposes a small
 /// set of scenario seeds so UI tests can cover approvals, questions, queues,
 /// tool lifecycles and file diffs without a provider process.
-public actor ConversationFixtureClient: ConversationClient {
+public actor ConversationFixtureClient: ConversationArtifactClient {
     public enum Scenario: String, Sendable {
         case all
+        case empty
+        case emptyList = "empty-list"
         case approval
         case question
         case files
+        case emptyFiles = "empty-files"
+        case artifact
+        case asyncQuestion = "async-question"
         case running
         case disconnected
 
         public init(rawValue: String) {
             switch rawValue.lowercased() {
             case "approval": self = .approval
+            case "empty": self = .empty
+            case "empty-list": self = .emptyList
             case "question": self = .question
             case "files": self = .files
+            case "empty-files": self = .emptyFiles
+            case "artifact": self = .artifact
+            case "async-question": self = .asyncQuestion
             case "running": self = .running
             case "disconnected": self = .disconnected
             default: self = .all
@@ -50,7 +61,7 @@ public actor ConversationFixtureClient: ConversationClient {
         self.scenario = scenario ?? Scenario(rawValue: environmentScenario ?? "all")
         self.capabilities = ConversationCapabilities(
             protocolVersion: "fixture/1",
-            features: ["approval", "question", "queue", "steer", "interrupt", "stop", "files", "artifacts"],
+            features: ["turn/start", "turn/steer", "turn/interrupt", "approval", "question", "queue", "diff", "artifact", "configure"],
             models: ["fixture-model"],
             efforts: ["fast", "balanced", "thorough"],
             speeds: ["standard", "quick"],
@@ -90,6 +101,7 @@ public actor ConversationFixtureClient: ConversationClient {
 
     public func listSessions() async throws -> [ConversationSession] {
         seedIfNeeded()
+        if scenario == .emptyList { return [] }
         return sessions.values.map(\.session).sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
             return lhs.updatedAt > rhs.updatedAt
@@ -174,9 +186,13 @@ public actor ConversationFixtureClient: ConversationClient {
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .run, state: "stopped")
         case .answerQuestion(let requestID, let answers):
+            let answeredRequest = state.pendingRequests.first(where: { $0.id == requestID })
             state.pendingRequests.removeAll { $0.id == requestID }
             let answerText = answers.compactMap { $0.text ?? $0.optionID }.joined(separator: ", ")
             state = appendItem(state, kind: .message, role: "user", text: "Answer received: \(answerText.isEmpty ? "selected" : answerText)")
+            if scenario == .question, answeredRequest?.question?.index == 0 {
+                state.pendingRequests = [questionRequest(generation: state.session.generation, index: 1)]
+            }
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .request, request: nil)
         case .resolveApproval(let requestID, let decision):
@@ -221,23 +237,37 @@ public actor ConversationFixtureClient: ConversationClient {
 
     private func seedInitialState(for sessionID: ConversationID) {
         guard var state = sessions[sessionID] else { return }
-        state = appendItem(state, kind: .message, role: "user", text: "Build a native conversation surface for all three providers.")
-        state = appendItem(state, kind: .reasoning, text: "I’ll keep provider details behind the host contract.")
-        state = appendItem(state, kind: .plan, text: "Inspect workspace → run tools → report changes", plan: ConversationPlan(text: "Inspect workspace → run tools → report changes", status: "In progress"))
-        state = appendTool(state, name: "shell", input: .object(["command": .string("pwd")]), output: .string("/tmp/cmux-fixture"), status: .success)
-        state = appendItem(state, kind: .result, text: "Workspace is ready.")
-        let diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
-        state = appendItem(state, kind: .files, text: nil, diff: diff)
+        if scenario != .empty {
+            state = appendItem(state, kind: .message, role: "user", text: "Build a native conversation surface for all three providers.")
+            state = appendItem(state, kind: .reasoning, text: "I’ll keep provider details behind the host contract.")
+            state = appendItem(state, kind: .plan, text: "Inspect workspace → run tools → report changes", plan: ConversationPlan(text: "Inspect workspace → run tools → report changes", status: "In progress"))
+            state = appendTool(state, name: "shell", input: .object(["command": .string("pwd")]), output: .string("/tmp/cmux-fixture"), status: .success)
+            state = appendItem(state, kind: .result, text: "Workspace is ready.")
+        }
+        if scenario != .empty && scenario != .emptyFiles {
+            let diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
+            state = appendItem(state, kind: .files, text: nil, diff: diff)
+        }
         switch scenario {
         case .approval, .all:
             if scenario == .approval { state.pendingRequests = [approvalRequest(generation: state.session.generation)] }
         case .question:
-            state.pendingRequests = [questionRequest(generation: state.session.generation)]
-        case .files: break
+            state.pendingRequests = [questionRequest(generation: state.session.generation, index: 0)]
+        case .asyncQuestion:
+            state.pendingRequests = [ConversationRequest(id: ConversationRequestID(rawValue: "fixture-async-question"), generation: state.session.generation, kind: "input", question: ConversationQuestion(category: "Follow-up", prompt: "Add any context for this task", options: [], allowsCustomAnswer: true))]
+        case .files, .emptyFiles, .empty, .emptyList: break
+        case .artifact: 
+            let payload = Data("cmux fixture artifact\n".utf8)
+            let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+            let artifact = ConversationArtifact(artifactID: "fixture-artifact", fileName: "report.txt", mediaType: "text/plain", byteCount: Int64(payload.count), sha256: hash)
+            state = appendItem(state, kind: .artifact, text: nil, artifact: artifact)
         case .running:
             state.isRunning = true
             state = appendTool(state, name: "shell", input: .string("swift test"), output: nil, status: .running)
-        case .disconnected: break
+        case .disconnected:
+            let payload = Data("cmux fixture artifact\n".utf8)
+            let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+            state = appendItem(state, kind: .artifact, text: nil, artifact: ConversationArtifact(artifactID: "fixture-artifact", fileName: "report.txt", mediaType: "text/plain", byteCount: Int64(payload.count), sha256: hash))
         }
         sessions[sessionID] = state
     }
@@ -246,9 +276,10 @@ public actor ConversationFixtureClient: ConversationClient {
         ConversationRequest(id: ConversationRequestID(rawValue: "fixture-approval"), generation: generation, kind: "approval", approval: ConversationApproval(summary: "Run a command in this workspace?", command: "pwd", supportsAlwaysAllow: true))
     }
 
-    private func questionRequest(generation: ConversationGeneration) -> ConversationRequest {
+    private func questionRequest(generation: ConversationGeneration, index: Int) -> ConversationRequest {
         let options = [ConversationQuestionOption(id: "yes", label: "Yes", detail: "Continue with the plan"), ConversationQuestionOption(id: "no", label: "No", detail: "Stop here")]
-        return ConversationRequest(id: ConversationRequestID(rawValue: "fixture-question"), generation: generation, kind: "question", question: ConversationQuestion(category: "Plan", prompt: "Should I continue?", options: options, allowsCustomAnswer: true, index: 0, total: 2))
+        let prompt = index == 0 ? "Should I continue?" : "What should I call the result?"
+        return ConversationRequest(id: ConversationRequestID(rawValue: "fixture-question-\(index)"), generation: generation, kind: "question", question: ConversationQuestion(category: "Plan", prompt: prompt, options: options, allowsCustomAnswer: true, index: index, total: 2))
     }
 
     private func makeSnapshot(_ state: SessionState) -> ConversationSnapshot {
@@ -259,9 +290,9 @@ public actor ConversationFixtureClient: ConversationClient {
         ConversationReceipt(id: commandID, sessionID: sessionID, state: state, generation: generation)
     }
 
-    private func appendItem(_ state: SessionState, kind: ConversationItemKind, role: String? = nil, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil) -> SessionState {
+    private func appendItem(_ state: SessionState, kind: ConversationItemKind, role: String? = nil, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil) -> SessionState {
         var state = state
-        let item = ConversationItem(id: ConversationItemID(rawValue: "item-\(UUID().uuidString)"), sequence: state.cursor + 1, kind: kind, role: role, text: text, plan: plan, diff: diff)
+        let item = ConversationItem(id: ConversationItemID(rawValue: "item-\(UUID().uuidString)"), sequence: state.cursor + 1, kind: kind, role: role, text: text, plan: plan, diff: diff, artifact: artifact)
         state.items.append(item)
         state = appendEvent(state, kind: .item, item: item)
         return state
@@ -287,6 +318,17 @@ public actor ConversationFixtureClient: ConversationClient {
 
     private func removeContinuation(sessionID: ConversationID, token: UUID) {
         sessions[sessionID]?.continuations.removeValue(forKey: token)
+    }
+
+    public func artifactChunk(_ query: ConversationArtifactQuery) async throws -> ConversationArtifactChunk {
+        guard query.sessionID.rawValue == "fixture-codex", query.artifactID == "fixture-artifact" else { throw FixtureError.missingSession }
+        let payload = Data("cmux fixture artifact\n".utf8)
+        let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+        let offset = Int(query.offset)
+        let chunkSize = 8
+        let end = min(payload.count, offset + chunkSize)
+        let bytes = offset < payload.count ? payload.subdata(in: offset..<end) : Data()
+        return ConversationArtifactChunk(artifactID: query.artifactID, fileName: "report.txt", offset: query.offset, totalBytes: UInt64(payload.count), sha256: hash, data: bytes)
     }
 
     public enum FixtureError: Error, LocalizedError, Sendable {

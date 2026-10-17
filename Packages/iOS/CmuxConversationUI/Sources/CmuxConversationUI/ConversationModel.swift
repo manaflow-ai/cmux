@@ -60,6 +60,11 @@ public final class ConversationModel {
     private var draftBySession: [ConversationID: String] = [:]
     private var cursorBySession: [ConversationID: ConversationCursor] = [:]
     private var pendingCreateRequestID: ConversationCommandID?
+    /// Fingerprint of the request body associated with the pending id. A
+    /// retry of the exact same create request is idempotent; changing its
+    /// provider or workspace must receive a fresh id so the host cannot
+    /// reject it as a conflicting reuse.
+    private var pendingCreateFingerprint: String?
     private var snapshotBufferLimit = 2_000
 
     /// Creates state for a host scope. A nil client starts in a disconnected,
@@ -105,6 +110,7 @@ public final class ConversationModel {
             draftBySession.removeAll()
             cursorBySession.removeAll()
             pendingCreateRequestID = nil
+            pendingCreateFingerprint = nil
         }
         guard client != nil else {
             if scopeChanged { sessions = [] }
@@ -152,8 +158,15 @@ public final class ConversationModel {
         }
         let provider = provider ?? newTaskProvider
         isSubmitting = true
-        let requestID = pendingCreateRequestID ?? ConversationCommandID(rawValue: UUID().uuidString)
-        pendingCreateRequestID = requestID
+        let requestFingerprint = [provider.rawValue, selectedWorkspace.id, selectedWorkspace.directory].joined(separator: "\u{1f}")
+        let requestID: ConversationCommandID
+        if pendingCreateFingerprint == requestFingerprint, let pendingCreateRequestID {
+            requestID = pendingCreateRequestID
+        } else {
+            requestID = ConversationCommandID(rawValue: UUID().uuidString)
+            pendingCreateRequestID = requestID
+            pendingCreateFingerprint = requestFingerprint
+        }
         let request = ConversationCreateRequest(
             requestID: requestID,
             provider: provider,
@@ -167,6 +180,7 @@ public final class ConversationModel {
                 let session = try await client.createSession(request)
                 guard let self, self.generation == expectedGeneration else { return }
                 self.pendingCreateRequestID = nil
+                self.pendingCreateFingerprint = nil
                 self.isSubmitting = false
                 self.sessions.removeAll { $0.id == session.id }
                 self.sessions.append(session)
@@ -367,16 +381,31 @@ public final class ConversationModel {
     }
 
     /// Whether the provider can steer its current turn.
-    public var supportsSteering: Bool { capabilities?.features.contains("steer") == true }
+    ///
+    /// Provider adapters advertise wire operations using their namespaced
+    /// operation identifiers. Keep the UI capability check on that canonical
+    /// name instead of accepting a fixture-only shorthand.
+    public var supportsSteering: Bool { capabilities?.features.contains("turn/steer") == true }
 
     /// Whether the provider can interrupt/stop its current turn.
     public var supportsStopping: Bool {
         guard let features = capabilities?.features else { return false }
-        return features.contains("interrupt") || features.contains("stop")
+        return features.contains("turn/interrupt")
     }
 
     /// Whether the provider accepts queued follow-up turns.
     public var supportsQueueing: Bool { capabilities?.features.contains("queue") == true }
+
+    /// Whether the host can provide a workspace file/diff projection.
+    /// Codex and OpenCode call this `diff`; the UI intentionally does not
+    /// invent a provider-specific `files` capability name.
+    public var supportsFiles: Bool {
+        guard let features = capabilities?.features else { return false }
+        return features.contains("diff") || features.contains("artifact")
+    }
+
+    /// Whether the host accepts model/effort/speed configuration commands.
+    public var supportsSettings: Bool { capabilities?.features.contains("configure") == true }
 
     /// Changes provider settings for future turns when advertised by the host.
     public func configure(model: String?, effort: String?, speed: String?) {

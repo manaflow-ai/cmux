@@ -82,6 +82,7 @@ struct ConversationModelSettingsSheet: View {
                         Picker(ConversationL10n.value("conversation.model", "Model"), selection: $selectedModel) {
                             ForEach(capabilities.models, id: \.self) { value in Text(value).tag(value) }
                         }
+                        .accessibilityIdentifier("ConversationModelPicker")
                     }
                 }
                 Section(ConversationL10n.value("conversation.intelligence", "Intelligence")) {
@@ -89,11 +90,13 @@ struct ConversationModelSettingsSheet: View {
                         Picker(ConversationL10n.value("conversation.effort", "Effort"), selection: $effort) {
                             ForEach(capabilities.efforts, id: \.self) { value in Text(value.capitalized).tag(value) }
                         }
+                        .accessibilityIdentifier("ConversationEffortPicker")
                     }
                     if let capabilities, !capabilities.speeds.isEmpty {
                         Picker(ConversationL10n.value("conversation.speed", "Speed"), selection: $speed) {
                             ForEach(capabilities.speeds, id: \.self) { value in Text(value.capitalized).tag(value) }
                         }
+                        .accessibilityIdentifier("ConversationSpeedPicker")
                     }
                 }
                 Text(ConversationL10n.value("conversation.capabilities", "These controls follow the capabilities advertised by the connected provider."))
@@ -107,6 +110,7 @@ struct ConversationModelSettingsSheet: View {
                         model.configure(model: selectedModel.isEmpty ? nil : selectedModel, effort: effort.isEmpty ? nil : effort, speed: speed.isEmpty ? nil : speed)
                         dismiss()
                     }
+                    .accessibilityIdentifier("ConversationSettingsDone")
                 }
             }
             .task {
@@ -168,6 +172,7 @@ struct ConversationFilesSheet: View {
                 .pickerStyle(.segmented)
                 if diffs.isEmpty {
                     ContentUnavailableView(ConversationL10n.value("conversation.no_changes", "No changes"), systemImage: "doc.text", description: Text(ConversationL10n.value("conversation.no_changes.description", "There are no changes for this comparison.")))
+                        .accessibilityIdentifier("ConversationFilesEmptyState")
                         .listRowBackground(Color.clear)
                 } else {
                     ForEach(diffs, id: \.id) { entry in

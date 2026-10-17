@@ -73,6 +73,12 @@ private struct ConversationDetailView: View {
                 showsMore: $showsMore
             )
             ConversationTranscriptView(model: model)
+            if let receipt = model.lastReceipt, receipt.state == .accepted || receipt.state == .applied {
+                ConversationNoticeView(
+                    text: ConversationL10n.value("conversation.receipt.applied", "Command applied"),
+                    style: .receipt
+                )
+            }
             if let errorMessage = model.errorMessage {
                 ConversationNoticeView(text: errorMessage, style: .warning)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -143,8 +149,12 @@ private struct ConversationHeaderView: View {
                     .accessibilityLabel(ConversationL10n.value("conversation.disconnected", "Disconnected"))
             }
             Menu {
-                Button(ConversationL10n.value("conversation.files", "Files"), systemImage: "doc.text.magnifyingglass") { showsFiles = true }
-                Button(ConversationL10n.value("conversation.model_effort", "Model and effort"), systemImage: "slider.horizontal.3") { showsModelSettings = true }
+                if model.supportsFiles {
+                    Button(ConversationL10n.value("conversation.files", "Files"), systemImage: "doc.text.magnifyingglass") { showsFiles = true }
+                }
+                if model.supportsSettings {
+                    Button(ConversationL10n.value("conversation.model_effort", "Model and effort"), systemImage: "slider.horizontal.3") { showsModelSettings = true }
+                }
                 Divider()
                 Button(ConversationL10n.value("conversation.more", "More actions"), systemImage: "ellipsis") { showsMore = true }
             } label: {
@@ -162,23 +172,23 @@ private struct ConversationHeaderView: View {
 }
 
 private struct ConversationNoticeView: View {
-    enum Style { case warning, uncertain }
+    enum Style { case warning, uncertain, receipt }
     let text: String
     let style: Style
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: style == .uncertain ? "questionmark.circle" : "exclamationmark.triangle")
+            Image(systemName: style == .uncertain ? "questionmark.circle" : style == .receipt ? "checkmark.circle" : "exclamationmark.triangle")
             Text(text)
                 .font(.footnote)
                 .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(style == .uncertain ? .orange : .secondary)
+        .foregroundStyle(style == .uncertain ? .orange : style == .receipt ? .green : .secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.thinMaterial)
-        .accessibilityIdentifier(style == .uncertain ? "ConversationUncertainReceipt" : "ConversationErrorNotice")
+        .accessibilityIdentifier(style == .uncertain ? "ConversationUncertainReceipt" : style == .receipt ? "ConversationReceiptApplied" : "ConversationErrorNotice")
     }
 }
 

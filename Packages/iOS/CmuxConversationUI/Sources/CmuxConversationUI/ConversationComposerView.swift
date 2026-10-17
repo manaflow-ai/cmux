@@ -4,8 +4,6 @@ import SwiftUI
 
 struct ConversationComposerArea: View {
     @Bindable var model: ConversationModel
-    @State private var showsCommandMenu = false
-    @State private var showsEffortMenu = false
     @State private var pendingSteerOrQueue = false
 
     private var canSend: Bool {
@@ -21,32 +19,18 @@ struct ConversationComposerArea: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 HStack(alignment: .bottom, spacing: 9) {
-                    Menu {
-                        Button(ConversationL10n.value("conversation.camera", "Camera"), systemImage: "camera") {}
-                        Button(ConversationL10n.value("conversation.photos", "Photos"), systemImage: "photo") {}
-                        Button(ConversationL10n.value("conversation.files", "Files"), systemImage: "doc") {}
-                        Divider()
-                        Button(ConversationL10n.value("conversation.plan_mode", "Plan mode"), systemImage: "checklist") { model.updateDraft("/plan ") }
-                        Button(ConversationL10n.value("conversation.pursue_goal", "Pursue goal"), systemImage: "target") { model.updateDraft("/goal ") }
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.headline.weight(.semibold))
-                            .frame(width: 34, height: 34)
-                            .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                    }
-                    .accessibilityLabel(ConversationL10n.value("conversation.add", "Add attachment or mode"))
-                    .accessibilityIdentifier("ConversationComposerPlus")
-
                     TextEditor(text: Binding(get: { model.draft }, set: { model.updateDraft($0) }))
                         .font(.body)
-                        .frame(minHeight: 34, maxHeight: 118)
+                        .frame(minHeight: 44, maxHeight: 118)
                         .scrollContentBackground(.hidden)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .overlay(alignment: .topLeading) {
                             if model.draft.isEmpty {
-                                Text(model.isRunning ? "Follow up" : "Work on \(model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName ?? ConversationL10n.value("conversation.cloud", "Cloud"))")
+                                Text(model.isRunning
+                                    ? ConversationL10n.value("conversation.follow_up", "Follow up")
+                                    : ConversationL10n.value("conversation.work_on", "Work on") + " " + (model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName ?? ConversationL10n.value("conversation.cloud", "Cloud")))
                                     .font(.body)
                                     .foregroundStyle(.tertiary)
                                     .padding(.horizontal, 16)
@@ -62,7 +46,7 @@ struct ConversationComposerArea: View {
                         } label: {
                             Image(systemName: "stop.fill")
                                 .font(.subheadline.weight(.bold))
-                                .frame(width: 34, height: 34)
+                                .frame(width: 44, height: 44)
                                 .background(.primary, in: Circle())
                                 .foregroundStyle(.background)
                         }
@@ -74,7 +58,7 @@ struct ConversationComposerArea: View {
                         } label: {
                             Image(systemName: "arrow.up")
                                 .font(.subheadline.weight(.bold))
-                                .frame(width: 34, height: 34)
+                                .frame(width: 44, height: 44)
                                 .background(canSend ? Color.accentColor : Color(uiColor: .tertiarySystemFill), in: Circle())
                                 .foregroundStyle(canSend ? .white : .tertiary)
                         }
@@ -102,16 +86,6 @@ struct ConversationComposerArea: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Menu {
-                    Button(ConversationL10n.value("conversation.fast", "Fast"), action: {})
-                    Button(ConversationL10n.value("conversation.balanced", "Balanced"), action: {})
-                    Button(ConversationL10n.value("conversation.thorough", "Thorough"), action: {})
-                } label: {
-                    Label(ConversationL10n.value("conversation.effort", "Effort"), systemImage: "gauge.with.dots.needle.67percent")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityIdentifier("ConversationEffortMenu")
             }
             .padding(.horizontal, 6)
         }
@@ -140,7 +114,7 @@ private struct ConversationRequestCard: View {
                 Text(approval.summary)
                     .font(.body.weight(.semibold))
                 if let command = approval.command {
-                    ConversationCodeBlock(text: command, label: "Command")
+                    ConversationCodeBlock(text: command, label: ConversationL10n.value("conversation.command", "Command"))
                 }
                 if approval.supportsAlwaysAllow {
                     Toggle(ConversationL10n.value("conversation.always_approve", "Always approve for this task"), isOn: $allowSession)
@@ -182,7 +156,7 @@ private struct ConversationQuestionCard: View {
                     .foregroundStyle(.secondary)
             }
             if let index = question?.index, let total = question?.total, total > 1 {
-                Text("\(index + 1) of \(total)")
+                Text(String(format: ConversationL10n.value("conversation.question.progress", "%1$d of %2$d"), index + 1, total))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -208,18 +182,17 @@ private struct ConversationQuestionCard: View {
                 .accessibilityIdentifier("ConversationQuestionOption-\(option.id)")
             }
             if question?.allowsCustomAnswer == true {
-                TextField("Your answer", text: $customAnswer, axis: .vertical)
+                TextField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("ConversationQuestionCustomAnswer")
             }
             HStack {
-                Button(customAnswer.isEmpty ? ConversationL10n.value("conversation.skip", "Skip") : ConversationL10n.value("conversation.send", "Send")) {
-                    let text = customAnswer.isEmpty ? "Skipped" : customAnswer
-                    model.answer(request: request, value: text)
+                Button(ConversationL10n.value("conversation.send", "Send")) {
+                    model.answer(request: request, value: customAnswer)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedOptionID == nil && customAnswer.isEmpty && question?.allowsCustomAnswer == false)
+                .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Spacer()
             }
         }
