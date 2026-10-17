@@ -22,7 +22,7 @@ public struct SidebarMapping {
         return title
     }
 
-    static func isDefaultWorkspaceName(_ name: String) -> Bool {
+    private static func isDefaultWorkspaceName(_ name: String) -> Bool {
         guard name.hasPrefix("workspace-") else { return false }
         let suffix = name.dropFirst("workspace-".count)
         return !suffix.isEmpty && suffix.allSatisfy { $0.isASCII && $0.isNumber }

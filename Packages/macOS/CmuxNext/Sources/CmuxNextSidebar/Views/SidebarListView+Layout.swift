@@ -94,6 +94,9 @@ extension SidebarListView {
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
+        let previousHoverSuppression = suppressHoverEffects
+        suppressHoverEffects = true
+        defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
         let old = displayed
         displayed = layout
@@ -291,7 +294,7 @@ extension SidebarListView {
     }
     /// The selectable rows in visual order (placeholders left out).
     var visibleWorkspaceOrder: [WorkspaceID] {
-        let placeholders = Set(model.allWorkspaces.filter(\.rowState.isPending).map(\.id))
+        let placeholders = Set(model.allWorkspaces.filter { $0.rowState == .placeholder }.map(\.id))
         return displayed.rows.compactMap { if case let .workspace(id) = $0.key, !placeholders.contains(id) { id } else { nil } }
     }
 }

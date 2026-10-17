@@ -53,6 +53,9 @@ final class SidebarListView: NSView {
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
+    /// Bulk projection applies update many rows before the next frame. Hover
+    /// paint remains valid, but marquee/layout work must wait for that frame.
+    var suppressHoverEffects = false
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
