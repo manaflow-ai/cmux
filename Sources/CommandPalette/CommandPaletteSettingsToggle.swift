@@ -701,16 +701,26 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "showCloudDeviceIconsInSidebar",
-                settingsKey: "sidebar.showCloudDeviceIcons",
+                commandId: commandIdPrefix + "showCloudWorkspaceIdentityInSidebar",
+                settingsKey: "sidebar.showCloudWorkspaceIdentity",
                 title: {
-                    String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar")
+                    String(localized: "settings.app.showCloudWorkspaceIdentity", defaultValue: "Show Cloud Workspace Identity")
                 },
                 sectionTitle: sidebar,
-                keywords: ["sidebar.showCloudDeviceIcons", "sidebar", "cloud", "device", "computer", "icon", "remote"],
-                defaultValue: SidebarWorkspaceDetailDefaults.showCloudDeviceIcons,
-                defaultsKey: SidebarWorkspaceDetailDefaults.showCloudDeviceIconsKey,
-                isAvailable: sidebarDetailsAvailable
+                keywords: ["sidebar.showCloudWorkspaceIdentity", "sidebar", "cloud", "workspace", "machine", "icon", "name", "remote"],
+                defaultValue: SidebarWorkspaceDetailDefaults.showCloudWorkspaceIdentity,
+                defaultsKey: SidebarWorkspaceDetailDefaults.showCloudWorkspaceIdentityKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showLocalDeviceIdentityInSidebar",
+                settingsKey: "sidebar.showLocalDeviceIdentity",
+                title: {
+                    String(localized: "settings.app.showLocalDeviceIdentity", defaultValue: "Show Local Device Identity")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.showLocalDeviceIdentity", "sidebar", "local", "device", "computer", "icon", "name"],
+                defaultValue: SidebarWorkspaceDetailDefaults.showLocalDeviceIdentity,
+                defaultsKey: SidebarWorkspaceDetailDefaults.showLocalDeviceIdentityKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showPullRequestsInSidebar",

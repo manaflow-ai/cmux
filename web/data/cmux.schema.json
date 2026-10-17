@@ -1704,6 +1704,16 @@
           "description": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
           "descriptionKey": "schemaDescriptions.sidebar.showCloudDeviceIcons"
         },
+        "showCloudWorkspaceIdentity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Cloud workspace identity beside workspace titles independently of Repository branch and directory details."
+        },
+        "showLocalDeviceIdentity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show local device identity beside workspace titles independently of Repository branch and directory details."
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,

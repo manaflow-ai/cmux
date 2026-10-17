@@ -21,7 +21,8 @@ public struct SidebarSection: View {
     @State var showNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
-    @State private var showCloudDeviceIcons: DefaultsValueModel<Bool>
+    @State private var showCloudWorkspaceIdentity: DefaultsValueModel<Bool>
+    @State private var showLocalDeviceIdentity: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
@@ -55,7 +56,8 @@ public struct SidebarSection: View {
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
-        _showCloudDeviceIcons = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudDeviceIcons))
+        _showCloudWorkspaceIdentity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudWorkspaceIdentity))
+        _showLocalDeviceIdentity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLocalDeviceIdentity))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
@@ -99,7 +101,7 @@ public struct SidebarSection: View {
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
-            showCloudDeviceIcons,
+            showCloudWorkspaceIdentity, showLocalDeviceIdentity,
             showPR,
             watchGit,
             prClickable,
@@ -395,15 +397,25 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("sidebar.showCloudDeviceIcons"),
-                String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar"),
-                subtitle: String(localized: "settings.app.showCloudDeviceIcons.subtitle", defaultValue: "Display the cloud machine or device icon independently of Git branch and directory details.")
+                configurationReview: .json("sidebar.showCloudWorkspaceIdentity"),
+                String(localized: "settings.app.showCloudWorkspaceIdentity", defaultValue: "Show Cloud Workspace Identity"),
+                subtitle: String(localized: "settings.app.showCloudWorkspaceIdentity.subtitle", defaultValue: "Display the Cloud icon and workspace name independently of Repository details.")
             ) {
-                Toggle("", isOn: Binding(get: { showCloudDeviceIcons.current }, set: { showCloudDeviceIcons.set($0) }))
+                Toggle("", isOn: Binding(get: { showCloudWorkspaceIdentity.current }, set: { showCloudWorkspaceIdentity.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showLocalDeviceIdentity"),
+                String(localized: "settings.app.showLocalDeviceIdentity", defaultValue: "Show Local Device Identity"),
+                subtitle: String(localized: "settings.app.showLocalDeviceIdentity.subtitle", defaultValue: "Display the desktop icon and device name independently of Repository details.")
+            ) {
+                Toggle("", isOn: Binding(get: { showLocalDeviceIdentity.current }, set: { showLocalDeviceIdentity.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
             SettingsCardDivider()
 
             SettingsCardRow(
