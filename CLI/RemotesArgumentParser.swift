@@ -3,6 +3,7 @@ import Foundation
 enum RemotesArgumentError: Error, Equatable {
     case unknownFlag(String)
     case unexpectedArgument(String)
+    case missingOptionValue(String)
 }
 
 /// Pure argument parser for the read/delete remotes verbs.
