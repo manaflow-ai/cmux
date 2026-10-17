@@ -14,7 +14,6 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
-    let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
@@ -25,7 +24,6 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
-        showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
@@ -35,7 +33,6 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
-        self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.notifications = notifications()
@@ -91,12 +88,10 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                if showsNotificationsTab {
-                    notifications
-                        .tabItem { notificationsLabel }
-                        .tag(MobilePrimaryTab.notifications)
-                        .badge(notificationUnreadCount)
-                }
+                notifications
+                    .tabItem { notificationsLabel }
+                    .tag(MobilePrimaryTab.notifications)
+                    .badge(notificationUnreadCount)
                 cloud
                     .tabItem { cloudLabel }
                     .tag(MobilePrimaryTab.cloud)
@@ -143,14 +138,12 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        if showsNotificationsTab {
-            Tab(value: MobilePrimaryTab.notifications) {
-                notifications
-            } label: {
-                notificationsLabel
-            }
-            .badge(notificationUnreadCount)
+        Tab(value: MobilePrimaryTab.notifications) {
+            notifications
+        } label: {
+            notificationsLabel
         }
+        .badge(notificationUnreadCount)
         Tab(value: MobilePrimaryTab.cloud) {
             cloud
         } label: {
