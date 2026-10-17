@@ -1,3 +1,4 @@
+import CoreGraphics
 import CmuxNextDesign
 
 struct ScreenPaneMotionState {
