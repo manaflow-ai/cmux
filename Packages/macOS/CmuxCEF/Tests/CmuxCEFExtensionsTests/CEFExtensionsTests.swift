@@ -116,6 +116,24 @@ struct CEFExtensionsTests {
     }
 
     @Test
+    func aPageThatLeavesTheScreenClosesItsPopup() {
+        let calls = FakeCalls()
+        calls.actionsJSON = #"[{"id":"p","name":"P","has_popup":true}]"#
+        let stores = CEFExtensionStores(calls: calls)
+        let page = CEFExtensionPageSupport(profileID: profile, stores: stores) { 4 }
+        page.browserCreated()
+        page.pageLeftScreen()
+        #expect(!calls.log.contains { $0.hasPrefix("hide") }, "no popup open: nothing to close")
+        #expect(page.run("p", anchorX: 0, width: 22))
+        #expect(page.openPopup == "p")
+        // Another workspace or tab shows: Chrome closes a popup that loses focus,
+        // and a popup left open in a hidden page blocks the action elsewhere.
+        page.pageLeftScreen()
+        #expect(calls.log.contains("hide 4 p"))
+        #expect(page.openPopup == nil)
+    }
+
+    @Test
     func requestedActionGoesThroughTheToolbarWhenItIsAttached() {
         let calls = FakeCalls()
         let stores = CEFExtensionStores(calls: calls)
