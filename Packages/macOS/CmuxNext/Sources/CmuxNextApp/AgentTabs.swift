@@ -372,7 +372,10 @@ final class AgentTabStore {
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
-        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
+        model.onRememberNewTab = { [weak self] pick in
+            AgentPaneNewTabFrame.shared.modelChanged(agent: pick.agent, model: pick.model)
+            self?.pageHandler(provisional)?.remember(pick)
+        }
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
@@ -398,7 +401,11 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
-        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
+        model.onChatsPage = { [weak self] query in
+            let page = await self?.pageChats.page?(query)
+            if let page, query.cursor == nil, query.text?.isEmpty ?? true { AgentPaneNewTabFrame.shared.chatsChanged(page.chats) }
+            return page
+        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
