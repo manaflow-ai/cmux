@@ -18,6 +18,12 @@ public final class SidebarPlaceholderGrace {
         self.clock = clock
     }
 
+    /// This grace, its `onEnd` running `sameTurn`'s passes (the rows pass merges again).
+    public func rerunning(_ sameTurn: SidebarSameTurn) -> SidebarPlaceholderGrace {
+        onEnd = { [weak sameTurn] in sameTurn?.syncNow(rows: true) }
+        return self
+    }
+
     /// Whether `section` may show placeholders now; the first ask starts its wait.
     func allows(_ section: SectionID) -> Bool {
         if ended.contains(section) { return true }

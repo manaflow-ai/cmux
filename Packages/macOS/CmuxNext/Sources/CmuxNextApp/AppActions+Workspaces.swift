@@ -133,7 +133,7 @@ extension AppActions {
         let daemon = services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
-        let hidden = services.windows.closeInstantly(id, in: owner)
+        let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
         services.registry.track(lanes.run(in: window) {
             let failure = await daemon.failure("close-workspace") { connection in
                 try await ClosingWorkspaces.shared.refusal()
