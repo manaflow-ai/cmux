@@ -270,18 +270,27 @@ public actor WebDriverAgentDriver: PhoneDriver {
             request.httpBody = try JSONEncoder().encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await urlSession.data(for: request)
-        guard data.count <= PhoneProtocol.maxLineBytes * 2 else {
+        let (bytes, http) = try await urlSession.bytes(for: request)
+        let maxResponseBytes = PhoneProtocol.maxResponseLineBytes
+        if http.expectedContentLength > Int64(maxResponseBytes) {
             throw PhoneDriverError.malformedResponse("WDA response exceeded the bounded response size")
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw PhoneDriverError.transport("WDA returned a non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
             throw PhoneDriverError.transport("WDA HTTP status \(http.statusCode)")
         }
         guard http.url?.host?.lowercased() == url.host?.lowercased() else {
             throw PhoneDriverError.transport("WDA redirect left the loopback endpoint")
+        }
+        var data = Data()
+        data.reserveCapacity(min(
+            http.expectedContentLength > 0 ? Int(http.expectedContentLength) : 4 * 1024,
+            maxResponseBytes
+        ))
+        for try await byte in bytes {
+            guard data.count < maxResponseBytes else {
+                throw PhoneDriverError.malformedResponse("WDA response exceeded the bounded response size")
+            }
+            data.append(byte)
         }
         let decoded = try? JSONDecoder().decode(PhoneJSONValue.self, from: data)
         guard let decoded else {
