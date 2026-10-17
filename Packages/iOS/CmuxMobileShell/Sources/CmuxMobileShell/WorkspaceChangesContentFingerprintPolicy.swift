@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 
 /// Rejects content chunks that no longer match the stat that began their transfer.
 struct WorkspaceChangesContentFingerprintPolicy: Sendable {

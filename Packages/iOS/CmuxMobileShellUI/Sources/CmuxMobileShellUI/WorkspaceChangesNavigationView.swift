@@ -1,5 +1,5 @@
 #if os(iOS)
-import CmuxAgentChatUI
+import CmuxArtifactUI
 import CmuxMobileChanges
 import SwiftUI
 

@@ -1,5 +1,5 @@
 #if DEBUG
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxMobileRPC
 import Foundation
 internal import CmuxMobileShell

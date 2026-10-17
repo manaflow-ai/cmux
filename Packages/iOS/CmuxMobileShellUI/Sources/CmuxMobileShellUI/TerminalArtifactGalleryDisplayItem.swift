@@ -1,5 +1,5 @@
 #if os(iOS)
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 
 /// Immutable row snapshot shared by in-view and session gallery layouts.

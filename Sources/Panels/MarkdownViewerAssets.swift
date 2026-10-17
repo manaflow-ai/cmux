@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 
 /// Loads the bundled markdown web renderer assets from Resources/markdown-viewer.

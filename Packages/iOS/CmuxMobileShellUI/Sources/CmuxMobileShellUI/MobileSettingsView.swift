@@ -432,22 +432,6 @@ struct MobileSettingsView: View {
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
                 )) {
-                    Toggle(isOn: $displaySettings.taskComposerFullLiquidGlass) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlass",
-                                defaultValue: "Task Composer Liquid Glass"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlassCaption",
-                                defaultValue:
-                                    "Use Liquid Glass controls and a transparent bar in New Task."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
 
                     Toggle(isOn: $displaySettings.feedBubbleQuotes) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -466,18 +450,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
 
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
 
                     NavigationLink {
                         UnreadIndicatorLabView()

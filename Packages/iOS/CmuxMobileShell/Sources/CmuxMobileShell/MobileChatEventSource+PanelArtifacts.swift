@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import Foundation
 
 /// Panel-scoped artifact RPCs for the one file a Mac panel currently displays.

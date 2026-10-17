@@ -7,16 +7,13 @@ import SwiftUI
 struct WorkspaceListSearchHost<Content: View>: View {
     @Binding private var searchText: String
     @FocusState private var searchIsFocused: Bool
-    private let taskComposerAction: (() -> Void)?
     private let content: (String) -> Content
 
     init(
         searchText: Binding<String>,
-        taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping (String) -> Content
     ) {
         _searchText = searchText
-        self.taskComposerAction = taskComposerAction
         self.content = content
     }
 

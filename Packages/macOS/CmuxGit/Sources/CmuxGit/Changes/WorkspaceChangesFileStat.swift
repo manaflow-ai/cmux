@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import Foundation
 
 /// Artifact metadata paired with a cheap filesystem revision fingerprint.

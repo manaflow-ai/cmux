@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileSupport

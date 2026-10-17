@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 
 /// Decides whether a detected terminal path should open as an artifact.
 struct TerminalFolderTapPolicy: Sendable {

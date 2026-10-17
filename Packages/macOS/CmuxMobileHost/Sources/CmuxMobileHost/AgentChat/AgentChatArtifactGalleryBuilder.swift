@@ -1,3 +1,3 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 
 public typealias AgentChatArtifactGalleryBuilder = ChatArtifactGalleryBuilder

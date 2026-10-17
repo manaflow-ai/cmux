@@ -21,7 +21,7 @@ import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
 import CMUXAgentLaunch
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 import os
 import Bonsplit

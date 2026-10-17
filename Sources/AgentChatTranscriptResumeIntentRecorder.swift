@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 
 /// Bridges structured resume bindings into the live transcript registry.
 struct AgentChatTranscriptResumeIntentRecorder: AgentChatResumeIntentRecording {

@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileTransport

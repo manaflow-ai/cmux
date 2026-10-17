@@ -12,6 +12,7 @@ import CmuxMobileRPC
 import CmuxPhonePush
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxConversationUI
 import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileToast
@@ -558,16 +559,11 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
-            AgentFeedDecisionPreviewView()
-        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
-            AgentFeedFullTextPreviewView(
-                failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
-            )
+        if ProcessInfo.processInfo.arguments.contains("--native-conversation-fixture")
+            || ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FIXTURE"] == "1" {
+            ConversationPreviewView()
         } else if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
             ComputerPickerPersistencePreviewView()
-        } else if UITestConfig.taskComposerPreviewEnabled {
-            TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.pushTabNavigationPreviewEnabled {
             PushTabNavigationPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {

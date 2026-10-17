@@ -1,7 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 import CmuxMobileShellModel
 import CmuxMobileToast
 import Foundation

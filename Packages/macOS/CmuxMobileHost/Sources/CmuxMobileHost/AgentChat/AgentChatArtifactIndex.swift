@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import Foundation
 
 /// Builds and caches the transcript-derived artifact scope for chat sessions.

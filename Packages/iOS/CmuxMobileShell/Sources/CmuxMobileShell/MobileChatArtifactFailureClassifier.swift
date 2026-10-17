@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 internal import CmuxMobileRPC
 internal import Foundation
 

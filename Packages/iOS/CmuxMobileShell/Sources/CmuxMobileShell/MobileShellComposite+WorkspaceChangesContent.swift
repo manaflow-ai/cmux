@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import CmuxMobileChanges
 internal import CmuxMobileDiagnostics
 public import Foundation

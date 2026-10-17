@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import CMUXAgentLaunch
 import CmuxMobileHost
 import Foundation

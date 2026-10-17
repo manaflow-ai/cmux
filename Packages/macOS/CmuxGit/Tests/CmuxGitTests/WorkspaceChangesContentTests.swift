@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Darwin
 import Foundation
 import Testing

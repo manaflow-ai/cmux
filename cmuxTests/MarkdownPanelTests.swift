@@ -1,5 +1,5 @@
 import AppKit
-import CmuxAgentChat
+import CmuxArtifactCore
 import Combine
 import WebKit
 import XCTest

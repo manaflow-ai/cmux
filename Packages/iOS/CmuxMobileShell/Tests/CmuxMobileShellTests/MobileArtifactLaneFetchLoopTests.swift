@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxMobileRPC
 import Foundation
 import Testing

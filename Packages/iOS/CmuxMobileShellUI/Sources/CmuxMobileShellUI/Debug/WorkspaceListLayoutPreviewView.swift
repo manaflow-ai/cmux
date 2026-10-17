@@ -782,7 +782,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                 let workspaceListStack = NavigationStack {
                     MobilePrimaryWorkspaceSearchHost(
                         searchCoordinator: primarySearchCoordinator,
-                        taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
                     }
@@ -811,7 +810,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
                         notificationUnreadCount: 0,
-                        taskComposerAction: {}
                     ) {
                         workspaceListStack
                     } feed: {

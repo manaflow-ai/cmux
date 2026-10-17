@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import CmuxMobileRPC
 public import Foundation
 
@@ -15,7 +15,7 @@ private actor MobileArtifactDownloadByteCounter {
     }
 }
 
-/// The iOS implementation of ``CmuxAgentChat/ChatEventSource``: adapts the
+/// The iOS implementation of ``CmuxArtifactCore/ChatEventSource``: adapts the
 /// mobile RPC client to the chat domain seam.
 ///
 /// History and actions go through `mobile.chat.*` request methods; live
@@ -63,7 +63,7 @@ public actor MobileChatEventSource: ChatEventSource {
 
     /// Lists chat-capable agent sessions the Mac knows about.
     ///
-    /// Not part of ``CmuxAgentChat/ChatEventSource`` (which is scoped to one
+    /// Not part of ``CmuxArtifactCore/ChatEventSource`` (which is scoped to one
     /// conversation); hosts call this to build the session list.
     ///
     /// - Parameter workspaceID: Restrict to one workspace, or `nil` for all.
@@ -86,7 +86,7 @@ public actor MobileChatEventSource: ChatEventSource {
     /// that races a newer push converges. Pull is authoritative; push is a
     /// best-effort hint, so a missed or out-of-order push self-heals here.
     ///
-    /// Not part of ``CmuxAgentChat/ChatEventSource`` (which is scoped to one
+    /// Not part of ``CmuxArtifactCore/ChatEventSource`` (which is scoped to one
     /// conversation). Throws when the host no longer knows the session (treat
     /// as gone) or the request fails.
     ///

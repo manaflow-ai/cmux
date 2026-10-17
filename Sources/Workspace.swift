@@ -18,7 +18,7 @@ import WebKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI

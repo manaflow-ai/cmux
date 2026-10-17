@@ -1,5 +1,5 @@
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 import CmuxMobileShellModel
 import Foundation
 import Observation

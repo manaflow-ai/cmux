@@ -678,9 +678,6 @@ struct CMUXMobileRootView: View {
                     showSettings: showSettings,
                     showComputers: showComputers,
                     showAddSSHComputer: showAddSSHComputer,
-                    taskComposerPresentation: childSheetPresentation(
-                        for: .workspaceTaskComposer
-                    ),
                     reconnectStoredMac: { reconnectStoredMacIfNeeded() },
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()

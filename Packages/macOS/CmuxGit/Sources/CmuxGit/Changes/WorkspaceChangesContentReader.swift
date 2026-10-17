@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 internal import Darwin
 internal import Foundation
 internal import UniformTypeIdentifiers

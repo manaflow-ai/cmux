@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxAppKitSupportUI
 import CmuxBrowser
 import CmuxCore

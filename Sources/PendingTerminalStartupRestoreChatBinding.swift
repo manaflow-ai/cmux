@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 
 /// Deferred chat binding retargeted to the topology that commits a terminal restore.

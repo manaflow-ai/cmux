@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import GhosttyKit
 import UIKit
 

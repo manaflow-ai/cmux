@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import Foundation
 
 /// One chat-capable agent session the Mac knows about: hook-derived

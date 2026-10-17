@@ -1,5 +1,5 @@
 import CmuxCloud
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxMobileHost
 import CmuxNotifications
 import CmuxSurfaceCatalogModel

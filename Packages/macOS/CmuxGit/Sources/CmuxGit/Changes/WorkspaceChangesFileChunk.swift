@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 public import Foundation
 
 /// One artifact-compatible byte chunk paired with its filesystem revision.

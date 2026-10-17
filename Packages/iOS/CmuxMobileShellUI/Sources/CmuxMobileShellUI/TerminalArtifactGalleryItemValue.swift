@@ -1,6 +1,6 @@
 #if os(iOS)
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 
 struct TerminalArtifactGalleryItemValue: Equatable {
     let artifact: TerminalArtifactGalleryDisplayItem

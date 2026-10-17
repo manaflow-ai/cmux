@@ -1,5 +1,5 @@
 #if os(iOS)
-import CmuxAgentChat
+import CmuxArtifactCore
 
 struct TerminalArtifactGallerySortMenuValue: Equatable {
     let sort: ChatArtifactGallerySort
