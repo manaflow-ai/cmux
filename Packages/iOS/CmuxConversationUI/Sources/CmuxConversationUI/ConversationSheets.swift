@@ -210,6 +210,12 @@ struct ConversationFilesSheet: View {
                     }
                 }
             }
+            // Keep a little scrollable room below the final file row. On a
+            // sheet detent, UIKit can otherwise leave that row exactly on the
+            // presentation boundary, where it exists but has no hit point.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: 96)
+            }
             .navigationTitle(ConversationL10n.value("conversation.files", "Files"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
