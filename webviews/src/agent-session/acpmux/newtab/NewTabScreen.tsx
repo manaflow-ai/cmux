@@ -87,6 +87,9 @@ type Props = NewTabScreenActions & {
   now?: number;
   /// The folder the tab inherited: the project picker starts there.
   cwd?: string;
+  /// The machine the prompt will run on. The current location strip already renders it through
+  /// `machineName`; this fallback keeps the new-tab contract compatible with host-aware callers.
+  host?: string;
   /// The folder a prompt with no pick starts in (the host's start folder, a private folder in a
   /// fresh workspace); the composer chip names it, not the inherited `cwd` (nxdog91 F0).
   startCwd?: string;
@@ -517,7 +520,7 @@ export function NewTabScreen(props: Props) {
             // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
             // row lists only this machine's chats, so its Computer menu offers no other.
             sessions={localSessions}
-            {...(props.machineName ? { localName: props.machineName } : {})}
+            {...(props.machineName ?? props.host ? { localName: props.machineName ?? props.host } : {})}
             projectChoices={props.projects ?? []}
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}

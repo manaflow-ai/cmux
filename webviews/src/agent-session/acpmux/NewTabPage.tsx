@@ -715,7 +715,7 @@ export const FolderIcon = () => (
     <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>
 );
-const LaptopIcon = () => (
+export const LaptopIcon = () => (
   <Icon>
     <rect x="3" y="3.4" width="10" height="7" rx="1.2" />
     <path d="M1.6 12.6h12.8" />
