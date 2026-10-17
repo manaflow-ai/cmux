@@ -34,7 +34,9 @@ import UIKit
 ///
 /// Autocorrect and predictive text are disabled by default because terminal
 /// commands must remain literal. The injected keyboard-correction preference
-/// can opt into those system traits without changing the raw input transport.
+/// opts into spell checking and inline predictions only; autocorrection stays
+/// off here because committed bytes are already sent, and the composer is the
+/// surface that gets full corrections.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     var onFirstResponderChanged: ((Bool) -> Void)?
@@ -1717,15 +1719,16 @@ extension TerminalInputTextView {
     ///
     /// Most committed input arrives via ``insertText(_:)``, but some system paths
     /// (text replacement, certain dictation/suggestion commits) deliver it by
-    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. A
-    /// zero-length range is a new commit and is forwarded; a non-empty range
-    /// would rewrite bytes already sent to the terminal, so it is ignored unless
-    /// an active marked composition is the pending source of truth.
+    /// replacing ``selectedTextRange`` or ``markedTextRange`` instead. With
+    /// corrections enabled, a non-empty range would rewrite bytes already sent
+    /// to the terminal, so it is ignored unless an active marked composition is
+    /// the pending source of truth. With corrections off, replacements are
+    /// forwarded as before.
     func replace(_ range: UITextRange, withText text: String) {
         TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
         if markedText != nil {
             withMarkedTextChange { self.markedText = nil }
-        } else {
+        } else if keyboardCorrectionPreference.isEnabled {
             guard let inputRange = range as? TerminalInputTextRange,
                   inputRange.nsRange.length == 0 else { return }
         }

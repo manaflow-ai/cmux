@@ -21,7 +21,7 @@ struct MobileKeyboardCorrectionsToggle: View {
                 ))
                 Text(L10n.string(
                     "mobile.settings.keyboardCorrectionsFooter",
-                    defaultValue: "Allow iOS to suggest, autocorrect, and spell-check terminal input. Off by default because corrections can change commands."
+                    defaultValue: "Allow iOS to suggest, autocorrect, and spell-check text in the message composer. Direct terminal typing is still sent exactly as typed. Off by default because corrections can change commands."
                 ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
