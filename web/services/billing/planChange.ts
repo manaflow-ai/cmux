@@ -7,6 +7,7 @@
 
 import type Stripe from "stripe";
 import { MAX_PRICING_USD, PRO_PRICING_USD, type BillingInterval } from "./plans";
+import { captureBillingError } from "../errors";
 import { planTierRank } from "./planTier";
 import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
@@ -181,7 +182,8 @@ async function completePlanRenewalLines(
 /**
  * The catalog price the switch moves the subscription to. It quotes the
  * renewal when Stripe's renewal preview cannot: that figure is display-only,
- * and a payable upgrade must not fail on it.
+ * and a payable upgrade must not fail on it. It is the list price, before any
+ * coupon or tax, so the fallback is reported.
  */
 function catalogRenewalAmount(target: SwitchTargetPlan, interval: BillingInterval): number {
   return (target === "max" ? MAX_PRICING_USD : PRO_PRICING_USD)[interval].billedAmount * 100;
@@ -200,9 +202,14 @@ async function planRenewalAmount(
         total + line.amount - sumAmounts(line.discount_amounts) +
         sumAmounts(line.taxes?.filter((tax) => tax.tax_behavior === "exclusive")), 0);
     }
-  } catch {
-    // Fall through to the catalog price.
+  } catch (error) {
+    captureBillingError(error, { operation: "plan_change_renewal_preview", targetPlan: target });
+    return catalogRenewalAmount(target, change.interval);
   }
+  captureBillingError(new Error("Stripe renewal preview has no plan line"), {
+    operation: "plan_change_renewal_preview",
+    targetPlan: target,
+  });
   return catalogRenewalAmount(target, change.interval);
 }
 

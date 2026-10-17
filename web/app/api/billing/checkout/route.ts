@@ -20,6 +20,7 @@ import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   PRO_PLAN_ID,
+  isStripePortalRecoverable,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
   stripeBillingStatusForUser,
@@ -499,7 +500,7 @@ async function stripeTeamCheckout(
     const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
     // Same rule as personal checkout: an already-paying team manages billing
     // in the portal; checkout would create a duplicate subscription.
-    if (hasExistingPersonalSubscription(stripeBillingStatus)) {
+    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       portalURL.searchParams.set("scope", "team");
       if (target.teamId) portalURL.searchParams.set("teamId", resolvedTeamId);

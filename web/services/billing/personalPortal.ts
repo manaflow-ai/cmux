@@ -6,7 +6,7 @@ import {
   hasExistingPersonalSubscription,
 } from "./personalSwitchRoute";
 import { captureBillingPlanSwitchStarted } from "../analytics/stripeBilling";
-import type { CheckoutAttribution } from "../analytics/checkoutAttribution";
+import { forwardCheckoutAttribution, type CheckoutAttribution } from "../analytics/checkoutAttribution";
 
 type SwitchTarget = "go" | "pro" | "max";
 
@@ -48,15 +48,13 @@ export function personalSwitchLinkRedirect(input: {
   status: StripeBillingStatus;
   origin: string;
   target: SwitchTarget;
-  /** The link's query, whose attribution parameters checkout keeps. */
+  /** The link's query; only its checkout attribution parameters carry over. */
   searchParams: URLSearchParams;
 }): URL | null {
   if (!hasExistingPersonalSubscription(input.status)) {
     const checkout = new URL("/api/billing/checkout", input.origin);
     checkout.searchParams.set("plan", input.target);
-    for (const [key, value] of input.searchParams) {
-      if (key !== "flow" && key !== "plan") checkout.searchParams.append(key, value);
-    }
+    forwardCheckoutAttribution(input.searchParams, checkout);
     return checkout;
   }
   return existingSubscriptionRoute(input.status, input.target) === "dashboard"
