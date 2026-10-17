@@ -30,6 +30,50 @@ import Testing
         model.selectedProvider = "all"
     }
 
+    @Test func sessionSearchMatchesMetadataWithoutChangingProviderFilter() async {
+        let source = FakeAgentChatSource(sessions: [
+            ChatSessionDescriptor(
+                id: "codex-build",
+                agentKind: .codex,
+                title: "Fix Café build",
+                workspaceID: "workspace-a",
+                workingDirectory: "/Users/me/Project",
+                state: .idle,
+                lastActivityAt: Date(timeIntervalSince1970: 10),
+                version: 1
+            ),
+            descriptor(id: "claude-review", agent: .claude, title: "Review API", activity: 20),
+        ], pages: [:])
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+
+        model.sessionSearchQuery = "CAFE"
+        #expect(model.visibleSessions.map(\.id) == ["codex-build"])
+        model.selectedProvider = "claude"
+        #expect(model.visibleSessions.isEmpty)
+        model.sessionSearchQuery = "project"
+        model.selectedProvider = "all"
+        #expect(model.visibleSessions.map(\.id) == ["codex-build"])
+    }
+
+    @Test func hostStreamFinishingExposesReconnectingState() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+        #expect(model.connectionState == .connected)
+
+        await source.finishHostEvents()
+        await settle()
+        #expect(model.connectionState == .reconnecting)
+    }
+
     @Test func historyPaginationDeduplicatesAndPrependsOlderMessages() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -309,6 +353,11 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
         hostContinuation = continuation
         pendingHostEvents.forEach { continuation.yield($0) }
         pendingHostEvents.removeAll()
+    }
+
+    func finishHostEvents() {
+        hostContinuation?.finish()
+        hostContinuation = nil
     }
 
     private func setEventContinuation(_ continuation: AsyncStream<ChatSessionEvent>.Continuation, for sessionID: String) {

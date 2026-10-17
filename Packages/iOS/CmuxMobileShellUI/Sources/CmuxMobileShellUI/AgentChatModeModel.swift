@@ -10,6 +10,16 @@ import Observation
 @MainActor
 @Observable
 final class AgentChatModeModel {
+    /// Connection state for the source used by agent mode. A source can be
+    /// present while its event stream is down, so this is deliberately kept
+    /// separate from whether a session list was last loaded successfully.
+    enum ConnectionState: Equatable, Sendable {
+        case disconnected
+        case connecting
+        case connected
+        case reconnecting
+    }
+
     struct PendingAttachment: Identifiable, Sendable, Equatable {
         let id: UUID
         let displayName: String
@@ -42,21 +52,52 @@ final class AgentChatModeModel {
     private(set) var streamingBySession: [String: ChatMessage?] = [:]
     private(set) var loadingSessionIDs: Set<String> = []
     private(set) var sendingSessionIDs: Set<String> = []
+    private(set) var interruptingSessionIDs: Set<String> = []
+    private(set) var connectionState: ConnectionState = .disconnected
     private(set) var errorMessage: String?
     private(set) var attachments: [PendingAttachment] = []
     var selectedSessionID: String?
     var draft = ""
     var selectedProvider: String = "all"
+    /// Case-insensitive search over the session title, provider, id, and
+    /// working directory. Keeping this on the model makes the session list
+    /// useful to non-SwiftUI consumers as well.
+    var sessionSearchQuery = ""
 
     private var source: (any AgentChatSessionSource)?
     private var sourceTask: Task<Void, Never>?
     private var sessionTasks: [String: Task<Void, Never>] = [:]
     private var historyCursors: [String: Int] = [:]
     private var historyHasMore: [String: Bool] = [:]
+    private var pendingSendsBySession: [String: [QueuedSend]] = [:]
+    private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
 
+    private struct QueuedSend: Sendable {
+        let text: String
+        let attachments: [PendingAttachment]
+    }
+
     var visibleSessions: [ChatSessionDescriptor] {
-        sessions.filter { selectedProvider == "all" || $0.agentKind.sourceName == selectedProvider }
+        let query = sessionSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return sessions.filter { session in
+            guard selectedProvider == "all" || session.agentKind.sourceName == selectedProvider else {
+                return false
+            }
+            guard !query.isEmpty else { return true }
+            let fields = [
+                session.title,
+                session.id,
+                session.agentKind.displayName,
+                session.workingDirectory,
+                session.workspaceID,
+            ].compactMap { $0 }
+            return fields.contains {
+                $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                    .contains(query)
+            }
+        }
     }
 
     var selectedSession: ChatSessionDescriptor? {
@@ -84,6 +125,11 @@ final class AgentChatModeModel {
         return historyHasMore[selectedSessionID] == true
     }
 
+    var queuedSendCount: Int {
+        guard let selectedSessionID else { return 0 }
+        return pendingSendsBySession[selectedSessionID]?.count ?? 0
+    }
+
     func updateSource(_ next: (any AgentChatSessionSource)?) {
         sourceGeneration += 1
         let generation = sourceGeneration
@@ -91,6 +137,7 @@ final class AgentChatModeModel {
         for task in sessionTasks.values { task.cancel() }
         sessionTasks = [:]
         source = next
+        connectionState = next == nil ? .disconnected : .connecting
         sessions = []
         messagesBySession = [:]
         terminalBlocksBySession = [:]
@@ -99,6 +146,10 @@ final class AgentChatModeModel {
         attachments = []
         historyCursors = [:]
         historyHasMore = [:]
+        pendingSendsBySession = [:]
+        removedSessionVersions = [:]
+        sendingSessionIDs = []
+        interruptingSessionIDs = []
         guard let next else { return }
         sourceTask = Task { [weak self] in
             await self?.loadAndObserve(source: next, generation: generation)
@@ -107,9 +158,16 @@ final class AgentChatModeModel {
 
     func refresh() async {
         guard let source else { return }
-        await loadSessions(source: source)
+        let generation = sourceGeneration
+        await loadSessions(source: source, generation: generation)
+        guard !Task.isCancelled, generation == sourceGeneration else { return }
         if let selectedSessionID {
-            await loadHistory(sessionID: selectedSessionID, source: source, reset: true)
+            await loadHistory(
+                sessionID: selectedSessionID,
+                source: source,
+                reset: true,
+                generation: generation
+            )
         }
     }
 
@@ -117,42 +175,52 @@ final class AgentChatModeModel {
         selectedSessionID = session.id
         draft = ""
         attachments = []
+        let staleSessionIDs = sessionTasks.keys.filter { $0 != session.id }
+        for id in staleSessionIDs {
+            sessionTasks[id]?.cancel()
+            sessionTasks[id] = nil
+        }
         guard let source else { return }
+        let generation = sourceGeneration
         sessionTasks[session.id]?.cancel()
         sessionTasks[session.id] = Task { [weak self] in
             guard let self else { return }
-            await self.loadHistory(sessionID: session.id, source: source, reset: true)
-            await self.observe(sessionID: session.id, source: source)
+            await self.loadHistory(
+                sessionID: session.id,
+                source: source,
+                reset: true,
+                generation: generation
+            )
+            guard !Task.isCancelled,
+                  generation == self.sourceGeneration,
+                  self.selectedSessionID == session.id else { return }
+            await self.observe(sessionID: session.id, source: source, generation: generation)
         }
     }
 
     func loadOlderMessages() async {
         guard let selectedSessionID, historyHasMore[selectedSessionID] == true,
               let source else { return }
-        await loadHistory(sessionID: selectedSessionID, source: source, reset: false)
+        await loadHistory(
+            sessionID: selectedSessionID,
+            source: source,
+            reset: false,
+            generation: sourceGeneration
+        )
     }
 
     func sendDraft() async {
         guard let selectedSessionID,
               let source,
-              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty,
-              sendingSessionIDs.insert(selectedSessionID).inserted else { return }
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
         draft = ""
         attachments = []
-        defer { sendingSessionIDs.remove(selectedSessionID) }
-        do {
-            try await source.send(
-                text: text,
-                attachments: pendingAttachments.map(\.outbound),
-                sessionID: selectedSessionID
-            )
-        } catch {
-            draft = text
-            attachments = pendingAttachments
-            errorMessage = error.localizedDescription
-        }
+        pendingSendsBySession[selectedSessionID, default: []].append(
+            QueuedSend(text: text, attachments: pendingAttachments)
+        )
+        await drainSendQueue(sessionID: selectedSessionID, source: source)
     }
 
     func addAttachment(_ attachment: PendingAttachment) {
@@ -226,6 +294,8 @@ final class AgentChatModeModel {
 
     func interrupt(hard: Bool = false) async {
         guard let selectedSessionID, let source else { return }
+        guard interruptingSessionIDs.insert(selectedSessionID).inserted else { return }
+        defer { interruptingSessionIDs.remove(selectedSessionID) }
         do {
             try await source.interrupt(sessionID: selectedSessionID, hard: hard)
         } catch {
@@ -245,43 +315,69 @@ final class AgentChatModeModel {
     func clearError() { errorMessage = nil }
 
     private func loadAndObserve(source: any AgentChatSessionSource, generation: Int) async {
-        guard generation == sourceGeneration else { return }
-        await loadSessions(source: source)
-        guard generation == sourceGeneration else { return }
+        guard !Task.isCancelled, generation == sourceGeneration else { return }
+        await loadSessions(source: source, generation: generation)
+        guard !Task.isCancelled, generation == sourceGeneration else { return }
         let stream = await source.sessionEvents()
+        guard !Task.isCancelled, generation == sourceGeneration else { return }
+        connectionState = .connected
         for await frame in stream {
             guard !Task.isCancelled, generation == sourceGeneration else { return }
             apply(frame.event, to: frame.sessionID)
             if frame.event.eventIsDescriptorChange {
                 if let descriptor = try? await source.session(sessionID: frame.sessionID) {
+                    guard !Task.isCancelled, generation == sourceGeneration else { return }
                     upsert(descriptor)
                 }
             }
         }
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        connectionState = .reconnecting
     }
 
-    private func loadSessions(source: any AgentChatSessionSource) async {
+    private func loadSessions(source: any AgentChatSessionSource, generation: Int? = nil) async {
         do {
             let loaded = try await source.sessions(workspaceID: nil)
+            guard !Task.isCancelled,
+                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
             sessions = loaded.sorted(by: Self.sortSessions)
+            for descriptor in loaded {
+                removedSessionVersions.removeValue(forKey: descriptor.id)
+            }
             if selectedSessionID == nil, let first = sessions.first {
                 select(first)
             } else if let selectedSessionID,
                       !sessions.contains(where: { $0.id == selectedSessionID }) {
-                self.selectedSessionID = sessions.first?.id
+                self.selectedSessionID = nil
+                if let first = sessions.first {
+                    select(first)
+                }
             }
+            connectionState = .connected
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled,
+                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
+            connectionState = .reconnecting
             errorMessage = error.localizedDescription
         }
     }
 
-    private func loadHistory(sessionID: String, source: any AgentChatSessionSource, reset: Bool) async {
+    private func loadHistory(
+        sessionID: String,
+        source: any AgentChatSessionSource,
+        reset: Bool,
+        generation: Int? = nil
+    ) async {
         guard !loadingSessionIDs.contains(sessionID) else { return }
         loadingSessionIDs.insert(sessionID)
         defer { loadingSessionIDs.remove(sessionID) }
         do {
             let before = reset ? nil : historyCursors[sessionID]
             let page = try await source.history(sessionID: sessionID, beforeSeq: before, limit: 80)
+            guard !Task.isCancelled,
+                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
             if reset {
                 messagesBySession[sessionID] = page.messages
                 terminalBlocksBySession[sessionID] = page.terminalBlocks ?? []
@@ -297,15 +393,28 @@ final class AgentChatModeModel {
             }
             historyCursors[sessionID] = page.messages.first?.seq
             historyHasMore[sessionID] = page.hasMore
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled,
+                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
             errorMessage = error.localizedDescription
         }
     }
 
-    private func observe(sessionID: String, source: any AgentChatSessionSource) async {
+    private func observe(
+        sessionID: String,
+        source: any AgentChatSessionSource,
+        generation: Int
+    ) async {
         let stream = await source.events(sessionID: sessionID)
+        guard !Task.isCancelled,
+              generation == sourceGeneration,
+              selectedSessionID == sessionID else { return }
         for await event in stream {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  generation == sourceGeneration,
+                  selectedSessionID == sessionID else { return }
             apply(event, to: sessionID)
         }
     }
@@ -320,9 +429,27 @@ final class AgentChatModeModel {
             upsert(old.withState(state))
         case .descriptorChanged(let descriptor): upsert(descriptor)
         case .sessionRemoved:
+            let version: Int
+            if case .sessionRemoved(let removedVersion) = event {
+                version = removedVersion
+            } else {
+                version = Int.max
+            }
+            if let current = sessions.first(where: { $0.id == sessionID }), version < current.version {
+                return
+            }
+            removedSessionVersions[sessionID] = max(version, removedSessionVersions[sessionID] ?? Int.min)
             sessionTasks[sessionID]?.cancel()
             sessionTasks[sessionID] = nil
             sessions.removeAll { $0.id == sessionID }
+            messagesBySession[sessionID] = nil
+            terminalBlocksBySession[sessionID] = nil
+            streamingBySession[sessionID] = nil
+            historyCursors[sessionID] = nil
+            historyHasMore[sessionID] = nil
+            pendingSendsBySession[sessionID] = nil
+            sendingSessionIDs.remove(sessionID)
+            interruptingSessionIDs.remove(sessionID)
             if selectedSessionID == sessionID {
                 if let next = sessions.first {
                     select(next)
@@ -363,9 +490,38 @@ final class AgentChatModeModel {
             guard descriptor.version >= sessions[index].version else { return }
             sessions[index] = descriptor
         } else {
+            if let removedVersion = removedSessionVersions[descriptor.id], descriptor.version <= removedVersion {
+                return
+            }
             sessions.append(descriptor)
         }
         sessions.sort(by: Self.sortSessions)
+    }
+
+    private func drainSendQueue(sessionID: String, source: any AgentChatSessionSource) async {
+        guard sendingSessionIDs.insert(sessionID).inserted else { return }
+        defer { sendingSessionIDs.remove(sessionID) }
+
+        while let queued = pendingSendsBySession[sessionID]?.first {
+            pendingSendsBySession[sessionID]?.removeFirst()
+            do {
+                try await source.send(
+                    text: queued.text,
+                    attachments: queued.attachments.map(\.outbound),
+                    sessionID: sessionID
+                )
+            } catch {
+                pendingSendsBySession[sessionID, default: []].insert(queued, at: 0)
+                if selectedSessionID == sessionID,
+                   draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   attachments.isEmpty {
+                    draft = queued.text
+                    attachments = queued.attachments
+                }
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
     }
 
     private static func sortSessions(_ lhs: ChatSessionDescriptor, _ rhs: ChatSessionDescriptor) -> Bool {
