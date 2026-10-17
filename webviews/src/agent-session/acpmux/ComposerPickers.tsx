@@ -533,6 +533,19 @@ export function ComposerPickers({
           ?.name ??
         startMode.modeId)
       : undefined;
+  // A fresh cmux-next chat may know only the start mode until the harness reports its full mode
+  // catalog. Keep that harness-specific full-access id in a real menu so the control is clickable
+  // and still routes through the normal mode setter.
+  const pendingAccessModes: Choice[] =
+    startMode && !startMode.borrowed
+      ? [
+          {
+            id: startMode.modeId,
+            name: startModeName ?? t(PICKER_LABELS.mode),
+            description: t(PICKER_LABELS.fullAccessWarning),
+          },
+        ]
+      : [];
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });
@@ -629,20 +642,15 @@ export function ComposerPickers({
       ) : (
         !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && (
-        <PendingChip
-          kind="mode"
-          label={startModeName}
-          modeId={startMode.borrowed ? undefined : startMode.modeId}
-          onPick={startMode.borrowed ? undefined : onMode}
-        />
+      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
-      {(modes.length > 0 || hasGrants) && (
+      {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes}
-          current={mode?.id}
+          modes={modes.length > 0 ? modes : pendingAccessModes}
+          current={mode?.id ?? pendingAccessModes[0]?.id}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           permissionAccess={permissionAccess}
