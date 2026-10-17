@@ -602261,6 +602261,65 @@
         }
       }
     },
+    "settings.workspaceColors.unselectedFillOpacity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How strongly a workspace color fills rows that are not selected. The maximum shows the full color. Applies to Solid Fill."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدى قوة لون مساحة العمل في تعبئة الصفوف غير المحددة. تعرض القيمة القصوى اللون كاملًا. ينطبق على التعبئة بلون خالص."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie kräftig eine Workspace-Farbe nicht ausgewählte Zeilen füllt. Der Höchstwert zeigt die volle Farbe. Gilt für „Vollfarbige Füllung“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intensidad con la que un color de espacio de trabajo rellena las filas no seleccionadas. El valor máximo muestra el color completo. Se aplica a Relleno sólido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intensité avec laquelle une couleur d’espace de travail remplit les lignes non sélectionnées. La valeur maximale affiche la couleur complète. S’applique au remplissage plein."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択されていない行をワークスペースの色で塗りつぶす強さです。最大値で色をそのまま表示します。塗りつぶしに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택되지 않은 행을 워크스페이스 색상으로 채우는 강도입니다. 최댓값은 전체 색상을 표시합니다. 단색 채우기에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色填充未选中行的强度。设为最大值会显示完整颜色。适用于实心填充。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色填滿未選取列的強度。設為最大值會顯示完整顏色。適用於實心填滿。"
+          }
+        }
+      }
+    },
     "shortcut.agentInbox.label": {
       "extractionState": "manual",
       "localizations": {
