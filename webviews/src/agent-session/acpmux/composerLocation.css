@@ -779,7 +779,7 @@
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; color: var(--agent-text); }
+.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,

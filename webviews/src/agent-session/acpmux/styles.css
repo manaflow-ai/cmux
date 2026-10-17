@@ -176,6 +176,19 @@
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
 .acpmux-newtab-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:var(--acpmux-composer-dim);white-space:nowrap}
+/* Kind changes reuse one field, but the browser/search and agent/ask contexts should still feel
+   like two adjacent panes. NewTabPage clears and re-arms this attribute on the next frame so
+   repeated Tab presses restart the handoff. The transform is paint-only: the composer keeps its
+   geometry and the focused field keeps its caret. */
+@keyframes acpmux-newtab-kind-swipe-next{from{opacity:.16;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+@keyframes acpmux-newtab-kind-swipe-previous{from{opacity:.16;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+@media (prefers-reduced-motion:no-preference){
+  .acpmux-newtab-row[data-kind-switch="next"],.acpmux-newtab-under[data-kind-switch="next"]{animation:acpmux-newtab-kind-swipe-next var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out) both}
+  .acpmux-newtab-row[data-kind-switch="previous"],.acpmux-newtab-under[data-kind-switch="previous"]{animation:acpmux-newtab-kind-swipe-previous var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out) both}
+}
+@media (prefers-reduced-motion:reduce),:root[data-agent-motion="off"]{
+  .acpmux-newtab-row[data-kind-switch],.acpmux-newtab-under[data-kind-switch]{animation:none}
+}
 .acpmux-newtab-all{--ui-ghost-end-bearing:5px;border:0;background:none;color:inherit;font-family:inherit;cursor:pointer}
 .acpmux-newtab-all:hover{color:var(--agent-text)}
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
@@ -257,7 +270,10 @@
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
-.acpmux-project-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
+.acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
+.acpmux-project-badge::after{content:"";position:absolute;right:-1px;bottom:-1px;width:5px;height:5px;border:1px solid var(--acpmux-composer-base,var(--agent-base));border-radius:50%;background:var(--agent-muted)}
+.acpmux-project-badge[data-project-kind="remote"]::after{border-radius:1px;background:var(--agent-accent);transform:rotate(45deg)}
+.acpmux-project-badge[data-project-kind="home"]::after{border-radius:2px;background:var(--agent-text)}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
