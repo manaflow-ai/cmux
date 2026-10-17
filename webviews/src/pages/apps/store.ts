@@ -180,9 +180,10 @@ export class AppsStore {
         .map((app) => (app.icon || !iconOf.get(app.id) ? app : { ...app, icon: iconOf.get(app.id) }));
       const installedIds = new Set(installedRows.map((app) => app.id));
       const acceptUpdates = updatesGeneration === this.updatesGeneration;
-      const updates = (acceptUpdates
-        ? (updateResponse.result?.updates ?? installedRows.flatMap(updateFromInstalled))
-        : this.snapshot.updates
+      const updates = (
+        acceptUpdates
+          ? (updateResponse.result?.updates ?? installedRows.flatMap(updateFromInstalled))
+          : this.snapshot.updates
       ).filter((update) => installedIds.has(update.app));
       const updatesByApp = new Map(updates.map((update) => [update.app, update]));
       const mergedInstalled = installedRows.map((app) => {
@@ -202,7 +203,11 @@ export class AppsStore {
         updates,
         updatesLoading: acceptUpdates ? false : this.snapshot.updatesLoading,
         updatesStale: acceptUpdates ? !updateResponse.result : this.snapshot.updatesStale,
-        updatesError: acceptUpdates ? (updateResponse.error ? message(updateResponse.error) : undefined) : this.snapshot.updatesError,
+        updatesError: acceptUpdates
+          ? updateResponse.error
+            ? message(updateResponse.error)
+            : undefined
+          : this.snapshot.updatesError,
         updatesRevision: acceptUpdates
           ? (updateResponse.result?.revision ?? installed.revision)
           : this.snapshot.updatesRevision,
