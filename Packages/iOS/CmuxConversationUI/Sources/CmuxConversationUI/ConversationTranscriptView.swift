@@ -1,0 +1,254 @@
+#if os(iOS)
+import CmuxConversation
+import SwiftUI
+
+struct ConversationTranscriptView: View {
+    @Bindable var model: ConversationModel
+    @State private var expandedItems: Set<ConversationItemID> = []
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    if model.items.isEmpty && model.requests.isEmpty && model.queue.isEmpty {
+                        ConversationWelcomeView(provider: model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider ?? .codex)
+                            .padding(.top, 56)
+                    }
+                    ForEach(model.items) { item in
+                        ConversationItemRow(item: item, isExpanded: expandedItems.contains(item.id)) {
+                            if expandedItems.contains(item.id) { expandedItems.remove(item.id) }
+                            else { expandedItems.insert(item.id) }
+                        }
+                        .id(item.id)
+                    }
+                    ForEach(model.queue) { queued in
+                        ConversationQueuedRow(item: queued, model: model)
+                            .id("queue-\(queued.id.rawValue)")
+                    }
+                    if let request = model.asynchronousRequest {
+                        ConversationQuestionCard(request: request, model: model, isBlocking: false)
+                            .id("request-\(request.id.rawValue)")
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom)
+            .onChange(of: model.items.count) { _, _ in
+                if let id = model.items.last?.id { withAnimation(.snappy) { proxy.scrollTo(id, anchor: .bottom) } }
+            }
+        }
+        .accessibilityIdentifier("ConversationTranscript")
+    }
+}
+
+private struct ConversationWelcomeView: View {
+    let provider: ConversationProvider
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 32, weight: .medium))
+                .foregroundStyle(.blue)
+            Text("Work with \(provider.displayName)")
+                .font(.title3.weight(.semibold))
+            Text("Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 310)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("ConversationWelcome")
+    }
+}
+
+private struct ConversationItemRow: View {
+    let item: ConversationItem
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    private var isUser: Bool { item.kind == .message && item.rawPayload == nil && item.tool == nil }
+    private var isCollapsible: Bool { [.reasoning, .plan, .tool, .result, .files, .artifact, .child, .usage].contains(item.kind) }
+
+    var body: some View {
+        Group {
+            if isUser {
+                HStack {
+                    Spacer(minLength: 44)
+                    Text(item.displayText)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+            } else if isCollapsible {
+                Button(action: toggle) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: iconName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(statusColor)
+                            Text(item.displayTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(statusLabel)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        if isExpanded { detailView }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if item.kind == .error { Label("Error", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.subheadline.weight(.semibold)) }
+                    Text(item.displayText)
+                        .font(.body)
+                        .foregroundStyle(item.kind == .error ? .red : .primary)
+                        .textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .accessibilityIdentifier("ConversationItem-\(item.id.rawValue)")
+    }
+
+    private var iconName: String {
+        switch item.kind {
+        case .reasoning: "brain.head.profile"
+        case .plan: "checklist"
+        case .tool: "terminal"
+        case .result: "checkmark.circle"
+        case .files: "doc.text"
+        case .artifact: "paperclip"
+        case .child: "arrow.branch"
+        case .usage: "chart.bar"
+        default: "circle"
+        }
+    }
+
+    private var statusLabel: String {
+        if let tool = item.tool {
+            switch tool.status {
+            case .queued: "Queued"
+            case .running: "Running"
+            case .success: "Success"
+            case .failed: "Failed"
+            case .cancelled: "Cancelled"
+            case .unknown: ""
+            }
+        } else if item.kind == .reasoning { "Worked" } else { "" }
+    }
+
+    private var statusColor: Color {
+        if item.tool?.status == .failed || item.kind == .error { return .red }
+        if item.tool?.status == .running { return .orange }
+        if item.tool?.status == .success { return .green }
+        return .secondary
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        if item.kind == .files, let diff = item.diff {
+            ConversationDiffView(diff: diff)
+        } else if item.kind == .artifact, let artifact = item.artifact {
+            HStack(spacing: 8) {
+                Image(systemName: "doc")
+                Text(artifact.fileName).lineLimit(1)
+                Spacer()
+                if let byteCount = artifact.byteCount { Text(ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
+            }
+            .font(.subheadline)
+        } else if let tool = item.tool {
+            VStack(alignment: .leading, spacing: 8) {
+                if let input = tool.input { ConversationCodeBlock(text: input.prettyDescription, label: "Input") }
+                if let output = tool.output { ConversationCodeBlock(text: output.prettyDescription, label: "Output") }
+            }
+        } else {
+            Text(item.displayText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+struct ConversationCodeBlock: View {
+    let text: String
+    let label: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(9)
+            .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(.white)
+        }
+    }
+}
+
+private struct ConversationQueuedRow: View {
+    let item: ConversationQueueItem
+    @Bindable var model: ConversationModel
+    @State private var isEditing = false
+    @State private var text = ""
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 44)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.text)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                HStack(spacing: 6) {
+                    Text(item.isDelivering ? "Sending" : "Queued")
+                    Text("·")
+                    Image(systemName: "ellipsis")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contextMenu {
+                Button("Edit", systemImage: "pencil") { text = item.text; isEditing = true }
+                Button("Steer instead", systemImage: "arrow.turn.up.right") { model.steer(item.text) }
+                Button("Cancel", systemImage: "xmark", role: .destructive) { model.cancelQueue(item) }
+            }
+            .sheet(isPresented: $isEditing) {
+                NavigationStack {
+                    Form { TextField("Queued message", text: $text, axis: .vertical).lineLimit(3...8) }
+                        .navigationTitle("Edit queued message")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { isEditing = false } }
+                            ToolbarItem(placement: .confirmationAction) { Button("Save") { model.editQueue(item, text: text); isEditing = false } }
+                        }
+                }
+                .presentationDetents([.medium])
+            }
+        }
+        .accessibilityIdentifier("ConversationQueued-\(item.id.rawValue)")
+    }
+}
+
+#endif
