@@ -791,6 +791,39 @@ mod tests {
         assert!(error.to_string().contains("response exceeds 16 MiB"));
     }
 
+    // hq-f8: on macOS, setsockopt(SO_RCVTIMEO) fails with EINVAL once the peer has
+    // closed. A response the peer wrote just before it closed is still buffered and
+    // must be read, not lost to that error. The peer writes and closes before the read.
+    #[test]
+    fn buffered_response_is_read_after_the_peer_closed() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        writer.write_all(b"{\"id\":1}\n").unwrap();
+        drop(writer);
+        let line = read_control_line(
+            &mut BufReader::new(reader),
+            Instant::now() + Duration::from_secs(1),
+            RESPONSE_LIMIT,
+        )
+        .unwrap();
+
+        assert_eq!(line, b"{\"id\":1}\n");
+    }
+
+    #[test]
+    fn control_response_limit_is_enforced_after_the_peer_closed() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        writer.write_all(b"12345678\n").unwrap();
+        drop(writer);
+        let error = read_control_line(
+            &mut BufReader::new(reader),
+            Instant::now() + Duration::from_secs(1),
+            8,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("response exceeds 16 MiB"), "{error:#}");
+    }
+
     #[test]
     fn manifest_does_not_touch_the_mux_socket() {
         let response = handle_plugin_request(json!({
