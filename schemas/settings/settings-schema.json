@@ -10240,7 +10240,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "eaf6368ac6e7fd3f8b9f84ed2fedad4a63806fc16a489192fd88366a028ebbf0",
+  "schema_hash" : "3f4459dab9f959268fda4cc01f14d693863ebc3e7aa92ce138546dc0b0cb8ef4",
   "sections" : [
     {
       "id" : "general",
