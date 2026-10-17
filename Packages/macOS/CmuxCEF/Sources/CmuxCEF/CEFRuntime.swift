@@ -487,13 +487,12 @@ public final class CEFRuntime {
     /// requesting page's window and is handed to that page's owner as
     /// `.newBrowser`; a request without a known source opens nothing in
     /// Chromium and goes to `openURLWithoutOpener`.
-    func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String) -> Int32 {
-        if popupWindowsEnabled {
-            notePopupWindow("request kind=\(kind) disposition=\(disposition) source=\(source)")
-        }
     /// A popup's bounds (`window.open` features) are recorded for the tab
     /// Chromium creates next for `source` (CEFPopupLedger).
     func windowRequest(kind: Int32, disposition: Int32, source: Int32, url: String, bounds: CGRect? = nil) -> Int32 {
+        if popupWindowsEnabled {
+            notePopupWindow("request kind=\(kind) disposition=\(disposition) source=\(source)")
+        }
         if kind != 3, source != 0, browsers[source] != nil, browsers[source]?.isClosed == false {
             if let bounds, bounds.width > 0, bounds.height > 0 {
                 popupLedger.recordWindowBounds(source: source, bounds: bounds, at: ProcessInfo.processInfo.systemUptime)
