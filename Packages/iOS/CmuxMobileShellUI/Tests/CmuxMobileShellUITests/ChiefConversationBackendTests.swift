@@ -1,5 +1,6 @@
 import CmuxConversationCore
 import CmuxMobileShell
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellUI
