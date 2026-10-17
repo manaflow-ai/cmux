@@ -246,7 +246,7 @@
     "setting.appearance.backgroundBlur": null,
     "setting.appearance.backgroundOpacity": null,
     "setting.appearance.borders": "default",
-    "setting.appearance.chromeStyle": "default",
+    "setting.appearance.chromeStyle": "flat-sidebar-line",
     "setting.appearance.colorTransition.bezierX1": 0.42,
     "setting.appearance.colorTransition.bezierX2": 0.58,
     "setting.appearance.colorTransition.bezierY1": 0,
