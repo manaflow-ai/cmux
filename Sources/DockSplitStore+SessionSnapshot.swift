@@ -386,10 +386,7 @@ extension DockSplitStore {
                         isRemoteTerminal: transfer?.isRemoteTerminal == true
                     )
                     : nil,
-                restoreRecovery: terminal.restoreRecovery.state.flatMap { state in
-                    guard case .failed(let reason, let recoveryInput) = state else { return nil }
-                    return SessionRestoreRecoverySnapshot(reason: reason, recoveryInput: recoveryInput)
-                }
+                restoreRecovery: terminal.restoreRecovery.sessionSnapshot
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil

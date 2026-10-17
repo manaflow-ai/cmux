@@ -709,7 +709,8 @@ extension Workspace {
                 hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
                 claudeBackgroundViewer: localTmuxStartCommand == nil
                     ? claudeBackgroundViewerForSnapshot(panelId: panelId, terminal: terminalPanel)
-                    : nil
+                    : nil,
+                restoreRecovery: terminalPanel.restoreRecovery.sessionSnapshot
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -2090,12 +2091,7 @@ extension Workspace {
                 }
                 return nil
             }
-            if let recovery = snapshot.terminal?.restoreRecovery {
-                terminalPanel.restoreRecovery.state = .failed(
-                    reason: recovery.reason,
-                    recoveryInput: recovery.recoveryInput
-                )
-            }
+            terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {

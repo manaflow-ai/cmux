@@ -550,12 +550,7 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
-        if let recovery = terminalSnapshot.restoreRecovery {
-            terminal.restoreRecovery.state = .failed(
-                reason: recovery.reason,
-                recoveryInput: recovery.recoveryInput
-            )
-        }
+        terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.

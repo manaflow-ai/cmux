@@ -16,4 +16,16 @@ final class AgentRestoreRecoveryPresentation {
     }
 
     var state: State?
+
+    /// Only a failed relaunch is durable; checks and live-owner prompts are
+    /// re-derived on the next restore.
+    var sessionSnapshot: SessionRestoreRecoverySnapshot? {
+        guard case .failed(let reason, let recoveryInput) = state else { return nil }
+        return SessionRestoreRecoverySnapshot(reason: reason, recoveryInput: recoveryInput)
+    }
+
+    func restore(from snapshot: SessionRestoreRecoverySnapshot?) {
+        guard let snapshot else { return }
+        state = .failed(reason: snapshot.reason, recoveryInput: snapshot.recoveryInput)
+    }
 }
