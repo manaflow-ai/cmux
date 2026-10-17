@@ -43,6 +43,8 @@ public actor ConversationBroker: ConversationClient {
         var appendTail: Task<Void, any Error>?
         var appendRevision: UInt64
         var appendFailure: String?
+        var publishedCursor: ConversationCursor
+        var pendingPublications: [ConversationCursor: ConversationEvent]
         var commandFingerprints: [ConversationCommandID: String]
         var inFlightCommands: [ConversationCommandID: Task<ConversationReceipt, Never>]
     }
@@ -139,7 +141,7 @@ public actor ConversationBroker: ConversationClient {
         let journal = try ConversationJournal(directory: directory.appendingPathComponent(id.rawValue, isDirectory: true))
         var capabilities = adapter.capabilities
         capabilities.features.insert("queue")
-        let state = SessionState(session: session, target: request.launchTarget, journal: journal, capabilities: capabilities, items: [], pendingRequests: [], queued: [], receipts: [], cursor: 0, currentTurnID: nil, dispatchingTurn: false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, commandFingerprints: [:], inFlightCommands: [:])
+        let state = SessionState(session: session, target: request.launchTarget, journal: journal, capabilities: capabilities, items: [], pendingRequests: [], queued: [], receipts: [], cursor: 0, currentTurnID: nil, dispatchingTurn: false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, publishedCursor: 0, pendingPublications: [:], commandFingerprints: [:], inFlightCommands: [:])
         sessions[id] = state
         try persist(state)
         do {
@@ -458,8 +460,13 @@ public actor ConversationBroker: ConversationClient {
             sessions[id]!.appendFailure = error.localizedDescription
             throw ConversationBrokerError.durabilityFailed(error.localizedDescription)
         }
-        broadcast(event)
-        onChange?(id, event.sequence)
+        sessions[id]!.pendingPublications[sequence] = event
+        while let next = sessions[id]!.pendingPublications[sessions[id]!.publishedCursor + 1] {
+            sessions[id]!.pendingPublications.removeValue(forKey: next.sequence)
+            sessions[id]!.publishedCursor = next.sequence
+            broadcast(next)
+            onChange?(id, next.sequence)
+        }
         if sequence % ConversationCursor(snapshotInterval) == 0 { try await writeSnapshot(id: id) }
         return event
     }
@@ -668,7 +675,7 @@ public actor ConversationBroker: ConversationClient {
             capabilities.features.insert("queue")
             var fingerprints: [ConversationCommandID: String] = [:]
             for (key, value) in record.commandFingerprints { fingerprints[ConversationCommandID(rawValue: key)] = value }
-            var state = SessionState(session: record.session, target: record.target, journal: journal, capabilities: snapshot?.capabilities ?? capabilities, items: snapshot?.items ?? [], pendingRequests: snapshot?.pendingRequests ?? [], queued: snapshot?.queued ?? [], receipts: snapshot?.receipts ?? [], cursor: snapshot?.cursor ?? 0, currentTurnID: snapshot?.activeTurnID, dispatchingTurn: snapshot?.isTurnRunning ?? false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, commandFingerprints: fingerprints, inFlightCommands: [:])
+            var state = SessionState(session: record.session, target: record.target, journal: journal, capabilities: snapshot?.capabilities ?? capabilities, items: snapshot?.items ?? [], pendingRequests: snapshot?.pendingRequests ?? [], queued: snapshot?.queued ?? [], receipts: snapshot?.receipts ?? [], cursor: snapshot?.cursor ?? 0, currentTurnID: snapshot?.activeTurnID, dispatchingTurn: snapshot?.isTurnRunning ?? false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, publishedCursor: snapshot?.cursor ?? 0, pendingPublications: [:], commandFingerprints: fingerprints, inFlightCommands: [:])
             let after = snapshot?.cursor ?? 0
             let events = try Self.decodeDurableEvents(at: child.appendingPathComponent("events.jsonl"))
             if let first = events.first, first.sequence > 1 { throw ConversationJournalError.sequenceMismatch(expected: 1, actual: first.sequence) }
