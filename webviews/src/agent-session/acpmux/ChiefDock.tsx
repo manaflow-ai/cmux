@@ -67,11 +67,11 @@ const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
 
 const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => {
   const mark = sessionMark(session, selected);
+  if (session.indicator === "done") return "complete";
   if (mark === "input") return "attention";
   if (mark === "error") return "error";
   if (mark === "running") return "streaming";
   if (mark === "unread") return "unread";
-  if (session.indicator === "done") return "complete";
   return "idle";
 };
 
