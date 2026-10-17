@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -10,11 +11,10 @@ import { SubagentStatusList, subagentStatus, waitingSubagents } from "./Subagent
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
 
-/// What the chat has produced so far, as a card at the pane's top right, over the transcript and
-/// never over the composer. It is not a popover: a click elsewhere leaves it in place, and only its
-/// own close button or the header's summary button hides it. Folded, it keeps its header line,
-/// with the subagents' live counts. Its state is per chat (cardState.ts). The summary is read
-/// from the transcript only while the card is open, so a live turn pays nothing for it otherwise.
+/// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
+/// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
+/// with the subagents' live counts. The summary is read from the transcript only while the card is
+/// open, so a live turn pays nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`).
 export function SummaryCard({
   card,
@@ -56,6 +56,24 @@ export function SummaryCard({
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  const panel = useRef<HTMLElement>(null);
+  const popover = shown && !card.column;
+  useEffect(() => {
+    if (!popover) return;
+    const away = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || panel.current?.contains(target)) return;
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      card.close();
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [card.close, popover]);
+  useEscapeCloses(popover && !gallery, () => {
+    const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
+    card.close();
+    button?.focus();
+  });
   if (!shown) return null;
   const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
   const counts = [
@@ -68,34 +86,49 @@ export function SummaryCard({
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   return (
     <>
-      <aside className="acpmux-summary-card" aria-label={title} data-collapsed={card.collapsed || undefined}>
+      <aside
+        ref={panel}
+        className="acpmux-summary-card"
+        aria-label={title}
+        data-placement={card.column ? "inline" : "popover"}
+        data-collapsed={!card.column && card.collapsed ? "" : undefined}
+      >
         <div className="acpmux-summary-card__head">
-          <button
-            type="button"
-            className="acpmux-summary-card__fold"
-            aria-expanded={!card.collapsed}
-            /* tooltip-allow: the button shows the card title; the tooltip names what a click does */
-            title={foldLabel}
-            onClick={() => card.fold(!card.collapsed)}
-          >
-            <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+          {card.column ? (
             <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-            {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
-          </button>
-          <button
-            type="button"
-            className="acpmux-summary-card__close"
-            aria-label={t("summary.close")}
-            title={t("summary.close")}
-            onClick={(event) => {
-              // The button goes with the card: focus moves to the header's summary button.
-              const pane = event.currentTarget.closest(".acpmux-stage");
-              card.close();
-              pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-            }}
-          >
-            <Icon name="action.close" size={12} />
-          </button>
+          ) : (
+            <button
+              type="button"
+              className="acpmux-summary-card__fold"
+              aria-expanded={!card.collapsed}
+              /* tooltip-allow: the button shows the card title; the tooltip names what a click does */
+              title={foldLabel}
+              onClick={() => card.fold(!card.collapsed)}
+            >
+              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+              <span className="acpmux-summary-card__title">{t("summary.title")}</span>
+              {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
+            </button>
+          )}
+          {card.column && counts.length > 0 && (
+            <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+          )}
+          {!card.column && (
+            <button
+              type="button"
+              className="acpmux-summary-card__close"
+              aria-label={t("summary.close")}
+              title={t("summary.close")}
+              onClick={(event) => {
+                // The button goes with the card: focus moves to the header's summary button.
+                const pane = event.currentTarget.closest(".acpmux-stage");
+                card.close();
+                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
+              }}
+            >
+              <Icon name="action.close" size={12} />
+            </button>
+          )}
         </div>
         {summary && (
           <div className="acpmux-summary-card__body">
