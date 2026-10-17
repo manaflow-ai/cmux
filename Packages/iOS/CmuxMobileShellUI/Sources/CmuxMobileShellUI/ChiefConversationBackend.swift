@@ -303,7 +303,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     func question(for messageID: String) -> MobileChiefQuestion? {
         withState { state in
             guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
-            return parts.reversed().compactMap(\.question).first(where: \.isPending)
+            return Self.pendingPollPart(from: parts)?.question
         }
     }
 
