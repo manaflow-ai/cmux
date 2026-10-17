@@ -29,9 +29,10 @@ extension WorkspaceRowView {
         // Rebuilding the full row layout and starting a marquee for every
         // crossing turns realization into a main-thread hitch. The next real
         // pointer event reconciles the row's controls after scrolling settles.
-        let followsScroll = (superview as? SidebarListView)?.hoverFollowsScroll == true
-        if !followsScroll { needsLayout = true }
-        guard isHovered, !renaming, !isPlaceholderRow, !followsScroll else {
+        let list = superview as? SidebarListView
+        let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
+        if !suppressEffects { needsLayout = true }
+        guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
             return
         }

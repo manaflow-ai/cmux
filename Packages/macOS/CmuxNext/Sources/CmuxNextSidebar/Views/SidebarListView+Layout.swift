@@ -94,6 +94,9 @@ extension SidebarListView {
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
+        let previousHoverSuppression = suppressHoverEffects
+        suppressHoverEffects = true
+        defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
         let old = displayed
         displayed = layout
