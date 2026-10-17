@@ -1056,6 +1056,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_owner_wait_defers.py
 
+      - name: Validate cmux-tui republish of an already-published commit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
+
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
