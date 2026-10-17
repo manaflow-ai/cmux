@@ -412,6 +412,34 @@ class PathRoutingStructure(unittest.TestCase):
         for job_id in ("macos-placement", "swift-canary", "swift-test", "generated-files", "daemon-test", "release-compile", "cmux-scheme-compile"):
             self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
 
+    def test_trusted_dev_build_prs_keep_the_scheme_producer(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        scheme_if = jobs["cmux-scheme-compile"]["if"]
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", scheme_if)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", scheme_if)
+        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", scheme_if)
+        self.assertIn("github.event.pull_request.author_association == 'OWNER'", scheme_if)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'dev-build')", scheme_if)
+        outer_guard = scheme_if.split(" && !(", 1)[0]
+        self.assertIn(
+            "github.base_ref == 'feat-cmux-next' && "
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            outer_guard,
+        )
+        self.assertIn(
+            "contains(github.event.pull_request.labels.*.name, 'dev-build')",
+            outer_guard,
+        )
+
+    def test_web_bundle_cache_restore_downloads_the_output(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        restore = next(
+            step for step in jobs["web-bundles"]["steps"]
+            if step.get("id") == "web-bundle-cache"
+        )
+        self.assertNotIn("lookup-only", restore.get("with", {}))
+        self.assertEqual(restore["with"]["path"], "web-bundles-out")
+
     def test_package_tests_never_wait_for_the_cmux_tui_tree(self):
         """#17470's swift test spent 13 of 29 minutes waiting for the base tree."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
