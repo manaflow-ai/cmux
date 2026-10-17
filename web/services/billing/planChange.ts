@@ -21,7 +21,8 @@ export type PlanChangeRefusal =
   | "cancel_scheduled"
   | "same_plan"
   | "not_switchable"
-  | "payment_failed";
+  | "payment_failed"
+  | "preview_unavailable";
 
 export class PlanChangeError extends Error {
   override readonly name = "PlanChangeError";
@@ -139,14 +140,30 @@ const sumAmounts = (values: readonly { readonly amount: number }[] | null | unde
  * (non-proration) line, net of its discounts plus exclusive tax. The preview's
  * total would also spend the customer's balance and pending invoice items,
  * which the immediate upgrade invoice uses up first, and metered usage, which
- * is not part of the plan's price. Falls back to the total when the preview
- * has no line for the plan item.
+ * is not part of the plan's price. A preview without the plan line is
+ * unavailable rather than safe to quote from its total.
  */
-function planRenewalAmount(invoice: Stripe.Invoice, itemId: string): number {
-  const lines = previewLines(invoice).filter((line) =>
+function planRenewalLines(invoice: Stripe.Invoice, itemId: string): readonly PreviewLine[] {
+  return previewLines(invoice).filter((line) =>
     line.parent?.subscription_item_details?.subscription_item === itemId &&
     line.parent.subscription_item_details.proration !== true);
-  if (lines.length === 0) return invoice.amount_due;
+}
+
+async function planRenewalAmount(
+  client: StripeClient,
+  invoice: Stripe.Invoice,
+  itemId: string,
+): Promise<number> {
+  let lines = planRenewalLines(invoice, itemId);
+  if (lines.length === 0 && invoice.lines?.has_more && invoice.id) {
+    try {
+      const listed = await client.invoices.listLineItems(invoice.id, { limit: 100 });
+      lines = planRenewalLines({ ...invoice, lines: listed } as Stripe.Invoice, itemId);
+    } catch {
+      throw new PlanChangeError("preview_unavailable");
+    }
+  }
+  if (lines.length === 0) throw new PlanChangeError("preview_unavailable");
   return lines.reduce((total, line) =>
     total + line.amount - sumAmounts(line.discount_amounts) +
     sumAmounts(line.taxes?.filter((tax) => tax.tax_behavior === "exclusive")), 0);
@@ -202,7 +219,7 @@ export async function previewPersonalPlanChange(
     credit: upgrade ? 0 : prorationCredit(invoice),
     // The interval is kept, so the billing period (and its end) is unchanged.
     nextRenewalAt: change.periodEnd === null ? null : new Date(change.periodEnd * 1000).toISOString(),
-    nextInvoiceAmount: renewal ? planRenewalAmount(renewal, change.itemId) : invoice.amount_due,
+    nextInvoiceAmount: renewal ? await planRenewalAmount(client, renewal, change.itemId) : invoice.amount_due,
     interval: change.interval,
     prorationDate,
   };

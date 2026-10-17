@@ -82,15 +82,16 @@ public struct BillingPlanDetails: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The effective tier: the higher of the personal and active-team plans.
     public let tier: CmuxPlanTier
-    /// Who bills the personal plan. An older service that omits it reads as unbilled.
-    public let billingSource: BillingSource
+    /// Who bills the personal plan, or `nil` when an older service omits it or
+    /// sends a value this client does not know.
+    public let billingSource: BillingSource?
 
     /// Creates decoded billing details.
     public init(
         isPro: Bool,
         canManageBilling: Bool,
         tier: CmuxPlanTier? = nil,
-        billingSource: BillingSource = .unbilled
+        billingSource: BillingSource? = nil
     ) {
         self.isPro = isPro
         self.canManageBilling = canManageBilling
@@ -157,7 +158,7 @@ public struct BillingPlanClient: Sendable {
             isPro: isPro,
             canManageBilling: canManageBilling,
             tier: tier,
-            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:)) ?? .unbilled
+            billingSource: decoded.billingSource.flatMap(BillingSource.init(rawValue:))
         )
     }
 

@@ -16,6 +16,7 @@ let preview: Record<string, unknown>;
 /** The next renewal invoice at the new price (proration_behavior "none"). */
 let renewalPreview: Record<string, unknown>;
 let renewalLines: Record<string, unknown>[];
+let renewalLinesError: unknown;
 let updateError: unknown;
 const calls: { method: string; args: unknown[] }[] = [];
 const synced: unknown[] = [];
@@ -60,6 +61,7 @@ const deps: PlanChangeDependencies = {
       },
       listLineItems: async (...args: unknown[]) => {
         calls.push({ method: "listLineItems", args });
+        if (renewalLinesError) throw renewalLinesError;
         return { data: renewalLines, has_more: false };
       },
     },
@@ -82,8 +84,14 @@ beforeEach(() => {
   };
   subscription = subscriptionOn("cmux-pro-monthly-50");
   preview = { currency: "usd", amount_due: 10_000, lines: { data: [] } };
-  renewalPreview = { currency: "usd", amount_due: 20_000, lines: { data: [] } };
+  renewalPreview = {
+    id: "upcoming_1",
+    currency: "usd",
+    amount_due: 20_000,
+    lines: { data: [{ amount: 20_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: false } } }] },
+  };
   renewalLines = [];
+  renewalLinesError = null;
   updateError = null;
   calls.length = 0;
   synced.length = 0;
@@ -188,7 +196,12 @@ describe("personal plan change", () => {
   test("a Pro yearly subscriber upgrades to Max yearly, keeping the billing interval", async () => {
     subscription = subscriptionOn("cmux-pro-yearly-480", false, "year");
     preview = { currency: "usd", amount_due: 79_000, lines: { data: [] } };
-    renewalPreview = { currency: "usd", amount_due: 192_000, lines: { data: [] } };
+    renewalPreview = {
+      id: "upcoming_1",
+      currency: "usd",
+      amount_due: 192_000,
+      lines: { data: [{ amount: 192_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: false } } }] },
+    };
     const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     expect(result).toMatchObject({
       direction: "upgrade",
@@ -235,7 +248,12 @@ describe("personal plan change", () => {
 
   test("an upgrade's next invoice amount is Stripe's renewal preview, not a list price", async () => {
     // A discount on the subscription lowers the renewal; the preview says so.
-    renewalPreview = { currency: "usd", amount_due: 15_000, lines: { data: [] } };
+    renewalPreview = {
+      id: "upcoming_1",
+      currency: "usd",
+      amount_due: 15_000,
+      lines: { data: [{ amount: 15_000, parent: { subscription_item_details: { subscription_item: "si_1", proration: false } } }] },
+    };
     const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     expect(result.nextInvoiceAmount).toBe(15_000);
   });
@@ -288,5 +306,11 @@ describe("personal plan change", () => {
     const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
     expect(result.nextInvoiceAmount).toBe(18_900);
     expect(calls.find((call) => call.method === "listLineItems")?.args).toEqual(["upcoming_1", { limit: 100 }]);
+  });
+
+  test("refuses to quote when Stripe cannot provide the renewal plan line", async () => {
+    renewalPreview = { id: "upcoming_1", currency: "usd", amount_due: 11_500, lines: { data: [], has_more: true } };
+    renewalLinesError = new Error("Stripe unavailable");
+    expect(await refusal(previewPersonalPlanChange({ userId: "u1", target: "max" }, deps))).toBe("preview_unavailable");
   });
 });

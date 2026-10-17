@@ -48,7 +48,8 @@ function requireBilling() {
 
 function planChangeRefusal(error: unknown): unknown {
   if (!(error instanceof PlanChangeError)) return error;
-  return dashboardRefusal(error.reason === "payment_failed" ? 402 : 409, error.reason);
+  const status = error.reason === "payment_failed" ? 402 : error.reason === "preview_unavailable" ? 503 : 409;
+  return dashboardRefusal(status, error.reason);
 }
 
 /** What switching the personal plan costs today and at the next renewal. */

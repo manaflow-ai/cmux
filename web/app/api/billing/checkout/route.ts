@@ -448,7 +448,15 @@ function existingSubscriptionRedirect(
 ): NextResponse {
   const wantsSwitch = plan !== GO_PLAN_ID && status.hasActiveSubscription &&
     !status.cancelAtPeriodEnd && status.activePlanId !== plan;
-  if (wantsSwitch && !isPortalSwitchableLookupKey(status.planLookupKey) && status.subscriptionStatus !== "past_due") {
+  // The shared portal offers both monthly and yearly destination prices. Keep
+  // yearly subscribers in the dashboard's interval-aware switch flow so they
+  // cannot accidentally move to a monthly Max price.
+  const requiresIntervalAwareSwitch = status.subscriptionInterval === "year";
+  if (
+    wantsSwitch &&
+    (requiresIntervalAwareSwitch || !isPortalSwitchableLookupKey(status.planLookupKey)) &&
+    status.subscriptionStatus !== "past_due"
+  ) {
     captureCheckoutDecision(userId, plan, status.activePlanId, "switch_plan", attribution, interval);
     const dashboardURL = new URL("/dashboard/billing", requestOrigin(request));
     dashboardURL.searchParams.set("change", plan);

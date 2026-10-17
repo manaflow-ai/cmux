@@ -29,6 +29,7 @@ import { activeApplePlanForUser } from "./apple/entitlement";
 import { planTierRank } from "./planTier";
 import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
+import type { BillingInterval } from "./plans";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -217,6 +218,8 @@ export type StripeBillingStatus = {
    * switch the subscription's plan.
    */
   readonly planLookupKey?: string | null;
+  /** The recurring interval of the subscription behind `subscriptionId`. */
+  readonly subscriptionInterval?: BillingInterval | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -747,6 +750,7 @@ export async function stripeBillingStatusForUser(
       activePlanId,
     ), subscriptionStatus: subscription?.status ?? null,
     planLookupKey: planLookupKeyFromRaw(subscription?.raw),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };
@@ -954,6 +958,7 @@ function stripeBillingStatusFromRows(
     readonly id?: string | null;
     readonly status?: string | null;
     readonly cancelAtPeriodEnd?: boolean | null;
+    readonly raw?: unknown;
   } | undefined,
   activeSubscriptionOverride?: boolean,
   activePlanId: PersonalPlanId | null = null,
@@ -971,6 +976,7 @@ function stripeBillingStatusFromRows(
       subscriptionStatus !== null &&
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
   };
 }
 
@@ -978,6 +984,13 @@ function planLookupKeyFromRaw(raw: unknown): string | null {
   const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
   const lookupKey = (item as { price?: { lookup_key?: unknown } | null } | undefined)?.price?.lookup_key;
   return typeof lookupKey === "string" && lookupKey ? lookupKey : null;
+}
+
+function subscriptionIntervalFromRaw(raw: unknown): BillingInterval | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const interval = (item as { price?: { recurring?: { interval?: unknown } | null } | null } | undefined)
+    ?.price?.recurring?.interval;
+  return interval === "year" || interval === "month" ? interval : null;
 }
 
 function emptyStripeBillingStatus(): StripeBillingStatus {
@@ -989,5 +1002,6 @@ function emptyStripeBillingStatus(): StripeBillingStatus {
     cancelAtPeriodEnd: false,
     hasCustomer: false,
     hasActiveSubscription: false,
+    subscriptionInterval: null,
   };
 }

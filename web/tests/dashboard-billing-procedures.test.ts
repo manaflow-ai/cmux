@@ -101,6 +101,8 @@ describe("dashboard billing procedures", () => {
     expect(await refusalOf(call(billingRouter.previewChange, { plan: "max" }, { context }))).toEqual(["CONFLICT", 409, "cancel_scheduled"]);
     changeImpl = async () => { throw new PlanChangeError("payment_failed"); };
     expect(await refusalOf(call(billingRouter.change, { plan: "max", prorationDate: 1 }, { context }))).toEqual(["PAYMENT_REQUIRED", 402, "payment_failed"]);
+    previewImpl = async () => { throw new PlanChangeError("preview_unavailable"); };
+    expect(await refusalOf(call(billingRouter.previewChange, { plan: "max" }, { context }))).toEqual(["UNAVAILABLE", 503, "preview_unavailable"]);
   });
 
   test("cancel without a reason records no analytics; with one it records the reason", async () => {
