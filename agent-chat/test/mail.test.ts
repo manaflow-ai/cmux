@@ -210,8 +210,14 @@ test("JSONL journal rejects malformed receipts with a line number", async () => 
   const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-invalid-"));
   const path = join(root, "mail.jsonl");
   try {
-    await writeFile(path, JSON.stringify({ kind: "delivery", receipt: { messageId: "m", recipient: "review", state: "delivered" } }) + "\n");
-    await expect(JsonlMailJournal.open(path)).rejects.toThrow("line 1");
+    const message = {
+      kind: "message",
+      envelope: { id: "m", sender: "codex", recipients: ["review"], body: "hello" },
+      deliveries: [{ messageId: "m", recipient: "review", state: "queued", attempts: 0, updatedAt: 1 }],
+    };
+    const malformedDelivery = { kind: "delivery", receipt: { messageId: "m", recipient: "review", state: "delivered" } };
+    await writeFile(path, `${JSON.stringify(message)}\n${JSON.stringify(malformedDelivery)}\n`);
+    await expect(JsonlMailJournal.open(path)).rejects.toThrow("line 2");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
