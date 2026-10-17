@@ -193,6 +193,10 @@ jobs:
     timeout-minutes: 45
     env:
       CMUX_TAG: ${{ needs.gate.outputs.tag }}
+      # Keep the receipt bound to the exact app source and workflow revision
+      # that produced it; the summary remains warning-only for now.
+      CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
+      CMUX_PERF_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
       # The bench draws in the console session, which every GUI job on the mini
       # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
@@ -280,7 +284,11 @@ jobs:
 
       - name: Summary
         if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
-        run: python3 scripts/ci/frame-pacing/summarize.py "$RUNNER_TEMP/frame-pacing/out" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          python3 scripts/ci/frame-pacing/summarize.py \
+            "$RUNNER_TEMP/frame-pacing/out" \
+            --receipt "$RUNNER_TEMP/frame-pacing/out/summary.json" \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the bench results
         if: always() && steps.gui.outputs.taken == 'true'
