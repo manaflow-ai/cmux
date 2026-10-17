@@ -116,25 +116,25 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         let client = self.client
         let coding = self.coding
         let streamID = UUID().uuidString
+        // Complete the server-side registration before handing the stream to
+        // the reducer. This makes the subsequent authoritative session
+        // snapshot race-free: events emitted after the snapshot starts are
+        // already queued in `envelopes` instead of falling into a handshake
+        // gap.
+        do {
+            let subscribe = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.subscribe",
+                params: [
+                    "topics": ["chat.message"],
+                    "stream_id": streamID,
+                ]
+            )
+            _ = try await client.sendRequest(subscribe)
+        } catch {
+            return AsyncStream { continuation in continuation.finish() }
+        }
         return AsyncStream { continuation in
             let pump = Task {
-                // Register after the local listener exists so no frame falls
-                // between subscribe and handshake; a failed handshake must
-                // finish the stream (the server never feeds an unregistered
-                // connection).
-                do {
-                    let subscribe = try MobileCoreRPCClient.requestData(
-                        method: "mobile.events.subscribe",
-                        params: [
-                            "topics": ["chat.message"],
-                            "stream_id": streamID,
-                        ]
-                    )
-                    _ = try await client.sendRequest(subscribe)
-                } catch {
-                    continuation.finish()
-                    return
-                }
                 for await envelope in envelopes {
                     guard let payload = envelope.payloadJSON else { continue }
                     guard let frame = try? coding.decode(ChatSessionEventFrame.self, from: payload) else {
@@ -180,26 +180,20 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         let client = self.client
         let coding = self.coding
         let streamID = UUID().uuidString
+        do {
+            let subscribe = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.subscribe",
+                params: [
+                    "topics": ["chat.message"],
+                    "stream_id": streamID,
+                ]
+            )
+            _ = try await client.sendRequest(subscribe)
+        } catch {
+            return AsyncStream { continuation in continuation.finish() }
+        }
         return AsyncStream { continuation in
             let pump = Task {
-                // Server-side handshake after the local listener exists so no
-                // early event falls between the two. A failed handshake must
-                // finish the stream: the server never feeds an unregistered
-                // connection, so continuing would wedge the consumer in a
-                // silent "connected but deaf" state.
-                do {
-                    let subscribe = try MobileCoreRPCClient.requestData(
-                        method: "mobile.events.subscribe",
-                        params: [
-                            "topics": ["chat.message"],
-                            "stream_id": streamID,
-                        ]
-                    )
-                    _ = try await client.sendRequest(subscribe)
-                } catch {
-                    continuation.finish()
-                    return
-                }
                 for await envelope in envelopes {
                     guard let payload = envelope.payloadJSON else { continue }
                     guard let frame = try? coding.decode(ChatSessionEventFrame.self, from: payload) else {
