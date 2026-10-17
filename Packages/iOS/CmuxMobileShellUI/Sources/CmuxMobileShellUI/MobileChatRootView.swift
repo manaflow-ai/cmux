@@ -14,19 +14,24 @@ import UIKit
 struct MobileChatRootView: View {
     @State private var store: MobileChatStore
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var showsNewChatSheet = false
+    @State private var providerFilter: ChatAgentKind?
     private let searchText: String
     private let connectionGeneration: UUID
+    private let startNewChat: (ChatAgentKind) -> Void
     let showSettings: () -> Void
 
     init(
         sourceProvider: @escaping MobileChatStore.SourceProvider,
         searchText: String = "",
         connectionGeneration: UUID,
+        startNewChat: @escaping (ChatAgentKind) -> Void = { _ in },
         showSettings: @escaping () -> Void = {}
     ) {
         _store = State(initialValue: MobileChatStore(sourceProvider: sourceProvider))
         self.searchText = searchText
         self.connectionGeneration = connectionGeneration
+        self.startNewChat = startNewChat
         self.showSettings = showSettings
     }
 
@@ -36,13 +41,20 @@ struct MobileChatRootView: View {
                 .navigationTitle("Chats")
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(action: store.refresh) {
-                            Image(systemName: "arrow.clockwise")
+                        Button {
+                            showsNewChatSheet = true
+                        } label: {
+                            Image(systemName: "square.and.pencil")
                         }
-                        .accessibilityLabel("Refresh chats")
+                        .accessibilityLabel("New chat")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
+                            Button {
+                                showsNewChatSheet = true
+                            } label: {
+                                Label("New chat", systemImage: "square.and.pencil")
+                            }
                             Button(action: store.refresh) {
                                 Label("Refresh", systemImage: "arrow.clockwise")
                             }
@@ -60,6 +72,14 @@ struct MobileChatRootView: View {
         }
         .task(id: connectionGeneration) { store.restart() }
         .onDisappear { store.stop() }
+        .sheet(isPresented: $showsNewChatSheet) {
+            MobileNewChatSheet { provider in
+                showsNewChatSheet = false
+                startNewChat(provider)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .navigationDestination(for: String.self) { sessionID in
             transcript(for: sessionID)
         }
@@ -85,13 +105,27 @@ struct MobileChatRootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredSessions.isEmpty {
-                ContentUnavailableView.search(text: searchText)
+                if let providerFilter {
+                    ContentUnavailableView {
+                        Label("No \(providerFilter.displayName) chats", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Try another provider or show all chats.")
+                    } actions: {
+                        Button("Show all providers") { self.providerFilter = nil }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView.search(text: searchText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 List(selection: Binding(
                     get: { store.selectedSessionID },
                     set: { if let value = $0 { store.selectSession(value) } }
                 )) {
+                    Section {
+                        providerFilterControl
+                    }
                     Section {
                         ForEach(filteredSessions) { session in
                             NavigationLink(value: session.id) {
@@ -116,10 +150,49 @@ struct MobileChatRootView: View {
         }
     }
 
+    private var providerFilterControl: some View {
+        Menu {
+            Button {
+                providerFilter = nil
+            } label: {
+                Label("All providers", systemImage: providerFilter == nil ? "checkmark" : "")
+            }
+            Divider()
+            ForEach(ChatAgentKind.supportedProviders, id: \.self) { provider in
+                Button {
+                    providerFilter = provider
+                } label: {
+                    Label {
+                        Text(provider.displayName)
+                    } icon: {
+                        MobileChatProviderBadge(kind: provider, size: 18)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                Text(providerFilter?.displayName ?? "All providers")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filter chats by provider")
+    }
+
     private var filteredSessions: [ChatSessionDescriptor] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return store.sessions }
-        return store.sessions.filter { session in
+        let providerSessions = providerFilter.map { provider in
+            store.sessions.filter { $0.agentKind == provider }
+        } ?? store.sessions
+        guard !query.isEmpty else { return providerSessions }
+        return providerSessions.filter { session in
             [
                 session.title,
                 session.workingDirectory,
@@ -202,8 +275,8 @@ private struct MobileChatProviderBadge: View {
     var body: some View {
         ZStack {
             Circle().fill(color.opacity(0.16))
-            Text(symbol)
-                .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.38, weight: .bold))
                 .foregroundStyle(color)
         }
         .frame(width: size, height: size)
@@ -212,10 +285,10 @@ private struct MobileChatProviderBadge: View {
 
     private var symbol: String {
         switch kind {
-        case .claude: "C"
-        case .codex: "⌘"
-        case .openCode: "O"
-        case .other: "·"
+        case .claude: "sparkle"
+        case .codex: "chevron.left.forwardslash.chevron.right"
+        case .openCode: "circle.grid.2x2"
+        case .other: "ellipsis"
         }
     }
 
@@ -225,6 +298,97 @@ private struct MobileChatProviderBadge: View {
         case .codex: .green
         case .openCode: .purple
         case .other: .secondary
+        }
+    }
+}
+
+private extension ChatAgentKind {
+    static let supportedProviders: [Self] = [.codex, .claude, .openCode]
+
+    /// The provider label shown in the compact conversation header. The
+    /// transcript protocol intentionally carries provider identity rather than
+    /// a model catalog, so this stays honest while still making the active
+    /// runtime visible at a glance.
+    var modelDisplayName: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        case .openCode: "OpenCode"
+        case .other: displayName
+        }
+    }
+
+    var launchCommand: String? {
+        switch self {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        case .other: nil
+        }
+    }
+}
+
+private struct MobileNewChatSheet: View {
+    @State private var provider: ChatAgentKind = .codex
+    let start: (ChatAgentKind) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Start a new chat")
+                            .font(.title2.weight(.bold))
+                        Text("Choose the coding agent to run in a new workspace on your connected Mac.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 0))
+                    .listRowBackground(Color.clear)
+                }
+
+                Section("Provider") {
+                    ForEach(ChatAgentKind.supportedProviders, id: \.self) { candidate in
+                        Button {
+                            provider = candidate
+                        } label: {
+                            HStack(spacing: 12) {
+                                MobileChatProviderBadge(kind: candidate, size: 40)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(candidate.displayName)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    Text(candidate.modelDisplayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: provider == candidate ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(provider == candidate ? Color.accentColor : .tertiary)
+                                    .font(.title3)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(provider == candidate ? .isSelected : [])
+                    }
+                }
+
+                Section {
+                    Button {
+                        start(provider)
+                    } label: {
+                        Label("Start \(provider.displayName) chat", systemImage: "arrow.up.right.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(provider.launchCommand == nil)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("New chat")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
@@ -248,10 +412,82 @@ private struct MobileChatStateIndicator: View {
     }
 }
 
+private extension ChatAgentState {
+    var label: String {
+        switch self {
+        case .working: "Working"
+        case .needsInput: "Needs input"
+        case .idle: "Ready"
+        case .ended: "Ended"
+        }
+    }
+}
+
+private struct MobileChatWelcomeView: View {
+    let provider: ChatAgentKind
+    let sendSuggestion: (String) -> Void
+
+    private let suggestions = [
+        "Inspect this repository",
+        "Fix a failing test",
+        "Explain this project",
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Spacer(minLength: 44)
+                MobileChatProviderBadge(kind: provider, size: 58)
+                VStack(spacing: 7) {
+                    Text("What can I help you build?")
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+                    Text("\(provider.modelDisplayName) is ready in this conversation.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                VStack(spacing: 10) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            sendSuggestion(suggestion)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: suggestion == suggestions[0] ? "magnifyingglass" : suggestion == suggestions[1] ? "wrench.and.screwdriver" : "text.book.closed")
+                                    .foregroundStyle(.secondary)
+                                Text(suggestion)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .font(.subheadline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(.quaternary, lineWidth: 0.8)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: 420)
+                Spacer(minLength: 24)
+            }
+            .frame(maxWidth: .infinity, minHeight: 340)
+            .padding(.horizontal, 24)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
 private struct MobileChatTranscriptView: View {
     @Bindable var store: MobileChatStore
     let descriptor: ChatSessionDescriptor
     @Binding var selectedPhotos: [PhotosPickerItem]
+    @FocusState private var composerFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -266,10 +502,12 @@ private struct MobileChatTranscriptView: View {
                     .background(.orange.opacity(0.1))
             }
             transcriptBody
-            composer
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            composer
+        }
         .task(id: descriptor.id) { store.selectSession(descriptor.id) }
         .onChange(of: selectedPhotos) { _, items in
             loadPhotos(items)
@@ -283,11 +521,22 @@ private struct MobileChatTranscriptView: View {
                 Text(descriptor.title?.isEmpty == false ? descriptor.title! : "Conversation")
                     .font(.headline)
                     .lineLimit(1)
-                Text(descriptor.agentKind.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(descriptor.agentKind.modelDisplayName)
+                    Text("·")
+                    Text(descriptor.state.label)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer()
+            if case .working = descriptor.state {
+                ProgressView().controlSize(.small)
+            } else if descriptor.state.needsAttention {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Needs your input")
+            }
             Menu {
                 Button("Refresh transcript", systemImage: "arrow.clockwise") {
                     store.refreshTranscript()
@@ -315,6 +564,14 @@ private struct MobileChatTranscriptView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if store.messages.isEmpty && store.terminalBlocks.isEmpty && store.streamingProse == nil {
+            MobileChatWelcomeView(
+                provider: descriptor.agentKind,
+                sendSuggestion: { suggestion in
+                    store.draft = suggestion
+                    composerFocused = true
+                }
+            )
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -326,13 +583,13 @@ private struct MobileChatTranscriptView: View {
                                 .padding(.vertical, 4)
                         }
                         ForEach(store.messages) { message in
-                            MobileChatMessageRow(message: message) { index in
+                            MobileChatMessageRow(message: message, provider: descriptor.agentKind) { index in
                                 store.answer(optionIndex: index)
                             }
                             .id(message.id)
                         }
                         if let preview = store.streamingProse {
-                            MobileChatMessageRow(message: preview, isStreaming: true) { index in
+                            MobileChatMessageRow(message: preview, provider: descriptor.agentKind, isStreaming: true) { index in
                                 store.answer(optionIndex: index)
                             }
                             .id("streaming-preview")
@@ -346,6 +603,7 @@ private struct MobileChatTranscriptView: View {
                     .padding(.vertical, 18)
                 }
                 .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: store.messages.count) { _, _ in
                     if let last = store.messages.last?.id {
                         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
@@ -369,11 +627,12 @@ private struct MobileChatTranscriptView: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 4, matching: .images) {
-                    Image(systemName: "paperclip")
-                        .font(.title3)
+                    Image(systemName: "plus")
+                        .font(.headline.weight(.semibold))
                         .frame(width: 34, height: 34)
+                        .background(.quaternary, in: Circle())
                 }
-                .accessibilityLabel("Attach image")
+                .accessibilityLabel("Add attachment")
                 TextField(
                     descriptor.kind == .terminal ? "Send a command…" : "Message \(descriptor.agentKind.displayName)…",
                     text: $store.draft,
@@ -383,9 +642,15 @@ private struct MobileChatTranscriptView: View {
                 .lineLimit(1...6)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .focused($composerFocused)
+                .background(.background, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.8)
+                }
                 Button {
                     store.send()
+                    composerFocused = false
                 } label: {
                     Image(systemName: store.isSending ? "hourglass" : "arrow.up.circle.fill")
                         .font(.title2)
@@ -399,6 +664,11 @@ private struct MobileChatTranscriptView: View {
         .padding(.top, 8)
         .padding(.bottom, 10)
         .background(.bar)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.quaternary)
+                .frame(height: 0.5)
+        }
     }
 
     private func loadPhotos(_ items: [PhotosPickerItem]) {
@@ -420,6 +690,7 @@ private struct MobileChatTranscriptView: View {
 
 private struct MobileChatMessageRow: View {
     let message: ChatMessage
+    let provider: ChatAgentKind
     var isStreaming = false
     let answer: (Int) -> Void
 
@@ -451,16 +722,19 @@ private struct MobileChatMessageRow: View {
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-                if let attributed = try? AttributedString(markdown: prose.text) {
-                    Text(attributed)
-                        .textSelection(.enabled)
-                } else {
-                    Text(verbatim: prose.text)
-                        .textSelection(.enabled)
-                }
-                if isStreaming {
-                    ProgressView().controlSize(.small)
+            HStack(alignment: .top, spacing: 10) {
+                MobileChatProviderBadge(kind: provider, size: 26)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let attributed = try? AttributedString(markdown: prose.text) {
+                        Text(attributed)
+                            .textSelection(.enabled)
+                    } else {
+                        Text(verbatim: prose.text)
+                            .textSelection(.enabled)
+                    }
+                    if isStreaming {
+                        ProgressView().controlSize(.small)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -480,6 +754,15 @@ private struct MobileChatMessageRow: View {
                     .foregroundStyle(.secondary)
             }
             Text(tool.summary).font(.subheadline)
+            if let input = tool.inputDetail, !input.isEmpty {
+                DisclosureGroup("Details") {
+                    Text(verbatim: input)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption.weight(.semibold))
+            }
             if let output = tool.output, !output.isEmpty {
                 Text(verbatim: output)
                     .font(.caption.monospaced())

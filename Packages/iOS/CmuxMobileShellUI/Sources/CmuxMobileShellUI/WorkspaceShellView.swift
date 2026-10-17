@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import Foundation
 import CmuxMobilePairedMac
 import CmuxMobileShell
@@ -1448,27 +1449,41 @@ struct WorkspaceShellView: View {
         )
     }
 
-    private func agentFeedStoreView(
-        for presentation: WorkspaceShellRenderPresentation,
-        isActive: Bool = true
-    ) -> AgentFeedStoreView {
-        AgentFeedStoreView(
-            store: store,
-            selectionScope: presentation.selectionScope,
-            isActive: isActive,
-            searchCoordinator: primarySearchCoordinator
-        )
-    }
-
-    /// First-class agent chat destination. The legacy Feed remains compiled
-    /// for migration fixtures, but is no longer mounted by production routes.
+    /// First-class agent chat destination. The legacy Feed remains available
+    /// only to migration and debug fixtures; production navigation mounts Chat.
     private func agentChatView(searchText: String = "") -> MobileChatRootView {
         MobileChatRootView(
             sourceProvider: { store.makeChatEventSource() },
             searchText: searchText,
             connectionGeneration: store.chatConnectionGeneration,
+            startNewChat: startNewChat,
             showSettings: showSettings
         )
+    }
+
+    /// Start a provider in a fresh workspace, then let the chat session stream
+    /// discover the resulting conversation. This keeps the mobile surface
+    /// provider-neutral while reusing the host's existing workspace creation
+    /// and agent discovery paths.
+    private func startNewChat(_ provider: ChatAgentKind) {
+        let command: String
+        switch provider {
+        case .claude: command = "claude"
+        case .codex: command = "codex"
+        case .openCode: command = "opencode"
+        case .other: return
+        }
+        guard canCreateWorkspaceOnForegroundConnection else { return }
+        Task { @MainActor in
+            let result = await store.createWorkspaceRequest(
+                spec: MobileWorkspaceCreateSpec(
+                    title: "\(provider.displayName) chat",
+                    initialCommand: command,
+                    operationID: UUID()
+                )
+            )
+            handleWorkspaceActionResult(result, action: .createWorkspace)
+        }
     }
 
     private func rootToolbarRenderContext(
