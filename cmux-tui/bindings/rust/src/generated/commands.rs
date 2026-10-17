@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c3c503563fb37a00cb594112a105eb6fa9b8d4ed98553efbfa15a62bf20e440c.
+// cmux-tui mux protocol 12, IR e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1801,6 +1801,8 @@ pub struct HomeInboxResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct IdentifyRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_metadata: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -4533,6 +4535,10 @@ impl CmuxClient {
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {
+        if request.machine_metadata.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "machine-identity-v1")?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 

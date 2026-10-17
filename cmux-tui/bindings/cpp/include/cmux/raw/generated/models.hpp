@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c3c503563fb37a00cb594112a105eb6fa9b8d4ed98553efbfa15a62bf20e440c";
+inline constexpr std::string_view kProtocolIrSha256 = "e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3062,6 +3062,7 @@ struct IdMapping {
 };
 
 struct IdentifyRequest {
+    std::optional<bool> machine_metadata{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 

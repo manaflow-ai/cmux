@@ -665,7 +665,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.

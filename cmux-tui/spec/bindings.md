@@ -85,6 +85,28 @@ Reading an entry never connects to its machine, starts a server, installs an age
 or grants session execution rights. A refresh keeps the handle's captured machine
 selector. Session operations still require their separate routing and permissions.
 
+## Raw owner identity
+
+Default raw `identify` replies preserve the original field set. The
+`machine-identity-v1` capability advertises an explicit `machine_metadata: true`
+request, which adds `machine_id`, `machine_platform` and `machine_capabilities`.
+False or omission keeps the legacy response; the option is not connection state.
+Malformed non-boolean values are refused. This is a raw command option, separate
+from the resource API's `catalog` option.
+
+All seven generated raw request models expose this optional field. Existing
+no-argument identification helpers keep the legacy request. Go exposes
+`raw.Client.IdentifyWith(ctx, raw.IdentifyRequest{MachineMetadata: raw.Value(true)})`;
+Java also accepts an `IdentifyRequest` built with `machineMetadata(true)`;
+TypeScript accepts `rawClient.identify({ machine_metadata: true })`.
+
+The app first reads capabilities. Only a supporting endpoint receives its explicit
+owner-metadata request. On the install-key handshake this rides after the proof and
+before setup in the existing second pipeline. Endpoints without that capability,
+including older conversations-only relays, receive the original request. The
+conversations-only relay never returns owner metadata, even for an explicit flag.
+No identity read grants admission, a session route, or execution rights.
+
 ## Commands
 
 An exact command preserves every argument and does not invoke a shell:

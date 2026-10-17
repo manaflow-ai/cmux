@@ -21872,6 +21872,11 @@ Result<HomeInboxResult> Codec<HomeInboxResult>::decode(const Json& value) {
 Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.machine_metadata) {
+        auto encoded = encode_value(*value.machine_metadata);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_metadata", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -21879,6 +21884,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     IdentifyRequest result{};
+    const Json* field_machine_metadata = value.find("machine_metadata");
+    if (field_machine_metadata) {
+        auto decoded = decode_value<bool>(*field_machine_metadata);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_metadata = std::move(decoded).value();
+    }
     return result;
 }
 
@@ -40218,6 +40229,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand98FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand116FieldRequirements{{
+    {"machine_metadata", 12U, "machine-identity-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand144FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
@@ -40485,7 +40499,7 @@ constexpr std::array<CommandMetadata, 273> kCommands{{
     {"get-size-state", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"history-search", "local-admin", 12U, "history-search-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"home-inbox", "local-admin", 12U, "home-inbox-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"identify", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"identify", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand116FieldRequirements)},
     {"ids", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"import-bookmarks", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"import-session-organization", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

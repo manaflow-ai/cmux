@@ -3,6 +3,15 @@ import Testing
 @testable import CmuxNextDaemon
 
 struct DaemonMachineIdentityTests {
+    @Test func identityMetadataEncodingIsExplicitAndDefaultRequestsStayLegacy() throws {
+        let legacy = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(IdentifyRequest(), id: 1))
+        #expect(legacy == .object(["cmd": .string("identify"), "id": .number(1)]))
+        for enabled in [true, false] {
+            let wire = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(IdentifyRequest(machineMetadata: enabled), id: 2))
+            #expect(wire == .object(["cmd": .string("identify"), "id": .number(2), "machine_metadata": .bool(enabled)]))
+        }
+    }
+
     @Test func machineOwnerRemainsDistinctFromSessionAndHostName() throws {
         let identity = try decode(machineField: #", "machine_id":"machine_public-owner""#)
         #expect(identity.machineResourceID == ResourceID(rawValue: "machine_public-owner"))

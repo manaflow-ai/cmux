@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c3c503563fb37a00cb594112a105eb6fa9b8d4ed98553efbfa15a62bf20e440c. */
+/* cmux-tui mux protocol 12, IR e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c3c503563fb37a00cb594112a105eb6fa9b8d4ed98553efbfa15a62bf20e440c" as const;
+export const SDK_IR_SHA256 = "e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1384,7 +1384,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "machine_metadata": {
+        "since": 12,
+        "capability": "machine-identity-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -18992,7 +18997,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "identify": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "machine_metadata": {
+          "capability": "machine-identity-v1",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {

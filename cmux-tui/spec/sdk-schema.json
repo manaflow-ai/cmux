@@ -9069,7 +9069,18 @@
    "capability": null,
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "machine_metadata": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "machine-identity-v1"
+     }
+    },
     "additional_properties": false
    },
    "result": {

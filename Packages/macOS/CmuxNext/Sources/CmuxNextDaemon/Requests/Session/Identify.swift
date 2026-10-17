@@ -122,7 +122,10 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
 public struct IdentifyRequest: DaemonRequest {
     public typealias Response = DaemonIdentity
     public static let command = "identify"
-    public init() {}
+    /// Explicit owner metadata; omission keeps the original raw response shape.
+    public var machineMetadata: Bool?
+    public init(machineMetadata: Bool? = nil) { self.machineMetadata = machineMetadata }
+    private enum CodingKeys: String, CodingKey { case machineMetadata = "machine_metadata" }
 }
 
 public struct SetClientInfoRequest: DaemonRequest {
