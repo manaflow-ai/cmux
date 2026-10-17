@@ -15,6 +15,7 @@ struct TerminalLinkActivationPolicyTests {
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: 0,
             commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+            capsLockModifierRawValue: NSEvent.ModifierFlags.capsLock.rawValue,
             isInsideBounds: true
         ))
     }
@@ -24,6 +25,7 @@ struct TerminalLinkActivationPolicyTests {
         #expect(TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue,
             commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+            capsLockModifierRawValue: NSEvent.ModifierFlags.capsLock.rawValue,
             isInsideBounds: true
         ))
     }
@@ -34,11 +36,25 @@ struct TerminalLinkActivationPolicyTests {
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: command | NSEvent.ModifierFlags.shift.rawValue,
             commandModifierRawValue: command,
+            capsLockModifierRawValue: NSEvent.ModifierFlags.capsLock.rawValue,
             isInsideBounds: true
         ))
         #expect(!TerminalLinkActivationPolicy().permitsCommandClick(
             modifierFlagsRawValue: command | NSEvent.ModifierFlags.option.rawValue,
             commandModifierRawValue: command,
+            capsLockModifierRawValue: NSEvent.ModifierFlags.capsLock.rawValue,
+            isInsideBounds: true
+        ))
+    }
+
+    @Test("Caps Lock does not change Command-click authorization")
+    func capsLockDoesNotChangeCommandClickAuthorization() {
+        let command = NSEvent.ModifierFlags.command.rawValue
+        let capsLock = NSEvent.ModifierFlags.capsLock.rawValue
+        #expect(TerminalLinkActivationPolicy().permitsCommandClick(
+            modifierFlagsRawValue: command | capsLock,
+            commandModifierRawValue: command,
+            capsLockModifierRawValue: capsLock,
             isInsideBounds: true
         ))
     }

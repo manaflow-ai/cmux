@@ -13,13 +13,18 @@ public struct TerminalLinkActivationPolicy: Sendable {
     /// - Parameters:
     ///   - modifierFlagsRawValue: Device-independent modifier flags at press time.
     ///   - commandModifierRawValue: The platform's raw Command modifier bit.
+    ///   - capsLockModifierRawValue: The platform's raw Caps Lock modifier bit,
+    ///     which does not change the click chord.
     ///   - isInsideBounds: Whether the press landed inside the terminal view.
-    /// - Returns: `true` only when Command is the sole device-independent modifier.
+    /// - Returns: `true` only when Command is the sole activation modifier after
+    ///   Caps Lock is ignored.
     public func permitsCommandClick(
         modifierFlagsRawValue: UInt,
         commandModifierRawValue: UInt,
+        capsLockModifierRawValue: UInt,
         isInsideBounds: Bool
     ) -> Bool {
-        isInsideBounds && modifierFlagsRawValue == commandModifierRawValue
+        let chordModifierFlagsRawValue = modifierFlagsRawValue & ~capsLockModifierRawValue
+        return isInsideBounds && chordModifierFlagsRawValue == commandModifierRawValue
     }
 }
