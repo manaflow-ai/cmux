@@ -70,6 +70,7 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        AgentPaneComposerSetting.followLook(push) // Debug Settings' plain footer look
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
@@ -85,7 +86,6 @@ final class AgentPanePageSettings {
     /// above then pushes to every page.
     func setComposer(_ path: [String], _ show: Bool) async throws {
         try await settings?.set(.bool(show), at: path)
-
     }
 
     /// Gives `view` the current values (the view pushes only a change).

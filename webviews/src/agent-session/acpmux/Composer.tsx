@@ -68,6 +68,7 @@ import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
+import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -330,6 +331,8 @@ export function Composer({
   // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar);
+  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
+  const { plainFooter } = useComposerSettings();
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -1129,7 +1132,7 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div ref={bar} className="acpmux-composer-bar">
+          <div ref={bar} className="acpmux-composer-bar" data-footer-look={plainFooter ? "plain" : undefined}>
             <input
               ref={chooser}
               className="acpmux-attach-input"

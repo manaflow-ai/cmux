@@ -7,14 +7,23 @@
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it.
+// `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
+// AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
+// footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
 import { useSyncExternalStore } from "react";
 
-export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean; reasoningSlider: boolean };
+export type ComposerSettings = {
+  showContextUsage: boolean;
+  showDictation: boolean;
+  reasoningSlider: boolean;
+  plainFooter: boolean;
+};
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
   reasoningSlider: false,
+  plainFooter: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 
@@ -26,6 +35,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
     reasoningSlider: flag("reasoningSlider"),
+    plainFooter: flag("plainFooter"),
   };
 }
 

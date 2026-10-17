@@ -470,6 +470,26 @@
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   font-size: var(--text-control);
 }
+/* The plain footer (Debug Settings > Pages > "Agent composer: plain footer", composerSettings.ts
+   plainFooter): Claude Code desktop's footer, text at rest. The chips above already draw no fill or
+   border at rest; this takes the rest away. The model's name is muted like effort and the mode, the
+   model's brand mark and the mode's lock are hidden (chevrons stay), and Plan when on is accent text
+   only. Hover, keyboard focus and an open menu draw the row's wash. Once the row steps the mode's
+   label down (data-fit="icons", composerRowFit.ts) the lock shows again, so that chip is never a
+   bare chevron. test/composer-footer-plain.test.ts measures it. */
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-model-name { color: inherit; }
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-model .acpmux-picker-button .agent-mark,
+.acpmux-composer-bar[data-footer-look="plain"]:not([data-fit="icons"]) .acpmux-access-trigger > .acpmux-icon:first-child {
+  display: none;
+}
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
+  background: var(--acpmux-row-hover);
+}
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
+  background: none;
+  box-shadow: none;
+}
 .acpmux-composer-bar .acpmux-effort,
 .acpmux-composer-bar .acpmux-access {
   display: inline-flex;
