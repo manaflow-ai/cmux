@@ -60,6 +60,11 @@ public protocol ChatEventSource: Sendable {
     ///   - sessionID: The session being answered.
     func answer(optionIndex: Int, sessionID: String) async throws
 
+    /// Answers a specific actionable card when the host supports request
+    /// identity. The default forwards to the legacy session-only method so
+    /// previews and older sources remain source-compatible.
+    func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws
+
     /// Fetches metadata for a referenced artifact path.
     ///
     /// - Parameters:
@@ -120,6 +125,10 @@ public protocol ChatEventSource: Sendable {
 }
 
 public extension ChatEventSource {
+    func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
+        try await answer(optionIndex: optionIndex, sessionID: sessionID)
+    }
+
     /// Unsupported-by-default artifact capability for fixtures and previews.
     var supportsArtifacts: Bool { false }
 

@@ -27,6 +27,36 @@ final class AgentChatTranscriptService {
     /// Current live prose-stream generation per session, consumed only when a
     /// matching authoritative transcript prose line lands for that turn.
     private var proseTurnStates: [String: ProseTurnState] = [:]
+    /// Permission cards are synthesized from hook events because provider
+    /// transcripts do not carry the interactive approval prompt. They remain
+    /// in memory for the session lifetime and are republished as updated cards
+    /// when the answer path accepts a decision.
+    fileprivate struct PermissionRecord {
+        let identity: String
+        let rawRequestID: String?
+        let messageID: String
+        let seq: Int
+        let timestamp: Date
+        let title: String
+        let subject: String
+        var resolution: ChatPermissionRequest.Resolution?
+
+        var message: ChatMessage {
+            ChatMessage(
+                id: messageID,
+                seq: seq,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .permissionRequest(ChatPermissionRequest(
+                    title: title,
+                    subject: subject,
+                    resolution: resolution
+                ))
+            )
+        }
+    }
+    fileprivate var permissionRecordsBySessionID: [String: [String: PermissionRecord]] = [:]
+    fileprivate var nextPermissionOrdinalBySessionID: [String: Int] = [:]
     private var didShutdown = false
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
@@ -162,6 +192,8 @@ final class AgentChatTranscriptService {
         registry.onRecordChanged = nil
         registry.onRecordRemoved = nil
         proseTurnStates.removeAll()
+        permissionRecordsBySessionID.removeAll()
+        nextPermissionOrdinalBySessionID.removeAll()
         let activeTailers = Array(tailers.values)
         tailers.removeAll()
         for tailer in activeTailers {
@@ -284,6 +316,19 @@ final class AgentChatTranscriptService {
     func noteHookEvent(_ event: WorkstreamEvent) {
         guard !didShutdown else { return }
         let record = registry.noteHookEvent(event)
+        switch event.hookEventName {
+        case .permissionRequest:
+            notePermissionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
+        case .stop:
+            expirePermissionRequests(sessionID: record.sessionID)
+        case .sessionEnd:
+            // The lifecycle callback also handles this transition, but doing
+            // it here covers records that were already ended and therefore do
+            // not produce a second state transition callback.
+            expirePermissionRequests(sessionID: record.sessionID)
+        default:
+            break
+        }
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
         switch event.hookEventName {
@@ -471,7 +516,9 @@ final class AgentChatTranscriptService {
             guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
                 resolver.boundedTranscriptPath(for: currentRecord) ?? fallbackPath
             }) else {
-                return nil
+                return permissionOnlyHistory(
+                    sessionID: sessionID, beforeSeq: beforeSeq, limit: limit
+                )
             }
             tailer = resolvedTailer
         }
@@ -480,7 +527,9 @@ final class AgentChatTranscriptService {
         if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
-        return page
+        return historyPageWithPermissions(
+            page, sessionID: sessionID, beforeSeq: beforeSeq, limit: limit
+        )
     }
 
     /// Debug-socket dump of every registry record plus tailer liveness.
@@ -562,6 +611,8 @@ final class AgentChatTranscriptService {
         #endif
         if batch.didReset {
             latestTranscriptSeqBySessionID[sessionID] = nil
+            permissionRecordsBySessionID[sessionID] = nil
+            nextPermissionOrdinalBySessionID[sessionID] = nil
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
         }
         if let title = batch.discoveredTitle {
@@ -639,6 +690,7 @@ final class AgentChatTranscriptService {
             failedResolutions.remove(record.sessionID)
         }
         if stateChanged, record.state == .ended {
+            expirePermissionRequests(sessionID: record.sessionID)
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
@@ -677,6 +729,8 @@ final class AgentChatTranscriptService {
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
+        permissionRecordsBySessionID[record.sessionID] = nil
+        nextPermissionOrdinalBySessionID[record.sessionID] = nil
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }
@@ -689,6 +743,14 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard !didShutdown, let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
+    }
+
+    /// Internal seam for hook-synthesized chat messages kept in the focused
+    /// permission extension. The transport and shutdown guards remain here.
+    fileprivate var chatEventsAreSubscribed: Bool { hasEventSubscribers() }
+
+    fileprivate func emitChatFrame(_ frame: ChatSessionEventFrame) {
+        emit(frame: frame)
     }
 
     private func settleProseTurn(sessionID: String, turnState: ProseTurnState) {

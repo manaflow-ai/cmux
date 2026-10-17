@@ -346,7 +346,7 @@ final class AgentChatModeModel {
             }
         }
         do {
-            try await source.answer(optionIndex: optionIndex, sessionID: selectedSessionID)
+            try await source.answer(optionIndex: optionIndex, requestID: requestID, sessionID: selectedSessionID)
             guard generation == sourceGeneration else { return }
             answeredRequestKeysBySession[selectedSessionID, default: []].insert(requestKey)
         } catch {

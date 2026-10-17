@@ -378,6 +378,7 @@ extension TerminalController {
               let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
+        let requestID = v2RawString(params, "request_id")
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
@@ -393,6 +394,11 @@ extension TerminalController {
         switch sendResult {
         case .sent, .queued:
             terminalTarget.forceRefresh(reason: "mobileHost.chatAnswer")
+            _ = agentChatTranscriptService?.resolvePermission(
+                sessionID: sessionID,
+                requestID: requestID,
+                optionIndex: optionIndex
+            )
             return .ok(["answered": true, "option_index": optionIndex])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             return .err(code: "surface_unavailable", message: String(

@@ -260,12 +260,18 @@ public actor MobileChatEventSource: AgentChatSessionSource {
     }
 
     public func answer(optionIndex: Int, sessionID: String) async throws {
+        try await answer(optionIndex: optionIndex, requestID: nil, sessionID: sessionID)
+    }
+
+    public func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "option_index": optionIndex,
+        ]
+        if let requestID { params["request_id"] = requestID }
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.chat.answer",
-            params: [
-                "session_id": sessionID,
-                "option_index": optionIndex,
-            ]
+            params: params
         )
         _ = try await client.sendRequest(request)
     }
