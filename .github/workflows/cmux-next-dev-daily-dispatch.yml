@@ -94,7 +94,8 @@ jobs:
                 per_page: 100,
               });
               const handled = (run) => (run.name === publishTitle || run.display_title === publishTitle) &&
-                !(run.status === 'completed' && run.conclusion === 'cancelled');
+                (['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) ||
+                 (run.status === 'completed' && run.conclusion === 'success'));
               if (published.workflow_runs.some(handled)) {
                 core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) already went to the publisher`);
               } else {
