@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /**
  * Provider-neutral host leases for remote VM brokers.
  *
@@ -71,7 +73,7 @@ export type VmHostLeaseReceipt = {
 export type VmHostLeaseRecord = Omit<VmHostLeaseReceipt, "replayed">;
 
 export type VmHostLeaseReservation =
-  | { readonly kind: "new"; readonly record: VmHostLeaseRecord | null }
+  | { readonly kind: "new"; readonly reservationToken: string; readonly record: VmHostLeaseRecord | null }
   | { readonly kind: "pending"; readonly record: VmHostLeaseRecord | null }
   | { readonly kind: "replay"; readonly record: VmHostLeaseRecord };
 
@@ -81,7 +83,7 @@ export type VmHostLeaseReservation =
  */
 export interface VmHostLeaseStore {
   reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation>;
-  complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult): Promise<VmHostLeaseRecord>;
+  complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord>;
 }
 
 export interface VmHostLeaseProviderClient {
@@ -241,7 +243,7 @@ export class VmHostLeaseTransport {
       throw new VmHostLeaseError("provider_error", "host lease provider operation failed", cause);
     }
     const completed = recordFrom(input, provider, providerResult);
-    const stored = await this.store.complete(input, provider, providerResult);
+    const stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
     // The store is authoritative for fencing and dedupe. It may normalize
     // provider metadata, but must return the same operation identity.
     if (stored.leaseId !== completed.leaseId || stored.effectKey !== completed.effectKey || stored.generation !== completed.generation) {
@@ -293,6 +295,7 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
   private readonly operations = new Map<string, VmHostLeaseRecord>();
   private readonly pending = new Set<string>();
   private readonly pendingByLease = new Map<string, string>();
+  private readonly pendingTokens = new Map<string, string>();
 
   async reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation> {
     const key = operationKey(input);
@@ -308,13 +311,15 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
     assertCanReserve(current, input, provider);
     this.pending.add(key);
     this.pendingByLease.set(leaseKey, key);
-    return { kind: "new", record: null };
+    const reservationToken = randomUUID();
+    this.pendingTokens.set(key, reservationToken);
+    return { kind: "new", reservationToken, record: null };
   }
 
-  async complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult): Promise<VmHostLeaseRecord> {
+  async complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord> {
     const key = operationKey(input);
     const existing = this.operations.get(key);
-    if (!this.pending.has(key) && !existing) throw new VmHostLeaseError("store_error", "lease completion has no reservation");
+    if ((!this.pending.has(key) && !existing) || (this.pendingTokens.get(key) !== reservationToken && !existing)) throw new VmHostLeaseError("store_error", "lease completion has no reservation");
     if (existing) assertSameOperation(existing, input, provider);
     const completed = recordFrom(validateVmHostLeaseInput(input), provider, result);
     const current = this.current.get(currentKey(input));
@@ -323,6 +328,7 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
       throw new VmHostLeaseError("lease_expired", "a released host lease cannot be renewed");
     }
     this.pending.delete(key);
+    this.pendingTokens.delete(key);
     if (this.pendingByLease.get(currentKey(input)) === key) this.pendingByLease.delete(currentKey(input));
     this.operations.set(key, completed);
     this.current.set(currentKey(input), completed);
@@ -386,10 +392,32 @@ export type FreestyleHostLeaseSdk = {
   readonly hostLeases: VmHostLeaseProviderClient;
 };
 
+export type ConfiguredHostLeaseAdapters = {
+  readonly hugeBlue?: VmHostLeaseHttpClientConfig;
+  readonly freestyle?: FreestyleHostLeaseSdk;
+  readonly additional?: ReadonlyArray<{
+    readonly provider: VmHostLeaseProvider;
+    readonly client: VmHostLeaseProviderClient;
+  }>;
+};
+
 /** Adapt the configured Freestyle SDK facade without importing credentials here. */
 export function createFreestyleHostLeaseClient(config: { readonly sdk: FreestyleHostLeaseSdk }): VmHostLeaseProviderClient {
   if (!config.sdk?.hostLeases) throw new VmHostLeaseError("provider_mismatch", "Freestyle host lease SDK is not configured");
   return config.sdk.hostLeases;
+}
+
+/**
+ * Builds the configured adapter registry for a broker worker. Missing provider
+ * configuration is intentionally omitted, so selecting it fails closed rather
+ * than falling back to an in-memory or another provider's client.
+ */
+export function createConfiguredHostLeaseAdapters(config: ConfiguredHostLeaseAdapters): ReadonlyMap<VmHostLeaseProvider, VmHostLeaseProviderAdapter> {
+  const adapters = new Map<VmHostLeaseProvider, VmHostLeaseProviderAdapter>();
+  if (config.hugeBlue) adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createHugeBlueHostLeaseHttpClient(config.hugeBlue)));
+  if (config.freestyle) adapters.set("freestyle", createFreestyleHostLeaseAdapter(createFreestyleHostLeaseClient({ sdk: config.freestyle })));
+  for (const entry of config.additional ?? []) adapters.set(entry.provider, new RegisteredHostLeaseAdapter(entry.provider, entry.client));
+  return adapters;
 }
 
 function createHttpHostLeaseClient(config: VmHostLeaseHttpClientConfig): VmHostLeaseProviderClient {
