@@ -1,7 +1,8 @@
 // The composer's location strip (folder · computer · branch) shows only on a new chat, before its
 // first send. Harnesses don't all support changing folder or machine mid-chat, and cmux doesn't
-// either, so once the chat has a turn the strip is gone, with no read-only remnant to suggest it.
-// "First send" is the session's own state, never a local flag: a user turn acpmux recorded
+// either, so once the chat has a turn the visible strip is gone, with only a hidden layout slot to
+// keep the bottom-anchored composer steady while the first transcript mounts. "First send" is the
+// session's own state, never a local flag: a user turn acpmux recorded
 // (`turnCount`, or a user row that did not fail), a prompt in flight, a turn running, or a prompt
 // waiting in the queue. A reopened chat with history never draws the strip, not even while it
 // loads, and a first send that failed (no turn recorded) offers the location again.
@@ -97,7 +98,8 @@ async function render(snapshot: AcpmuxSnapshot) {
   );
 }
 
-const strip = () => host.querySelector(".acpmux-composer-strip");
+const strip = () => host.querySelector(".acpmux-composer-strip:not([aria-hidden='true'])");
+const placeholder = () => host.querySelector(".acpmux-composer-strip-placeholder");
 
 /// A new chat whose session started (the prewarmed process) and has no turn yet.
 function newChat(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
@@ -116,20 +118,24 @@ test("a new chat with no turns shows the location strip", async () => {
   expect(strip()).not.toBeNull();
 });
 
-test("after the first send the strip is gone: the prompt in flight, then the turn acpmux recorded", async () => {
+test("after the first send the visible strip is gone while its hidden slot keeps the composer anchored", async () => {
   await render(newChat());
   expect(strip()).not.toBeNull();
+  expect(placeholder()).toBeNull();
   // The optimistic row of the first prompt (direct.ts `send`): pending, nothing recorded yet.
   await render(newChat({ rows: [{ ...user("Add retries", 1), pending: true }] }));
   expect(strip()).toBeNull();
+  expect(placeholder()).not.toBeNull();
   // acpmux took it: one turn, running.
   const running = newChat({ rows: [user("Add retries", 1)], isWorking: true });
   await render({ ...running, summary: { ...running.summary!, turnCount: 1 } });
   expect(strip()).toBeNull();
+  expect(placeholder()).not.toBeNull();
   // The turn ended: still a started chat.
   const ended = newChat({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] });
   await render({ ...ended, summary: { ...ended.summary!, turnCount: 1 } });
   expect(strip()).toBeNull();
+  expect(placeholder()).not.toBeNull();
 });
 
 test("a reopened chat with history never renders the strip, not even while it loads", async () => {
@@ -155,8 +161,11 @@ test("a reopened chat with history never renders the strip, not even while it lo
 });
 
 test("a failed first send shows the strip again, so the location can still be picked", async () => {
+  await render(newChat());
+  expect(strip()).not.toBeNull();
   await render(newChat({ rows: [{ ...user("Add retries", 1), pending: true }] }));
   expect(strip()).toBeNull();
+  expect(placeholder()).not.toBeNull();
   // The prompt was refused (direct.ts: `failed`, with Retry); acpmux recorded no turn.
   await render(
     newChat({
@@ -164,13 +173,16 @@ test("a failed first send shows the strip again, so the location can still be pi
     }),
   );
   expect(strip()).not.toBeNull();
+  expect(placeholder()).toBeNull();
 });
 
 test("a prompt queued before the first turn hides the strip: it runs where the chat is", async () => {
   await render(newChat({ queue: [{ id: "q1", prompt: "Then add a test" }] }));
   expect(strip()).toBeNull();
+  expect(placeholder()).toBeNull();
   // The queue paused behind a failed turn still belongs to this location.
   const paused = newChat({ queue: [{ id: "q1", prompt: "Then add a test" }] });
   await render({ ...paused, summary: { ...paused.summary!, queuePaused: true } });
   expect(strip()).toBeNull();
+  expect(placeholder()).toBeNull();
 });
