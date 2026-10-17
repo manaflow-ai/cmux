@@ -591,48 +591,6 @@ import Testing
         #expect(store.terminalSendStatus(forTerminalID: surfaceID) != .failed)
     }
 
-    /// Owner directive (round 4): the task composer must never operate
-    /// against the demo Mac (a fake Mac cannot run real tasks). With only
-    /// the demo computer, the composer entry hides entirely; with a real Mac
-    /// alongside, the composer stays available but its target list excludes
-    /// the demo computer.
-    @Test func taskComposerNeverTargetsTheDemoComputer() async throws {
-        let (demoOnlyStore, _) = makeStore(demonstrationContentEnabled: true)
-        demoOnlyStore.signIn()
-        await demoOnlyStore.loadPairedMacs()
-        #expect(!demoOnlyStore.supportsTaskComposer)
-        #expect(demoOnlyStore.taskComposerPairedMacs.isEmpty)
-
-        let inner = RecordingPairedMacStore()
-        inner.records = [
-            MobilePairedMac(
-                macDeviceID: "real-mac-1",
-                displayName: "Office Mac",
-                routes: [
-                    try CmxAttachRoute(
-                        id: "ts",
-                        kind: .tailscale,
-                        endpoint: .hostPort(host: "office-mac.example.ts.net", port: 58_465)
-                    ),
-                ],
-                createdAt: Date(),
-                lastSeenAt: Date(),
-                isActive: true,
-                stackUserID: "demo-tests-user"
-            ),
-        ]
-        let (mixedStore, _) = makeStore(demonstrationContentEnabled: true, inner: inner)
-        mixedStore.signIn()
-        await mixedStore.loadPairedMacs()
-        // A real (even offline) Mac keeps the composer available…
-        #expect(mixedStore.supportsTaskComposer)
-        // …but the demo computer is never a target.
-        #expect(mixedStore.taskComposerPairedMacs.contains { $0.macDeviceID == "real-mac-1" })
-        #expect(!mixedStore.taskComposerPairedMacs.contains {
-            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
-        })
-    }
-
     @Test func demoTerminalReplaysCannedSessionOnMount() async {
         let (store, _) = makeStore(demonstrationContentEnabled: true)
         store.signIn()

@@ -5,7 +5,7 @@ import UIKit
 /// Bridges prompt text/focus and preserves a viewport explicitly chosen by a
 /// drag until the user moves the caret or resumes typing.
 @MainActor
-final class TaskComposerPromptEditorCoordinator: NSObject, UITextViewDelegate {
+final class TerminalComposerPromptEditorCoordinator: NSObject, UITextViewDelegate {
     private var text: Binding<String>
     private var isFocused: Binding<Bool>
     private var manualContentOffset: CGPoint?

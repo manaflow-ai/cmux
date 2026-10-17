@@ -313,31 +313,6 @@ import Testing
         #expect(activeIndex.filterMachineIDs(for: "mac-a") == ["mac-a"])
     }
 
-    @Test func composerMenuSelectsExactlyOnePairing() {
-        let nightly = pairedMac(
-            deviceID: "mac-a",
-            name: "Desk Mac",
-            instanceTag: "nightly",
-            isActive: true
-        )
-        let stable = pairedMac(
-            deviceID: "mac-a",
-            name: "Desk Mac",
-            instanceTag: "stable"
-        )
-        let value = TaskComposerMachineMenuValue(
-            machines: [nightly, stable],
-            selectedMacPairingID: stable.id,
-            buildLabelsByID: [
-                nightly.id: "Nightly",
-                stable.id: "Stable",
-            ],
-            isDisabled: false
-        )
-
-        #expect(value.machines.filter(value.isSelected).map(\.id) == [stable.id])
-    }
-
     @Test func filterMachinesAreStableAcrossEquivalentWorkspaceChurn() {
         let first = machineSnapshots(workspaces: [
             workspace("recent-b", macDeviceID: "mac-b", macDisplayName: "Beta", hasUnread: true),

@@ -468,13 +468,6 @@ extension TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
-        if !Self.mobileTaskComposerFeatureEnabled {
-            let taskComposerMethods: Set<String> = [
-                "mobile.task.attachment.upload",
-                "mobile.task.models.list",
-            ]
-            methods.removeAll { taskComposerMethods.contains($0) }
-        }
         // Discovery runs off-main; read the same flag snapshot as mobile host
         // capabilities rather than crossing to the main-actor flag store.
         if !CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.mobileWorkspaceChangesFlag) {

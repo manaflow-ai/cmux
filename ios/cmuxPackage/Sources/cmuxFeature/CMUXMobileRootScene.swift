@@ -748,10 +748,6 @@ public struct CMUXMobileRootScene: View {
             // Persistent, unlike the composite's in-memory default: opening a
             // workspace must restore its last opened tab across app relaunches.
             lastTabStore: MobileWorkspaceLastTabStore(defaults: .standard),
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
-                defaults: .standard,
-                diagnosticLog: diagnosticLog
-            ),
             browserStreamEvents: browserStreamEvents,
             simulatorStreamStore: simulatorStreamStore,
             // SSH hosts and keys are device-local and account-independent

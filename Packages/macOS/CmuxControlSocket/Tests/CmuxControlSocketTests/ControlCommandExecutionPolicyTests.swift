@@ -57,7 +57,7 @@ struct ControlCommandExecutionPolicyTests {
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect", "debug.mobile.transport.reconnect_loop",
             "debug.window.screenshot", "debug.window_hints", "debug.global_search.query", "mobile.attach_ticket.create",
-            "mobile.terminal.set_font", "mobile.task.models.list",
+            "mobile.terminal.set_font",
             "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
             "terminal.size_counts.set", "terminal.participant.disconnect",
             "terminal.participants.disconnect_others",
@@ -104,7 +104,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
-            "mobile.terminal.create", "mobile.task.attachment.upload",
+            "mobile.terminal.create",
             // Artifact fetch needs the authenticated mobile execution context;
             // the local socket must answer method_not_found, not serve bytes.
             "mobile.panel.artifact.fetch",
@@ -213,7 +213,6 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.ping") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.capabilities") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
-        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.stat") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))

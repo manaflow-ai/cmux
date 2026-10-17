@@ -148,10 +148,6 @@ class TerminalController {
         4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
-    /// One process-wide admission budget shared by every mobile connection.
-    nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
-    /// Actor-isolated ten-minute cache for mobile task model discovery.
-    nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
@@ -564,11 +560,6 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: TerminalController.socketClientPreauthorizationMaximumClaims
         ),
-        mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
-        mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
-            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
         agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
@@ -585,8 +576,6 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.agentHookDeliveryQueue = agentHookDeliveryQueue
-        self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
-        self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.panelArtifactAuthorizationStore =
             panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
@@ -15581,22 +15570,8 @@ class TerminalController {
              "mobile.workspace.changes.file_stat",
              "mobile.workspace.changes.file_fetch":
             result = await v2MobileWorkspaceChanges(method: request.method, params: request.params)
-        case "mobile.directory.search":
-            result = await v2MobileDirectorySearch(
-                params: request.params,
-                filesystemJobQuota: mobileTaskFilesystemJobQuota
-            )
-        case "mobile.directory.list":
-            result = await v2MobileDirectoryList(
-                params: request.params,
-                filesystemJobQuota: mobileTaskFilesystemJobQuota
-            )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
-        case "mobile.task.attachment.upload":
-            result = v2MobileTaskAttachmentUpload(params: request.params)
-        case "mobile.task.models.list":
-            result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
