@@ -593,6 +593,7 @@ final class AgentChatModeModel {
                         )
                     }
                 }
+                seedRetryPromptIfNeeded(sessionID: sessionID)
                 historyCursors[sessionID] = page.messages.first?.seq
                 // The host can report that older transcript lines exist on
                 // disk even when they have fallen outside its bounded cache.
@@ -745,18 +746,21 @@ final class AgentChatModeModel {
         current = byID.values.sorted { $0.seq < $1.seq }
         messagesBySession[sessionID] = current
         streamingBySession[sessionID] = nil
-        if lastTurnBySession[sessionID] == nil,
-           let latestPrompt = current
-               .filter({ $0.role == .user })
-               .sorted(by: { $0.seq > $1.seq })
-               .compactMap({ message -> String? in
-                   guard case .prose(let prose) = message.kind else { return nil }
-                   let text = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                   return text.isEmpty ? nil : text
-               })
-               .first {
-            lastTurnBySession[sessionID] = QueuedSend(text: latestPrompt, attachments: [])
-        }
+        seedRetryPromptIfNeeded(sessionID: sessionID)
+    }
+
+    private func seedRetryPromptIfNeeded(sessionID: String) {
+        guard lastTurnBySession[sessionID] == nil,
+              let latestPrompt = (messagesBySession[sessionID] ?? [])
+                  .filter({ $0.role == .user })
+                  .sorted(by: { $0.seq > $1.seq })
+                  .compactMap({ message -> String? in
+                      guard case .prose(let prose) = message.kind else { return nil }
+                      let text = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                      return text.isEmpty ? nil : text
+                  })
+                  .first else { return }
+        lastTurnBySession[sessionID] = QueuedSend(text: latestPrompt, attachments: [])
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {
