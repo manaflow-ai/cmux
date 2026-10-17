@@ -16,6 +16,7 @@ struct BillingPlanCopy: Equatable {
         case .go: L10n.string("mobile.billing.plan.go", defaultValue: "Go")
         case .pro: L10n.string("mobile.billing.plan.pro", defaultValue: "Pro")
         case .max: L10n.string("mobile.billing.plan.max", defaultValue: "Max")
+        case .teamMax: L10n.string("mobile.billing.plan.teamMax", defaultValue: "Team Max")
         default: planID.rawValue.capitalized
         }
     }

@@ -13,19 +13,20 @@ public enum CmuxPlanTier: Int, Sendable, Comparable, CaseIterable {
     case go
     /// Pro, and the plans that grant the Pro feature set (Team, Founder's Edition).
     case pro
-    /// Max: everything in Pro plus the larger machine sizes and pool.
+    /// Max, and Team Max: everything in Pro plus the larger machine sizes and pool.
     case max
 
     /// Maps a plan ID from the Cloud service, or `nil` for an unknown ID.
     ///
     /// - Parameter planID: A plan ID such as `free`, `go`, `pro`, `max`,
-    ///   `team`, or `founders`. Case and surrounding whitespace are ignored.
+    ///   `team`, `team_max`, or `founders`. Case and surrounding whitespace
+    ///   are ignored. Team Max grants every member the Max tier.
     public init?(planID: String?) {
         switch planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "free": self = .free
         case "go": self = .go
         case "pro", "team", "founders": self = .pro
-        case "max": self = .max
+        case "max", "team_max": self = .max
         default: return nil
         }
     }
@@ -58,7 +59,7 @@ public enum CmuxPlanTier: Int, Sendable, Comparable, CaseIterable {
     ///     or `max`), or `nil` from servers that predate it.
     ///   - planID: The legacy personal plan family, `free` or `pro`. A Max
     ///     or Go subscriber is reported as `pro` here.
-    ///   - teamPlanID: The active team's plan, if any.
+    ///   - teamPlanID: The active team's plan (`team` or `team_max`), if any.
     ///   - isPro: The legacy paid flag, used only when no plan ID is known.
     public static func resolved(
         subscriptionPlanID: String?,

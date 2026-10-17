@@ -278,6 +278,14 @@ public enum AuthEnvironment: Sendable {
         billingWebsiteOrigin(environment: environment).appendingPathComponent("api/billing/portal")
     }
 
+    /// The web billing dashboard with `teamID` selected, on the billing origin.
+    public static func teamBillingURL(teamID: String) -> URL {
+        PlanUpgradeDestination.teamBillingURL(
+            teamID: teamID,
+            origin: billingWebsiteOrigin(environment: runtimeEnvironment)
+        )
+    }
+
     static var signInWebsiteOrigin: URL {
         resolvedAuthWebOrigin(environment: runtimeEnvironment)
     }

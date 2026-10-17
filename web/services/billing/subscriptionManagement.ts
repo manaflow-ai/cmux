@@ -9,7 +9,7 @@ import { stripeSubscriptions } from "../../db/schema";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
-  TEAM_PLAN_ID,
+  TEAM_PLAN_IDS,
 } from "./pro";
 import { stripe } from "./stripe";
 
@@ -54,7 +54,7 @@ export async function activeStripeSubscriptionForStackTeam(stackTeamId: string) 
       and(
         eq(stripeSubscriptions.stackTeamId, stackTeamId),
         eq(stripeSubscriptions.scope, "team"),
-        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

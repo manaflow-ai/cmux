@@ -6,6 +6,7 @@ import {
   GO_PRICING_USD,
   MAX_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_MAX_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
 } from "../../services/billing/plans";
@@ -20,7 +21,7 @@ import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
-type PricingPlan = "go" | "pro" | "max" | "team";
+type PricingPlan = "go" | "pro" | "max" | "team" | "team_max";
 
 /** Pricing-view analytics remain active when there is no billing-period control. */
 export function PricingView({
@@ -53,7 +54,11 @@ function planPrice(plan: PricingPlan, interval: BillingInterval) {
   if (plan === "pro" || plan === "max") {
     return { pro: PRO_PRICING_USD, max: MAX_PRICING_USD }[plan][interval];
   }
-  return { go: GO_PRICING_USD, max: MAX_PRICING_USD, team: TEAM_PRICING_USD }[plan].month;
+  return {
+    go: GO_PRICING_USD,
+    team: TEAM_PRICING_USD,
+    team_max: TEAM_MAX_PRICING_USD,
+  }[plan].month;
 }
 
 const PLAN_CTA_EVENTS = {
@@ -61,6 +66,7 @@ const PLAN_CTA_EVENTS = {
   pro: "cmuxterm_pro_cta_clicked",
   max: "cmuxterm_max_cta_clicked",
   team: "cmuxterm_team_cta_clicked",
+  team_max: "cmuxterm_team_max_cta_clicked",
 } as const satisfies Record<PricingPlan, string>;
 
 export function PricingCheckoutButton({

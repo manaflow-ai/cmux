@@ -103,11 +103,25 @@ struct NewMachineSheet: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
-                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
+                ProUpgradePresenter.presentPlanUpgrade(planID: model.selectedUpgradePlanId, source: .newMachineSheetMaxUpgrade)
             }
         } message: {
-            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
-            + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
+            Text(upgradePriceText(planID: model.selectedUpgradePlanId))
+        }
+    }
+
+    /// "$200/month" for the plan the upgrade dialog sells; Team Max is per seat.
+    private func upgradePriceText(planID: String) -> String {
+        switch NewMachineModel.normalizedPlanId(planID) {
+        case "pro":
+            return String(localized: "pricing.native.pro.price", defaultValue: "$50")
+                + String(localized: "pricing.native.period.month", defaultValue: "/month")
+        case NewMachineModel.teamMaxPlanId:
+            return String(localized: "pricing.native.teamMax.price", defaultValue: "$220")
+                + String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month")
+        default:
+            return String(localized: "pricing.native.max.price", defaultValue: "$200")
+                + String(localized: "pricing.native.period.month", defaultValue: "/month")
         }
     }
 

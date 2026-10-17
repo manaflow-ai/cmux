@@ -168,11 +168,11 @@ final class MachinesPanelViewModel: ObservableObject {
     var resourcePool: CloudVMResourcePool? { lastLimits?.resourcePool }
     /// Conservative resize ceilings for control planes that predate the
     /// explicit max* fields. The accepted memory ladder is the best fallback
-    /// because it already reflects Go, Pro, Team, and Max.
+    /// because it already reflects Go, Pro, Team, Max, and Team Max.
     var resizeFallbackMaxMemoryMb: Int {
         let productCeiling: Int
         switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "max": productCeiling = 64 * 1_024
+        case "max", "team_max": productCeiling = 64 * 1_024
         case "go": productCeiling = 4 * 1_024
         case "free": productCeiling = 8 * 1_024
         default: productCeiling = 16 * 1_024
@@ -184,7 +184,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
     var resizeFallbackMaxDiskGiB: Int {
         switch lastLimits?.planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "max": return 256
+        case "max", "team_max": return 256
         case "go": return 16
         default: return 128
         }

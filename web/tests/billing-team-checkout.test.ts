@@ -40,6 +40,7 @@ mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
   isStripeBillingConfigured: () => true,
   resolveTeamPrice: async () => "price_team_month",
+  resolveTeamMaxPrice: async () => "price_team_max_month",
   stripe: () => ({
     checkout: { sessions: { create: createSession } },
     customers: { create: createCustomer },
@@ -218,6 +219,81 @@ describe("explicit team checkout", () => {
       customer: "cus_team_b",
       return_url: "https://cmux.test/dashboard/billing?team=team-b",
     });
+  });
+});
+
+describe("Team Max checkout", () => {
+  const teamB = fixtureTeam("team-b", { displayName: "Team B", members: 5 });
+
+  beforeEach(() => {
+    dbRows = emptyBillingDbRows();
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [teamB], adminTeamIds: ["team-b"], selectedTeam: teamB });
+    createSession.mockClear();
+    createCustomer.mockClear();
+    createPortal.mockClear();
+  });
+
+  test("GET plan=team_max charges the Team Max price for every member and stamps plan team_max", async () => {
+    const response = await checkoutGet("plan=team_max&teamId=team-b");
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    const params = sessionParams();
+    expect(params.client_reference_id).toBe("team-b");
+    expect(params.line_items).toEqual([
+      { price: "price_team_max_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 1 } },
+    ]);
+    expect(params.metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID, plan: "team_max", app: "cmux" });
+    expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", plan: "team_max" });
+  });
+
+  test("Team Max is monthly only", async () => {
+    const response = await checkoutGet("plan=team_max&teamId=team-b&interval=year");
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test("POST {plan: team_max, teamId} returns a Team Max checkout URL for an admin", async () => {
+    const response = await checkoutPost({ plan: "team_max", teamId: "team-b" });
+
+    expect(await response.json()).toEqual({
+      url: "https://checkout.stripe.com/c/team",
+      plan: "team_max",
+      teamId: "team-b",
+      flow: "checkout",
+    });
+    expect(sessionParams().metadata).toMatchObject({ plan: "team_max" });
+  });
+
+  test("a team already on Team is sent to its billing page to switch in place, not to a second checkout", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    dbRows.subscriptions = [activeTeamSubscriptionRow()];
+
+    const response = await checkoutGet("plan=team_max&teamId=team-b");
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?team=team-b");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test("a past-due Team subscription keeps the portal path to fix payment", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    dbRows.subscriptions = [{ ...activeTeamSubscriptionRow(), status: "past_due" }];
+
+    const response = await checkoutGet("plan=team_max&teamId=team-b");
+
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/api/billing/portal");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test("a team already on Team Max asking for Team Max manages billing in the portal", async () => {
+    dbRows.customers = [{ id: "cus_team_b" }];
+    dbRows.subscriptions = [{ ...activeTeamSubscriptionRow(), plan: "team_max" }];
+
+    const response = await checkoutGet("plan=team_max&teamId=team-b");
+
+    const location = new URL(response.headers.get("location")!);
+    expect(location.pathname).toBe("/api/billing/portal");
+    expect(createSession).not.toHaveBeenCalled();
   });
 });
 

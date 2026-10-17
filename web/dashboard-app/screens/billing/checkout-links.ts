@@ -3,6 +3,7 @@ import {
   MAX_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
+  TEAM_MAX_CHECKOUT_URL,
   withCheckoutInterval,
   withCheckoutSource,
 } from "@/app/lib/billing";
@@ -23,9 +24,10 @@ export function personalCheckoutHref(plan: "go" | "pro" | "max", returnTo: strin
   return `${href}${href.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-/** Team checkout for an explicit team; the route re-checks admin. */
-export function teamCheckoutHref(teamId: string): string {
-  const withTeam = `${TEAM_CHECKOUT_URL}&teamId=${encodeURIComponent(teamId)}`;
+/** Team or Team Max checkout for an explicit team; the route re-checks admin. */
+export function teamCheckoutHref(teamId: string, plan: "team" | "team_max" = "team"): string {
+  const base = plan === "team_max" ? TEAM_MAX_CHECKOUT_URL : TEAM_CHECKOUT_URL;
+  const withTeam = `${base}&teamId=${encodeURIComponent(teamId)}`;
   return withCheckoutInterval(withCheckoutSource(withTeam, CHECKOUT_SOURCE_DASHBOARD_BILLING), "month");
 }
 

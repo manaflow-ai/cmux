@@ -34,6 +34,7 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  installedClientPlanId,
   lockedMemoryOptionsMbForPlan,
   legacyPoolReservationForPlan,
   memoryOptionsMbForPlan,
@@ -257,7 +258,10 @@ export async function GET(request: Request): Promise<Response> {
           poolMemoryMb: listEntitlements.resourcePool?.memoryMb ?? null,
           usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
-          planId: listEntitlements.planId,
+          // Installed clients know only the ids that predate Team Max; the
+          // exact plan is `subscriptionPlanId`.
+          planId: installedClientPlanId(listEntitlements.planId),
+          subscriptionPlanId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
             vmHoursIncluded: 40,
@@ -368,7 +372,7 @@ export async function POST(request: Request): Promise<Response> {
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
       // typed plan error from createVm.
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey, entitlements.billingTeamId);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -818,6 +822,7 @@ async function resolveCreateMemory(
   requestedMemoryMb: number | undefined,
   request: Request,
   deferLockedPlanCheck = false,
+  billingTeamId?: string,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
@@ -843,6 +848,7 @@ async function resolveCreateMemory(
         maxMemoryMb,
         planId,
         upgradePlanId,
+        teamId: billingTeamId,
       }, vmRequestLocale(request)),
     };
   }

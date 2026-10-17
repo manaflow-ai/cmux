@@ -8,8 +8,8 @@
 // - "pro_plan": cmux Pro subscription checkouts created by
 //   /api/billing/checkout, which set `{ app: "cmux", plan: "pro" }` (monthly
 //   and yearly intervals share this metadata).
-// - "team_plan": cmux Team subscription checkouts (`{ app: "cmux", plan:
-//   "team" }`).
+// - "team_plan": cmux Team and Team Max subscription checkouts (`{ app:
+//   "cmux", plan: "team" | "team_max" }`).
 // - "other": any other completed checkout session.
 //
 // Kept free of Stripe/Resend/env imports so it can be unit-tested directly
@@ -31,7 +31,7 @@ export function welcomeTriggerForMetadata(
   if (metadata?.app === "cmux" && metadata?.plan === "pro") {
     return "pro_plan";
   }
-  if (metadata?.app === "cmux" && metadata?.plan === "team") {
+  if (metadata?.app === "cmux" && (metadata?.plan === "team" || metadata?.plan === "team_max")) {
     return "team_plan";
   }
   return "other";

@@ -2,7 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
-import { ACTIVE_STRIPE_PRO_STATUSES, TEAM_PLAN_ID, type BillingManagementKind } from "./pro";
+import { ACTIVE_STRIPE_PRO_STATUSES, TEAM_PLAN_IDS, type BillingManagementKind } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import {
   resolveTeamBillingAccess,
@@ -109,7 +109,7 @@ export async function latestActiveTeamSubscription(
       and(
         eq(stripeSubscriptions.stackTeamId, stackTeamId),
         eq(stripeSubscriptions.scope, "team"),
-        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

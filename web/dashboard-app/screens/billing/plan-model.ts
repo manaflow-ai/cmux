@@ -1,4 +1,4 @@
-import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "@/services/billing/plans";
+import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_MAX_PRICING_USD, TEAM_PRICING_USD } from "@/services/billing/plans";
 import { formatUsd, type SubscriptionPrice } from "@/services/billing/subscriptionPrice";
 
 /**
@@ -6,9 +6,13 @@ import { formatUsd, type SubscriptionPrice } from "@/services/billing/subscripti
  * and the single action each card carries. The components render this.
  */
 
-export type PickerPlanId = "free" | "go" | "pro" | "max" | "team";
-export type CheckoutPlanId = "go" | "pro" | "max" | "team";
-export type SwitchPlanId = "pro" | "max";
+export type PickerPlanId = "free" | "go" | "pro" | "max" | "team" | "team_max";
+export type CheckoutPlanId = "go" | "pro" | "max" | "team" | "team_max";
+/** Personal switches (Pro <-> Max) and team switches (Team <-> Team Max). */
+export type SwitchPlanId = "pro" | "max" | "team" | "team_max";
+export type TeamSwitchPlanId = Extract<SwitchPlanId, "team" | "team_max">;
+
+const SWITCHABLE_PLANS: ReadonlySet<PickerPlanId> = new Set(["pro", "max", "team", "team_max"]);
 
 export type PlanCardAction =
   | { readonly kind: "current" }
@@ -43,7 +47,7 @@ function otherAction(state: PickerState, card: PickerPlanId, current: PickerPlan
       return card === "free" ? { kind: "current" } : { kind: "checkout", plan: card };
     case "active":
       if (card === "free") return { kind: "cancel" };
-      return card === "pro" || card === "max" ? { kind: "switch", plan: card } : { kind: "unavailable", reason: "granted" };
+      return SWITCHABLE_PLANS.has(card) ? { kind: "switch", plan: card as SwitchPlanId } : { kind: "unavailable", reason: "granted" };
     case "pastDue":
       // A switch needs a paid-up subscription; the payment is fixed first.
       // Cancelling stays available.
@@ -65,7 +69,7 @@ function otherAction(state: PickerState, card: PickerPlanId, current: PickerPlan
  */
 function grantedAction(card: PickerPlanId, current: PickerPlanId): PlanCardAction {
   if (card === "max" && (current === "go" || current === "pro")) return { kind: "checkout", plan: "max" };
-  if (card === "free" && current !== "max" && current !== "team") return { kind: "unavailable", reason: "grantedNoCancel" };
+  if (card === "free" && current !== "max" && current !== "team" && current !== "team_max") return { kind: "unavailable", reason: "grantedNoCancel" };
   return { kind: "unavailable", reason: "granted" };
 }
 
@@ -126,19 +130,25 @@ function personalState(
   return status === undefined || status === "active" || status === "trialing" ? "active" : "pastDue";
 }
 
-/** A team's plans: Free and Team. Only team admins change them. */
+/**
+ * A team's plans: Free, Team, and Team Max. Only team admins change them; a
+ * paying team switches between Team and Team Max in place.
+ */
 export function teamPlanCards(input: {
   readonly canManageBilling: boolean;
   readonly granted: boolean;
   readonly subscription: Subscription | null;
+  /** The team's plan from the billing view (`free`, `team`, or `team_max`). */
+  readonly planId: string;
 }): PlanCard[] {
-  const current: PickerPlanId = input.subscription || input.granted ? "team" : "free";
+  const paid: PickerPlanId = input.planId === "team_max" ? "team_max" : "team";
+  const current: PickerPlanId = input.subscription || input.granted ? paid : "free";
   const state = !input.canManageBilling
     ? "readOnly"
     : input.subscription
       ? input.subscription.cancelAtPeriodEnd ? "cancelling" : "active"
       : input.granted ? "granted" : "free";
-  return cards(["free", "team"], current, state);
+  return cards(["free", "team", "team_max"], current, state);
 }
 
 /**
@@ -158,6 +168,7 @@ const LIST_MONTHLY_USD: Readonly<Record<PickerPlanId, number>> = {
   pro: PRO_PRICING_USD.month.billedAmount,
   max: MAX_PRICING_USD.month.billedAmount,
   team: TEAM_PRICING_USD.month.billedAmount,
+  team_max: TEAM_MAX_PRICING_USD.month.billedAmount,
 };
 
 export type PlanCardPrice = {
@@ -177,7 +188,7 @@ export function planCardPrice(
   current: boolean,
   currentPrice: SubscriptionPrice | null | undefined,
 ): PlanCardPrice | null {
-  const unit = id === "team" ? "perSeatMonth" : "perMonth";
+  const unit = id === "team" || id === "team_max" ? "perSeatMonth" : "perMonth";
   if (!current || currentPrice === undefined) return { amount: `$${formatUsd(LIST_MONTHLY_USD[id])}`, unit, annual: false };
   if (currentPrice === null) return null;
   const annual = currentPrice.interval === "year";

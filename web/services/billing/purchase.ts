@@ -1,4 +1,4 @@
-import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
+import { requirePersonalPlanIdForSubscription, teamPlanIdForSubscription } from "./subscriptionPlan";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -33,8 +33,8 @@ import {
   PRO_PLAN_ID,
   type PersonalPlanId,
   type ProMetadataJson,
-  TEAM_PLAN_ID,
   isPersonalPlanId,
+  isTeamPlanId,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
@@ -1955,7 +1955,7 @@ export async function applySubscriptionUpdate(
       : await db.transaction((tx) => applyTeamUpdate(tx, { kind: "legacy-team" }));
     if ("skipped" in lockedResult) return { skipped: true };
     const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
+    await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription), teamPlanIdForSubscription(subscription));
     return lockedResult;
   }
 
@@ -2278,7 +2278,7 @@ export function hasConflictingFounderMetadata(
   return metadataSources.some(
     (metadata) =>
       isPersonalPlanId(metadata?.plan) ||
-      metadata?.plan === TEAM_PLAN_ID ||
+      isTeamPlanId(metadata?.plan) ||
       Boolean(metadata?.stackTeamId),
   );
 }
@@ -2455,7 +2455,12 @@ async function recordTeamCheckoutCompletion(input: {
       lockedResult.postCommitTeamSync.stackTeamId,
       lockedResult.postCommitTeamSync.stackApp,
     );
-    await syncTeamPlanMetadata(team, true, subscriptionSeats(input.subscription));
+    await syncTeamPlanMetadata(
+      team,
+      true,
+      subscriptionSeats(input.subscription),
+      teamPlanIdForSubscription(input.subscription),
+    );
   }
 
   return lockedResult.result;
@@ -2637,7 +2642,9 @@ async function updateExistingUserStripeSubscription(
 
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : requirePersonalPlanIdForSubscription(subscription);
+  const plan = input.scope === "team"
+    ? teamPlanIdForSubscription(subscription)
+    : requirePersonalPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,
@@ -3257,7 +3264,7 @@ function teamScopeFromSession(
   session: Stripe.Checkout.Session,
   subscription: Stripe.Subscription,
 ): { stackTeamId: string; stackUserId: string | null } | null {
-  const metadata = session.metadata?.plan === TEAM_PLAN_ID
+  const metadata = isTeamPlanId(session.metadata?.plan)
     ? session.metadata
     : subscription.metadata;
   const stackTeamId = metadata?.stackTeamId;
@@ -3268,7 +3275,7 @@ function teamScopeFromSession(
     nonEmptyString(session.client_reference_id) !== stackTeamId
       ? nonEmptyString(session.client_reference_id)
       : null;
-  return metadata?.plan === TEAM_PLAN_ID && typeof stackTeamId === "string" && stackTeamId
+  return isTeamPlanId(metadata?.plan) && typeof stackTeamId === "string" && stackTeamId
     ? { stackTeamId, stackUserId: metadataStackUserId ?? clientReferenceStackUserId }
     : null;
 }
@@ -3277,7 +3284,7 @@ function teamScopeFromSubscription(
   subscription: Stripe.Subscription,
 ): { stackTeamId: string } | null {
   const stackTeamId = subscription.metadata?.stackTeamId;
-  return subscription.metadata?.plan === TEAM_PLAN_ID &&
+  return isTeamPlanId(subscription.metadata?.plan) &&
     typeof stackTeamId === "string" &&
     stackTeamId
     ? { stackTeamId }

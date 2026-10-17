@@ -139,6 +139,12 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
     case "vm_memory_requires_plan":
         let details = response["details"] as? [String: Any]
         let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
+        if PlanUpgradeDestination.isTeamMax(planId) {
+            return String(format: String(
+                localized: "cloudVM.error.memoryRequiresPlan.teamMaxAction",
+                defaultValue: "Larger machines need cmux Team Max. Ask a team admin to upgrade at %@, or choose a smaller machine."
+            ), cloudVMTeamMaxUpgradeURL(response, source: .vmMemoryRequiresPlanError).absoluteString)
+        }
         let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
         let checkout = CheckoutAttribution.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
         if plan == .pro {
@@ -152,6 +158,12 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
             defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
         ), checkout.absoluteString)
     case "vm_resource_pool_exceeded":
+        if PlanUpgradeDestination.isTeamMax(cloudVMResourcePoolUpgradePlanID(response)) {
+            return String(
+                localized: "cloudVM.error.resourcePool.teamMaxAction",
+                defaultValue: "Pause or delete a VM, or ask a team admin to upgrade to Team Max."
+            ) + "\n" + cloudVMTeamMaxUpgradeURL(response, source: .vmResourcePoolExceededError).absoluteString
+        }
         guard cloudVMResourcePoolUpgradePlanID(response) == CheckoutPlan.max.rawValue else {
             return String(localized: "cloudVM.error.resourcePool.maxAction", defaultValue: "Pause or delete a VM.")
         }
@@ -173,7 +185,22 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
     }
 }
 
-/// The plan that would make a full resource pool fit: `"max"`, or nil when the
+/// Where a Team Max upgrade goes from an error: the team's billing page when
+/// the response names the team, otherwise pricing. Team Max is a team
+/// subscription, so it never links the personal Max checkout.
+func cloudVMTeamMaxUpgradeURL(_ response: [String: Any], source: ProUpgradeSource) -> URL {
+    let details = response["details"] as? [String: Any]
+    let teamID = cloudVMString(response["teamId"]) ?? cloudVMString(details?["teamId"])
+    switch PlanUpgradeDestination(planID: PlanUpgradeDestination.teamMaxPlanID, teamID: teamID) {
+    case .teamBilling(let teamID):
+        return CheckoutAttribution.applying(to: AuthEnvironment.teamBillingURL(teamID: teamID), source: source)
+    case .checkout, .pricing:
+        return CheckoutAttribution.applying(to: AuthEnvironment.pricingURL, source: source)
+    }
+}
+
+/// The plan that would make a full resource pool fit: `"max"` or
+/// `"team_max"`, or nil when the
 /// caller already has the largest pool. Read from the top level, then `details`.
 func cloudVMResourcePoolUpgradePlanID(_ response: [String: Any]) -> String? {
     let details = response["details"] as? [String: Any]

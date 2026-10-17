@@ -19,7 +19,7 @@ import { VmRepository, VmRepositoryLive, type VmRepositoryShape } from "../servi
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { forkVm, openVmCmuxRemote, resizeVm, resumeVm } from "../services/vms/workflows";
 import { VmResourcePoolExceededError } from "../services/vms/errors";
-import { respondVmWorkflowError } from "../services/vms/routeHelpers";
+import { respondVmWorkflowError, vmMemoryRequiresPlanResponse } from "../services/vms/routeHelpers";
 
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = process.env.CMUX_DB_TEST === "1" ? serialTest : test.skip;
@@ -181,6 +181,33 @@ describe("Cloud VM resource pool policy", () => {
       action: "Pause or delete a VM.",
       upgradePlanId: null,
     });
+  });
+
+  test("a full Team pool names Team Max for that team, and Team Max names no upgrade", async () => {
+    const team = await respondVmWorkflowError(refusal("team", "memoryMb"), { locale: "en" });
+    expect(await team?.json()).toMatchObject({
+      action: "Pause or delete a VM, or upgrade the team to Team Max.",
+      upgradePlanId: "team_max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=team_max&teamId=team",
+      teamId: "team",
+      details: expect.objectContaining({ teamId: "team" }),
+    });
+    const teamMax = await respondVmWorkflowError(refusal("team_max", "vcpus"), { locale: "en" });
+    expect(await teamMax?.json()).toMatchObject({ action: "Pause or delete a VM.", upgradePlanId: null });
+  });
+
+  test("a Team asking for a Max size is offered Team Max by name, for its own team", async () => {
+    const response = await vmMemoryRequiresPlanResponse({ memoryMb: 32 * GB, maxMemoryMb: 16 * GB, planId: "team", upgradePlanId: "team_max", teamId: "team-1" });
+    const payload = await response.json() as { message: string; action: string; upgradePlanId: string; upgradeUrl: string; teamId: string; details: { teamId: string } };
+    expect(payload.upgradePlanId).toBe("team_max");
+    expect(payload.message).toContain("Team Max");
+    expect(payload.message).not.toContain("Team_max");
+    expect(payload.upgradeUrl).toBe("https://cmux.com/api/billing/checkout?plan=team_max&teamId=team-1&cmux_source=vm_memory_limit");
+    expect(payload.teamId).toBe("team-1");
+    expect(payload.details.teamId).toBe("team-1");
+    // The CLI checkout sells personal plans only, so a Team Max refusal never suggests it.
+    expect(payload.action).not.toContain("cmux billing checkout");
+    expect(payload.action).toContain(payload.upgradeUrl);
   });
 
   test("the refusal is localized", async () => {

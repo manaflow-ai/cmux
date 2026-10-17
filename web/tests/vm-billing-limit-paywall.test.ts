@@ -97,7 +97,8 @@ describe("Cloud VM memory allowance", () => {
       expect(maxDiskMbForPlan(planId, {})).toBe(128 * GB);
       expect(lockedMemoryOptionsMbForPlan(planId, {})).toEqual({
         memoryOptionsMb: [24576, 32768, 65536],
-        upgradePlanId: "max",
+        // A Team is offered Team Max for the whole team, not personal Max.
+        upgradePlanId: planId === "team" ? "team_max" : "max",
       });
     }
     // Free machines exist only where an operator opens free provisioning.

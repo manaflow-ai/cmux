@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
       billingSource: "none",
       manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
+      teamSubscriptionPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
     });
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
       billingSource: "none",
       manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
+      teamSubscriptionPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
     });
@@ -100,7 +102,7 @@ export async function GET(request: NextRequest) {
     // App Store subscriber manages it. `billingManagement` is "external" then.
     billingSource: status.billingSource,
     manageUrl: status.manageUrl,
-    teamPlanId: teamStatus.planId,
+    ...teamPlanIds(teamStatus.planId),
     teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
@@ -130,7 +132,7 @@ async function explicitTeamPlanResponse(
     authenticated: !user.isAnonymous,
     billingAvailable,
     teamId: access.team.id,
-    teamPlanId: teamStatus.planId,
+    ...teamPlanIds(teamStatus.planId),
     teamBillingManagement: teamStatus.billingManagement,
     seats: billingSeatsFromMetadata(access.team.clientReadOnlyMetadata),
     role: access.role,
@@ -144,4 +146,17 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
     return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
   }
   return teamPlanStatusForTeam(team);
+}
+
+/**
+ * `teamPlanId` stays "free" | "team" for installed clients that only know
+ * those ids (a Team Max team reports "team" there, still a paid team plan);
+ * `teamSubscriptionPlanId` carries the exact team plan, including "team_max",
+ * for clients that know it. Same split as `planId` and `subscriptionPlanId`.
+ */
+function teamPlanIds(planId: TeamPlanStatus["planId"]): {
+  readonly teamPlanId: "free" | "team";
+  readonly teamSubscriptionPlanId: TeamPlanStatus["planId"];
+} {
+  return { teamPlanId: planId === FREE_PLAN_ID ? FREE_PLAN_ID : "team", teamSubscriptionPlanId: planId };
 }
