@@ -68,10 +68,11 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     /// `CMUX_UITEST_CONVERSATION_SCENARIO` in a simulator launch environment.
     public init(scenario: Scenario? = nil) {
         let environmentScenario = ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_SCENARIO"]
-        self.scenario = scenario ?? Scenario(rawValue: environmentScenario ?? "all")
+        let selectedScenario = scenario ?? Scenario(rawValue: environmentScenario ?? "all")
+        self.scenario = selectedScenario
         var fixtureFeatures = ["turn/start", "turn/steer", "turn/interrupt", "approval", "question", "queue", "diff", "artifact", "configure"]
-        if self.scenario == .queue { fixtureFeatures.removeAll { $0 == "turn/steer" } }
-        if self.scenario == .steer { fixtureFeatures.removeAll { $0 == "queue" } }
+        if selectedScenario == .queue { fixtureFeatures.removeAll { $0 == "turn/steer" } }
+        if selectedScenario == .steer { fixtureFeatures.removeAll { $0 == "queue" } }
         self.capabilities = ConversationCapabilities(
             protocolVersion: "fixture/1",
             features: fixtureFeatures,
