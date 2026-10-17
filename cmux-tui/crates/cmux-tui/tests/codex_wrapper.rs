@@ -185,6 +185,259 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
     assert_eq!(stale.listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 }
 
+/// A headless session whose terminals start `shell` with cmux-tui's shell
+/// integration, in an isolated HOME whose startup files prepend `~/bin`
+/// (holding a fake `codex`) to PATH, the way `export
+/// PATH="$HOME/.local/bin:$PATH"` in a user's rc file does.
+struct ShellSession {
+    root: tempfile::TempDir,
+    socket: PathBuf,
+    server: std::process::Child,
+}
+
+impl ShellSession {
+    fn start(shell: &Path) -> Self {
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let home = root.path().join("home");
+        let bin = home.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(home.join(".config/fish")).unwrap();
+        // The fake Codex records the argv it was started with, then exits.
+        fs::write(
+            bin.join("codex"),
+            "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$HOME/codex-argv.tmp\" && mv \"$HOME/codex-argv.tmp\" \"$HOME/codex-argv\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
+        // The startup files prepend ~/bin, and a prompt hook prepends it
+        // again at every prompt, as tool managers do.
+        fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
+        let rc = "export PATH=\"$HOME/bin:$PATH\"\nPS1='ready> '\n";
+        fs::write(
+            home.join(".zshrc"),
+            format!(
+                "{rc}_reprepend() {{ path=($HOME/bin $path) }}\nprecmd_functions+=(_reprepend)\n"
+            ),
+        )
+        .unwrap();
+        fs::write(home.join(".bashrc"), format!("{rc}PROMPT_COMMAND='PATH=\"$HOME/bin:$PATH\"'\n"))
+            .unwrap();
+        fs::write(
+            home.join(".config/fish/config.fish"),
+            "set -gx PATH $HOME/bin $PATH\nfunction fish_prompt; echo -n 'ready> '; end\nfunction _reprepend --on-event fish_prompt; set -gx PATH $HOME/bin $PATH; end\n",
+        )
+        .unwrap();
+        let socket = root.path().join("mux.sock");
+        let server = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .args(["--headless", "--ephemeral", "--socket"])
+            .arg(&socket)
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .env("SHELL", shell)
+            .env("XDG_DATA_HOME", root.path().join("data"))
+            .env("XDG_STATE_HOME", root.path().join("state"))
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("CMUX_TUI_CONFIG", root.path().join("config.json"))
+            .env("TMPDIR", root.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while cmux_tui_core::platform::transport::connect(&socket).is_err() {
+            assert!(
+                Instant::now() < deadline,
+                "the session never listened at {}",
+                socket.display()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        Self { root, socket, server }
+    }
+
+    fn cli(&self, args: &[&str]) -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--socket")
+            .arg(&self.socket)
+            .args(args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "cmux-tui {args:?} failed: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    fn home(&self) -> PathBuf {
+        self.root.path().join("home")
+    }
+}
+
+impl Drop for ShellSession {
+    fn drop(&mut self) {
+        let _ = self.server.kill();
+        let _ = self.server.wait();
+    }
+}
+
+fn integrated_shells() -> Vec<PathBuf> {
+    ["zsh", "bash", "fish"]
+        .into_iter()
+        .filter_map(|name| {
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .chain(["/bin", "/usr/bin", "/opt/homebrew/bin"].map(PathBuf::from))
+                .map(|dir| dir.join(name))
+                // Apple's /bin/bash 3.2 runs without shell integration.
+                .filter(|path| !(cfg!(target_os = "macos") && path == Path::new("/bin/bash")))
+                .find(|path| path.is_file())
+        })
+        .collect()
+}
+
+/// The reported failure: Codex 0.162 runs hooks in its shared app-server
+/// daemon, which has none of the terminal's `CMUX_TUI_*` variables, so the
+/// installed hooks route nowhere. Only the `codex` shim carries the terminal's
+/// route into the hook command, and a shell startup file that prepends its own
+/// directory to PATH hid the shim. `codex` typed at the prompt must still
+/// reach the wrapper, and the hooks it passes must reach this terminal from an
+/// empty environment.
+#[test]
+fn codex_typed_in_a_terminal_reports_to_that_terminal_after_startup_files_reorder_path() {
+    let shells = integrated_shells();
+    assert!(!shells.is_empty(), "no zsh, bash, or fish to test with");
+    for shell in shells {
+        let session = ShellSession::start(&shell);
+        let created: serde_json::Value = serde_json::from_str(&session.cli(&[
+            "--json",
+            "workspace",
+            "create",
+            "--name",
+            "codex",
+        ]))
+        .unwrap();
+        let terminal = created["value"]["terminal_id"].as_str().unwrap().to_owned();
+        session.cli(&[
+            "terminal",
+            &terminal,
+            "screen",
+            "wait",
+            "--pattern",
+            "ready>",
+            "--timeout-ms",
+            "15000",
+        ]);
+        session.cli(&["terminal", &terminal, "write", "--text", "codex exec hello\r"]);
+        let argv_file = session.home().join("codex-argv");
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !argv_file.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "{}: codex never started; screen: {}",
+                shell.display(),
+                session.cli(&["terminal", &terminal, "screen", "read"])
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let argv: Vec<String> = fs::read(&argv_file)
+            .unwrap()
+            .strip_suffix(&[0])
+            .unwrap()
+            .split(|byte| *byte == 0)
+            .map(|part| String::from_utf8(part.to_vec()).unwrap())
+            .collect();
+        assert!(
+            argv.iter().any(|arg| arg.starts_with("hooks.Stop=")),
+            "{}: `codex` bypassed the cmux-tui shim and started without the terminal's hooks: {argv:?}",
+            shell.display()
+        );
+        let config = settings(&argv);
+        let mut hook = Command::new("/bin/sh");
+        hook.args(["-c", &hook_command(&config, "Stop")]).env_clear();
+        let mut child = hook.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        writeln!(
+            child.stdin.take().unwrap(),
+            "{{\"session_id\":\"s1\",\"turn_id\":\"t1\",\"hook_event_name\":\"Stop\"}}"
+        )
+        .unwrap();
+        assert!(child.wait_with_output().unwrap().status.success());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let notifications: serde_json::Value =
+                serde_json::from_str(&session.cli(&["--json", "notification", "list"])).unwrap();
+            if notifications.as_array().unwrap().iter().any(|notification| {
+                notification["title"] == "Codex finished" && notification["terminal_id"] == terminal
+            }) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{}: the hook never reached terminal {terminal}: {notifications}",
+                shell.display()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+/// Runs `command` from a shell whose own argv looks like Codex's shared
+/// app-server daemon (`codex app-server --listen unix:// --managed-daemon`),
+/// with `env` as the environment that daemon inherited.
+fn run_under_codex_daemon(command: &str, env: &[(&str, &std::ffi::OsStr)], daemon: bool) {
+    let mut process = Command::new("/bin/sh");
+    process.arg("-c").arg(format!("{command}; :")).env_clear();
+    if daemon {
+        process.args(["app-server", "--listen", "unix://", "--managed-daemon"]);
+    }
+    for (name, value) in env {
+        process.env(name, value);
+    }
+    let mut child = process.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"s1\",\"hook_event_name\":\"Stop\"}}")
+        .unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+}
+
+/// The shared daemon keeps the environment of the shell that started it. An
+/// installed hook it runs must not post to that shell's terminal: the event
+/// may come from any Codex session, in another terminal or outside cmux. The
+/// wrapper's hooks name their own terminal and still route.
+#[test]
+fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_inherited() {
+    let launch = Launch::new();
+    let helper = std::ffi::OsString::from(env!("CARGO_BIN_EXE_cmux-tui-hook"));
+    let inherited: [(&str, &std::ffi::OsStr); 3] = [
+        ("CMUX_TUI_HOOK", &helper),
+        ("CMUX_TUI_SOCKET", launch.socket.as_os_str()),
+        ("CMUX_TUI_TERMINAL_ID", std::ffi::OsStr::new(TERMINAL_ONE)),
+    ];
+    let installed = "\"$CMUX_TUI_HOOK\" codex Stop";
+
+    run_under_codex_daemon(installed, &inherited, false);
+    let received = launch.event();
+    assert_eq!(received["payload"]["native_event"], "Stop", "the control run must post");
+
+    run_under_codex_daemon(installed, &inherited, true);
+    assert_eq!(
+        launch.listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "a hook in Codex's daemon posted to the terminal that started the daemon"
+    );
+
+    let argv = launch.argv(launch.command().env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO));
+    run_under_codex_daemon(&hook_command(&settings(&argv), "Stop"), &inherited, true);
+    let received = launch.event();
+    assert!(
+        received["subjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|subject| subject["kind"] == "terminal" && subject["id"] == TERMINAL_TWO),
+        "{received}"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_missing() {
