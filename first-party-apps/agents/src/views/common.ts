@@ -122,7 +122,10 @@ function again(machine: string, entry: CliEntry, j: Job) {
   return hint ? install(machine, entry.cli, hint.method) : undefined
 }
 
-const platformFor = (machine: string) => platformOf(machines().find((m) => m.id === machine)?.os)
+const platformFor = (machine: string) => {
+  const owner = machines().find((m) => m.id === machine)
+  return platformOf(owner?.platform?.os ?? owner?.os)
+}
 
 export const firstHint = (machine: string, cli: string): InstallHint | null => hintsFor(cli, platformFor(machine))[0] ?? null
 

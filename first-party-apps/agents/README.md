@@ -12,7 +12,7 @@ Status: prototype on today's app runtime (preview harness and bun FakeHost). The
 | Pane kind | `agentHub` | The hub (three designs, below). Toolbar: summary ("5 updates · 2 need sign-in") and Check for Updates. |
 | Commands | `openAgents`, `checkForUpdates` (palette, section menu), `cycleVariant` (palette, DEV/NIGHTLY) | |
 
-The CLIs it knows by name are in `src/model/providers.ts`: Claude Code, Codex, OpenCode, Pi, Chief, Gemini CLI, Amp, Copilot CLI and Cursor Agent, each with its executable names, install hints per platform, and whether it has a sign-in of its own (Chief uses the cmux account). The owner may report other CLIs; they render with the owner's name. Only an explicitly complete inventory establishes that an unreported CLI is "Not installed". Partial caches show unknown cells and an incomplete-inventory summary. An unverified launcher uses `installed: null`; it stays visible without install/update actions. No account observations means unknown sign-in, not signed out.
+The CLIs it knows by name are in `src/model/providers.ts`: Claude Code, Codex, OpenCode, Pi, Chief, Gemini CLI, Amp, Copilot CLI and Cursor Agent, each with its executable names, install hints per platform, and whether it has a sign-in of its own (Chief uses the cmux account). The owner may report other CLIs; they render with the owner's name. Install hints use the selected owner's `platform.os` (the legacy `os` field when absent). Unknown or unsupported platforms offer no install command or Install action; they never default to this Mac. Only an explicitly complete inventory establishes that an unreported CLI is "Not installed". Partial caches show unknown cells and an incomplete-inventory summary. An unverified launcher uses `installed: null`; it stays visible without install/update actions. No account observations means unknown sign-in, not signed out.
 
 ## Scopes
 
@@ -57,7 +57,7 @@ Rules for the owner: `complete: true` is an explicit claim of an exhaustive inst
 ## Platform gaps (most important first)
 
 1. Cached CLI inventory has a native machine owner and app adapter; exhaustive discovery, live version checks, account labels, visible jobs and the sibling `skill.*`, `mcp_server.*` and `memory.*` capabilities still need their owner paths.
-2. `machine.list` returns only `origin: "local"`; cmux servers and the team VM are not listed with an `os`, so the app cannot tell Linux from macOS for install hints.
+2. `machine.list` still returns only the local owner by default. Global discovery must expose the existing Cloud/SSH/server routes and their public identities; platform metadata and conservative install hints are ready for those records.
 3. No account label owner: sign-ins have no opaque handle (`acct_…`) and no user-editable non-secret label; the native detector exposes an email.
 4. `accounts.reauthenticate` takes no machine and covers only CodeRouter providers.
 5. `agent_cli:read` is recognized for `agent_cli.list`; execution and watch operations remain unimplemented.
