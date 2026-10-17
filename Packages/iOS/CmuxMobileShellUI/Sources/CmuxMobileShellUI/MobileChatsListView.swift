@@ -137,8 +137,8 @@ private struct MobileChatSessionRow: View {
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.tertiary)
                 }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("MobileChatSession-\(session.id)")
