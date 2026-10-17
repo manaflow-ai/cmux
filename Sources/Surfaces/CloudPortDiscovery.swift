@@ -7,6 +7,8 @@ struct CloudPortDiscovery: Sendable {
     private(set) var scan: CloudPortScanResult?
     private(set) var wasRequested = false
     private var scannedAt: Date?
+    /// When the last scan finished, successfully or not; paces rescans.
+    private var attemptedAt: Date?
     private var socketPath: String?
     private var privateAddress: String?
     private var requestID: UInt64 = 0
@@ -27,6 +29,7 @@ struct CloudPortDiscovery: Sendable {
             requestID &+= 1
             scan = nil
             scannedAt = nil
+            attemptedAt = nil
             socketPath = nil
             self.privateAddress = privateAddress
             blocker = nextBlocker
@@ -68,11 +71,11 @@ struct CloudPortDiscovery: Sendable {
         return scan
     }
 
-    /// How long until the cached scan expires, so a refresh it answered can
-    /// rescan then; nil when no cached scan is live.
+    /// How long until the next rescan may run: one cache lifetime after the
+    /// last finished scan, failed or not; nil when it may run now.
     func rescanDelay(at now: Date) -> TimeInterval? {
-        guard let scannedAt else { return nil }
-        let remaining = cacheLifetime - now.timeIntervalSince(scannedAt)
+        guard let attemptedAt else { return nil }
+        let remaining = cacheLifetime - now.timeIntervalSince(attemptedAt)
         return remaining > 0 ? remaining : nil
     }
 
@@ -97,6 +100,7 @@ struct CloudPortDiscovery: Sendable {
     @discardableResult
     mutating func complete(_ result: CloudPortScanResult?, request: UInt64, at now: Date, socketPath: String) -> Bool {
         guard request == requestID, blocker == nil else { return false }
+        attemptedAt = now
         if let result {
             scan = result
             scannedAt = now
@@ -119,6 +123,7 @@ struct CloudPortDiscovery: Sendable {
     mutating func invalidate() {
         requestID &+= 1
         scannedAt = nil
+        attemptedAt = nil
         socketPath = nil
         if blocker == nil { state = scan == nil ? .notRequested : .stale }
     }
