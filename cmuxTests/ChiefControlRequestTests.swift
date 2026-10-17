@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxHomeCore
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -147,5 +148,26 @@ import Testing
             #expect(TerminalController.commandHasFocusIntent(commandKey: method, isV2: true, params: [:]) == (method == "chief.open"),
                     "\(method)")
         }
+    }
+
+    @Test func conversationRowsUseTheAuthoritativeInboxOnColdStart() throws {
+        let me = Participant(id: .init("me"), kind: .human, displayName: "You")
+        let chief = Participant(id: .init("agent_chief"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let id = ConversationID("conv_chief")
+        let date = Date(timeIntervalSince1970: 100)
+        let summary = ConversationSummary(id: id, participants: [me, chief], createdAt: date, updatedAt: date,
+                                          pinRank: 0)
+        let inbox = InboxSnapshot(me: me, conversations: [summary], rev: 1)
+
+        // The HomeStore is still empty in this state; the control response is
+        // derived from the owner's inbox snapshot instead.
+        let rows = ChiefService.controlRows(from: inbox, previews: [id: "Ask Chief anything"], working: [id])
+        let row = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(row.id == id.rawValue)
+        #expect(row.title == "Chief")
+        #expect(row.preview == "Ask Chief anything")
+        #expect(row.pinned)
+        #expect(row.working)
     }
 }
