@@ -67,9 +67,9 @@ public final class AgentPaneView: NSView {
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
-    /// pushes again with `force`).
-    private var deliveredThemeEvent: AgentPageEvent?
-    private var deliveredThemeScript: String?
+    /// pushes again with `force`, a page-host replay or a crash forgets it).
+    var deliveredThemeEvent: AgentPageEvent?
+    var deliveredThemeScript: String?
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
