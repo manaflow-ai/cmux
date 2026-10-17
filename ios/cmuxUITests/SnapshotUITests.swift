@@ -189,8 +189,11 @@ final class AgentChatModeUITests: XCTestCase {
         app.buttons["Allow once"].tap()
         XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
 
+        let sessionsButton = app.buttons["Agent sessions"]
+        XCTAssertTrue(sessionsButton.waitForExistence(timeout: 8))
+        sessionsButton.tap()
         let search = app.searchFields["Search sessions"]
-        XCTAssertTrue(search.exists)
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
         search.tap()
         search.typeText("networking")
         XCTAssertTrue(app.staticTexts["Review the networking changes"].waitForExistence(timeout: 8))
