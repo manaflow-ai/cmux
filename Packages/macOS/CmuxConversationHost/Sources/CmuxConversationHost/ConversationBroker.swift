@@ -294,16 +294,18 @@ public actor ConversationBroker: ConversationClient {
             try await connection.send(.configure(model: model, effort: effort, speed: speed))
             sessions[id]!.session.model = model; sessions[id]!.session.effort = effort; sessions[id]!.session.speed = speed; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!); return try await applied(commandID, id: id)
         case .queue(let text):
-            let item = ConversationQueueItem(id: ConversationItemID(rawValue: UUID().uuidString), commandID: commandID, text: text, position: sessions[id]!.queued.count)
-            sessions[id]!.queued.append(item)
             if sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn {
                 if sessions[id]!.connection == nil {
                     guard sessions[id]!.session.providerSessionID != nil else { throw ConversationProviderError.unavailable("Provider session cannot be resumed safely") }
                     guard let adapter = adapters[sessions[id]!.session.provider] else { throw ConversationProviderError.unsupported("No adapter for provider") }
                     try await ensureAttached(id: id, adapter: adapter)
                 }
+                let item = ConversationQueueItem(id: ConversationItemID(rawValue: UUID().uuidString), commandID: commandID, text: text, position: sessions[id]!.queued.count)
+                sessions[id]!.queued.append(item)
                 return try await drainQueue(id: id, commandID: commandID)
             }
+            let item = ConversationQueueItem(id: ConversationItemID(rawValue: UUID().uuidString), commandID: commandID, text: text, position: sessions[id]!.queued.count)
+            sessions[id]!.queued.append(item)
             try await emitQueue(id: id); return try await applied(commandID, id: id)
         case .editQueued(let itemID, let text):
             guard let index = sessions[id]!.queued.firstIndex(where: { $0.id == itemID }) else { throw ConversationProviderError.rejected("queued item not found") }
@@ -439,7 +441,12 @@ public actor ConversationBroker: ConversationClient {
         sessions[id]!.cursor = sequence
         let journal = sessions[id]!.journal
         let prior = sessions[id]!.appendTail
-        let event = ConversationEvent(sessionID: id, sequence: sequence, generation: sessions[id]!.session.generation, kind: kind, turnID: turnID, item: item, itemUpdate: itemUpdate, request: request, queue: queue, receipt: receipt, state: state, rawPayload: rawPayload)
+        let eventItem = item.map { ConversationItem(id: $0.id, sequence: sequence, turnID: $0.turnID, kind: $0.kind, role: $0.role, text: $0.text, tool: $0.tool, plan: $0.plan, diff: $0.diff, artifact: $0.artifact, usage: $0.usage, rawPayload: $0.rawPayload) }
+        if let item, let index = sessions[id]!.items.firstIndex(where: { $0.id == item.id }) {
+            let projected = sessions[id]!.items[index]
+            sessions[id]!.items[index] = ConversationItem(id: projected.id, sequence: sequence, turnID: projected.turnID, kind: projected.kind, role: projected.role, text: projected.text, tool: projected.tool, plan: projected.plan, diff: projected.diff, artifact: projected.artifact, usage: projected.usage, rawPayload: projected.rawPayload)
+        }
+        let event = ConversationEvent(sessionID: id, sequence: sequence, generation: sessions[id]!.session.generation, kind: kind, turnID: turnID, item: eventItem, itemUpdate: itemUpdate, request: request, queue: queue, receipt: receipt, state: state, rawPayload: rawPayload)
         let appendTask = Task {
             if let prior { try await prior.value }
             try await journal.append(event)
