@@ -110,6 +110,8 @@ struct Server {
     shutdown: bool,
     parse_batch: usize,
     read_spins: u32,
+    /// Children of killed terminals not reaped yet; kept across upgrades.
+    orphans: Vec<libc::pid_t>,
 }
 
 fn cvt(r: libc::c_int) -> io::Result<libc::c_int> {
@@ -155,6 +157,12 @@ fn needs_immediate_parse(data: &[u8]) -> bool {
                         // keyboard (q, u), window reports (t), DECREQTPARM (x).
                         if matches!(fin, b'c' | b'n' | b'p' | b'q' | b't' | b'u' | b'x') {
                             return true;
+                        }
+                        if fin == 0x1b {
+                            // ESC cut the CSI and starts a new sequence:
+                            // examine it, do not step over it.
+                            i = j;
+                            continue;
                         }
                         i = j;
                     }
@@ -498,6 +506,7 @@ impl Server {
                     if term.exit.is_none() {
                         // SAFETY: signalling our own, not yet reaped child.
                         unsafe { libc::kill(term.pid, libc::SIGHUP) };
+                        self.orphans.push(term.pid);
                     }
                     // SAFETY: closing the master hangs up the slave side.
                     unsafe { libc::close(term.master) };
@@ -604,7 +613,7 @@ impl Server {
         } else {
             std::path::PathBuf::from(OsStr::from_bytes(payload))
         };
-        let mut state = b"MUX2S1".to_vec();
+        let mut state = STATE_MAGIC.to_vec();
         state.extend_from_slice(&self.next_term.to_le_bytes());
         state.extend_from_slice(&self.listen.to_le_bytes());
         state.extend_from_slice(&u32::try_from(self.terms.len()).expect("fits").to_le_bytes());
@@ -638,6 +647,10 @@ impl Server {
             proto::put_bytes(&mut state, &input);
             proto::put_bytes(&mut state, &replay);
         }
+        state.extend_from_slice(&u32::try_from(self.orphans.len()).expect("fits").to_le_bytes());
+        for pid in &self.orphans {
+            state.extend_from_slice(&pid.to_le_bytes());
+        }
         let path = proto::socket_path().with_file_name(format!("state-{}", std::process::id()));
         {
             use std::io::Write as _;
@@ -648,23 +661,51 @@ impl Server {
             f.write_all(&state)?;
             f.sync_all()?;
         }
+        // Everything that can fail is checked before the requester hears OK:
+        // the new binary must read this exact state file in a dry run.
+        let checked = (|| -> io::Result<(CString, CString)> {
+            let cexe = CString::new(exe.as_os_str().as_bytes()).map_err(io::Error::other)?;
+            let cpath = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
+            let status = std::process::Command::new(&exe)
+                .arg("--verify-state")
+                .arg(&path)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .status()?;
+            if !status.success() {
+                return Err(io::Error::other(format!("new server rejected the state ({status})")));
+            }
+            Ok((cexe, cpath))
+        })();
+        let (cexe, cpath) = match checked {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                return Err(e);
+            }
+        };
+        let cflag = CString::new("--resume").expect("static");
+        let argv = [cexe.as_ptr(), cflag.as_ptr(), cpath.as_ptr(), std::ptr::null()];
         let keep: Vec<RawFd> =
             std::iter::once(self.listen).chain(self.terms.values().map(|t| t.master)).collect();
         for &fd in &keep {
             // SAFETY: clearing close-on-exec on descriptors we own.
             unsafe { libc::fcntl(fd, libc::F_SETFD, 0) };
         }
-        // Tell the requester before the exec closes its connection.
+        // Tell the requester before the exec closes its connection; give a
+        // reader that does not drain its socket two seconds at most.
         self.send(requester, proto::OK, &[]);
-        if let Some(conn) = self.conns.get(&requester) {
-            for frame in &conn.out {
-                write_all_blocking(conn.fd, &frame[conn.front_sent.min(frame.len())..]);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        if let Some(conn) = self.conns.get_mut(&requester) {
+            for (index, frame) in conn.out.iter().enumerate() {
+                let start = if index == 0 { conn.front_sent.min(frame.len()) } else { 0 };
+                write_all_blocking(conn.fd, &frame[start..], deadline);
             }
+            // Written (or abandoned): never send these frames a second time.
+            conn.out.clear();
+            conn.front_sent = 0;
+            conn.queued = 0;
         }
-        let cexe = CString::new(exe.as_os_str().as_bytes()).map_err(io::Error::other)?;
-        let cflag = CString::new("--resume").expect("static");
-        let cpath = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
-        let argv = [cexe.as_ptr(), cflag.as_ptr(), cpath.as_ptr(), std::ptr::null()];
         // SAFETY: execv with a null-terminated argv of live CStrings. Client
         // sockets and the kqueue are close-on-exec.
         unsafe { libc::execv(cexe.as_ptr(), argv.as_ptr()) };
@@ -679,61 +720,32 @@ impl Server {
 
     /// Rebuilds the server from an upgrade state file.
     fn resume(&mut self, state: &[u8]) -> io::Result<()> {
-        let bad = || io::Error::new(io::ErrorKind::InvalidData, "bad upgrade state");
-        let rest = state.strip_prefix(b"MUX2S1").ok_or_else(bad)?;
-        let mut r = Reader(rest);
-        self.next_term = r.u32().ok_or_else(bad)?;
-        let _listen = r.u32().ok_or_else(bad)?; // already adopted by main
-        let count = r.u32().ok_or_else(bad)?;
-        for _ in 0..count {
-            let t = r.u32().ok_or_else(bad)?;
-            let pid = r.u32().ok_or_else(bad)? as libc::pid_t;
-            let master = r.u32().ok_or_else(bad)? as RawFd;
-            let cols = r.u16().ok_or_else(bad)?;
-            let rows = r.u16().ok_or_else(bad)?;
-            let (exited, rest) = r.0.split_first().ok_or_else(bad)?;
-            r.0 = rest;
-            let code = r.u32().ok_or_else(bad)? as i32;
-            let (open, rest) = r.0.split_first().ok_or_else(bad)?;
-            r.0 = rest;
-            let lo = u64::from(r.u32().ok_or_else(bad)?);
-            let hi = u64::from(r.u32().ok_or_else(bad)?);
-            let input = r.bytes().ok_or_else(bad)?.to_vec();
-            let replay = r.bytes().ok_or_else(bad)?.to_vec();
-            let replies = Arc::new(Mutex::new(Vec::new()));
-            let sink = replies.clone();
-            let callbacks = Callbacks {
-                on_pty_write: Some(Box::new(move |bytes: &[u8]| {
-                    sink.lock().expect("reply sink").extend_from_slice(bytes);
-                })),
-                ..Callbacks::default()
-            };
-            let mut vt = Terminal::new(cols, rows, SCROLLBACK_BYTES, callbacks)
-                .map_err(|e| io::Error::other(format!("terminal: {e}")))?;
-            vt.vt_write(&replay);
-            // Restoring state is not program output: drop any reply it made.
-            replies.lock().expect("reply sink").clear();
+        let parsed = parse_state(state)?;
+        self.next_term = parsed.next_term;
+        for r in parsed.terms {
+            let (t, pid, master, open, exited) =
+                (r.id, r.pid, r.master, r.pty_open, r.exit.is_some());
             set_nonblock_cloexec(master)?;
             self.terms.insert(
                 t,
                 Term {
                     pid,
                     master,
-                    vt,
-                    cols,
-                    rows,
+                    vt: r.vt,
+                    cols: r.cols,
+                    rows: r.rows,
                     pending: Vec::new(),
-                    replies,
-                    input: input.into(),
+                    replies: r.replies,
+                    input: r.input.into(),
                     input_armed: false,
                     attached: Vec::new(),
                     waiters: Vec::new(),
-                    exit: (*exited != 0).then_some(code),
-                    pty_open: *open != 0,
-                    bytes_in: lo | (hi << 32),
+                    exit: r.exit,
+                    pty_open: open,
+                    bytes_in: r.bytes_in,
                 },
             );
-            if *open != 0 {
+            if open {
                 self.kev(
                     master as usize,
                     libc::EVFILT_READ,
@@ -742,24 +754,35 @@ impl Server {
                     KIND_PTY | u64::from(t),
                 )?;
             }
-            if *exited == 0
-                && let Err(e) = self.kev(
-                    pid as usize,
-                    libc::EVFILT_PROC,
-                    libc::EV_ADD | libc::EV_ONESHOT,
-                    libc::NOTE_EXIT,
-                    KIND_PROC | u64::from(t),
-                )
-            {
-                if e.raw_os_error() == Some(libc::ESRCH) {
-                    self.child_exited(t, pid);
-                } else {
-                    return Err(e);
-                }
+            if !exited {
+                self.watch_child(t, pid)?;
             }
             self.flush_input(t);
         }
+        // Children of killed terminals: terminal id 0 never exists, so the
+        // exit event only reaps them.
+        for pid in parsed.orphans {
+            self.orphans.push(pid);
+            self.watch_child(0, pid)?;
+        }
         Ok(())
+    }
+
+    /// Watches `pid` for exit; reaps it at once if it already exited.
+    fn watch_child(&mut self, t: u32, pid: libc::pid_t) -> io::Result<()> {
+        match self.kev(
+            pid as usize,
+            libc::EVFILT_PROC,
+            libc::EV_ADD | libc::EV_ONESHOT,
+            libc::NOTE_EXIT,
+            KIND_PROC | u64::from(t),
+        ) {
+            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => {
+                self.child_exited(t, pid);
+                Ok(())
+            }
+            other => other,
+        }
     }
 
     fn create(&mut self, payload: &[u8]) -> io::Result<u32> {
@@ -971,6 +994,7 @@ impl Server {
         };
         // A killed terminal is gone already; the wait above reaped its child.
         if !self.terms.contains_key(&t) {
+            self.orphans.retain(|p| *p != pid);
             return;
         }
         // Output written before exit is still in the PTY: read all of it, so
@@ -1011,10 +1035,96 @@ fn flush_parse(term: &mut Term) {
     }
 }
 
+const STATE_MAGIC: &[u8] = b"MUX2S2";
+
+struct RestoredTerm {
+    id: u32,
+    pid: libc::pid_t,
+    master: RawFd,
+    cols: u16,
+    rows: u16,
+    exit: Option<i32>,
+    pty_open: bool,
+    bytes_in: u64,
+    input: Vec<u8>,
+    vt: Terminal,
+    replies: Arc<Mutex<Vec<u8>>>,
+}
+
+struct ParsedState {
+    next_term: u32,
+    terms: Vec<RestoredTerm>,
+    orphans: Vec<libc::pid_t>,
+}
+
+/// Parses an upgrade state file and rebuilds every terminal from its
+/// replay. Touches no descriptor, so `--verify-state` can run it in a dry
+/// run before the old server commits to the exec.
+fn parse_state(state: &[u8]) -> io::Result<ParsedState> {
+    let bad = || io::Error::new(io::ErrorKind::InvalidData, "bad upgrade state");
+    let rest = state.strip_prefix(STATE_MAGIC).ok_or_else(bad)?;
+    let mut r = Reader(rest);
+    let next_term = r.u32().ok_or_else(bad)?;
+    let _listen = r.u32().ok_or_else(bad)?; // adopted by main
+    let count = r.u32().ok_or_else(bad)?;
+    let mut terms = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let id = r.u32().ok_or_else(bad)?;
+        let pid = r.u32().ok_or_else(bad)? as libc::pid_t;
+        let master = r.u32().ok_or_else(bad)? as RawFd;
+        let cols = r.u16().ok_or_else(bad)?;
+        let rows = r.u16().ok_or_else(bad)?;
+        let (exited, rest) = r.0.split_first().ok_or_else(bad)?;
+        r.0 = rest;
+        let code = r.u32().ok_or_else(bad)? as i32;
+        let (open, rest) = r.0.split_first().ok_or_else(bad)?;
+        r.0 = rest;
+        let lo = u64::from(r.u32().ok_or_else(bad)?);
+        let hi = u64::from(r.u32().ok_or_else(bad)?);
+        let input = r.bytes().ok_or_else(bad)?.to_vec();
+        let replay = r.bytes().ok_or_else(bad)?;
+        let replies = Arc::new(Mutex::new(Vec::new()));
+        let sink = replies.clone();
+        let callbacks = Callbacks {
+            on_pty_write: Some(Box::new(move |bytes: &[u8]| {
+                sink.lock().expect("reply sink").extend_from_slice(bytes);
+            })),
+            ..Callbacks::default()
+        };
+        let mut vt = Terminal::new(cols, rows, SCROLLBACK_BYTES, callbacks)
+            .map_err(|e| io::Error::other(format!("terminal: {e}")))?;
+        vt.vt_write(replay);
+        // Restoring state is not program output: drop any reply it made.
+        replies.lock().expect("reply sink").clear();
+        terms.push(RestoredTerm {
+            id,
+            pid,
+            master,
+            cols,
+            rows,
+            exit: (*exited != 0).then_some(code),
+            pty_open: *open != 0,
+            bytes_in: lo | (hi << 32),
+            input,
+            vt,
+            replies,
+        });
+    }
+    let orphan_count = r.u32().ok_or_else(bad)?;
+    let mut orphans = Vec::with_capacity(orphan_count as usize);
+    for _ in 0..orphan_count {
+        orphans.push(r.u32().ok_or_else(bad)? as libc::pid_t);
+    }
+    if !r.0.is_empty() {
+        return Err(bad());
+    }
+    Ok(ParsedState { next_term, terms, orphans })
+}
+
 /// Writes all of `data` to a socket, waiting for room. Only used right
 /// before exec, when nothing else needs the loop.
-fn write_all_blocking(fd: RawFd, mut data: &[u8]) {
-    while !data.is_empty() {
+fn write_all_blocking(fd: RawFd, mut data: &[u8], deadline: std::time::Instant) {
+    while !data.is_empty() && std::time::Instant::now() < deadline {
         // SAFETY: data is a valid slice.
         let n = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
         if n > 0 {
@@ -1022,7 +1132,7 @@ fn write_all_blocking(fd: RawFd, mut data: &[u8]) {
         } else if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
             let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
             // SAFETY: one valid pollfd.
-            unsafe { libc::poll(&mut pfd, 1, 1000) };
+            unsafe { libc::poll(&mut pfd, 1, 100) };
         } else {
             return;
         }
@@ -1085,26 +1195,40 @@ fn spawn_pty(
     let rc = unsafe {
         let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
         let mut fa: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
-        libc::posix_spawnattr_init(&mut attr);
-        libc::posix_spawn_file_actions_init(&mut fa);
+        let mut rc = libc::posix_spawnattr_init(&mut attr);
+        if rc != 0 {
+            return Err(close_master(io::Error::from_raw_os_error(rc)));
+        }
+        rc = libc::posix_spawn_file_actions_init(&mut fa);
+        if rc != 0 {
+            libc::posix_spawnattr_destroy(&mut attr);
+            return Err(close_master(io::Error::from_raw_os_error(rc)));
+        }
         let mut all: libc::sigset_t = 0;
         libc::sigfillset(&mut all);
         let mut none: libc::sigset_t = 0;
         libc::sigemptyset(&mut none);
-        libc::posix_spawnattr_setsigdefault(&mut attr, &all);
-        libc::posix_spawnattr_setsigmask(&mut attr, &none);
         let flags = POSIX_SPAWN_SETSID
             | libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
             | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
             | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
-        libc::posix_spawnattr_setflags(&mut attr, flags);
-        libc::posix_spawn_file_actions_addopen(&mut fa, 0, name.as_ptr(), libc::O_RDWR, 0);
-        libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 1);
-        libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 2);
-        if let Some(dir) = cwd {
-            posix_spawn_file_actions_addchdir_np(&mut fa, dir.as_ptr());
+        // The first failing setup call wins; nothing spawns half-configured.
+        for step in [
+            libc::posix_spawnattr_setsigdefault(&mut attr, &all),
+            libc::posix_spawnattr_setsigmask(&mut attr, &none),
+            libc::posix_spawnattr_setflags(&mut attr, flags),
+            libc::posix_spawn_file_actions_addopen(&mut fa, 0, name.as_ptr(), libc::O_RDWR, 0),
+            libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 1),
+            libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 2),
+            cwd.map_or(0, |dir| posix_spawn_file_actions_addchdir_np(&mut fa, dir.as_ptr())),
+        ] {
+            if rc == 0 {
+                rc = step;
+            }
         }
-        let rc = libc::posix_spawnp(&mut pid, ptrs[0], &fa, &attr, ptrs.as_ptr(), environ_ptr());
+        if rc == 0 {
+            rc = libc::posix_spawnp(&mut pid, ptrs[0], &fa, &attr, ptrs.as_ptr(), environ_ptr());
+        }
         libc::posix_spawn_file_actions_destroy(&mut fa);
         libc::posix_spawnattr_destroy(&mut attr);
         rc
@@ -1189,6 +1313,15 @@ pub fn main() {
         }
     }
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if args.get(1).map(|a| a.as_bytes()) == Some(b"--verify-state") {
+        // Dry run for an upgrade: read the state the old server wrote and
+        // rebuild every terminal, touching no descriptor.
+        let ok = args
+            .get(2)
+            .and_then(|p| std::fs::read(p).ok())
+            .is_some_and(|st| parse_state(&st).is_ok());
+        std::process::exit(if ok { 0 } else { 1 });
+    }
     let resume = (args.get(1).map(|a| a.as_bytes()) == Some(b"--resume"))
         .then(|| args.get(2).cloned())
         .flatten();
@@ -1202,7 +1335,7 @@ pub fn main() {
     });
     let listen = match &resume_state {
         // The listening socket survived the exec; its number is in the state.
-        Some(state) if state.len() >= 14 && state.starts_with(b"MUX2S1") => {
+        Some(state) if state.len() >= 14 && state.starts_with(STATE_MAGIC) => {
             let fd = RawFd::from_le_bytes(state[10..14].try_into().expect("4 bytes"));
             set_nonblock_cloexec(fd).unwrap_or_else(|e| {
                 eprintln!("mux2d: inherited listener: {e}");
@@ -1237,6 +1370,7 @@ pub fn main() {
         shutdown: false,
         parse_batch: tunable("MUX2_PARSE_BATCH", PARSE_BATCH),
         read_spins: tunable("MUX2_READ_SPINS", READ_SPINS as usize) as u32,
+        orphans: Vec::new(),
     };
     server
         .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)

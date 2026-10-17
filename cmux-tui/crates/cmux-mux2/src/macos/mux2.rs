@@ -80,6 +80,29 @@ fn call(s: &mut UnixStream, kind: u8, payload: &[u8]) -> Vec<u8> {
     }
 }
 
+/// Waits for terminal `t` to exit and returns its status. An upgrade closes
+/// every connection while terminals live on, so a closed connection means
+/// ask again (terminal ids survive the upgrade).
+fn wait_exit(t: u32) -> i32 {
+    for _ in 0..100 {
+        let mut s = connect();
+        if proto::write_frame(&mut s, proto::WAIT, &idp(t)).is_err() {
+            continue;
+        }
+        loop {
+            match proto::read_frame(&mut s) {
+                Ok((proto::EXIT, body)) => {
+                    return i32::from_le_bytes(body[..4].try_into().unwrap_or([0; 4]));
+                }
+                Ok((proto::ERR, body)) => die(String::from_utf8_lossy(&body)),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    }
+    die("server kept closing the connection")
+}
+
 fn id_arg(arg: Option<&String>) -> u32 {
     arg.and_then(|a| a.parse().ok()).unwrap_or_else(|| die("expected a terminal id"))
 }
@@ -317,8 +340,7 @@ pub fn main() {
         }
         "run" => {
             let t = create_from_args(&mut s, &args[1..]);
-            let status = call(&mut s, proto::WAIT, &idp(t));
-            std::process::exit(i32::from_le_bytes(status[..4].try_into().unwrap_or([0; 4])));
+            std::process::exit(wait_exit(t));
         }
         "ls" => {
             let _ = stdout.write_all(&call(&mut s, proto::LIST, &[]));
@@ -356,8 +378,7 @@ pub fn main() {
             call(&mut s, proto::RESIZE, &w);
         }
         "wait" => {
-            let status = call(&mut s, proto::WAIT, &idp(id_arg(args.get(1))));
-            let code = i32::from_le_bytes(status[..4].try_into().unwrap_or([0; 4]));
+            let code = wait_exit(id_arg(args.get(1)));
             let _ = writeln!(stdout, "{code}");
         }
         "kill" => {

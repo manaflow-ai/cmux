@@ -140,6 +140,17 @@ its CPU use grows tenfold. mux2 stays flat on its one thread. The next
 lever is sharding terminals across one event loop per core (each terminal
 stays on one thread, so its parse order is unchanged).
 
+The kernel bounds parallel PTY output: N raw `script -q /dev/null cat`
+pipelines with no multiplexer move 272 MB/s (N=1), 347 MB/s (N=4) and
+155 MB/s (N=8) in aggregate on cmux20. mux2's 367 MB/s at N=8 is at that
+bound for plain text, so sharding terminals across cores can only help
+parse-bound (SGR) floods.
+
+Open: an upgrade keeps everything libghostty's replay carries (screen,
+scrollback, modes, title, pwd, colors, mouse format) but not the wrapper's
+prompt-semantic tracker state (which rows are prompt or input, saved
+alternate-screen modes); cmux-tui's own replays share this limit.
+
 Open: SGR throughput without a viewer is parse-bound on the one server
 thread (Rex parses the same bytes in 1.18 s of CPU, mux2 in 1.57 s);
 parsing busy terminals off the read thread can reach about 278 MB/s.
