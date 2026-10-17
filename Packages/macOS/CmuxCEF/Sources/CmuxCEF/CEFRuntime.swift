@@ -99,7 +99,7 @@ public final class CEFRuntime {
     private var shutdownSequence: CEFShutdownSequence?
     private var shutdownWaiter: CheckedContinuation<Void, Never>?
     private var shutdownDeadline: Task<Void, Never>?
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
 
     init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
          storage: CEFProfileStorage = .forApplication(bundleIdentifier: Bundle.main.bundleIdentifier),

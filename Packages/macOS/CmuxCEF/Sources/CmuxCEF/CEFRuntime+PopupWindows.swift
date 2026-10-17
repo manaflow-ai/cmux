@@ -28,11 +28,24 @@ extension CEFRuntime {
         Task { @MainActor [weak self] in self?.adoptPopupWindow(window: window, browser: browser) }
     }
 
+    /// How long a tab without a known opener waits for its popup window's
+    /// CMUX_POPUP_WINDOW_CREATED. The fork reports the window turns after the
+    /// tab's AFTER_CREATED (it reads the id chrome.windows returns once the
+    /// window is set up), so the next turn is too early.
+    static let orphanPopupWindowGrace: Duration = .milliseconds(1500)
+
     /// A tab created without a known opener while popup windows are on: the
-    /// tab of a popup window is adopted, any other one closes as before.
+    /// tab of a popup window is adopted as soon as its window is reported;
+    /// any other one closes as before once the grace period ends.
     func deferOrphan(_ id: Int32, created: CEFCreatedBy) {
         deferredOrphans.insert(id)
-        Task { @MainActor [weak self] in self?.resolveOrphan(id, created: created) }
+        notePopupWindow("orphan browser=\(id) waits")
+        let clock = clock
+        Task { @MainActor [weak self] in
+            // Bounded wait for the fork's window event (an injected clock, not a sync point).
+            do { try await clock.sleep(for: Self.orphanPopupWindowGrace) } catch { return }
+            self?.resolveOrphan(id, created: created)
+        }
     }
 
     func resolveOrphan(_ id: Int32, created: CEFCreatedBy) {
