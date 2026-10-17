@@ -126,8 +126,8 @@ struct CEFExtensionsTests {
         #expect(!calls.log.contains { $0.hasPrefix("hide") }, "no popup open: nothing to close")
         #expect(page.run("p", anchorX: 0, width: 22))
         #expect(page.openPopup == "p")
-        // Another workspace or tab shows: Chrome closes a popup that loses focus,
-        // and a popup left open in a hidden page blocks the action elsewhere.
+        // Another workspace or tab shows: Chrome closes a popup that loses
+        // focus, so it must not reappear, stale, when the page returns.
         page.pageLeftScreen()
         #expect(calls.log.contains("hide 4 p"))
         #expect(page.openPopup == nil)

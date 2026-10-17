@@ -139,8 +139,7 @@ public final class CEFExtensionPageSupport: CEFExtensionTab, BrowserExtensionHos
 
     /// The page left the screen (another tab or workspace shows, or it left
     /// its window): its action popup closes, as Chrome closes a popup that
-    /// loses focus. A popup left open on a hidden page also keeps the action
-    /// from opening on another page.
+    /// loses focus, instead of showing again, stale, when the page returns.
     public func pageLeftScreen() {
         hidePopup()
     }
