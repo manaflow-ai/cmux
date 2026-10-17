@@ -226,7 +226,10 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  --acpmux-row-gap: 4px;
+  /* The model and effort buttons need a 7 px layout gap to draw the same 19 px optical gap as
+     the trailing controls (their 6 px text insets account for the difference). Actions keep the
+     4 px box gap because their icon bearings already add those 3 px visually. */
+  --acpmux-row-gap: 7px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
@@ -387,7 +390,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: var(--acpmux-row-gap);
+  gap: 4px;
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -477,7 +480,12 @@
 }
 .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
-  outline-offset: 2px;
+  outline-offset: 0;
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+    outline-offset: 2px;
+  }
 }
 /* Hover is ink-only, but a selected/open control must keep its state wash while the pointer is
    over it. */
@@ -517,6 +525,7 @@
 .acpmux-composer-bar > :not(.acpmux-chips),
 .acpmux-composer-bar .acpmux-chips > * { flex: none; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+.acpmux-composer-bar[data-fit="icons"] .acpmux-chips > .acpmux-effort { min-width: 49px; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
