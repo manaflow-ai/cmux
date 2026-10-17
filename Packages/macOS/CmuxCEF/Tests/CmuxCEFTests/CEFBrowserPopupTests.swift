@@ -4,6 +4,22 @@ import Testing
 
 @Suite
 struct CEFBrowserPopupTests {
+    /// `browser click` and `browser eval` run through `Runtime.evaluate`.
+    /// Without a user gesture Chromium's popup blocker refused the click's
+    /// `window.open` (it returned null and no tab opened); WebKit runs the
+    /// app's scripts as a user gesture (`evaluateJavaScript`).
+    @Test
+    func appScriptsRunAsAUserGestureSoTheyCanOpenPopups() throws {
+        let params = CEFBrowser.evaluateParams("document.querySelector('#pop').click()")
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: Data(params.utf8)) as? [String: Any]
+        )
+        #expect(object["userGesture"] as? Bool == true)
+        #expect(object["expression"] as? String == "document.querySelector('#pop').click()")
+        #expect(object["returnByValue"] as? Bool == true)
+        #expect(object["awaitPromise"] as? Bool == true)
+    }
+
     @MainActor @Test
     func createdPopupTargetURLSeedsTheAdoptedBrowserState() throws {
         let runtime = CEFRuntime(layout: nil)
