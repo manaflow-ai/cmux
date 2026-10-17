@@ -132,6 +132,21 @@
     )
     0 0 / 12px 12px;
 }
+.cv-user__image-placeholder {
+  display: block;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+  opacity: 0.55;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
 .cv-user__context {
