@@ -90,3 +90,21 @@ The baseline aggregate had 9 missed frames during ticking scroll; the tagged aft
 One repetition still spiked to 30 missed frames, so variance remains. Receipts are
 `artifacts/perf-sidebar-20261018/summary-naming-default.json` and
 `artifacts/perf-sidebar-20261018/summary-naming-after.json`.
+
+## Scroll hot-path follow-up — 2026-10-18
+
+The next profile found a second avoidable scan: `SidebarView.clipBoundsChanged` refreshed every
+window hover target on each list bounds notification. The list already reconciles moving row hover
+in `realizeVisibleRows`, so the global refresh was removed from the scroll callback. The tagged
+fleet build is job `34479e838483fbb78598cdda`, tag `cmux-scroll-perf-20261018-v2`, head
+`e14dec174c0c5e9486b9280911081f0e1e2b10ef`, artifact SHA-256
+`9bb7ad40c49856cfae7c936d3c6b89fa04da4b657c1f7ba53e3c43c50555aace`.
+
+After the ticking rows settled, a direct 120-event trackpad pass recorded 451 display frames,
+zero missed frames, zero over-frame updates, zero list reloads and zero structural rebuilds. The
+scroll RPC was 3.73 ms p50 / 21.28 ms p95 / 42.50 ms max; the counters recorded 55 realization
+passes and six row configures. A nine-second Time Profiler capture showed 220 main-thread samples,
+no busy run over 30 ms, and no sidebar Swift frame in the top stack; the remaining samples were
+Core Animation display-link work and the synthetic debug transport. The first run overlapped row
+startup and was discarded (three rebuilds and a 3.5 s frame), so it is not part of the receipt.
+The raw profile is `artifacts/perf-sidebar-20261018/traces/manual-scroll-time-v2-correct.trace`.
