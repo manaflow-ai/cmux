@@ -5,6 +5,13 @@ import CmuxNextCompat
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {
+    @Test func hangAssertionsAreOptInForDogfood() {
+        #expect(MainThreadWatchdog.Configuration.defaultHangAssertThreshold(environment: [:], isDebugBuild: true) == nil)
+        #expect(MainThreadWatchdog.Configuration.defaultHangAssertThreshold(environment: ["CMUX_NEXT_ASSERT_HANGS": "1"], isDebugBuild: true) == .seconds(10))
+        #expect(MainThreadWatchdog.Configuration.defaultHangAssertThreshold(environment: ["CMUX_NEXT_ASSERT_HANGS": "true"], isDebugBuild: true) == .seconds(10))
+        #expect(MainThreadWatchdog.Configuration.defaultHangAssertThreshold(environment: ["CMUX_NEXT_ASSERT_HANGS": "1"], isDebugBuild: false) == nil)
+    }
+
     #if DEBUG
     /// The watchdog reads an injected clock that moves only inside the
     /// stall, and the stall ends only once the watchdog thread sampled it:
