@@ -12,6 +12,8 @@ struct CloudMachineCapabilityTests {
         #expect(machine.capabilities.ports)
         #expect(machine.capabilities.attachTransports == ["cmux-remote"])
         #expect(!machine.capabilities.desktop)
+        #expect(machine.capabilities.supports(.exec))
+        #expect(machine.capabilities.supportedOperations == [.exec, .ports])
     }
 
     @Test func olderCloudMachinePayloadsUseConservativeDefaults() throws {
@@ -19,5 +21,6 @@ struct CloudMachineCapabilityTests {
 
         #expect(!machine.capabilities.exec)
         #expect(machine.capabilities.attachTransports.isEmpty)
+        #expect(machine.capabilities.supportedOperations.isEmpty)
     }
 }
