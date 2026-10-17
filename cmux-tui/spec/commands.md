@@ -339,13 +339,17 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
 machine registry. It is distinct from the session's `registry_id`, the boot's
 `generation`, host names and client UI routes. Older daemons may omit it; clients
 must leave the machine owner unknown rather than derive an ID from other fields.
+`machine_platform` and `machine_capabilities` describe that owner using the same
+source as its native `machine.list` snapshot. Machine capabilities are separate
+from protocol features in `capabilities`. Older owners may omit the new fields;
+clients retain unknown platform and an empty capability list.
 The conversations-only remote `identify` remains restricted to `app`, `protocol`
 and `capabilities`.
 
@@ -8959,7 +8963,14 @@ is read-only: it never opens a connection, creates a session, supplies routing
 credentials or grants command execution. Remote session operations still require
 their own authenticated owner path; catalog membership never falls back to a local
 session. Without a publisher the existing local-only behavior is preserved.
-The app's event-driven publication adapter is a separate integration step.
+The app observes existing policy-admitted registry routes and publishes on its
+captured local connection. A new handshake starts a new lease; temporary source
+loss or restarting the observer preserves the sequence of a still-live lease.
+Removed or denied routes are withdrawn, and late acknowledgements from an old
+owner cannot become current. Platform and capabilities come only from each
+owner's handshake. Legacy owners remain unknown and never receive an
+unnegotiated publication. This transitional projection does not enroll or dial
+machines, and it is not the final shared machine registry.
 
 ## Agent CLI inventory
 

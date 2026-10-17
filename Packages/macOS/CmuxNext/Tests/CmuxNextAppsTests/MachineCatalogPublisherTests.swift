@@ -11,12 +11,6 @@ struct MachineCatalogPublisherTests {
     private let owner: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private let other: ResourceID = "machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-    @Observable @MainActor
-    private final class Registry {
-        var value: MachineCatalogSource?
-        init(_ value: MachineCatalogSource?) { self.value = value }
-    }
-
     private func record() -> MachineCatalogRecord {
         MachineCatalogRecord(id: other, name: "server", origin: .ssh, status: .running,
                              platform: .init(os: "linux", arch: "aarch64"), capabilities: ["terminal"])!
@@ -25,7 +19,7 @@ struct MachineCatalogPublisherTests {
     @Test func observedRoutesPublishAndRemovalWithdrawsWithoutPolling() async throws {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
-        let registry = Registry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
+        let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
         let publisher = MachineCatalogPublisher(source: { registry.value })
         defer { publisher.stop() }
         publisher.start()
@@ -44,7 +38,7 @@ struct MachineCatalogPublisherTests {
     @Test func handoffRepublishesUnchangedRecordsOnTheNewEpoch() async throws {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
-        let registry = Registry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
+        let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()]))
         let publisher = MachineCatalogPublisher(source: { registry.value })
         defer { publisher.stop() }
         publisher.start()
@@ -60,7 +54,7 @@ struct MachineCatalogPublisherTests {
     @Test func stopAndRestartDoNotReuseALiveLeasesSequence() async throws {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
-        let registry = Registry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: []))
+        let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: []))
         let publisher = MachineCatalogPublisher(source: { registry.value })
         defer { publisher.stop() }
         publisher.start()
@@ -76,7 +70,7 @@ struct MachineCatalogPublisherTests {
         let writer = CatalogTestWriter()
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [])
-        let registry = Registry(value)
+        let registry = CatalogTestRegistry(value)
         let publisher = MachineCatalogPublisher(source: { registry.value })
         defer { publisher.stop() }
         publisher.start()
@@ -98,7 +92,7 @@ struct MachineCatalogPublisherTests {
         let fresh = CatalogTestWriter()
         var oldEvents = old.attempts.makeAsyncIterator()
         var newEvents = fresh.attempts.makeAsyncIterator()
-        let registry = Registry(MachineCatalogSource(owner: owner, writer: old, epoch: 1, machines: []))
+        let registry = CatalogTestRegistry(MachineCatalogSource(owner: owner, writer: old, epoch: 1, machines: []))
         let publisher = MachineCatalogPublisher(source: { registry.value })
         defer { publisher.stop() }
         publisher.start()
@@ -133,7 +127,7 @@ struct MachineCatalogPublisherTests {
     }
 
     @Test func aRealCompetingPublisherRefusalRetriesTheIdenticalSnapshot() async throws {
-        let error = DaemonError.command("machine-catalog-publish", "taken", "machine_catalog.taken", nil, nil)
+        let error = DaemonError.command(cmd: "machine-catalog-publish", message: "taken", code: "machine_catalog.taken", details: nil, retryable: nil)
         let writer = CatalogTestWriter(failures: [error, nil])
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [record()])
@@ -149,7 +143,7 @@ struct MachineCatalogPublisherTests {
 
     @Test(arguments: [false, true])
     func permanentOwnerAndCapabilityRefusalsDoNotRetry(orMismatch: Bool) async throws {
-        let error: DaemonError = orMismatch ? .command("machine-catalog-publish", "wrong owner", "machine_catalog.owner_mismatch", nil, nil) : .missingCapabilities(["machine-catalog-publish-v1"])
+        let error: DaemonError = orMismatch ? .command(cmd: "machine-catalog-publish", message: "wrong owner", code: "machine_catalog.owner_mismatch", details: nil, retryable: nil) : .missingCapabilities(["machine-catalog-publish-v1"])
         let writer = CatalogTestWriter(failures: [error])
         var events = writer.attempts.makeAsyncIterator()
         let value = MachineCatalogSource(owner: owner, writer: writer, epoch: 1, machines: [])

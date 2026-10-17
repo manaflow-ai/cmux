@@ -37,9 +37,9 @@ impl LocalResourceMachineService {
                 Selector::Current => false,
             })
             .collect();
-        match matches.len() {
-            0 => Err(ResourceError::not_found("machine", raw)),
-            1 => Ok(matches.into_iter().next().expect("one matching record")),
+        match matches.as_slice() {
+            [] => Err(ResourceError::not_found("machine", raw)),
+            [record] => Ok(record.clone()),
             _ => Err(ResourceError::ambiguous(
                 "machine",
                 raw,

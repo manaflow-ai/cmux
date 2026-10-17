@@ -104,14 +104,13 @@ impl Publication {
     fn snapshots(&self) -> Vec<Value> {
         self.machines
             .iter()
-            .map(|machine| {
-                let mut value =
-                    serde_json::to_value(machine).expect("bounded catalog values serialize");
+            .filter_map(|machine| {
+                let mut value = serde_json::to_value(machine).ok()?;
                 value["connectable"] =
                     json!(matches!(machine.status, Status::Running | Status::Connecting));
                 value["deleted"] = json!(false);
                 value["recoverable"] = json!(false);
-                value
+                Some(value)
             })
             .collect()
     }
@@ -140,8 +139,9 @@ impl ClientRegistry {
         {
             return Err("machine_catalog.taken");
         }
-        let record =
-            state.clients.get_mut(&client).expect("checked while holding the registry lock");
+        let Some(record) = state.clients.get_mut(&client) else {
+            return Err("machine_catalog.not_trusted");
+        };
         if let Some(previous) = &record.machine_catalog {
             if publication == *previous {
                 return Ok(json!({"sequence":publication.sequence,"replayed":true}));
