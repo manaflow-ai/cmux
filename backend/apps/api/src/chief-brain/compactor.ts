@@ -127,14 +127,16 @@ export const RETRY_BASE_MS = 2_000
 export const RETRY_CAP_MS = 5 * 60_000
 
 /** A provider's rate limit (Workers AI "rate limiting ... rate reached", HTTP 429, capacity errors). */
-export const isRateLimit = (msg: string): boolean => /\b429\b|rate[ -]?limit|too many requests|capacity temporarily exceeded|\b3040\b/i.test(msg)
+export const isRateLimit = (msg: string): boolean => /\b429\b|rate[ -]?limit|too many requests|capacity temporarily exceeded|\b3040:/i.test(msg)
 
 /** A Retry-After the error names (seconds, or "retry after N s"), in ms; undefined when it names none. */
 export const retryAfterMs = (msg: string): number | undefined => {
-  const m = /retry[- ]after[^0-9]{0,4}(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec|seconds?)?/i.exec(msg)
+  const m = /retry[- ]after[^0-9]{0,4}(\d+(?:\.\d+)?)\s*(ms|milliseconds?|min(?:utes?)?|s|sec|seconds?)?/i.exec(msg)
   if (!m) return undefined
   const n = Number(m[1])
-  return Number.isFinite(n) ? (m[2]?.startsWith("m") ? n : n * 1000) : undefined
+  if (!Number.isFinite(n)) return undefined
+  const unit = (m[2] ?? "s").toLowerCase()
+  return unit.startsWith("min") ? n * 60_000 : unit === "ms" || unit.startsWith("milli") ? n : n * 1000
 }
 
 /**
@@ -165,6 +167,8 @@ export class Compactor {
   /** After a rate limit: no new node starts before this time. */
   private coolUntil = 0;
   private coolTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Rate limits in a row, for the whole compactor (a success resets it): the shared wait grows with it. */
+  private rateTries = 0;
 
   constructor(private readonly host: PumpHost) {}
 
@@ -212,6 +216,7 @@ export class Compactor {
         () => {
           this.failing.delete(key);
           this.tries.delete(key);
+          this.rateTries = 0;
           this.running.delete(key);
           this.host.onBuilt(l, i);
           this.pump();
@@ -225,7 +230,11 @@ export class Compactor {
           const n = (this.tries.get(key) ?? 0) + 1;
           this.tries.set(key, n);
           const wait = backoffMs(n, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
-          if (isRateLimit(msg) || retryAfterMs(msg) !== undefined) this.coolUntil = Math.max(this.coolUntil, Date.now() + wait);
+          if (isRateLimit(msg) || retryAfterMs(msg) !== undefined) {
+            this.rateTries++;
+            const shared = backoffMs(this.rateTries, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
+            this.coolUntil = Math.max(this.coolUntil, Date.now() + Math.max(wait, shared));
+          }
           void this.host.onRetryWait(Date.now() + wait);
           // The node stays busy during the wait, as the spec's pump does.
           setTimeout(() => {

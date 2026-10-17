@@ -129,6 +129,8 @@ export class Memory {
     }
     const saved = this.sql.exec<{ json: string }>(`SELECT json FROM oc_checkpoint WHERE id = 1`).toArray()[0]?.json;
     if (saved) {
+      // A bad checkpoint or a failed read never stops the object: it folds instead (logged, no text).
+      try {
       const low = ((JSON.parse(saved) as { low?: unknown }).low ?? []) as number[];
       const frontier: Array<[number, number, number]> = [];
       const top = Number(this.sql.exec<{ n: number | null }>(`SELECT MAX(l) AS n FROM oc_node`).one().n ?? -1);
@@ -138,7 +140,12 @@ export class Memory {
       const resumed = OptChat.resume(saved, t, JSON.stringify(frontier), this.budget, this.store);
       if (resumed) {
         this.loaded = "resumed";
+        // Messages logged after the checkpoint were appended as live: save where it stands now.
+        if (Number((JSON.parse(saved) as { t?: unknown }).t ?? t) < t) this.saveCheckpoint(resumed);
         return resumed;
+      }
+      } catch (e) {
+        console.warn(JSON.stringify({ msg: "chief_brain.memory_resume_failed", error: String((e as Error)?.message ?? e).slice(0, 200) }));
       }
     }
     const built = this.sql
@@ -168,6 +175,9 @@ export class Memory {
 
   /** Appends one message to the log, verbatim, and to the view. */
   append(kind: Kind, text: string, date = new Date()): LogEntry {
+    // The core can be ahead of the log after a rolled-back transaction: fold back to the store first.
+    const stored = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n);
+    if (stored !== this.core.len()) this.reload();
     const i = this.core.len();
     const size = bytes(`${kind}: ${text}`);
     const iso = date.toISOString();

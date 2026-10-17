@@ -45,7 +45,12 @@ export interface FakeCall {
 export const fakeCalls: FakeCall[] = [];
 /** When each compactor call came, with its marker (RATE_LIMIT_COMPACT, RETRY_AFTER_COMPACT or ""). */
 export const compactTimes: Array<{ marker: string; at: number }> = ((globalThis as Record<string, unknown>).__fakeCompactTimes ??= []) as Array<{ marker: string; at: number }>;
-const markerFails = new Map<string, number>();
+const markerFails: Map<string, number> = ((globalThis as Record<string, unknown>).__fakeMarkerFails ??= new Map<string, number>()) as Map<string, number>;
+/** Forgets the scripted compactor failures and call times (each test starts fresh). */
+export function resetFakeCompacts(): void {
+  markerFails.clear();
+  compactTimes.length = 0;
+}
 let failNext = 0;
 
 /** The next `n` fake compactor calls fail (to test compactor retries). */

@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it } from "vitest"
 import { Memory } from "../src/chief-brain/memory.ts"
-import { compactTimes } from "../src/chief-brain/fake.ts"
+import { compactTimes, resetFakeCompacts } from "../src/chief-brain/fake.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -32,7 +32,7 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 }
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
-afterEach(() => void delete testEnv.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS)
+afterEach(() => [delete testEnv.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS, resetFakeCompacts()])
 
 /** A Chief with its brain on, and a helper that sends one message and waits for the reply. */
 const chiefWith = async (sub: string) => {
@@ -71,8 +71,7 @@ describe("Cloud Chief memory under load", { timeout: 120_000 }, () => {
     const leaf = await runInDurableObject(brain as DurableObjectStub, async (_i, s) => JSON.stringify(s.storage.sql.exec(`SELECT m.i, m.size, n.l, substr(n.text, 1, 120) AS t FROM oc_message m LEFT JOIN oc_node n ON n.l = 0 AND n.i = m.i ORDER BY m.i`).toArray()))
     expect(done, `compactor calls seen: ${compactTimes.length} ${leaf}`).toBe(1)
     expect(at.length, `calls seen ${compactTimes.length} ${leaf}`).toBeGreaterThanOrEqual(5)
-    // 4 refused calls, then the one that built the node.
-    expect(at.length).toBeGreaterThanOrEqual(5)
+    // 4 refused calls, then the one that built the node (checked above).
     const gaps = at.slice(1, 5).map((t, k) => t - at[k]!)
     // Full jitter: each wait is in [0, 200 * 2^(n-1)] (plus scheduling slack), never the old fixed 10 s.
     gaps.forEach((g, k) => expect(g, JSON.stringify(gaps)).toBeLessThan(200 * 2 ** k + 1_500))
