@@ -160,7 +160,7 @@ extension TerminalController {
                 let status = try await v2MainAsync { ChiefService.shared.controlStatus() }
                 return .ok(Self.chiefPayload(status))
             case .conversations:
-                let rows = try await v2MainAsync { ChiefService.shared.controlConversations() }
+                let rows = try await ChiefService.shared.controlConversations()
                 return .ok(["conversations": rows.map { Self.chiefPayload($0) }])
             case .read(let conversation, let beforeSeq, let limit):
                 let owner = try await chiefOwner()

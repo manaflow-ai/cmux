@@ -158,12 +158,67 @@ extension ChiefService {
             defaultConversation: defaultConversationID.rawValue)
     }
 
-    /// `chief.conversations`: pinned first, then newest first (the Home list's order).
-    func controlConversations() -> [ChiefControlConversation] {
-        start()
-        return conversations.map { row in
-            ChiefControlConversation(id: row.id.rawValue, title: row.title, preview: row.preview, unread: row.unread,
-                                     pinned: row.isPinned, working: isWorking(row.id), updatedAt: row.timestamp)
+    /// `chief.conversations`: pinned first, then newest first (the Home list's
+    /// order). This waits for the owner rather than reading `HomeStore.rows`:
+    /// the store receives its first inbox event asynchronously after the owner
+    /// load, so the store projection can still be empty on a cold start.
+    func controlConversations() async throws -> [ChiefControlConversation] {
+        let owner = try await controlOwner()
+        let inbox = await owner.inbox()
+        var previews: [ConversationID: String] = [:]
+        var working = Set<ConversationID>()
+        for summary in inbox.conversations {
+            let messages = (try? await owner.snapshot(of: summary.id, tail: ChiefService.previewTail).messages)
+                ?? summary.lastMessage.map { [$0] }
+                ?? []
+            previews[summary.id] = Self.controlPreview(messages, me: inbox.me.id)
+            if await owner.isWorking(summary.id) { working.insert(summary.id) }
+        }
+        return Self.controlRows(from: inbox, previews: previews, working: working)
+    }
+
+    /// Converts an owner's inbox into the compact socket rows. Kept pure so a
+    /// cold-start response can be regression-tested without the app singleton.
+    nonisolated static func controlRows(
+        from inbox: InboxSnapshot,
+        previews: [ConversationID: String],
+        working: Set<ConversationID>
+    ) -> [ChiefControlConversation] {
+        inbox.conversations
+            .sorted { left, right in
+                switch (left.pinRank, right.pinRank) {
+                case let (l?, r?) where l != r: return l < r
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default:
+                    let leftDate = left.lastMessage?.createdAt ?? left.updatedAt
+                    let rightDate = right.lastMessage?.createdAt ?? right.updatedAt
+                    if leftDate != rightDate { return leftDate > rightDate }
+                    return left.id.rawValue < right.id.rawValue
+                }
+            }
+            .map { summary in
+                let title = summary.displayTitle(me: inbox.me.id)
+                return ChiefControlConversation(
+                    id: summary.id.rawValue,
+                    title: title.isEmpty ? ChiefStrings.chiefName : title,
+                    preview: previews[summary.id] ?? "",
+                    unread: summary.muted ? 0 : summary.unreadCount(me: inbox.me.id),
+                    pinned: summary.pinRank != nil,
+                    working: working.contains(summary.id),
+                    updatedAt: summary.lastMessage?.createdAt ?? summary.updatedAt
+                )
+            }
+    }
+
+    /// The human-readable line used by Chief Home for a compact list preview.
+    nonisolated static func controlPreview(_ messages: [Message], me: ParticipantID) -> String {
+        guard let line = ChiefListPreview(messages: messages, me: me).line else { return "" }
+        switch line {
+        case .needsApproval(let text), .needsAnswer(let text), .running(let text), .card(let text):
+            return text
+        case .message(let message):
+            return ChiefPreviewText.plain(message.parts.map(\.plainText).joined(separator: "\n"))
         }
     }
 
