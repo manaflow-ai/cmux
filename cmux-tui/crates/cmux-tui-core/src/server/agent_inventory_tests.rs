@@ -227,3 +227,78 @@ fn cmux_next_agent_inventory_refuses_legacy_or_non_cached_answers() {
         assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/health"]);
     }
 }
+
+#[test]
+fn cmux_next_agent_inventory_owner_matches_before_reading_the_cache() {
+    let owner = Owner::new(json!(["harnessInventory"]), snapshot());
+    let mux = owner.mux("inventory-fenced");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    let mut client = Client::connect(&mux, "inventory-fenced");
+    let reply = client.request(json!({
+        "cmd":"agent-inventory", "expected_machine_id":identity["machine_id"]
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["data"]["view"], "inventory");
+    assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/health"]);
+}
+
+#[test]
+fn cmux_next_agent_inventory_owner_change_is_refused_before_any_owner_call() {
+    let previous = Mux::new_for_test("previous-owner", crate::SurfaceOptions::default());
+    let selected = run(&previous, json!({"cmd":"identify"}))["machine_id"].clone();
+    let owner = Owner::new(json!(["harnessInventory"]), snapshot());
+    let mux = owner.mux("replacement-owner");
+    let mut client = Client::connect(&mux, "replacement-owner");
+    let reply = client.request(json!({
+        "cmd":"agent-inventory", "expected_machine_id":selected
+    }));
+    assert_code(&reply, "agent_inventory.owner_mismatch");
+    assert!(owner.methods().is_empty());
+    assert!(reply.get("data").is_none_or(Value::is_null));
+    assert!(!reply.to_string().contains(mux.machine_public_id.as_str()));
+    // Identity admission precedes even a check for a running acpmux.
+    mux.set_acpmux_socket(None);
+    assert_code(
+        &client.request(json!({"cmd":"agent-inventory", "expected_machine_id":selected})),
+        "agent_inventory.owner_mismatch",
+    );
+}
+
+#[test]
+fn cmux_next_agent_inventory_owner_rejects_malformed_fences_without_reading() {
+    let owner = Owner::new(json!(["harnessInventory"]), snapshot());
+    let mux = owner.mux("inventory-bad-fence");
+    let mut client = Client::connect(&mux, "inventory-bad-fence");
+    for value in [
+        Value::Null,
+        json!(1),
+        json!(true),
+        json!({}),
+        json!(""),
+        json!("local"),
+        json!("machine_wrong"),
+        json!("machine_00000000000000000000000000000000\n"),
+    ] {
+        assert_code(
+            &client.request(json!({"cmd":"agent-inventory", "expected_machine_id":value})),
+            "agent_inventory.bad_request",
+        );
+    }
+    assert!(owner.methods().is_empty());
+}
+
+#[test]
+fn cmux_next_agent_inventory_owner_support_is_negotiated_separately() {
+    let mux = Mux::new_for_test("inventory-fence-cap", crate::SurfaceOptions::default());
+    for socket in [None, Some(PathBuf::from("/not-running/acpmux.sock")), None] {
+        mux.set_acpmux_socket(socket.clone());
+        let identity = run(&mux, json!({"cmd":"identify"}));
+        assert_eq!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("agent-inventory-owner-v1")),
+            socket.is_some(),
+        );
+    }
+}
