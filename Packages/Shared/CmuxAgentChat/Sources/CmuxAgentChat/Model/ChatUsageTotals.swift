@@ -19,6 +19,23 @@ public struct ChatUsageTotals: Sendable, Equatable, Codable {
         case contextWindowTokens = "context_window_tokens"
         case rateLimit = "rate_limit"
     }
+
+    /// Decodes missing fields as an empty snapshot so an additive usage event
+    /// can be safely forwarded through a host that only knows the envelope.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            usage: try container.decodeIfPresent(ChatTokenUsage.self, forKey: .usage) ?? ChatTokenUsage(),
+            usageByModel: try container.decodeIfPresent([String: ChatTokenUsage].self, forKey: .usageByModel) ?? [:],
+            responses: try container.decodeIfPresent(Int.self, forKey: .responses) ?? 0,
+            duplicateReports: try container.decodeIfPresent(Int.self, forKey: .duplicateReports) ?? 0,
+            unidentifiedReports: try container.decodeIfPresent(Int.self, forKey: .unidentifiedReports) ?? 0,
+            cumulativeUsageIsAmbiguous: try container.decodeIfPresent(Bool.self, forKey: .cumulativeUsageIsAmbiguous) ?? false,
+            contextTokens: try container.decodeIfPresent(Int.self, forKey: .contextTokens),
+            contextWindowTokens: try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens),
+            rateLimit: try container.decodeIfPresent(ChatUsageRateLimit.self, forKey: .rateLimit)
+        )
+    }
     /// Usage summed over every distinct API response in the transcript.
     public var usage: ChatTokenUsage
 
