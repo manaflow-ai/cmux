@@ -186,7 +186,7 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(allowOnce.waitForExistence(timeout: 8))
         let localDevelopment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Local development")).firstMatch
         XCTAssertTrue(localDevelopment.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.otherElements["MobileAgentComposer"].exists)
+        XCTAssertTrue(app.textFields["Message your agent"].waitForExistence(timeout: 8))
 
         allowOnce.tap()
         XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
