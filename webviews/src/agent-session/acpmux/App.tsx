@@ -1515,6 +1515,10 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // Markers live on the mounted DOM rows, so a scroll that swaps a virtualized range must repaint
+  // them without bringing back the old every-render effect. The compact key changes only when the
+  // mounted ranges change; registry updates can replace a row renderer while preserving the range.
+  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -2015,7 +2019,7 @@ export function VirtualTranscript({
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
   };
-  useLayoutEffect(markTurns, [lastTurnId, rows]);
+  useLayoutEffect(markTurns, [lastTurnId, rows, mountedRangeKey, registry]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
