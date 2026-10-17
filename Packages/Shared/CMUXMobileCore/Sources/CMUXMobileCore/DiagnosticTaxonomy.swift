@@ -881,6 +881,22 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// how much of restore the dial overlapped.
     case storedMacReconnectStartedDuringAuthRestore = 667
 
+    // MARK: Reserved diagnostic tombstones
+    // These raw values were emitted by the removed Agent Feed UI. Keep the
+    // shipped discriminators stable for decoding older logs; no current
+    // producer emits them.
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedOpened = 668
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedClosed = 669
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedFilterChanged = 670
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedItemOpened = 671
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedReplySucceeded = 672
+    @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
+    case agentFeedReplyFailed = 673
 }
 
 /// The user's configured connection method, mirrored from the settings picker
