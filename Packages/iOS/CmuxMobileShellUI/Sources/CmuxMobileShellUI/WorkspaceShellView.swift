@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxConversationUI
 import Foundation
 import CmuxMobilePairedMac
 import CmuxMobileShell
@@ -228,6 +229,7 @@ struct WorkspaceShellView: View {
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
+    @State private var nativeConversationModel = ConversationModel()
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     /// One-time What's New notice: the unseen-page snapshot captured when the
     /// sheet presents, so remote list changes mid-presentation cannot mutate
@@ -424,6 +426,10 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     /// Primary destinations retain their own navigation across tab switches.
     /// Workspace tabs keep split navigation at regular widths.
+    private func nativeConversationView() -> some View {
+        NativeConversationShellView(shellStore: store, model: nativeConversationModel)
+    }
+
     private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
@@ -1020,7 +1026,7 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
-            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+            Text(L10n.string("mobile.tabs.feed", defaultValue: "Tasks"))
                 .tag(MobilePrimarySearchScope.feed)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)

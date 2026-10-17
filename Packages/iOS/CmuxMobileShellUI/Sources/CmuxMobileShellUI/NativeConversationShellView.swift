@@ -10,7 +10,7 @@ struct NativeConversationShellView: View {
     @State private var storageError: String?
 
     var body: some View {
-        ConversationRootView(model: model)
+        ConversationRootView(model: model, embedsNavigationStack: false)
             .safeAreaInset(edge: .bottom) {
                 if let storageError {
                     Text(storageError)
