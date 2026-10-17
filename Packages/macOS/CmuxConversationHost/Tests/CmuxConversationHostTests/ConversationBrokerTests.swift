@@ -40,7 +40,7 @@ import CmuxConversation
         await fixture.connection.emit(ConversationProviderEvent(kind: .turn, turnID: "new-turn", state: "running"))
         _ = try await waitForSnapshot(broker, sessionID: session.id) { $0.activeTurnID == "new-turn" }
         await fixture.connection.emit(ConversationProviderEvent(kind: .turn, turnID: "old-turn", state: "completed"))
-        let afterLateCompletion = try await waitForSnapshot(broker, sessionID: session.id) { $0.cursor >= 4 }
+        let afterLateCompletion = try await waitForSnapshot(broker, sessionID: session.id) { $0.cursor >= 7 }
         #expect(afterLateCompletion.activeTurnID == "new-turn")
     }
 
