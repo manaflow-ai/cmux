@@ -420,6 +420,16 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", scheme_if)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", scheme_if)
         self.assertIn("contains(github.event.pull_request.labels.*.name, 'dev-build')", scheme_if)
+        outer_guard = scheme_if.split(" && !(", 1)[0]
+        self.assertIn(
+            "github.base_ref == 'feat-cmux-next' && "
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            outer_guard,
+        )
+        self.assertIn(
+            "contains(github.event.pull_request.labels.*.name, 'dev-build')",
+            outer_guard,
+        )
 
     def test_web_bundle_cache_restore_downloads_the_output(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
