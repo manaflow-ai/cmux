@@ -303,7 +303,7 @@ import Testing
         let selected = try #require(restored.selectedWorkspace)
         #expect(!selected.isChiefHome)
         #expect(selected.id == restored.tabs.first(where: { !$0.isChiefHome })?.id)
-        #expect(restored.tabs.contains(where: \.isChiefHome))
+        #expect(restored.tabs.contains { $0.isChiefHome })
     }
 
     @Test func aHomeOnlyWindowGetsATerminalToOpenOn() throws {
