@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { runArtifacts, runAttempts, runEvents, runSecretLeases, runs } from "../../db/schema";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_ATTACH_TICKET_TTL_MS,
@@ -16,6 +16,7 @@ import {
   type RunStatus,
   type RunVariantRecipe,
 } from "./model";
+import { normalizeRunSpec, runSpecDigest, type RunSpec } from "./spec";
 
 export class RunIdempotencyConflictError extends Error {}
 export class RunNotFoundError extends Error {}
@@ -29,7 +30,14 @@ export class RunAttachTicketExpiredError extends Error {}
 export class RunAttachTicketReplayError extends Error {}
 export class RunAttachTargetUnavailableError extends Error {}
 
-export type RunSource = { readonly repository?: string; readonly ref?: string; readonly commit?: string; readonly archiveDigest?: string };
+export type RunSource = {
+  readonly repository?: string;
+  readonly ref?: string;
+  readonly commit?: string;
+  readonly archiveDigest?: string;
+  readonly setupManifestDigest?: string;
+  readonly imageDigest?: string;
+};
 export type RunSnapshot = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: (typeof runAttempts.$inferSelect)[];
@@ -46,6 +54,8 @@ export type CreateRunInput = {
   readonly provider?: string;
   readonly desiredAttempts: number;
   readonly variants?: readonly RunVariantRecipe[];
+  /** The normalized, immutable contract persisted with the run. */
+  readonly spec?: RunSpec;
 };
 
 export type RunAttachTarget = {
@@ -72,6 +82,22 @@ export function requestDigest(value: unknown): string {
   return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 }
 
+function defaultRunSpec(input: CreateRunInput, variants: readonly RunVariantRecipe[]): RunSpec {
+  return normalizeRunSpec({
+    schema: "cmux.run/v1",
+    operationId: input.idempotencyKey ?? requestDigest({ userId: input.userId, source: input.source, recipe: input.recipe }),
+    source: input.source,
+    intent: { digest: requestDigest({ source: input.source, recipe: input.recipe, variants }) },
+    recipe: { id: input.recipe, version: 1 },
+    variants: variants.map((variant) => ({ id: variant.id, label: variant.label, instructionDigest: requestDigest({ instruction: variant.instruction }) })),
+    workspace: { kind: "ephemeral" },
+    resources: { maxAttempts: variants.length, maxConcurrent: Math.min(2, variants.length) },
+    routing: { backend: "freestyle" },
+    capabilities: { secretRefs: [] },
+    policy: { mode: "fanout", humanApprovalRequired: true, evidenceKinds: ["screenshot", "recording", "patch"] },
+  });
+}
+
 export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
   if (!Number.isSafeInteger(input.desiredAttempts) || input.desiredAttempts < 1 || input.desiredAttempts > 32) {
     throw new Error("desiredAttempts must be between 1 and 32");
@@ -90,6 +116,11 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
     if (!variant.label.trim() || variant.label.length > 120 || !variant.instruction.trim() || variant.instruction.length > 8_192) throw new Error("variant label and instruction are invalid");
     ids.add(variant.id);
   }
+  const spec = input.spec ?? defaultRunSpec(input, variants);
+  if (spec.variants.length !== variants.length || spec.variants.some((variant, index) => variant.id !== variants[index]?.id)) {
+    throw new Error("spec variants must match run variants");
+  }
+  const specDigest = runSpecDigest(spec);
   const db = cloudDb();
   return db.transaction(async (tx) => {
     const values = {
@@ -98,6 +129,8 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
       idempotencyKey: input.idempotencyKey ?? null,
       requestDigest: input.requestDigest,
       source: input.source,
+      specDigest,
+      spec: spec as unknown as Record<string, unknown>,
       recipe: input.recipe,
       provider: input.provider ?? "cloud-vm",
       desiredAttempts: input.desiredAttempts,
@@ -109,7 +142,7 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
       inserted = !!run;
       if (!run) {
         run = (await tx.select().from(runs).where(and(eq(runs.userId, input.userId), eq(runs.idempotencyKey, input.idempotencyKey))).limit(1))[0];
-        if (run && run.requestDigest !== input.requestDigest) throw new RunIdempotencyConflictError("idempotency key was already used with a different request");
+        if (run && (run.requestDigest !== input.requestDigest || (run.specDigest && run.specDigest !== specDigest))) throw new RunIdempotencyConflictError("idempotency key was already used with a different request");
       }
     } else {
       run = (await tx.insert(runs).values(values).returning())[0];
@@ -127,11 +160,77 @@ export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
         sequence: 1,
         externalId: "run-created",
         kind: "run.created",
-        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts, variants },
+        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts, variants, specDigest },
       });
     }
     return readSnapshot(tx, run.id, input.userId);
   });
+}
+
+export type RunSecretLeaseGrant = {
+  readonly leaseId: string;
+  readonly secretRef: string;
+  /** Opaque capability; never persisted or included in events. */
+  readonly token: string;
+  readonly expiresAt: Date;
+};
+
+function secretLeaseHash(token: string): string {
+  return `sha256:${createHash("sha256").update(token, "utf8").digest("hex")}`;
+}
+
+/** Issue short-lived capabilities only for refs declared by the immutable RunSpec and owning team. */
+export async function issueRunSecretLeases(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly ownerTeamId: string;
+  readonly secretRefs: readonly string[];
+  readonly ttlMs?: number;
+}): Promise<RunSecretLeaseGrant[]> {
+  if (input.secretRefs.length > 16) throw new Error("a run may request at most 16 secret references");
+  const refs = [...new Set(input.secretRefs)];
+  for (const ref of refs) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(ref)) throw new Error("secret references must be bounded opaque identifiers");
+  }
+  const nowAt = now();
+  const ttlMs = Math.max(5_000, Math.min(input.ttlMs ?? 15 * 60_000, 60 * 60_000));
+  const expiresAt = new Date(nowAt.getTime() + ttlMs);
+  return cloudDb().transaction(async (tx) => {
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const run = (await tx.select({ id: runs.id, billingTeamId: runs.billingTeamId, spec: runs.spec }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+    const attempt = (await tx.select({ id: runAttempts.id, runId: runAttempts.runId }).from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
+    if (!run || !attempt || run.billingTeamId !== input.ownerTeamId) throw new RunNotFoundError("run not found");
+    const declared = run.spec && typeof run.spec === "object" && !Array.isArray(run.spec)
+      ? (run.spec.capabilities && typeof run.spec.capabilities === "object" && !Array.isArray(run.spec.capabilities) ? (run.spec.capabilities as { secretRefs?: unknown }).secretRefs : undefined)
+      : undefined;
+    const declaredRefs = new Set(Array.isArray(declared) ? declared.filter((value): value is string => typeof value === "string") : []);
+    if (refs.some((ref) => !declaredRefs.has(ref))) throw new Error("secret reference is not declared by the RunSpec");
+    if (!refs.length) return [];
+    await tx.update(runSecretLeases).set({ revokedAt: nowAt }).where(and(eq(runSecretLeases.runId, input.runId), eq(runSecretLeases.attemptId, input.attemptId), isNull(runSecretLeases.revokedAt)));
+    const grants = refs.map((secretRef) => {
+      const token = randomBytes(32).toString("base64url");
+      return { secretRef, token, leaseHash: secretLeaseHash(token) };
+    });
+    const rows = await tx.insert(runSecretLeases).values(grants.map((grant) => ({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      ownerTeamId: input.ownerTeamId,
+      secretRef: grant.secretRef,
+      leaseHash: grant.leaseHash,
+      expiresAt,
+    }))).returning({ id: runSecretLeases.id, secretRef: runSecretLeases.secretRef, expiresAt: runSecretLeases.expiresAt });
+    return rows.map((row, index) => ({ leaseId: row.id, secretRef: row.secretRef, token: grants[index]!.token, expiresAt: row.expiresAt }));
+  });
+}
+
+export async function revokeRunSecretLeases(input: { readonly runId: string; readonly attemptId: string; readonly ownerTeamId: string }): Promise<void> {
+  await cloudDb().update(runSecretLeases).set({ revokedAt: now() }).where(and(
+    eq(runSecretLeases.runId, input.runId),
+    eq(runSecretLeases.attemptId, input.attemptId),
+    eq(runSecretLeases.ownerTeamId, input.ownerTeamId),
+    isNull(runSecretLeases.revokedAt),
+  ));
 }
 
 async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Promise<RunSnapshot> {
@@ -346,6 +445,35 @@ export async function recordAttemptProviderHandle(input: {
       providerVmId: input.providerVmId,
       providerWorkspaceId: input.providerWorkspaceId,
       providerTerminalId: input.providerTerminalId,
+      updatedAt: now(),
+    }).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      eq(runAttempts.leaseToken, input.leaseToken),
+      eq(runAttempts.leaseGeneration, input.leaseGeneration),
+    )).returning())[0];
+    if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
+    return attempt;
+  });
+}
+
+/** Persist the exact source and setup receipts before an agent terminal starts. */
+export async function recordAttemptVerification(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly sourceDigest: string;
+  readonly setupManifestDigest: string;
+}): Promise<typeof runAttempts.$inferSelect> {
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    await checkLease(tx, input);
+    const attempt = (await tx.update(runAttempts).set({
+      sourceDigest: input.sourceDigest,
+      setupManifestDigest: input.setupManifestDigest,
       updatedAt: now(),
     }).where(and(
       eq(runAttempts.id, input.attemptId),

@@ -5,8 +5,9 @@ export type { AttachTicket } from "./model";
 /** The JSON shape returned by the Run control plane. */
 export type RunApiRun = {
   id: string;
+  specDigest?: string | null;
   userId?: string;
-  source: { repository?: string; ref?: string; commit?: string; archiveDigest?: string };
+  source: { repository?: string; ref?: string; commit?: string; archiveDigest?: string; setupManifestDigest?: string; imageDigest?: string };
   recipe: string;
   provider?: string;
   desiredAttempts: number;
@@ -70,7 +71,7 @@ export type RunApiEvent = {
 export type RunApiEventPage = { events: RunApiEvent[]; nextCursor?: string | null };
 
 export type RunCreateInput = {
-  source: { repository: string; commit: string; ref?: string };
+  source: { repository: string; commit: string; ref?: string; setupManifestDigest: string };
   recipe: "parallel-review";
   desiredAttempts: number;
   provider?: "cloud-vm";
@@ -80,6 +81,7 @@ export type RunCreateInput = {
 
 export type RunCreateResponse = {
   id: string;
+  specDigest?: string | null;
   status: string;
   attempts: Array<{ id: string; ordinal: number; status: string }>;
   createdAt?: string;

@@ -4,16 +4,18 @@ import { createRun, requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
 import { ALLOWED_RUN_RECIPES, type RunRoutingRequest, type RunVariantRecipe } from "../../../services/runs/model";
 import { runAdmissionFor, runRoutingFor } from "../../../services/runs/view";
+import { normalizeRunSpec, type RunSpec } from "../../../services/runs/spec";
 
 export const maxDuration = 960;
 
 type ParsedRunBody = {
-  readonly source: { readonly repository?: string; readonly ref?: string; readonly commit: string };
+  readonly source: { readonly repository?: string; readonly ref?: string; readonly commit: string; readonly setupManifestDigest: string };
   readonly recipe: string;
   readonly desiredAttempts: number;
   readonly provider: "cloud-vm";
   readonly routing: RunRoutingRequest;
   readonly variants: readonly RunVariantRecipe[];
+  readonly spec: RunSpec;
 };
 
 type ParsedProviderRouting = {
@@ -38,6 +40,7 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   const source = jsonBodyObject(body.source);
   const repository = typeof source?.repository === "string" ? source.repository.trim() : "";
   const commit = typeof source?.commit === "string" ? source.commit.trim() : "";
+  const setupManifestDigest = typeof source?.setupManifestDigest === "string" ? source.setupManifestDigest.trim() : "";
   const recipe = typeof body.recipe === "string" ? body.recipe.trim() : "";
   const desiredAttempts = typeof body.desiredAttempts === "number" && Number.isSafeInteger(body.desiredAttempts)
     ? body.desiredAttempts : 1;
@@ -58,6 +61,7 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
     })));
   }
   if (!/^[0-9a-f]{40}$/i.test(commit)) return runJson({ error: "run_source_required", message: "source.commit must be a 40-character immutable commit SHA." }, 400);
+  if (!/^sha256:[0-9a-f]{64}$/i.test(setupManifestDigest)) return runJson({ error: "run_setup_required", message: "source.setupManifestDigest must identify the exact .cmux/setup.json manifest." }, 400);
   if (!repository || repository.length > 512) return runJson({ error: "run_source_required", message: "source.repository is required." }, 400);
   if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runJson({ error: "run_recipe_required", message: "recipe must be an allowlisted internal recipe." }, 400);
   if (desiredAttempts < 1 || desiredAttempts > 32) return runJson({ error: "run_attempts_invalid", message: "desiredAttempts must be between 1 and 32." }, 400);
@@ -67,13 +71,32 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   }
   const providerRouting = parseProviderRouting(body);
   if (providerRouting instanceof Response) return providerRouting;
+  let spec: RunSpec;
+  try {
+    spec = normalizeRunSpec({
+      schema: "cmux.run/v1",
+      operationId: "pending",
+      source: { repository, ref: typeof source?.ref === "string" ? source.ref.trim() : undefined, commit, setupManifestDigest },
+      intent: { digest: requestDigest({ source: { repository, commit }, recipe, variants }) },
+      recipe: { id: recipe, version: 1 },
+      variants: variants.map((variant) => ({ id: variant.id, label: variant.label, instructionDigest: requestDigest({ instruction: variant.instruction }) })),
+      workspace: { kind: "ephemeral" },
+      resources: { maxAttempts: desiredAttempts, maxConcurrent: Math.min(2, desiredAttempts) },
+      routing: { backend: "freestyle" },
+      capabilities: { secretRefs: [] },
+      policy: { mode: "thunderdome", humanApprovalRequired: true, evidenceKinds: ["screenshot", "recording", "patch"] },
+    });
+  } catch {
+    return runJson({ error: "run_spec_invalid", message: "The RunSpec could not be normalized." }, 400);
+  }
   return {
-    source: { repository, ref: typeof source?.ref === "string" ? source.ref.trim() : undefined, commit },
+    source: { repository, ref: typeof source?.ref === "string" ? source.ref.trim() : undefined, commit, setupManifestDigest },
     recipe,
     desiredAttempts,
     provider: providerRouting.provider,
     routing: providerRouting.routing,
     variants,
+    spec,
   };
 }
 
@@ -119,11 +142,12 @@ export async function POST(request: Request): Promise<Response> {
           billingTeamId: scope.entitlements.billingTeamId,
           idempotencyKey,
           requestDigest: requestDigest(parsed),
-          source: parsed.source,
+          source: { ...parsed.source, setupManifestDigest: parsed.spec.source.setupManifestDigest },
           recipe: parsed.recipe,
           provider: parsed.provider,
           desiredAttempts: parsed.desiredAttempts,
           variants: parsed.variants,
+          spec: { ...parsed.spec, operationId: idempotencyKey },
         });
         runAfterResponse(async () => {
           await launchQueuedCloudVmAttempts({
@@ -133,11 +157,14 @@ export async function POST(request: Request): Promise<Response> {
             attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status, variant: attempt.variant })),
             source: run.run.source,
             recipe: run.run.recipe,
+            spec: ({ ...parsed.spec, operationId: idempotencyKey }),
+            maxConcurrent: parsed.spec.resources.maxConcurrent,
           });
         });
         const accountClass = scope.entitlements.billingCustomerType === "team" ? "team" : "personal";
         return runJson({
           id: run.run.id,
+          specDigest: run.run.specDigest,
           status: run.run.status,
           attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status, variant: attempt.variant })),
           createdAt: run.run.createdAt,

@@ -293,7 +293,10 @@ export const runs = pgTable(
     billingTeamId: text("billing_team_id"),
     idempotencyKey: text("idempotency_key"),
     requestDigest: text("request_digest").notNull(),
-    source: jsonb("source").$type<{ repository?: string; ref?: string; commit?: string; archiveDigest?: string }>().notNull(),
+    source: jsonb("source").$type<{ repository?: string; ref?: string; commit?: string; archiveDigest?: string; setupManifestDigest?: string; imageDigest?: string }>().notNull(),
+    /** Canonical, secret-free cmux.run/v1 envelope and its content digest. */
+    specDigest: text("spec_digest"),
+    spec: jsonb("spec").$type<Record<string, unknown> | null>(),
     recipe: text("recipe").notNull(),
     provider: text("provider").notNull().default("cloud-vm"),
     desiredAttempts: integer("desired_attempts").notNull().default(1),
@@ -341,6 +344,7 @@ export const runAttempts = pgTable(
     leaseGeneration: integer("lease_generation").notNull().default(0),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     sourceDigest: text("source_digest"),
+    setupManifestDigest: text("setup_manifest_digest"),
     result: jsonb("result").$type<Record<string, unknown> | null>(),
     exitCode: integer("exit_code"),
     error: text("error"),
@@ -356,6 +360,27 @@ export const runAttempts = pgTable(
     index("run_attempts_run_status_idx").on(table.runId, table.status),
     index("run_attempts_runtime_idx").on(table.runtimeId, table.createdAt, table.id),
     check("run_attempts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
+  ],
+);
+
+/** Short-lived, project-scoped capabilities for secret materialization. Raw values never enter this table. */
+export const runSecretLeases = pgTable(
+  "run_secret_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+    ownerTeamId: text("owner_team_id").notNull(),
+    secretRef: text("secret_ref").notNull(),
+    leaseHash: text("lease_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("run_secret_leases_attempt_ref_unique").on(table.attemptId, table.secretRef),
+    index("run_secret_leases_scope_idx").on(table.ownerTeamId, table.expiresAt),
+    check("run_secret_leases_ref_nonempty", sql`length(trim(${table.secretRef})) > 0`),
   ],
 );
 

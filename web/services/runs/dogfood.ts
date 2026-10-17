@@ -15,11 +15,15 @@ import {
   ingestRunEvent,
   listActiveCloudVmAttempts,
   recordAttemptProviderHandle,
+  recordAttemptVerification,
   renewAttemptLease,
   scheduleAttemptRetention,
+  issueRunSecretLeases,
+  revokeRunSecretLeases,
   type RunSource,
 } from "./repository";
 import type { RunVariantRecipe } from "./model";
+import { runSpecDigest, type RunSpec } from "./spec";
 
 /**
  * The first internal dogfood adapter deliberately goes through the existing
@@ -36,6 +40,7 @@ export async function launchCloudVmAttempt(input: {
   readonly source: RunSource;
   readonly recipe: string;
   readonly variant: RunVariantRecipe;
+  readonly spec: RunSpec;
 }): Promise<void> {
   const lease = await claimAttemptLease({
     runId: input.runId,
@@ -85,6 +90,63 @@ export async function launchCloudVmAttempt(input: {
         lifecycleState: "running",
       });
     }
+    const workspacePath = `/workspace/cmux-runs/${input.runId}/${input.attemptId}`;
+    const secretLeases = await issueRunSecretLeases({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      ownerTeamId: input.entitlements.billingTeamId,
+      secretRefs: input.spec.capabilities.secretRefs,
+    });
+    const secretLeaseReceipt = secretLeases.length
+      ? await new CloudVmRunAdapter(getProvider(provider)).installSecretLeases({ vmId: createdVmId, runId: input.runId, attemptId: input.attemptId, leases: secretLeases })
+      : null;
+    const sourceReceipt = await new CloudVmRunAdapter(getProvider(provider)).verifySource({
+      vmId: createdVmId,
+      repository: input.spec.source.repository ?? input.source.repository ?? "",
+      commit: input.spec.source.commit ?? input.source.commit ?? "",
+      workspacePath,
+    });
+    if (!input.spec.source.setupManifestDigest) throw new Error("setup manifest digest is required for cloud-vm runs");
+    const setupReceipt = await new CloudVmRunAdapter(getProvider(provider)).verifySetup({
+      vmId: createdVmId,
+      workspacePath,
+      setupManifestDigest: input.spec.source.setupManifestDigest,
+    });
+    await recordAttemptVerification({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      leaseToken: lease.leaseToken,
+      leaseGeneration: lease.leaseGeneration,
+      sourceDigest: sourceReceipt.commit,
+      setupManifestDigest: setupReceipt.digest,
+    });
+    await ingestRunEvent({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      leaseToken: lease.leaseToken,
+      leaseGeneration: lease.leaseGeneration,
+      externalId: "source-verified",
+      kind: "attempt.heartbeat",
+      payload: { source: sourceReceipt, specDigest: runSpecDigest(input.spec) },
+    });
+    await ingestRunEvent({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      leaseToken: lease.leaseToken,
+      leaseGeneration: lease.leaseGeneration,
+      externalId: "setup-verified",
+      kind: "attempt.heartbeat",
+      payload: { setup: setupReceipt },
+    });
+    if (secretLeaseReceipt) await ingestRunEvent({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      leaseToken: lease.leaseToken,
+      leaseGeneration: lease.leaseGeneration,
+      externalId: "secret-leases-installed",
+      kind: "attempt.heartbeat",
+      payload: { secretRefCount: secretLeases.length, leaseFile: secretLeaseReceipt.path },
+    });
     const started = await ingestRunEvent({
       runId: input.runId,
       attemptId: input.attemptId,
@@ -96,7 +158,7 @@ export async function launchCloudVmAttempt(input: {
       payload: { provider, providerVmId: createdVmId },
     });
     void started;
-    const prompt = `Work on immutable commit ${input.source.commit ?? ""} for ${input.source.repository ?? "the attached repository"}. Shared recipe: ${input.recipe}. Variant ${input.variant.label}: ${input.variant.instruction}`;
+    const prompt = `Work on verified immutable commit ${input.spec.source.commit ?? input.source.commit ?? ""} in ${workspacePath}. Shared recipe: ${input.recipe}. Variant ${input.variant.label}: ${input.variant.instruction}`;
     const adapter = new CloudVmRunAdapter(getProvider(provider));
     const prepared = await adapter.prepareAttempt({
       runId: input.runId,
@@ -105,6 +167,8 @@ export async function launchCloudVmAttempt(input: {
       vmId: createdVmId,
       agent: "codex",
       prompt,
+      cwd: workspacePath,
+      secretLeaseFile: secretLeaseReceipt?.path,
       lease: { leaseId: lease.leaseToken, leaseEpoch: lease.leaseGeneration },
     });
     const attempt = await adapter.start(prepared);
@@ -171,6 +235,11 @@ export async function launchCloudVmAttempt(input: {
       console.error("[runs] failed to record cloud VM attempt failure", terminalError);
     }
   } finally {
+    try {
+      await revokeRunSecretLeases({ runId: input.runId, attemptId: input.attemptId, ownerTeamId: input.entitlements.billingTeamId });
+    } catch (secretError) {
+      console.error("[runs] cloud VM secret lease revocation failed", secretError);
+    }
     if (vmId) {
       try {
         // Keep the VM and terminal attachable for a short, durable window.
@@ -261,17 +330,31 @@ export async function launchQueuedCloudVmAttempts(input: {
   readonly attempts: ReadonlyArray<{ id: string; ordinal: number; status: string; variant: RunVariantRecipe }>;
   readonly source: RunSource;
   readonly recipe: string;
+  readonly spec: RunSpec;
+  readonly maxConcurrent?: number;
 }): Promise<void> {
   const queued = input.attempts.filter((attempt) => attempt.status === "queued");
-  await Promise.allSettled(queued.map((attempt) => launchCloudVmAttempt({
-    user: input.user,
-    entitlements: input.entitlements,
-    runId: input.runId,
-    attemptId: attempt.id,
-    index: attempt.ordinal,
-    source: input.source,
-    recipe: input.recipe,
-    variant: attempt.variant,
-  })));
+  const maxConcurrent = Math.max(1, Math.min(input.maxConcurrent ?? 2, input.entitlements.maxActiveVms ?? 32, queued.length || 1));
+  for (const batch of planAttemptBatches(queued, maxConcurrent)) {
+    await Promise.allSettled(batch.map((attempt) => launchCloudVmAttempt({
+      user: input.user,
+      entitlements: input.entitlements,
+      runId: input.runId,
+      attemptId: attempt.id,
+      index: attempt.ordinal,
+      source: input.source,
+      recipe: input.recipe,
+      variant: attempt.variant,
+      spec: input.spec,
+    })));
+  }
+}
+
+/** Pure admission plan used by the worker launcher and its bounded-concurrency tests. */
+export function planAttemptBatches<T>(attempts: readonly T[], maxConcurrent: number): T[][] {
+  if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) throw new Error("maxConcurrent must be a positive integer");
+  const batches: T[][] = [];
+  for (let offset = 0; offset < attempts.length; offset += maxConcurrent) batches.push(attempts.slice(offset, offset + maxConcurrent) as T[]);
+  return batches;
 }
 

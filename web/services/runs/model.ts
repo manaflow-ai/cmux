@@ -115,6 +115,7 @@ export type RunArtifactView = {
 
 export type RunView = {
   readonly id: string;
+  readonly specDigest: string | null;
   readonly status: RunStatus;
   readonly recipe: string;
   readonly desiredAttempts: number;
@@ -159,6 +160,8 @@ export type ImmutableRunSource = {
   readonly ref?: string;
   readonly commit?: string;
   readonly archiveDigest?: string;
+  readonly setupManifestDigest?: string;
+  readonly imageDigest?: string;
 };
 
 export type RunCursor = { readonly sequence: number; readonly eventId?: string };

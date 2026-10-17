@@ -16,6 +16,7 @@ export type TeamRunBoardProps = {
 type CreateState = {
   repository: string;
   commit: string;
+  setupManifestDigest: string;
   provider: "freestyle" | "huge-blue";
   variants: Array<{ id: string; label: string; instruction: string }>;
 };
@@ -26,7 +27,7 @@ const defaultVariants = [
   { id: "keyboard", label: "Dense, keyboard-first list", instruction: "Optimize for fast keyboard navigation and high information density while preserving accessibility." },
   { id: "activity", label: "Activity-led workspace", instruction: "Organize the surface around recent team activity, changes, and recoverable next steps." },
 ];
-const initialCreate: CreateState = { repository: "", commit: "", provider: "freestyle", variants: defaultVariants };
+const initialCreate: CreateState = { repository: "", commit: "", setupManifestDigest: "", provider: "freestyle", variants: defaultVariants };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -46,7 +47,7 @@ export function TeamRunBoard({ client = createRunApiClient(), onClose, onAttachT
     setPending(true);
     try {
       const input: RunCreateInput = {
-        source: { repository: create.repository.trim(), commit: create.commit.trim() },
+        source: { repository: create.repository.trim(), commit: create.commit.trim(), setupManifestDigest: create.setupManifestDigest.trim() },
         recipe: "parallel-review",
         desiredAttempts: create.variants.length,
         provider: "cloud-vm",
@@ -108,6 +109,11 @@ export function TeamRunBoard({ client = createRunApiClient(), onClose, onAttachT
         <label>
           Commit SHA
           <input required pattern="[0-9a-fA-F]{40}" value={create.commit} placeholder="40-character immutable commit" onChange={(event) => setCreate((current) => ({ ...current, commit: event.currentTarget.value }))} />
+        </label>
+        <label>
+          Setup manifest digest
+          <input required pattern="sha256:[0-9a-fA-F]{64}" value={create.setupManifestDigest} placeholder="sha256:… for .cmux/setup.json" onChange={(event) => setCreate((current) => ({ ...current, setupManifestDigest: event.currentTarget.value }))} />
+          <small>Exact digest of the checked-in .cmux/setup.json used to prepare every worker.</small>
         </label>
         <div className="run-board-create-row">
           <label>

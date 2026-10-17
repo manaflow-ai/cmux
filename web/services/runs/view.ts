@@ -67,6 +67,8 @@ function safeSource(value: typeof runs.$inferSelect.source): RunView["source"] {
     ...(typeof value.ref === "string" ? { ref: value.ref } : {}),
     ...(typeof value.commit === "string" ? { commit: value.commit } : {}),
     ...(typeof value.archiveDigest === "string" ? { archiveDigest: value.archiveDigest } : {}),
+    ...(typeof value.setupManifestDigest === "string" ? { setupManifestDigest: value.setupManifestDigest } : {}),
+    ...(typeof value.imageDigest === "string" ? { imageDigest: value.imageDigest } : {}),
   };
 }
 
@@ -193,6 +195,7 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   const executionProvider: ExecutionProvider = "cloud-vm";
   const run: RunView = {
     id: snapshot.run.id,
+    specDigest: snapshot.run.specDigest ?? null,
     status: snapshot.run.status as RunStatus,
     recipe: snapshot.run.recipe,
     desiredAttempts: snapshot.run.desiredAttempts,

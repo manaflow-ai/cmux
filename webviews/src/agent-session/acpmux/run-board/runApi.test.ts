@@ -131,7 +131,7 @@ describe("Run API client", () => {
         return new Response(JSON.stringify({ id: "promotion", runId: "run-new", attemptId: "attempt-1", runtime: { id: "runtime-1" } }), { status: 200 });
       },
     });
-    await client.createRun({ source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) }, recipe: "parallel-review", desiredAttempts: 2, variants: [
+    await client.createRun({ source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40), setupManifestDigest: `sha256:${"b".repeat(64)}` }, recipe: "parallel-review", desiredAttempts: 2, variants: [
       { id: "overview", label: "Overview", instruction: "Lead with project cards." },
       { id: "focus", label: "Focus", instruction: "Lead with a quiet canvas." },
     ] }, "create-key");

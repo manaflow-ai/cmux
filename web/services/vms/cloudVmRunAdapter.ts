@@ -1,4 +1,4 @@
-import type { ExecResult, ExecOptions, VMProvider } from "./drivers/types";
+import { SecretBytes, type ExecResult, type ExecOptions, type VMProvider } from "./drivers/types";
 
 /**
  * The first Run provider is deliberately small. It speaks the cmux-tui CLI
@@ -30,7 +30,27 @@ export type CloudVmRunAttemptSpec = {
   readonly prompt: string;
   readonly cwd?: string;
   readonly workspaceName?: string;
+  readonly secretLeaseFile?: string;
   readonly lease?: CloudVmAttemptLease;
+};
+
+export type CloudVmSourceVerificationSpec = {
+  readonly vmId: string;
+  readonly repository: string;
+  readonly commit: string;
+  readonly workspacePath: string;
+};
+
+export type CloudVmSetupVerificationSpec = {
+  readonly vmId: string;
+  readonly workspacePath: string;
+  readonly setupManifestDigest: string;
+};
+
+export type CloudVmSecretLease = {
+  readonly secretRef: string;
+  readonly token: string;
+  readonly expiresAt: Date;
 };
 
 /**
@@ -92,6 +112,7 @@ export type CloudVmPreparedAttempt = {
   readonly terminalKey: string;
   readonly workspaceName: string;
   readonly terminalName: string;
+  readonly secretLeaseFile?: string;
   readonly lease?: CloudVmAttemptLease;
 };
 
@@ -161,6 +182,19 @@ type ExecTransport = Pick<VMProvider, "exec">;
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function repositoryUrl(repository: string): string {
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return `https://github.com/${repository}.git`;
+  if (/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(repository)) return repository.endsWith(".git") ? repository : `${repository}.git`;
+  throw new CloudVmRunAdapterError("invalid_repository", "repository must be a GitHub slug or HTTPS URL");
+}
+
+function safePath(label: string, value: string): string {
+  if (!value || value.length > 256 || /[\u0000-\u001f\u007f]/.test(value) || !value.startsWith("/")) {
+    throw new CloudVmRunAdapterError("invalid_path", `${label} must be an absolute path without control characters`);
+  }
+  return value;
 }
 
 function safeKey(label: string, value: string): string {
@@ -288,7 +322,9 @@ function createTerminalCommand(prepared: CloudVmPreparedAttempt, workspaceId: st
     "--name", shellQuote(prepared.terminalName),
   ];
   if (prepared.cwd) command.push("--cwd", shellQuote(prepared.cwd));
-  command.push("--", shellQuote(CLOUD_VM_AGENT_BIN), "agent", shellQuote(prepared.agent), "--", shellQuote(prepared.prompt));
+  command.push("--");
+  if (prepared.secretLeaseFile) command.push("env", `CMUX_SECRET_LEASE_FILE=${shellQuote(prepared.secretLeaseFile)}`);
+  command.push(shellQuote(CLOUD_VM_AGENT_BIN), "agent", shellQuote(prepared.agent), "--", shellQuote(prepared.prompt));
   return command.join(" ");
 }
 
@@ -339,6 +375,47 @@ function terminalOutputCommand(terminalId: string, after: number): string {
 
 function terminalCloseCommand(terminalId: string): string {
   return [commandPrefix(), "terminal", shellQuote(terminalId), "close"].join(" ");
+}
+
+function sourceVerificationCommand(spec: CloudVmSourceVerificationSpec): string {
+  const path = shellQuote(safePath("workspacePath", spec.workspacePath));
+  const url = shellQuote(repositoryUrl(spec.repository));
+  const commit = shellQuote(spec.commit);
+  return [
+    "set -eu;",
+    `mkdir -p ${path};`,
+    `if [ ! -d ${path}/.git ]; then git init ${path} >/dev/null; fi;`,
+    `git -C ${path} remote get-url origin >/dev/null 2>&1 || git -C ${path} remote add origin ${url};`,
+    `git -C ${path} remote set-url origin ${url};`,
+    `git -C ${path} fetch --depth=1 origin ${commit} >/dev/null;`,
+    `git -C ${path} checkout --detach ${commit} >/dev/null;`,
+    `actual=$(git -C ${path} rev-parse HEAD); test "$actual" = ${commit};`,
+    `printf '{"kind":"source.verified","commit":"%s"}' ${commit};`,
+  ].join(" ");
+}
+
+function setupVerificationCommand(spec: CloudVmSetupVerificationSpec): string {
+  const path = shellQuote(safePath("workspacePath", spec.workspacePath));
+  const digest = shellQuote(spec.setupManifestDigest);
+  const manifest = `${path}/.cmux/setup.json`;
+  return [
+    "set -eu;",
+    `test -f ${manifest};`,
+    `actual=$(sha256sum ${manifest} | cut -d ' ' -f 1); test "sha256:$actual" = ${digest};`,
+    `printf '{"kind":"setup.verified","digest":"%s"}' ${digest};`,
+  ].join(" ");
+}
+
+function secretLeaseInstallCommand(file: string): string {
+  const quoted = shellQuote(safePath("secret lease file", file));
+  return [
+    "set -eu;",
+    `mkdir -p $(dirname ${quoted});`,
+    `chmod 700 $(dirname ${quoted});`,
+    `cat > ${quoted};`,
+    `chmod 600 ${quoted};`,
+    `printf '{"kind":"secret-leases.installed","path":"%s"}' ${quoted};`,
+  ].join(" ");
 }
 
 function normalizeTimeout(timeoutMs: number | undefined): number {
@@ -410,10 +487,11 @@ export function prepareCloudVmRunAttempt(spec: CloudVmRunAttemptSpec): CloudVmPr
   safeKey("workspace name", workspaceName);
   const terminalName = `run:${spec.runId}:${spec.attemptId}`;
   safeKey("terminal name", terminalName);
+  const secretLeaseFile = spec.secretLeaseFile ? safePath("secretLeaseFile", spec.secretLeaseFile) : undefined;
   return {
     provider: "cloud-vm", vmId: spec.vmId, runId: spec.runId, attemptId: spec.attemptId,
     index: spec.index, agent: spec.agent, prompt: spec.prompt, cwd: spec.cwd,
-    workspaceKey, terminalKey, workspaceName, terminalName, lease: spec.lease,
+    workspaceKey, terminalKey, workspaceName, terminalName, secretLeaseFile, lease: spec.lease,
   };
 }
 
@@ -457,6 +535,48 @@ export class CloudVmRunAdapter {
       terminalKey: prepared.terminalKey,
       replayed: terminal.replayed === true,
     };
+  }
+
+  async verifySource(spec: CloudVmSourceVerificationSpec): Promise<{ readonly kind: "source.verified"; readonly commit: string }> {
+    safeId("vmId", spec.vmId);
+    if (!/^[0-9a-f]{40}$/i.test(spec.commit)) throw new CloudVmRunAdapterError("invalid_commit", "source commit must be a 40-character SHA");
+    const result = await this.transport.exec(spec.vmId, sourceVerificationCommand(spec), this.execOptions(120_000));
+    const receipt = commandResult(result, "source verification");
+    const commit = stringField(receipt, "commit");
+    if (commit?.toLowerCase() !== spec.commit.toLowerCase() || receipt.kind !== "source.verified") throw new CloudVmRunAdapterError("source_verification_failed", "source verification receipt did not match the requested commit");
+    return { kind: "source.verified", commit };
+  }
+
+  async verifySetup(spec: CloudVmSetupVerificationSpec): Promise<{ readonly kind: "setup.verified"; readonly digest: string }> {
+    safeId("vmId", spec.vmId);
+    if (!/^sha256:[0-9a-f]{64}$/i.test(spec.setupManifestDigest)) throw new CloudVmRunAdapterError("invalid_setup_digest", "setup manifest digest must be sha256");
+    const result = await this.transport.exec(spec.vmId, setupVerificationCommand(spec), this.execOptions(30_000));
+    const receipt = commandResult(result, "setup verification");
+    const digest = stringField(receipt, "digest");
+    if (digest?.toLowerCase() !== spec.setupManifestDigest.toLowerCase() || receipt.kind !== "setup.verified") throw new CloudVmRunAdapterError("setup_verification_failed", "setup verification receipt did not match the requested digest");
+    return { kind: "setup.verified", digest };
+  }
+
+  async installSecretLeases(input: {
+    readonly vmId: string;
+    readonly runId: string;
+    readonly attemptId: string;
+    readonly leases: readonly CloudVmSecretLease[];
+  }): Promise<{ readonly kind: "secret-leases.installed"; readonly path: string }> {
+    safeId("vmId", input.vmId);
+    safeId("runId", input.runId);
+    safeId("attemptId", input.attemptId);
+    const path = `/tmp/cmux-run-secret-leases/${input.runId}/${input.attemptId}.json`;
+    const body = JSON.stringify({ version: 1, leases: input.leases.map((lease) => ({ secretRef: lease.secretRef, token: lease.token, expiresAt: lease.expiresAt.toISOString() })) });
+    const stdin = new SecretBytes(new Uint8Array(Buffer.from(body, "utf8")));
+    try {
+      const result = await this.transport.exec(input.vmId, secretLeaseInstallCommand(path), { ...this.execOptions(30_000), stdin });
+      const receipt = commandResult(result, "secret lease installation");
+      if (receipt.kind !== "secret-leases.installed" || stringField(receipt, "path") !== path) throw new CloudVmRunAdapterError("secret_lease_install_failed", "secret lease installation receipt did not match the target");
+      return { kind: "secret-leases.installed", path };
+    } finally {
+      stdin.wipe();
+    }
   }
 
   async prepareAttempt(spec: CloudVmRunAttemptSpec): Promise<CloudVmPreparedAttempt> {
