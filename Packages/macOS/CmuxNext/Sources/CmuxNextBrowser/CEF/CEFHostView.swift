@@ -199,7 +199,8 @@ final class CEFTabContentView: NSView {
         }
         // With a side panel, Chromium's window holds the panel and the page, so the host keeps the page frame.
         // DevTools device mode places the page itself (the fit yields until it ends).
-        let deviceMode = tab?.devToolsController.deviceModeActive ?? false
+        // In a DevTools window the page keeps its full frame, but the fit still yields.
+        let deviceMode = tab?.devToolsController.deviceModeOn ?? false
         let fitPage = tab?.sidePanel.state == nil && !deviceMode ? emulation?.presentedRect(in: pageViewportFrame) : nil
         for subview in subviews {
             let frame: CGRect

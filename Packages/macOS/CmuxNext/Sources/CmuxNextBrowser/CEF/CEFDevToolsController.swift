@@ -241,11 +241,16 @@ final class CEFDevToolsController {
         let wasOn = deviceModeBounds != nil
         guard bounds != deviceModeBounds else { return }
         deviceModeBounds = bounds
+        if !wasOn, bounds != nil { tab.devToolsDeviceModeStarted() }
         tab.container.layoutContent()
         if wasOn, bounds == nil { tab.devToolsDeviceModeEnded() }
     }
 
-    /// Whether the DevTools frontend's device mode drives the page now.
+    /// Whether the DevTools frontend's device mode owns the page's emulation:
+    /// docked or not, cmux's own emulation (a device or a fit) yields to it.
+    var deviceModeOn: Bool { deviceModeBounds != nil }
+
+    /// Whether the page is placed in the device's screen area (docked DevTools only).
     var deviceModeActive: Bool { deviceModeBounds != nil && reservesRoom }
 
     // MARK: Layout

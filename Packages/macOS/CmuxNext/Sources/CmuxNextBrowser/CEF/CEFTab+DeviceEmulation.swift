@@ -18,13 +18,15 @@ extension CEFTab: BrowserEmulating {
     func applyDeviceEmulation() {
         guard browserID != nil, !isClosed else { return }
         // DevTools device mode owns the page's emulation until it ends (devToolsDeviceModeEnded).
-        guard !devToolsController.deviceModeActive else { return }
+        guard !devToolsController.deviceModeOn else { return }
         guard deviceEmulation != nil || deviceEmulationApplied else { return }
         deviceEmulationDirty = true
         guard deviceEmulationTask == nil else { return }
         let runtime = runtime
         deviceEmulationTask = Task { [weak self] in
             while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
+                // Device mode started while this worker ran: stop; its end applies the newest state.
+                guard !self.devToolsController.deviceModeOn else { self.deviceEmulationNeedsReset = true; break }
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
                 let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
@@ -52,6 +54,15 @@ extension CEFTab: BrowserEmulating {
             }
             self?.deviceEmulationTask = nil
         }
+    }
+
+    /// DevTools device mode started: the page's scale and frame are the
+    /// frontend's now, so agent input and the presented frame drop the fit's.
+    func devToolsDeviceModeStarted() {
+        deviceEmulationNeedsReset = true
+        deviceEmulationViewport = nil
+        if emulationInputScale != 1 { emulationInputScale = 1 }
+        container.needsLayout = true
     }
 
     /// DevTools device mode ended (turned off, or its DevTools closed): the

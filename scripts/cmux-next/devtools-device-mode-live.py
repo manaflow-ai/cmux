@@ -50,7 +50,7 @@ RESULTS = {"run": RUN, "checks": []}
 # Known gaps: check id -> bead. Remove a line in the same push as its fix.
 KNOWN_GAPS = {
     # None. cx-fhcve (device-mode toolbar, responsive, zoom, fit scale, the fit and DevTools
-    # device mode on one tab) was fixed by fork API 24 (cef-154.0.28-cmux.27).
+    # device mode on one tab) was fixed by fork API 24 (cef-154.0.28-cmux.28).
 }
 
 
@@ -404,7 +404,14 @@ def main():
             fe = lambda op, arg=None: cmux.cdp.eval("%s(%s,%s)" % (FE, json.dumps(op), json.dumps(arg or {})), front, 40)
             # The page window sits in the device's screen area, over DevTools (debug.cef page_frame).
             fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
-            report = wait_for(lambda: [d for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")], 10) or [{}]
+            state0 = fe("state") or {}
+            def placed():
+                for d in (rpc("debug.cef") or {}).get("devtools", []):
+                    f = d.get("page_frame")
+                    if d.get("open") and d.get("tab") == tab and f and abs(f[2] - state0.get("w", 0) * state0.get("scale", 0)) <= 2:
+                        return [d]
+                return None
+            report = wait_for(placed, 10) or [d for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("tab") == tab] or [{}]
             rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmux-devtools-iphone.png")})
             frame, devtools_frame = report[0].get("page_frame"), report[0].get("devtools_frame")
             state = fe("state") or {}
@@ -416,9 +423,12 @@ def main():
             rpc("debug.window_frame", {"frame": [40, 60, 900, 1000]}); wait_for(lambda: (size() or {}).get("w", 9999) < 600, 10)
             cli(app_cli, "tab", tab, "emulate", "--fit", "16:9"); fit = wait_for(lambda: (lambda s: s if s and s["w"] > 1000 else None)(size()), 8)
             fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
+            before = wait_for(lambda: (lambda s: s if s and s["w"] == 430 else None)(size()), 6)
             rpc("debug.window_frame", {"frame": [40, 60, 960, 1000]})
-            kept = wait_for(lambda: (lambda s: s if s and s["w"] != 430 else None)(size()), 4)
-            check("F_resize_keeps_devtools_device", kept is None, fit=fit, after_resize=kept or size())
+            samples = []
+            wait_for(lambda: samples.append(size()) and False, 4)
+            check("F_resize_keeps_devtools_device", bool(before) and len(samples) >= 4 and all(s and s["w"] == 430 for s in samples),
+                  fit=fit, before=before, after_resize=samples[-3:])
             fe("toggle"); back = wait_for(lambda: (lambda s: s if s and s["w"] > 1000 else None)(size()), 6)
             check("F_devtools_off_restores_fit", bool(back), after=back or size())
             cli(app_cli, "tab", tab, "emulate", "clear")
@@ -435,8 +445,15 @@ def main():
                     cmux.cdp.eval("typeof status==='function'?status():null", session, 10)), 30, 1) or cmux.cdp.eval("status()", session, 10)
                 cmux.cdp.call("Target.closeTarget", {"targetId": target})
             root = os.path.expanduser("~/Library/Application Support/%s/Chromium" % ident.get("bundle_id"))
-            status["cdm_dir"] = sorted(os.listdir(os.path.join(root, "WidevineCdm"))) if os.path.isdir(os.path.join(root, "WidevineCdm")) else None
-            status["crlset_dir"] = sorted(os.listdir(os.path.join(root, "CertificateRevocation"))) if os.path.isdir(os.path.join(root, "CertificateRevocation")) else None
+            def fresh(sub, name):
+                """Version folders under <root>/<sub> that hold `name`, written by this run."""
+                base = os.path.join(root, sub); hits = []
+                for dirpath, _, files in os.walk(base) if os.path.isdir(base) else []:
+                    if name in files and os.path.getmtime(dirpath) >= started - 5:  # the version folder the install made (file times come from the CRX)
+                        hits.append(os.path.relpath(dirpath, base))
+                return sorted(hits) or None
+            status["cdm_dir"] = fresh("WidevineCdm", "libwidevinecdm.dylib")
+            status["crlset_dir"] = fresh("CertificateRevocation", "crl-set")
             # H.264/AAC (proprietary_codecs, cmux.28): a plain MP4 plays with picture and sound.
             target = cmux.cdp.call("Target.createTarget", {"url": "%s/mp4-%s" % (ORIGIN, RUN)}).get("result", {}).get("targetId")
             session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
