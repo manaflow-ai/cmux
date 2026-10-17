@@ -102,6 +102,7 @@ final class MobileChatHomeModel {
             } catch is CancellationError {
                 return
             } catch {
+                guard self?.refreshGeneration == generation else { return }
                 self?.loadingSessionIDs.remove(sessionID)
                 self?.errorMessage = "This chat could not be opened."
             }
