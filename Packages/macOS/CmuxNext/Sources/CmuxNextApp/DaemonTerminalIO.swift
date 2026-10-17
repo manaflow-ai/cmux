@@ -29,10 +29,9 @@ import os
 ///   after the view stops resizing, or the next frame in a live resize.
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
-///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
-///   cx-wwtam), then waits for an event: shown again, a key press, a click,
-///   focus or Retry, or the App's ``reconnect()`` (terminal or connection
-///   back). A restored view says "Restoring…" until its first replay.
+///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
+///   after about 90 s; a hidden one waits for an event: shown again, a key press, a click, focus or
+///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay.
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -84,7 +83,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
+            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed, blocked: policyBlocked) }
         )
         self.driver = driver
         self.creatingInput = creatingInput
@@ -178,13 +177,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processRevived()
     }
 
-    /// Capped backoff before the `failed + 1`th re-attach in a row: spaces
-    /// the view's own retries and the event-started ones after them.
-    nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
+    /// Backoff before the `failed + 1`th re-attach in a row, 30 s after 8 doublings: spaces the view's own
+    /// retries and the event-started ones after them. A view turned off by its organization (`blocked`) stops there.
+    nonisolated static func reattachBackoff(afterFailures failed: Int, blocked: () -> Bool = { false }) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        for _ in 1..<max(1, failed) { _ = backoff.next() }
+        for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
         // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
         try await backoff.wait(owner: "terminal.reattach")
+        if blocked() { throw CancellationError() }
     }
 
     /// Ends the attachment (or cancels the attach in flight). The terminal
