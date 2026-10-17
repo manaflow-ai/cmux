@@ -95,7 +95,7 @@ extension TerminalController {
             switch parsed {
             case .open(let target):
                 return try await chiefOpen(target)
-            case .send(let text, let conversation, let from, let startTurn):
+            case .send(let text, let conversation, let from, let startTurn, let clientMessageID):
                 if let from {
                     let owner = try await chiefOwner()
                     let id = try await Self.chiefOwnerCall {
@@ -105,9 +105,16 @@ extension TerminalController {
                     return .ok(["conversation": conversation ?? ChiefConversationOwner.defaultConversationID.rawValue,
                                 "message_id": id.rawValue, "queued": false, "from": from] as [String: Any])
                 }
-                let sent = try await Self.chiefSendAsUser(text: text, conversation: conversation)
+                let sent = try await Self.chiefSendAsUser(
+                    text: text,
+                    conversation: conversation,
+                    clientMessageID: clientMessageID
+                )
                 var payload: [String: Any] = ["conversation": sent.conversation, "queued": sent.queued]
                 if let id = sent.messageID { payload["message_id"] = id }
+                if let clientMessageID = sent.clientMessageID {
+                    payload["client_message_id"] = clientMessageID
+                }
                 return .ok(payload)
             case .status:
                 let status = try await v2MainAsync { ChiefService.shared.controlStatus() }
@@ -351,8 +358,16 @@ extension TerminalController {
         }
     }
 
-    private static func chiefSendAsUser(text: String, conversation: String?) async throws -> ChiefControlSendResult {
-        try await ChiefService.shared.controlSendAsUser(text: text, conversation: conversation)
+    private static func chiefSendAsUser(
+        text: String,
+        conversation: String?,
+        clientMessageID: String?
+    ) async throws -> ChiefControlSendResult {
+        try await ChiefService.shared.controlSendAsUser(
+            text: text,
+            conversation: conversation,
+            clientMessageID: clientMessageID
+        )
     }
 
     /// Runs an owner call; a ``HomeRejection`` becomes a socket error.
@@ -416,6 +431,9 @@ extension TerminalController {
             "author_kind": message.authorKind, "text": message.text, "at": chiefTime(message.at), "parts": message.parts,
         ]
         if let root = message.threadRoot { payload["thread_root"] = root }
+        if let clientMessageID = message.clientMessageID {
+            payload["client_message_id"] = clientMessageID
+        }
         return payload
     }
 }

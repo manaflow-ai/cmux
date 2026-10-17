@@ -160,6 +160,7 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
     /// endpoint intentionally returns kinds, not the private Home payloads.
     public let parts: [String]
     public let threadRoot: String?
+    public let clientMessageID: String?
 
     public init(
         id: String,
@@ -170,7 +171,8 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
         text: String,
         at: Date,
         parts: [String] = [],
-        threadRoot: String? = nil
+        threadRoot: String? = nil,
+        clientMessageID: String? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -181,11 +183,12 @@ public struct MobileChiefMessage: Codable, Equatable, Sendable, Identifiable {
         self.at = at
         self.parts = parts
         self.threadRoot = threadRoot
+        self.clientMessageID = clientMessageID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, seq, authorID = "author_id", author, authorKind = "author_kind"
-        case text, at, parts, threadRoot = "thread_root"
+        case text, at, parts, threadRoot = "thread_root", clientMessageID = "client_message_id"
     }
 }
 
@@ -275,11 +278,13 @@ public actor MobileChiefClient {
         _ text: String,
         conversation: String? = nil,
         from: String? = nil,
-        startTurn: Bool = true
+        startTurn: Bool = true,
+        clientMessageID: String? = nil
     ) async throws -> MobileChiefSendResult {
         var params: [String: Any] = ["text": text, "start_turn": startTurn]
         if let conversation { params["conversation"] = conversation }
         if let from { params["from"] = from }
+        if let clientMessageID { params["client_message_id"] = clientMessageID }
         return try await request("chief.send", params: params, as: MobileChiefSendResult.self)
     }
 

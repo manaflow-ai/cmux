@@ -41,12 +41,14 @@ struct ChiefControlMessage: Sendable {
     var at: Date
     var parts: [String]
     var threadRoot: String?
+    var clientMessageID: String?
 }
 
 /// The outcome of `chief.send`.
 struct ChiefControlSendResult: Sendable {
     var conversation: String
     var messageID: String?
+    var clientMessageID: String?
     /// The store holds the send until the owner is reachable.
     var queued: Bool
 }
@@ -156,7 +158,11 @@ extension ChiefService {
     /// (`HomeStore.perform(.sendMessage)`), so the transcript shows it the same.
     ///
     /// - Throws: ``ChiefControlFailure``.
-    func controlSendAsUser(text: String, conversation raw: String?) async throws -> ChiefControlSendResult {
+    func controlSendAsUser(
+        text: String,
+        conversation raw: String?,
+        clientMessageID: String? = nil
+    ) async throws -> ChiefControlSendResult {
         _ = try await controlOwner()
         guard let store else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
         let conversation = controlConversationID(raw)
@@ -165,15 +171,18 @@ extension ChiefService {
         } else if store.isInboxCurrent {
             throw ChiefControlFailure.from(.invalid("unknown_conversation"))
         }
-        let key = IdempotencyKey.make()
+        let key = clientMessageID.map(IdempotencyKey.init) ?? IdempotencyKey.make()
         do {
             _ = try await store.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: nil), key: key)
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: false)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: false)
         } catch HomeSendState.pendingResend {
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: true)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: true)
         } catch HomeRejection.ownerUnreachable where !store.isOnline {
             // The store queued the send while offline (`offlineSendDeadline`).
-            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil, queued: true)
+            return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
+                                          clientMessageID: key.rawValue, queued: true)
         } catch let rejection as HomeRejection {
             throw ChiefControlFailure.from(rejection)
         } catch {
@@ -236,7 +245,8 @@ extension ChiefControlMessage {
                   author: author?.displayName ?? message.author.rawValue, authorKind: kind,
                   text: message.isRetracted ? "" : message.plainText, at: message.createdAt,
                   parts: message.isRetracted ? ["retracted"] : message.parts.map(Self.kind(of:)),
-                  threadRoot: message.threadRoot?.rawValue)
+                  threadRoot: message.threadRoot?.rawValue,
+                  clientMessageID: message.clientMessageID.rawValue)
     }
 
     static func kind(of part: MessagePart) -> String {

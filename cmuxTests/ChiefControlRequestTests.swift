@@ -74,14 +74,16 @@ import Testing
 
     @Test func sendAsUserTrimsText() {
         #expect(parse("chief.send", ["text": "  hi Chief \n"])
-            == .success(.send(text: "hi Chief", conversation: nil, from: nil, startTurn: true)))
+            == .success(.send(text: "hi Chief", conversation: nil, from: nil, startTurn: true, clientMessageID: nil)))
+        #expect(parse("chief.send", ["text": "hi", "client_message_id": "ios-1"])
+            == .success(.send(text: "hi", conversation: nil, from: nil, startTurn: true, clientMessageID: "ios-1")))
     }
 
     @Test func sendFromAgentDefaultsToStartingATurn() {
         #expect(parse("chief.send", ["text": "done", "from": "Build Bot", "conversation": "conv_a"])
-            == .success(.send(text: "done", conversation: "conv_a", from: "Build Bot", startTurn: true)))
+            == .success(.send(text: "done", conversation: "conv_a", from: "Build Bot", startTurn: true, clientMessageID: nil)))
         #expect(parse("chief.send", ["text": "done", "from": "Build Bot", "start_turn": false])
-            == .success(.send(text: "done", conversation: nil, from: "Build Bot", startTurn: false)))
+            == .success(.send(text: "done", conversation: nil, from: "Build Bot", startTurn: false, clientMessageID: nil)))
     }
 
     @Test func sendRefusesBadParams() {

@@ -8,7 +8,7 @@ enum ChiefControlRequest: Equatable, Sendable {
     /// `chief.open`: shows Chief Home in the target window (explicit focus intent).
     case open(target: ChiefControlWindowTarget)
     /// `chief.send`: as the user (no `from`), or as an agent report.
-    case send(text: String, conversation: String?, from: String?, startTurn: Bool)
+    case send(text: String, conversation: String?, from: String?, startTurn: Bool, clientMessageID: String?)
     /// `chief.status`: working conversations, unread, harness and model, home path.
     case status
     /// `chief.conversations`: every Chief conversation.
@@ -85,8 +85,10 @@ enum ChiefControlRequest: Equatable, Sendable {
             guard !text.isEmpty else { throw ChiefControlParamError.invalid("text") }
             guard text.utf8.count <= maxTextBytes else { throw ChiefControlParamError.tooLong("text") }
             let from = try optionalString(params, "from", maxLength: maxNameLength)
+            let clientMessageID = try optionalString(params, "client_message_id", maxLength: 200)
             let startTurn = try optionalBool(params, "start_turn") ?? true
-            return .send(text: text, conversation: try conversation(params), from: from, startTurn: startTurn)
+            return .send(text: text, conversation: try conversation(params), from: from, startTurn: startTurn,
+                         clientMessageID: clientMessageID)
         case "chief.status":
             return .status
         case "chief.conversations":

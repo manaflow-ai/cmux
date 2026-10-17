@@ -89,7 +89,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         }
         let sendResult: MobileChiefSendResult
         do {
-            sendResult = try await client.send(draft.text, conversation: conversationID)
+            sendResult = try await client.send(
+                draft.text,
+                conversation: conversationID,
+                clientMessageID: draft.clientMessageID
+            )
         } catch {
             withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
             throw error
@@ -315,6 +319,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         return withState { state in
             let cutoff = Date().addingTimeInterval(-300)
             state.pendingSends = state.pendingSends.filter { $0.value.startedAt >= cutoff }
+            if let clientMessageID = message.clientMessageID,
+               state.pendingSends[clientMessageID] != nil {
+                state.pendingSends.removeValue(forKey: clientMessageID)
+                return clientMessageID
+            }
             guard let pending = state.pendingSends.values.filter({ pending in
                 (pending.serverMessageID == message.id
                     || (pending.serverMessageID == nil && pending.text == message.text))
