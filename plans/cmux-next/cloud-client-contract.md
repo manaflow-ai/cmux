@@ -61,7 +61,7 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
 
 | Type | Fields the client uses |
 | --- | --- |
-| `CloudMachine` | `id` (`vm_…`), `team`, `creator`, `name`, `size {cpu, memory_mb, disk_mb}`, `status` (`provisioning`, `starting`, `running`, `pausing`, `paused`, `deleting`, `failed`), `image {id, daemon_version}`, `host` (overlay host id, null until bound), `classic` (bool), `created_at`, `last_active_at`, `idle_policy`, `error {code, message, at}`, `revision` |
+| `CloudMachine` | `id` (`vm_…`), `team`, `creator`, `name`, `size {cpu, memory_mb, disk_mb}`, `status` (`provisioning`, `starting`, `running`, `pausing`, `paused`, `deleting`, `failed`), `image {id, daemon_version}`, `host` (overlay host id, null until bound), `classic` (bool), `created_at`, `last_active_at`, `idle_policy`, `error {code, message, at}`, optional non-secret `platform {os, arch}`, optional stable `capabilities[]`, `revision` |
 | `CloudSnapshot` | `id`, `machine`, `name`, `size_mb`, `status`, `created_at`, `revision` |
 | `CloudPlan` | `plan_id`, `limits {max_active, max_saved, memory_options_mb, locked_memory_options_mb, vm_hours_included}`, `usage {active, saved, vm_hours_used, period_end}` |
 

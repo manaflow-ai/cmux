@@ -765,6 +765,9 @@ struct PixelSize {
 
 enum class MachineOrigin {
     local,
+    cloud,
+    ssh,
+    server,
 };
 
 enum class MachineStatus {
@@ -773,6 +776,11 @@ enum class MachineStatus {
     sleeping,
     stopped,
     unavailable,
+};
+
+struct MachinePlatform {
+    std::optional<std::string> os;
+    std::optional<std::string> arch;
 };
 
 struct MachineSnapshot {
@@ -784,6 +792,8 @@ struct MachineSnapshot {
     bool deleted = false;
     bool recoverable = false;
     Json::Object extra;
+    std::optional<MachinePlatform> platform = std::nullopt;
+    std::vector<std::string> capabilities = {};
 };
 
 struct SessionSnapshot {
