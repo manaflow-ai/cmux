@@ -221,6 +221,9 @@ final class AgentChatModeModel {
         case .toolUse(let value):
             return [value.summary, value.inputDetail, value.output, value.referencedPaths?.joined(separator: " ")]
                 .compactMap { $0 }.joined(separator: " ")
+        case .webSearch(let value):
+            return ([value.query] + value.sources.flatMap { [$0.title, $0.url, $0.snippet] })
+                .compactMap { $0 }.joined(separator: " ")
         case .terminal(let value):
             return [value.command, value.output].compactMap { $0 }.joined(separator: " ")
         case .fileEdit(let value): return [value.filePath, value.unifiedDiff].compactMap { $0 }.joined(separator: " ")

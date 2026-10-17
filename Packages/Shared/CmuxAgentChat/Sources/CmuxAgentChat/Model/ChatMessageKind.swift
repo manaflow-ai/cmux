@@ -11,6 +11,8 @@ public enum ChatMessageKind: Sendable, Equatable {
     case thought(ChatThought)
     /// A non-terminal tool invocation (read, search, web fetch, subagent...).
     case toolUse(ChatToolUse)
+    /// A web search and its cited source links.
+    case webSearch(ChatWebSearch)
     /// A shell command and its captured output; renders as a terminal card.
     case terminal(ChatTerminalCapture)
     /// A file edit; renders as a diff card.
@@ -36,6 +38,7 @@ extension ChatMessageKind: Codable {
         case prose
         case thought
         case toolUse = "tool_use"
+        case webSearch = "web_search"
         case terminal
         case fileEdit = "file_edit"
         case permissionRequest = "permission_request"
@@ -60,6 +63,8 @@ extension ChatMessageKind: Codable {
                 self = .thought(try ChatThought(from: decoder))
             case .toolUse:
                 self = .toolUse(try ChatToolUse(from: decoder))
+            case .webSearch:
+                self = .webSearch(try ChatWebSearch(from: decoder))
             case .terminal:
                 self = .terminal(try ChatTerminalCapture(from: decoder))
             case .fileEdit:
@@ -91,6 +96,9 @@ extension ChatMessageKind: Codable {
             try payload.encode(to: encoder)
         case .toolUse(let payload):
             try container.encode(TypeName.toolUse.rawValue, forKey: .type)
+            try payload.encode(to: encoder)
+        case .webSearch(let payload):
+            try container.encode(TypeName.webSearch.rawValue, forKey: .type)
             try payload.encode(to: encoder)
         case .terminal(let payload):
             try container.encode(TypeName.terminal.rawValue, forKey: .type)

@@ -130,6 +130,56 @@ struct CodexTranscriptParserTests {
         ))
     }
 
+    @Test("web search calls become typed source cards")
+    func webSearchCall() throws {
+        let result = parser.parse(lines: [line(
+            type: "response_item",
+            payload: [
+                "type": "web_search_call",
+                "action": [
+                    "type": "search",
+                    "query": "Swift retry policy",
+                    "sources": [
+                        ["title": "Apple docs", "url": "https://developer.apple.com", "snippet": "URL loading"],
+                        ["title": "Duplicate", "url": "https://developer.apple.com"],
+                    ],
+                ],
+            ]
+        )], startingSeq: 3)
+        let message = try #require(result.messages.first)
+        guard case .webSearch(let search) = message.kind else {
+            Issue.record("expected web search kind")
+            return
+        }
+        #expect(search.query == "Swift retry policy")
+        #expect(search.sources.count == 1)
+        #expect(search.sources[0].title == "Apple docs")
+    }
+
+    @Test("assistant URL citations become a separate source row")
+    func messageURLCitations() throws {
+        let result = parser.parse(lines: [line(
+            type: "response_item",
+            payload: [
+                "type": "message", "role": "assistant",
+                "content": [[
+                    "type": "output_text",
+                    "text": "Use bounded backoff.",
+                    "annotations": [
+                        ["type": "url_citation", "url": "https://example.com/retries", "title": "Retries"],
+                    ],
+                ]],
+            ]
+        )], startingSeq: 8)
+        #expect(result.messages.count == 2)
+        guard case .webSearch(let search) = result.messages[1].kind else {
+            Issue.record("expected citation source row")
+            return
+        }
+        #expect(search.query == nil)
+        #expect(search.sources.map(\.url) == ["https://example.com/retries"])
+    }
+
     // MARK: - Shell calls
 
     @Test("exec_command extracts the cmd string from the arguments JSON string")

@@ -174,6 +174,10 @@ public struct CodexTranscriptParser: Sendable {
         default: return  // developer / system context injections
         }
         let blocks = payload["content"]?.array ?? []
+        let citedSources = deduplicatedSources(
+            blocks.flatMap { sourceValues(in: $0["annotations"]) }
+                + sourceValues(in: payload["annotations"])
+        )
         let texts = blocks.compactMap { block -> String? in
             guard
                 let type = block["type"]?.string,
@@ -205,6 +209,20 @@ public struct CodexTranscriptParser: Sendable {
                 kind: .prose(ChatProse(text: budget.body(texts.joined(separator: "\n\n"))))
             )
         )
+        // Codex emits URL citations on output_text blocks rather than as a
+        // separate tool result. Keep them as a typed transcript row so the
+        // mobile UI can show tappable source cards without parsing markdown.
+        if role == .agent, !citedSources.isEmpty {
+            assembler.append(
+                ChatMessage(
+                    id: "line-\(seq)-sources",
+                    seq: seq,
+                    role: .agent,
+                    timestamp: timestamp,
+                    kind: .webSearch(ChatWebSearch(sources: citedSources))
+                )
+            )
+        }
     }
 
     private func appendUserTexts(
@@ -430,22 +448,59 @@ public struct CodexTranscriptParser: Sendable {
         timestamp: Date,
         into assembler: inout TranscriptBatchAssembler
     ) {
-        guard let query = payload["action"]?["query"]?.string else { return }
+        let query = payload["action"]?["query"]?.string ?? payload["query"]?.string
+        let sources = deduplicatedSources(
+            sourceValues(in: payload["action"]?["sources"])
+                + sourceValues(in: payload["action"]?["results"])
+                + sourceValues(in: payload["sources"])
+                + sourceValues(in: payload["results"])
+        )
+        guard query != nil || !sources.isEmpty else { return }
         assembler.append(
             ChatMessage(
                 id: "line-\(seq)",
                 seq: seq,
                 role: .agent,
                 timestamp: timestamp,
-                kind: .toolUse(
-                    ChatToolUse(
-                        toolName: "web_search",
-                        summary: "Search \(budget.summaryArgument(query))",
-                        status: .succeeded
+                kind: .webSearch(
+                    ChatWebSearch(
+                        query: query,
+                        status: .succeeded,
+                        sources: sources
                     )
                 )
             )
         )
+    }
+
+    /// Extracts source-like records from the loose shapes used by Codex
+    /// rollout versions (`url_citation`, `sources`, and `results`).
+    private func sourceValues(in value: TranscriptJSONValue?) -> [ChatWebSearch.Source] {
+        guard let value else { return [] }
+        if let array = value.array {
+            return array.compactMap(sourceValue)
+        }
+        if let source = sourceValue(value) { return [source] }
+        return []
+    }
+
+    private func sourceValue(_ value: TranscriptJSONValue) -> ChatWebSearch.Source? {
+        guard let object = value.object,
+              let url = object["url"]?.string ?? object["link"]?.string,
+              !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        let title = object["title"]?.string ?? object["name"]?.string
+        let snippet = object["snippet"]?.string ?? object["description"]?.string
+        return ChatWebSearch.Source(title: title, url: url, snippet: snippet)
+    }
+
+    private func deduplicatedSources(_ sources: [ChatWebSearch.Source]) -> [ChatWebSearch.Source] {
+        var seen = Set<String>()
+        return sources.filter { source in
+            let key = source.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, seen.insert(key).inserted else { return false }
+            return true
+        }
     }
 
     private func genericToolUseKind(

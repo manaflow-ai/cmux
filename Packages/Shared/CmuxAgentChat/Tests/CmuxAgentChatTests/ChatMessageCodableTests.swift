@@ -37,6 +37,12 @@ struct ChatMessageCodableTests {
                     status: .succeeded
                 )
             ),
+            .webSearch(
+                ChatWebSearch(
+                    query: "Swift networking retry guidance",
+                    sources: [ChatWebSearch.Source(title: "Apple", url: "https://developer.apple.com", snippet: "Docs")]
+                )
+            ),
             .terminal(
                 ChatTerminalCapture(
                     command: "swift test",

@@ -1048,6 +1048,8 @@ private struct AgentChatMessageView: View {
                 AgentThoughtCard(text: thought.text)
             case .toolUse(let tool):
                 AgentToolCard(tool: tool)
+            case .webSearch(let search):
+                AgentWebSearchCard(search: search)
             case .terminal(let terminal):
                 AgentTerminalCard(terminal: terminal)
             case .fileEdit(let edit):
@@ -1102,6 +1104,12 @@ private struct AgentChatMessageView: View {
             if let paths = tool.referencedPaths, !paths.isEmpty { lines.append(paths.joined(separator: "\n")) }
             if let output = tool.output, !output.isEmpty { lines.append("Output:\n\(output)") }
             return lines.joined(separator: "\n")
+        case .webSearch(let search):
+            var lines = [search.query.map { "Search \($0)" } ?? "Sources"]
+            lines.append(contentsOf: search.sources.map { source in
+                [source.title, source.url, source.snippet].compactMap { $0 }.joined(separator: "\n")
+            })
+            return lines.joined(separator: "\n\n")
         case .terminal(let terminal):
             var lines = [terminal.command]
             if let output = terminal.output, !output.isEmpty { lines.append(output) }
@@ -1349,6 +1357,92 @@ private struct AgentToolCard: View {
 
     private var statusColor: Color {
         switch tool.status {
+        case .running: return .accentColor
+        case .succeeded: return .green
+        case .failed: return .red
+        }
+    }
+}
+
+private struct AgentWebSearchCard: View {
+    let search: ChatWebSearch
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .foregroundStyle(statusColor)
+                Text(search.query.map { "Search \($0)" } ?? "Sources")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 4)
+                Text(statusLabel)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(statusColor)
+            }
+            if search.sources.isEmpty {
+                Text("No sources returned")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(search.sources) { source in
+                    if let url = URL(string: source.url) {
+                        Link(destination: url) {
+                            sourceRow(source)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        sourceRow(source)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentWebSearchCard")
+    }
+
+    @ViewBuilder
+    private func sourceRow(_ source: ChatWebSearch.Source) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "link")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.title?.isEmpty == false ? source.title! : source.url)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                if let snippet = source.snippet, !snippet.isEmpty {
+                    Text(snippet)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                if source.title?.isEmpty == false {
+                    Text(source.url)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var statusLabel: String {
+        switch search.status {
+        case .running: return "Searching"
+        case .succeeded: return search.sources.isEmpty ? "Done" : "Sources"
+        case .failed: return "Failed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch search.status {
         case .running: return .accentColor
         case .succeeded: return .green
         case .failed: return .red

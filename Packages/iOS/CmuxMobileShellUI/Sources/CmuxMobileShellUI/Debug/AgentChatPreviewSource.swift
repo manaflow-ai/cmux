@@ -210,6 +210,10 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
             message("codex-4", 4, .agent, clock.addingTimeInterval(12), .terminal(ChatTerminalCapture(command: "swift test --filter Network", output: "Test Suite 'Network' passed", exitCode: 0, durationSeconds: 4.2))),
             message("codex-5", 5, .agent, clock.addingTimeInterval(16), .fileEdit(ChatFileEdit(filePath: "Sources/Network/RetryPolicy.swift", operation: .edit, additions: 8, deletions: 3, unifiedDiff: "@@ retry policy\n- let delay = 1\n+ let delay = min(8, attempt * 2)"))),
             message("codex-6", 6, .agent, clock.addingTimeInterval(20), .attachment(ChatAttachment(media: .file, displayName: "network-review.md"))),
+            message("codex-7", 7, .agent, clock.addingTimeInterval(24), .webSearch(ChatWebSearch(query: "Swift networking retry guidance", sources: [
+                ChatWebSearch.Source(title: "URLSession documentation", url: "https://developer.apple.com/documentation/foundation/urlsession", snippet: "Apple's URL loading system documentation."),
+                ChatWebSearch.Source(title: "Retrying failed requests", url: "https://example.com/retries", snippet: "A short guide to bounded backoff."),
+            ]))),
         ]
     }
 

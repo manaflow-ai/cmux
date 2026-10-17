@@ -68,7 +68,7 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
                 if let output = terminal.output {
                     textOccurrences.append(contentsOf: detector.paths(in: output))
                 }
-            case .permissionRequest, .question, .status, .unsupported:
+            case .webSearch, .permissionRequest, .question, .status, .unsupported:
                 break
             }
             for (rawPath, provenance) in structuredOccurrences {
