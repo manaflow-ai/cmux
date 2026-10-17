@@ -24,6 +24,7 @@
     "cloud-vm:dogfood": "bun scripts/cloud-vm/dogfood-journey.mjs",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
     "cloud-vm:stress": "bun scripts/cloud-vm/stress-vm-api.mjs",
+    "dogfood:runspec": "bun scripts/dogfood-run-spec.ts",
     "devbox:bake:freestyle": "bun scripts/build-devbox-freestyle.ts",
     "devbox:verify": "bun scripts/verify-devbox-image.ts",
     "devbox:verify:private-link": "bun scripts/verify-devbox-private-link.ts",
