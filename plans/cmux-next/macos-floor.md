@@ -14,10 +14,14 @@ CmuxNextDesign). The Computer Use helper is also at 14 (cx-s6wi.10). VM proof
 on 14, 15 and 26: `scripts/cmux-next/os-smoke/run.sh` (hq
 `build-host/macos-vm-smoke.md`).
 
-Known risk (UNVERIFIED): `withValueInTask` (CmuxNextActions) binds a task
-local without a task below macOS 26 (no `Task.immediate`). macOS 15.4 to 15.x
-have the isolated-deinit marker path that made this binding corrupt the heap
-on 26; the VM smoke on 15.7 covers Home and tabs but not every caller.
+Known risk, now fixed: `withValueInTask` (CmuxNextActions) bound a task local
+without a task below macOS 26 (no `Task.immediate`). macOS 15.4 to 15.x run an
+inline isolated deinit through the runtime's stop-lookup marker, which frees a
+global-allocator pointer with `free()`. NEXT 3889579838401 trapped this way on
+macOS 15.8.1 (a Cmd-T released the previous New Tab key hold under Chromium's
+allocator). Below macOS 26 the binding now runs inside a task started with the
+runtime's `Task.startOnMainActor` (Swift 5.9, macOS 14). The VM smoke step
+`newtab_burst` reproduces the crash on 15 before the fix.
 
 ## Recommendation
 
