@@ -59,11 +59,14 @@ import Testing
     }
 
     @Test func hostStreamFinishingExposesReconnectingState() async {
+        let reconnectGate = TestAsyncGate()
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
             pages: [:]
         )
-        let model = AgentChatModeModel()
+        let model = AgentChatModeModel(reconnectDelay: { _ in
+            await reconnectGate.wait()
+        })
 
         model.updateSource(source)
         await settle()
@@ -73,6 +76,7 @@ import Testing
         await settle()
         #expect(model.connectionState == .reconnecting)
 
+        await reconnectGate.open()
         await model.refresh()
         await settle()
         let renamed = ChatSessionDescriptor(
@@ -412,7 +416,7 @@ import Testing
         #expect((await source.sent).map(\.0) == ["Explain this diff"])
         #expect((await source.sent).map(\.1) == ["session"])
         #expect((await source.answers).map(\.0) == [2, 3])
-        #expect((await source.answers).map(\.1) == ["session"])
+        #expect((await source.answers).map(\.1) == ["session", "session"])
         #expect((await source.interrupts).map(\.0) == [true])
         #expect((await source.interrupts).map(\.1) == ["session"])
         #expect(model.draft.isEmpty)
@@ -759,6 +763,21 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
         eventContinuations[sessionID] = continuation
         pendingEvents[sessionID, default: []].forEach { continuation.yield($0) }
         pendingEvents[sessionID] = nil
+    }
+}
+
+private actor TestAsyncGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func open() {
+        waiter?.resume()
+        waiter = nil
     }
 }
 
