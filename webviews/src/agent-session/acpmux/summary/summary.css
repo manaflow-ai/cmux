@@ -127,27 +127,8 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: 8px 8px 6px;
-  padding: 4px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 14%, transparent);
-}
-/* Each row after the first on a hairline, inset past its icon, as a grouped list draws them. */
-.acpmux-thread-details > * + *::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 36px;
-  right: 10px;
-  height: 0.5px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-}
-.acpmux-thread-details > * {
-  position: relative;
-}
-:root[data-borders="none"] .acpmux-thread-details {
-  box-shadow: none;
+  padding: 6px;
+  border-bottom: 0.5px solid var(--agent-border);
 }
 .acpmux-thread-details__row {
   all: unset;

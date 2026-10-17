@@ -5542,8 +5542,6 @@ function AcpmuxPane() {
                       <ThreadDetails
                         folder={localCwd}
                         {...(machineName ? { machine: machineName } : {})}
-                        readStatus={readFolderStatus}
-                        refresh={snapshot.isWorking}
                         openIn={(app) =>
                           callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
                             (reply) => reply?.apps ?? [],
