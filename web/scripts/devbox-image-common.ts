@@ -171,10 +171,15 @@ SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-
 # Poll until the login shell has printed, rather than sampling once after a
 # fixed delay: on a snapshot whose blocks are not yet cached on the host, the
 # first \`bash -l\` can take several seconds just reading its files from disk.
+# Bounded by elapsed time, not attempts, so slow RPCs cannot stretch it past
+# the callers' exec timeouts; it waits for the whole line the identity check
+# below reads, not just its first characters.
 FIRST=""
-for attempt in $(seq 1 60); do
+DEADLINE=$((SECONDS + 30))
+while :; do
   FIRST="$(rpc "$SNAPSHOT_REQUEST")"
-  if echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null; then break; fi
+  if echo "$FIRST" | jq -e --arg who "$MARKER:${identity}" 'tostring | contains($who)' >/dev/null; then break; fi
+  [ "$SECONDS" -lt "$DEADLINE" ] || break
   sleep 0.5
 done
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
