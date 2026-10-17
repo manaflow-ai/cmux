@@ -107,7 +107,6 @@ export function FolderPopover({
           data-first={action === actions[0] ? "" : undefined}
           data-choose={action.value === ACTION + "browse" ? "" : undefined}
         >
-          <span className="acpmux-location-check" aria-hidden="true" />
           <span className="acpmux-menu-label">{action.text}</span>
         </span>
       );
@@ -115,7 +114,6 @@ export function FolderPopover({
     if (!folder)
       return (
         <span className="acpmux-location-row">
-          <span className="acpmux-location-check" aria-hidden="true" />
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
         </span>
       );
@@ -123,9 +121,6 @@ export function FolderPopover({
     return (
       // tooltip-allow: the row shows the folder's name; the tooltip is its full path
       <span className="acpmux-location-row" title={folder.id} data-current={folder.id === current ? "" : undefined}>
-        <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
-        </span>
         <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{folder.label}</span>
@@ -138,6 +133,9 @@ export function FolderPopover({
               <span className="acpmux-location-suffix">{suffix}</span>
             </>
           )}
+        </span>
+        <span className="acpmux-location-check" aria-hidden="true">
+          {folder.id === current && <CheckIcon />}
         </span>
       </span>
     );
