@@ -116,7 +116,38 @@ public actor MobileChatEventSource: ChatEventSource {
         let client = self.client
         let coding = self.coding
         let streamID = UUID().uuidString
-        let (stream, continuation) = AsyncStream<ChatSessionEventFrame>.makeStream()
+        let (stream, continuation) = AsyncStream<ChatSessionEventFrame>.makeStream(
+            bufferingPolicy: .bufferingNewest(256)
+        )
+
+        // Start consuming the underlying listener before the server-side
+        // handshake. A canceled or failed handshake must still tear down the
+        // listener rather than leaving an unconsumed subscription behind.
+        let pump = Task {
+            for await envelope in envelopes {
+                guard let payload = envelope.payloadJSON else { continue }
+                guard let frame = try? coding.decode(ChatSessionEventFrame.self, from: payload) else {
+                    continue
+                }
+                continuation.yield(frame)
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { reason in
+            pump.cancel()
+            // Withdraw the registration only on consumer cancellation; a
+            // `.finished` means the connection died and an unsubscribe would
+            // reopen a torn-down transport (see `events`).
+            guard case .cancelled = reason else { return }
+            Task {
+                if let unsubscribe = try? MobileCoreRPCClient.requestData(
+                    method: "mobile.events.unsubscribe",
+                    params: ["stream_id": streamID]
+                ) {
+                    _ = try? await client.sendRequest(unsubscribe)
+                }
+            }
+        }
 
         // Register after the local listener exists and before returning the
         // stream. Frames received during the handshake remain buffered in the
@@ -132,33 +163,14 @@ public actor MobileChatEventSource: ChatEventSource {
             _ = try await client.sendRequest(subscribe)
         } catch {
             continuation.finish()
-            return stream
-        }
-
-        let pump = Task {
-            for await envelope in envelopes {
-                guard let payload = envelope.payloadJSON else { continue }
-                guard let frame = try? coding.decode(ChatSessionEventFrame.self, from: payload) else {
-                    continue
-                }
-                continuation.yield(frame)
-            }
-            continuation.finish()
-        }
-        continuation.onTermination = { reason in
             pump.cancel()
-            // Withdraw the registration only on consumer cancellation; a
-            // `.finished` means the connection died and an unsubscribe
-            // would reopen a torn-down transport (see `events`).
-            guard case .cancelled = reason else { return }
-            Task {
-                if let unsubscribe = try? MobileCoreRPCClient.requestData(
-                    method: "mobile.events.unsubscribe",
-                    params: ["stream_id": streamID]
-                ) {
-                    _ = try? await client.sendRequest(unsubscribe)
-                }
+            if let unsubscribe = try? MobileCoreRPCClient.requestData(
+                method: "mobile.events.unsubscribe",
+                params: ["stream_id": streamID]
+            ) {
+                _ = try? await client.sendRequest(unsubscribe)
             }
+            return stream
         }
         return stream
     }
@@ -181,25 +193,12 @@ public actor MobileChatEventSource: ChatEventSource {
         let client = self.client
         let coding = self.coding
         let streamID = UUID().uuidString
-        let (stream, continuation) = AsyncStream<ChatSessionEvent>.makeStream()
+        let (stream, continuation) = AsyncStream<ChatSessionEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(256)
+        )
 
-        // Complete the server-side registration before returning. The local
-        // listener buffers any frame delivered during the handshake, closing
-        // the gap between subscribing and the initial history snapshot.
-        do {
-            let subscribe = try MobileCoreRPCClient.requestData(
-                method: "mobile.events.subscribe",
-                params: [
-                    "topics": ["chat.message"],
-                    "stream_id": streamID,
-                ]
-            )
-            _ = try await client.sendRequest(subscribe)
-        } catch {
-            continuation.finish()
-            return stream
-        }
-
+        // Start consuming the underlying listener before the server-side
+        // handshake so cancellation and handshake failures release it.
         let pump = Task {
             for await envelope in envelopes {
                 guard let payload = envelope.payloadJSON else { continue }
@@ -215,9 +214,8 @@ public actor MobileChatEventSource: ChatEventSource {
             pump.cancel()
             // Withdraw the server-side registration only when the CONSUMER
             // cancelled a live stream (chat closed). A `.finished`
-            // termination means the connection itself died (or the handshake
-            // failed); sending an unsubscribe there would reopen a torn-down
-            // transport just to clean up a registration that died with it.
+            // termination means the connection itself died or the handshake
+            // failed, so an unsubscribe would reopen a torn-down transport.
             guard case .cancelled = reason else { return }
             Task {
                 if let unsubscribe = try? MobileCoreRPCClient.requestData(
@@ -227,6 +225,30 @@ public actor MobileChatEventSource: ChatEventSource {
                     _ = try? await client.sendRequest(unsubscribe)
                 }
             }
+        }
+
+        // Complete the server-side registration before returning. The local
+        // listener buffers any frame delivered during the handshake, closing
+        // the gap between subscribing and the initial history snapshot.
+        do {
+            let subscribe = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.subscribe",
+                params: [
+                    "topics": ["chat.message"],
+                    "stream_id": streamID,
+                ]
+            )
+            _ = try await client.sendRequest(subscribe)
+        } catch {
+            continuation.finish()
+            pump.cancel()
+            if let unsubscribe = try? MobileCoreRPCClient.requestData(
+                method: "mobile.events.unsubscribe",
+                params: ["stream_id": streamID]
+            ) {
+                _ = try? await client.sendRequest(unsubscribe)
+            }
+            return stream
         }
         return stream
     }

@@ -141,6 +141,7 @@ public struct MobileChatHomeView: View {
         }
         .onChange(of: model.sessions) { _, _ in
             resolvePendingLaunch()
+            pruneInvalidRoutes()
         }
         .onChange(of: model.activeComputerID) { _, _ in
             navigationPath.removeAll()
@@ -177,6 +178,14 @@ public struct MobileChatHomeView: View {
             }) else { return }
         self.pendingLaunch = nil
         openSession(session.id)
+    }
+
+    private func pruneInvalidRoutes() {
+        let sessionIDs = Set(model.sessions.map(\.id))
+        navigationPath.removeAll { route in
+            guard case .conversation(let sessionID) = route else { return false }
+            return !sessionIDs.contains(sessionID)
+        }
     }
 }
 
