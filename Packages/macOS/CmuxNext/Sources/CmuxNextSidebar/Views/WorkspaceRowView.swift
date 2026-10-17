@@ -81,6 +81,9 @@ final class WorkspaceRowView: SidebarRowView {
     /// The bar's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
     private var placeholderFraction: CGFloat = 0.6
+    /// The last title painted by this view. Recycled rows clear this so a
+    /// different workspace never inherits a title transition.
+    private var lastTitle: String?
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -105,6 +108,7 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
+        title.wantsLayer = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         moreButton.onPress = { [weak self] in self?.onMore?() }
         pinButton.onPress = { [weak self] in self?.onPin?() }
@@ -144,6 +148,8 @@ final class WorkspaceRowView: SidebarRowView {
         onSelect = nil
         onToggleTabs = nil
         title.stopMarquee()
+        title.layer?.removeAnimation(forKey: "workspace-title-motion")
+        lastTitle = nil
     }
 
     private struct Content: Hashable {
@@ -184,7 +190,11 @@ final class WorkspaceRowView: SidebarRowView {
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
+        let priorTitle = lastTitle
         title.stringValue = ws.title
+        lastTitle = ws.title
+        animateTitleChange(from: priorTitle, to: ws.title, variant: tunables.workspaceTitleMotion,
+                           placeholder: isShowingPlaceholder || isPlaceholderRow)
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(row.detail ?? "")
@@ -226,6 +236,25 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Applies a title-only transition after the row's content has been set.
+    /// CATransition snapshots the old and new glyphs in the same layer, which
+    /// avoids the blank frame that a separate fade-out/fade-in would expose.
+    private func animateTitleChange(from old: String?, to new: String,
+                                    variant: SidebarWorkspaceTitleMotionVariant,
+                                    placeholder: Bool) {
+        guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
+              variant != .instant, !Motion.reduceMotion else { return }
+        let transition: CATransition
+        switch variant {
+        case .instant: return
+        case .crossfade: transition = Motion.crossfadeAction
+        case .lift: transition = Motion.pushUpAction
+        }
+        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.timingFunction = Motion.fadeCurve
+        title.layer?.add(transition, forKey: "workspace-title-motion")
     }
 
     /// Where an NSTextField label with this text would sit (inline rename

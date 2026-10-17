@@ -7,6 +7,22 @@ This pass adds opt-in Debug Settings variants. Production defaults remain unchan
 | Pane close and expand | `motion.pane.variant` | `standard`, `crisp`, `softLanding` | `standard` | Reuses the existing pane geometry and fixed-size host behavior; `crisp` shortens the structural response and `softLanding` adds a small settle treatment. |
 | Sidebar collapse | `sidebar.collapseMotion` | `slide`, `slideFade` | `slide` | `slideFade` fades the sidebar panel while the width follows the same transition. Geometry is unchanged. |
 | Tab loading indicator | `tabs.loadingAnimation` | `instant`, `fade`, `fadeScale`, `fadeSlide` | `instant` | Loading indicators enter/leave without changing tab measurements. The fade variants retain the layer until the exit animation completes. |
+| Workspace / agent title arrival | `sidebar.workspaceTitleMotion` | `instant`, `crossfade`, `lift` | `instant` | Keeps the existing title slot and transitions only the glyphs when a new workspace or chat receives its generated display title. |
+
+## Naming reference and design decision
+
+The current CMUX path resolves a row title as `page.title ?? workspace.displayName` in
+`SidebarMapping`, then assigns it directly to `WorkspaceRowView.title`. That makes a late
+agent-derived or browser-derived name appear as a synchronous text replacement. The new
+prototype keeps the row geometry stable and uses the existing Motion fade tokens for the
+title layer transition. Placeholder rows remain static until a real title exists.
+
+The reference behavior is consistent across the public product surfaces: Claude documents
+conversation names as a user-visible title that can be renamed from the conversation header,
+while Codex generates a concise title from the first message in a background title-generation
+request. The UI implication is to keep a stable provisional label while generation is pending,
+then replace it once, in place, with a short crossfade or lift rather than flashing “New chat”
+and the final title as separate layouts.
 
 ## Focused verification
 
