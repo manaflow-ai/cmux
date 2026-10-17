@@ -534,6 +534,60 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "stop_hook_active must not cache pending work for idle_prompt; saw \(context.state.snapshot())")
     }
 
+    @Test func idlePromptSettlesRunningTurnWhoseStopNeverArrived() throws {
+        // A turn's Stop can be lost on the way to the app; Claude's idle nag
+        // about a minute later is then the only signal that the turn ended.
+        // https://github.com/manaflow-ai/cmux/issues/21229
+        let session = "idle-without-stop"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-without-stop")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-without-stop",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-without-stop",
+            storeURL: storeURL
+        )
+        func runHook(_ subcommand: String, _ payload: String) {
+            let result = harness.runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: payload,
+                timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+            )
+            #expect(handled.wait(timeout: .now() + 5) == .success)
+            harness.assertSuccessfulHook(result)
+        }
+        func record() throws -> [String: Any] {
+            let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try #require(object["sessions"] as? [String: Any])
+            return try #require(sessions[session] as? [String: Any])
+        }
+
+        runHook("prompt-submit", #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"finish this"}"#)
+        #expect(try record()["agentLifecycle"] as? String == "running")
+
+        runHook("notification", #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#)
+        let snapshot = context.state.snapshot()
+        #expect(try record()["agentLifecycle"] as? String == "idle",
+                "idle_prompt must settle a turn still recorded as running; saw \(try record())")
+        #expect(try record()["turnSettled"] as? Bool == true)
+        #expect(lastLine(snapshot, prefix: "set_status claude_code ")?.hasPrefix("set_status claude_code Idle ") == true,
+                "idle_prompt must replace the stale Running pill with Idle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "An idle reminder must not invent a Needs input state; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed", pendingWork: false) != nil,
+                "idle_prompt must journal a settled-idle observation; saw \(snapshot)")
+    }
+
     @Test func agentCompletedNotificationLeavesPaneRunning() throws {
         // `agent_completed` is Claude Code's user-facing form of SubagentStop: a
         // Task subagent finished while the parent agent keeps working on its
