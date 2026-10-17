@@ -195,7 +195,7 @@ test("JSONL journal replays queued mail and delivery receipts", async () => {
   const path = join(root, "mail.jsonl");
   try {
     const first = await JsonlMailJournal.open(path);
-    const appended = first.append({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" });
+    const appended = first.publish({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" });
     await first.flush();
     const delivered = first.markDelivered(appended.envelope.id, "review");
     await first.flush();
@@ -212,12 +212,51 @@ test("JSONL journal rejects malformed receipts with a line number", async () => 
   try {
     const message = {
       kind: "message",
-      envelope: { id: "m", sender: "codex", recipients: ["review"], body: "hello" },
+      envelope: {
+        id: "m",
+        threadId: "m",
+        kind: "message",
+        sender: "codex",
+        recipients: ["review"],
+        body: "hello",
+        contentType: "text/plain",
+        createdAt: 1,
+        references: [],
+        attachments: [],
+        metadata: {},
+      },
       deliveries: [{ messageId: "m", recipient: "review", state: "queued", attempts: 0, updatedAt: 1 }],
     };
     const malformedDelivery = { kind: "delivery", receipt: { messageId: "m", recipient: "review", state: "delivered" } };
     await writeFile(path, `${JSON.stringify(message)}\n${JSON.stringify(malformedDelivery)}\n`);
     await expect(JsonlMailJournal.open(path)).rejects.toThrow("line 2");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("broker restore validates all receipts before committing the envelope", () => {
+  const broker = new InMemoryMailBroker();
+  const envelope = createMail({ id: "atomic", sender: "codex", recipients: ["review", "qa"], body: "hello", createdAt: 1 });
+  try {
+    broker.restore(envelope, [{ messageId: "atomic", recipient: "review", state: "queued", attempts: 0, updatedAt: 1 }]);
+    throw new Error("restore should reject an incomplete receipt map");
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("missing delivery receipt")) throw error;
+  }
+  if (broker.get("atomic") || broker.list().length !== 0) throw new Error("failed restore must not partially commit");
+});
+
+test("journal stops accepting mutations after a write failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-write-failure-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    const journal = await JsonlMailJournal.open(path);
+    await rm(root, { recursive: true, force: true });
+    await writeFile(root, "not a directory");
+    journal.append({ id: "first", sender: "codex", recipients: ["review"], body: "first" });
+    await expect(journal.flush()).rejects.toThrow();
+    if (!journal.get("first")) throw new Error("the failed write should still be observable for diagnostics");
+    expect(() => journal.append({ id: "second", sender: "codex", recipients: ["review"], body: "second" })).toThrow("mail journal is unavailable");
+    if (journal.get("second")) throw new Error("journal accepted a mutation after its write failed");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
