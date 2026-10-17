@@ -26,7 +26,7 @@ extension TabStripView {
         setHovered(nil)
         hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
-        installEscapeMonitor()
+        escapeMonitor.install()
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -122,7 +122,7 @@ extension TabStripView {
     func endDrag() {
         guard let drag else { return }
         self.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         cells[drag.id]?.isLifted = false
         // The release settles into the slot on a 200 ms ease-out from where it is (Chrome).
         motion[drag.id]?.use(.tabMove)
@@ -164,20 +164,6 @@ extension TabStripView {
         endDrag()
     }
 
-    func installEscapeMonitor() {
-        guard escapeMonitor == nil else { return }
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, let self, self.drag != nil || self.groups.drag != nil else { return event }
-            self.cancelDrag()
-            return nil
-        }
-    }
-
-    func removeEscapeMonitor() {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
-    }
-
     // MARK: - Hand-off to the App's drag session
 
     /// Dragging a tab past the tear-off distance hands it to the App's
@@ -203,40 +189,17 @@ extension TabStripView {
             snapshot: snapshot(of: [cell.layer], frame: cell.frame)
         )
         self.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         cell.isLifted = false
         detachedID = drag.id
         sync(fromModel: false)
         model.send(.dragBegan(start))
     }
 
-    /// Renders `layers` (tab or chip roots in the clip layer) into one image
-    /// covering `frame` (clip coordinates), on a window-colored rounded card.
+    /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored rounded card.
     func snapshot(of layers: [CALayer], frame: CGRect) -> TabImage? {
-        let scale = window?.backingScaleFactor ?? 2
-        let size = frame.size
-        let width = Int((size.width * scale).rounded())
-        let height = Int((size.height * scale).rounded())
-        guard width > 0, height > 0, let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        // Layers are flipped; CoreGraphics is not.
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: scale, y: -scale)
-        performWithTheme {
-            context.setFillColor(Palette.windowBackground.cgColor)
-        }
-        let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
-        context.fillPath()
-        for layer in layers {
-            context.saveGState()
-            context.translateBy(x: layer.frame.minX - frame.minX, y: layer.frame.minY - frame.minY)
-            layer.render(in: context)
-            context.restoreGState()
-        }
-        return context.makeImage().map(TabImage.init)
+        let background = performWithTheme { Palette.windowBackground.cgColor }
+        return TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
     }
 
     /// The tabs the strip shows, in order (tab conservation check DP1: once

@@ -119,7 +119,7 @@ extension TabStripView {
         let resolved = resolvePhantom(at: point, groupWidth: groupWidth)
         var items = baseLayoutItems()
         let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: resolved.groupID, fixedWidth: groupWidth)
-        Self.insertPlaceholder(placeholder, atTabIndex: resolved.index, into: &items)
+        items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
         let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
         guard let slot = layout.slot(Self.placeholderID) else { return nil }
         let offset = TabScrollMath.clamp(scroll.target, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)

@@ -143,9 +143,9 @@ extension TabStripView {
     func showGroupMenu(for group: TabGroupID) {
         guard let menu = contextMenuProvider?(.group(group)), !menu.items.isEmpty, let chip = groups.chips[group] else { return }
         let frame = tabsClip.convert(chip.frame, to: self)
-        beginMenuTracking(menu)
+        menuTracking.begin(menu)
         menu.popUp(positioning: nil, at: CGPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2), in: self)
-        endMenuTracking()
+        menuTracking.end()
     }
 
     /// Click-and-hold on a chip opens the editor.
