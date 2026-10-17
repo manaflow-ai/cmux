@@ -187,9 +187,7 @@ extension SidebarView {
             var drawn = debugRow.drawn(by: view)
             drawn.iconAddress = view?.debugIconAddress
             if case let .item(id) = row.key { (drawn.item, drawn.itemKind) = (id, list.listItems[id]?.ref.kind) }
-            if case let .workspace(id) = row.key, let workspace = byID[id] {
-                (drawn.unread, drawn.rowState, drawn.directory) = (String(describing: workspace.unread), String(describing: workspace.rowState), workspace.directory)
-            }
+            if case let .workspace(id) = row.key, let ws = byID[id] { (drawn.unread, drawn.rowState, drawn.directory) = ("\(ws.unread)", "\(ws.rowState)", ws.directory) }
             (drawn.progress, drawn.showsWorking) = (row.content?.progress != nil, row.content?.showsWorking == true)
             return drawn
         }
