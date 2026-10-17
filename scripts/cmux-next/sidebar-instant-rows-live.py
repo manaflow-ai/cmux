@@ -21,8 +21,10 @@ Checks, per scenario:
 - instant close (Close Workspace x1 and x5, no window recording, so its
   per-frame snapshots do not load the main thread): the first sample after
   each press no longer lists the closed row (its close animation started) and
-  selects another row (the selection moved with it), and no display frame
-  waits over 50 ms (a main-thread stall); a recorded close-x1 keeps the frames.
+  selects another row (the selection moved with it). The same closes run
+  again with no sampling (each `debug.sidebar_rows` answer costs the main
+  thread 15-40 ms in a DEBUG build) and no display frame there may wait over
+  50 ms (a main-thread stall). A recorded close-x1 keeps the frames.
 - refused close (`debug.sidebar_rows {"refuse_next_close": true}` fails the
   next close before the daemon): the row leaves at the press and comes back
   (it opens again), and the workspace count does not change.
@@ -101,7 +103,7 @@ def check(name, ok, detail):
         failures.append(name)
 
 
-def scenario(name, presses, gap=0.033, settle=None, record=True):
+def scenario(name, presses, gap=0.033, settle=None, record=True, sample=True):
     """Runs `presses` (action ids) `gap` seconds apart, under a recording when
     `record`, and returns (samples, motion frames, keys before, press times).
     A sample is (time asked, workspace rows, the window's selection)."""
@@ -123,7 +125,8 @@ def scenario(name, presses, gap=0.033, settle=None, record=True):
     sampler = threading.Thread(target=sample, daemon=True)
     time.sleep(0.15)  # test harness: still frames before the change
     pressed = []
-    sampler.start()
+    if sample:
+        sampler.start()
     for press in presses:
         shown = selected_key(workspace_rows())
         sent = time.time()
@@ -132,7 +135,8 @@ def scenario(name, presses, gap=0.033, settle=None, record=True):
         time.sleep(gap)  # test harness: key-repeat spacing
     time.sleep(settle or opts.seconds)  # test harness: the motion and the creates settle
     stop.set()
-    sampler.join()
+    if sample:
+        sampler.join()
     motion = rpc("debug.sidebar_rows", {"motion": "stop"}) or {}
     if record:
         time.sleep(0.6)  # test harness: the recording stops by itself
@@ -186,7 +190,15 @@ def selection_key(key):
 SETTLE_AFTER_SEND = 0.015
 
 
-def check_close(name, samples, pressed, motion, stall_ms=50):
+def check_stall(name, motion, stall_ms=50):
+    frames = motion.get("frames") or []
+    gaps = [round((b["t"] - a["t"]) * 1000) for a, b in zip(frames, frames[1:])]
+    worst = max(gaps, default=0)
+    check(f"{name} no stall", bool(frames) and worst <= stall_ms, f"longest frame {worst} ms over {len(frames)} frames (limit {stall_ms} ms)")
+    return worst
+
+
+def check_close(name, samples, pressed):
     """Each press: from the first sample asked after it (the socket's action.run returns only after the
     daemon replied, so the samples between send and return show the row before the reply) the shown row
     is listed no more and another row is selected."""
@@ -205,11 +217,6 @@ def check_close(name, samples, pressed, motion, stall_ms=50):
                 break
     detail = f"{len(pressed)} press(es): row gone and selection moved from the first sample ({before_reply} samples before the reply)"
     check(f"{name} instant", not late, "; ".join(late) or detail)
-    frames = motion.get("frames") or []
-    gaps = [round((b["t"] - a["t"]) * 1000) for a, b in zip(frames, frames[1:])]
-    worst = max(gaps, default=0)
-    check(f"{name} no stall", bool(frames) and worst <= stall_ms, f"longest frame {worst} ms over {len(frames)} frames (limit {stall_ms} ms)")
-    return worst
 
 
 def check_refused(name, samples, pressed, after_keys):
@@ -270,6 +277,15 @@ def stop_trace(proc):
                     '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", os.path.join(opts.out, "close-time-profile.xml")])
 
 
+def refill(count):
+    """`count` more workspaces, settled, for the next closes."""
+    target = len(workspace_rows()) + count
+    for _ in range(count):
+        action("newTab")
+    wait(lambda: len(workspace_rows()) >= target, 10)
+    time.sleep(1.0)  # test harness: the creates settle
+
+
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 90):
         sys.exit("the app does not answer on " + opts.socket)
@@ -288,20 +304,23 @@ def main():
     check_instant("cmd-n-x5", samples, before, pressed, 5)
     check_smooth("cmd-n-x5", motion)
 
-    tracer = start_trace() if opts.trace else None
     samples, motion, before, pressed = scenario("close-x1", ["closeWorkspace"], record=False)
-    check_close("close-x1", samples, pressed, motion)
+    check_close("close-x1", samples, pressed)
     check_smooth("close-x1", motion)
     check("close-x1 count", len(workspace_rows()) == len(before) - 1, f"{len(before)} -> {len(workspace_rows())}")
     samples, motion, before, pressed = scenario("close-x5", ["closeWorkspace"] * 5, settle=3.0, record=False)
-    check_close("close-x5", samples, pressed, motion)
+    check_close("close-x5", samples, pressed)
     check_smooth("close-x5", motion)
     check("close-x5 count", len(workspace_rows()) == len(before) - 5, f"{len(before)} -> {len(workspace_rows())}")
+    refill(6)
+    tracer = start_trace() if opts.trace else None
+    _, motion, before, _ = scenario("close-x1-quiet", ["closeWorkspace"], record=False, sample=False)
+    check_stall("close-x1-quiet", motion)
+    _, motion, before, _ = scenario("close-x5-quiet", ["closeWorkspace"] * 5, settle=3.0, record=False, sample=False)
+    check_stall("close-x5-quiet", motion)
+    check("close-x5-quiet count", len(workspace_rows()) == len(before) - 5, f"{len(before)} -> {len(workspace_rows())}")
     stop_trace(tracer)
-    for _ in range(3):
-        action("newTab")
-    wait(lambda: len(workspace_rows()) >= len(before) - 5 + 3, 10)
-    time.sleep(1.0)  # test harness: the creates settle
+    refill(3)
     _, motion, before, _ = scenario("close-x1-recorded", ["closeWorkspace"])
     check_smooth("close-x1-recorded", motion)
     rpc("debug.sidebar_rows", {"refuse_next_close": True})
