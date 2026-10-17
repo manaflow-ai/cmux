@@ -164,144 +164,141 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
 
   return (
     <main className="cmux-comparison-board" aria-label="CMUX Next comparison board">
-        <div className="cmux-comparison-toolbar">
-          <div>
-            <p className="cmux-comparison-eyebrow">Interactive comparison board</p>
-            <h1>Composer and sidebar treatments</h1>
-          </div>
-          <div className="cmux-comparison-tabs" role="tablist" aria-label="Comparison sections">
-            {(["overview", "slider", "sidebar"] as const).map((name) => (
-              <button
-                key={name}
-                type="button"
-                role="tab"
-                id={`comparison-tab-${name}`}
-                aria-controls={`comparison-panel-${name}`}
-                aria-selected={section === name}
-                className={section === name ? "is-active" : ""}
-                onClick={() => setSection(name)}
-              >
-                {name === "overview" ? "Overview" : name === "slider" ? "Reasoning slider" : "Sidebar previews"}
-              </button>
-            ))}
-          </div>
+      <div className="cmux-comparison-toolbar">
+        <div>
+          <p className="cmux-comparison-eyebrow">Interactive comparison board</p>
+          <h1>Composer and sidebar treatments</h1>
         </div>
+        <div className="cmux-comparison-tabs" role="tablist" aria-label="Comparison sections">
+          {(["overview", "slider", "sidebar"] as const).map((name) => (
+            <button
+              key={name}
+              type="button"
+              role="tab"
+              id={`comparison-tab-${name}`}
+              aria-controls={`comparison-panel-${name}`}
+              aria-selected={section === name}
+              className={section === name ? "is-active" : ""}
+              onClick={() => setSection(name)}
+            >
+              {name === "overview" ? "Overview" : name === "slider" ? "Reasoning slider" : "Sidebar previews"}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <div
-          className="cmux-comparison-body"
-          role="tabpanel"
-          id={`comparison-panel-${section}`}
-          aria-labelledby={`comparison-tab-${section}`}
-        >
-          {showSidebar && (
-            <aside className="cmux-comparison-sidebar" aria-label={`Sidebar preview: ${preview}`}>
-              <div className="cmux-comparison-sidebar-label">Sessions · {preview}</div>
-              <SessionSidebar
-                sessions={sessions}
-                selectedId="comparison-active"
-                openIds={new Set(["comparison-review"])}
-                onSelect={() => undefined}
-                onNewChat={() => undefined}
-                account={{ name: "Leo", detail: "Personal" }}
-                preview
-                previewVariant={preview}
-              />
-              <span ref={setPreviewAnchor} className="cmux-comparison-preview-anchor" aria-hidden="true" />
-              {previewAnchor && (
-                <SessionPreviewCard
-                  anchor={previewAnchor}
-                  open
-                  id="comparison-preview-card"
-                  previewVariant={preview}
+      <div
+        className="cmux-comparison-body"
+        role="tabpanel"
+        id={`comparison-panel-${section}`}
+        aria-labelledby={`comparison-tab-${section}`}
+      >
+        {showSidebar && (
+          <aside className="cmux-comparison-sidebar" aria-label={`Sidebar preview: ${preview}`}>
+            <div className="cmux-comparison-sidebar-label">Sessions · {preview}</div>
+            <SessionSidebar
+              sessions={sessions}
+              selectedId="comparison-active"
+              openIds={new Set(["comparison-review"])}
+              onSelect={() => undefined}
+              onNewChat={() => undefined}
+              account={{ name: "Leo", detail: "Personal" }}
+              preview
+              previewVariant={preview}
+            />
+            <span ref={setPreviewAnchor} className="cmux-comparison-preview-anchor" aria-hidden="true" />
+            {previewAnchor && (
+              <SessionPreviewCard anchor={previewAnchor} open id="comparison-preview-card" previewVariant={preview}>
+                <div className="acpmux-session-preview-title">Review the sidebar polish</div>
+                <div className="acpmux-session-preview-copy">
+                  Card, quiet and outline treatments are ready to compare.
+                </div>
+                <div className="acpmux-session-preview-meta">
+                  <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
+                  <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
+                </div>
+              </SessionPreviewCard>
+            )}
+            <div className="cmux-comparison-preview-toggle" role="group" aria-label="Sidebar treatment">
+              {(["card", "quiet", "outline"] as const).map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={preview === name ? "is-active" : ""}
+                  aria-pressed={preview === name}
+                  onClick={() => setPreview(name)}
                 >
-                  <div className="acpmux-session-preview-title">Review the sidebar polish</div>
-                  <div className="acpmux-session-preview-copy">Card, quiet and outline treatments are ready to compare.</div>
-                  <div className="acpmux-session-preview-meta">
-                    <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
-                    <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
-                  </div>
-                </SessionPreviewCard>
-              )}
-              <div className="cmux-comparison-preview-toggle" role="group" aria-label="Sidebar treatment">
-                {(["card", "quiet", "outline"] as const).map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={preview === name ? "is-active" : ""}
-                    aria-pressed={preview === name}
-                    onClick={() => setPreview(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-            </aside>
-          )}
+                  {name}
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
 
-          {showSlider && (
-            <div className="cmux-comparison-main">
-              <div className="cmux-comparison-transcript" aria-label="Conversation preview">
-                <div className="cmux-comparison-message cmux-comparison-message-user">
-                  <span className="cmux-comparison-avatar">L</span>
-                  <p>Can we make the composer feel a little calmer while keeping the reasoning control discoverable?</p>
-                </div>
-                <div className="cmux-comparison-message cmux-comparison-message-agent">
-                  <span className="cmux-comparison-agent-mark">✦</span>
-                  <div>
-                    <p>
-                      I’m comparing the accent and minimal treatments here. Hover a session to inspect its latest reply.
-                    </p>
-                    <span className="cmux-comparison-meta">Ready for review · This Mac</span>
-                  </div>
-                </div>
+        {showSlider && (
+          <div className="cmux-comparison-main">
+            <div className="cmux-comparison-transcript" aria-label="Conversation preview">
+              <div className="cmux-comparison-message cmux-comparison-message-user">
+                <span className="cmux-comparison-avatar">L</span>
+                <p>Can we make the composer feel a little calmer while keeping the reasoning control discoverable?</p>
               </div>
-              <div className="cmux-comparison-composer" aria-label="Composer preview">
-                <div className="cmux-comparison-composer-copy">Ask anything</div>
-                <div className="cmux-comparison-composer-row">
-                  <span className="cmux-comparison-compose-icon" aria-hidden="true">
-                    ＋
-                  </span>
-                  <span className="cmux-comparison-compose-hint">Attach files or mention a project</span>
-                  <ComposerPickers
-                    snapshot={composerSnapshot}
-                    permissionAccess={{ grants }}
-                    onModel={setModel}
-                    onMode={setMode}
-                    onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-                    showPlan
-                  />
-                  <button type="button" className="cmux-comparison-send" aria-label="Send message">
-                    ↑
-                  </button>
+              <div className="cmux-comparison-message cmux-comparison-message-agent">
+                <span className="cmux-comparison-agent-mark">✦</span>
+                <div>
+                  <p>
+                    I’m comparing the accent and minimal treatments here. Hover a session to inspect its latest reply.
+                  </p>
+                  <span className="cmux-comparison-meta">Ready for review · This Mac</span>
                 </div>
-              </div>
-              <div
-                className="cmux-comparison-slider-specimen"
-                aria-label={`Visible ${sliderStyle} reasoning slider specimen`}
-              >
-                <div className="cmux-comparison-specimen-heading">
-                  <span>Reasoning slider</span>
-                  <strong>{sliderStyle === "accent" ? "Accent" : "Minimal"}</strong>
-                </div>
-                <EffortTrack
-                  efforts={efforts}
-                  current={effort}
-                  fallback="high"
-                  onPick={setEffort}
-                  sliderStyle={sliderStyle}
-                />
-              </div>
-              <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
-                <span>Reasoning treatment</span>
-                {(["accent", "minimal"] as const).map((name) => (
-                  <span key={name} className={sliderStyle === name ? "is-active" : ""}>
-                    {name}
-                  </span>
-                ))}
               </div>
             </div>
-          )}
-        </div>
+            <div className="cmux-comparison-composer" aria-label="Composer preview">
+              <div className="cmux-comparison-composer-copy">Ask anything</div>
+              <div className="cmux-comparison-composer-row">
+                <span className="cmux-comparison-compose-icon" aria-hidden="true">
+                  ＋
+                </span>
+                <span className="cmux-comparison-compose-hint">Attach files or mention a project</span>
+                <ComposerPickers
+                  snapshot={composerSnapshot}
+                  permissionAccess={{ grants }}
+                  onModel={setModel}
+                  onMode={setMode}
+                  onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+                  showPlan
+                />
+                <button type="button" className="cmux-comparison-send" aria-label="Send message">
+                  ↑
+                </button>
+              </div>
+            </div>
+            <div
+              className="cmux-comparison-slider-specimen"
+              aria-label={`Visible ${sliderStyle} reasoning slider specimen`}
+            >
+              <div className="cmux-comparison-specimen-heading">
+                <span>Reasoning slider</span>
+                <strong>{sliderStyle === "accent" ? "Accent" : "Minimal"}</strong>
+              </div>
+              <EffortTrack
+                efforts={efforts}
+                current={effort}
+                fallback="high"
+                onPick={setEffort}
+                sliderStyle={sliderStyle}
+              />
+            </div>
+            <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
+              <span>Reasoning treatment</span>
+              {(["accent", "minimal"] as const).map((name) => (
+                <span key={name} className={sliderStyle === name ? "is-active" : ""}>
+                  {name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

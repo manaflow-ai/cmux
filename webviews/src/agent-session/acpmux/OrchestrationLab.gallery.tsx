@@ -1,5 +1,5 @@
 // l10n-allow-file: orchestration fixture labels are a read-only gallery surface.
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 
@@ -11,11 +11,13 @@ type Strategy = {
   blocker: string;
   next: string;
   route: string;
+  transport: "loopback" | "ssh" | "lease";
   task: string;
   health: string;
   lease: string;
   head: string;
   receiptStatus: "running" | "blocked" | "reviewed";
+  state: "submitted" | "running";
 };
 
 const strategies: Strategy[] = [
@@ -27,11 +29,13 @@ const strategies: Strategy[] = [
     blocker: "available",
     next: "Run the next bounded task and record its receipt.",
     route: "loopback · local-supervisor",
+    transport: "loopback",
     task: "orch-local-01",
     health: "healthy",
     lease: "09:42 remaining",
     head: "4ce7c9c1…",
     receiptStatus: "running",
+    state: "running",
   },
   {
     id: "huge-blue",
@@ -41,11 +45,13 @@ const strategies: Strategy[] = [
     blocker: "revised controller cleanup receipt",
     next: "Reconcile cleanup evidence before requesting admission.",
     route: "ssh · enrolled host",
+    transport: "ssh",
     task: "orch-huge-blue-07",
     health: "degraded",
     lease: "17:30 remaining",
     head: "ce704bfb…",
     receiptStatus: "blocked",
+    state: "submitted",
   },
   {
     id: "cloud-fair-share",
@@ -55,11 +61,13 @@ const strategies: Strategy[] = [
     blocker: "capacity unavailable",
     next: "Keep the proposal queued and re-evaluate when a slot opens.",
     route: "durable lease · cloud-router",
+    transport: "lease",
     task: "orch-cloud-12",
     health: "unknown",
     lease: "starts on admission",
     head: "a81f6de2…",
     receiptStatus: "reviewed",
+    state: "submitted",
   },
 ];
 
@@ -70,7 +78,33 @@ const selectHugeBlue: Play = async (ctx) => {
 
 export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialStrategy?: string }) {
   const [selectedId, setSelectedId] = useState(initialStrategy);
+  const routeRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const selected = strategies.find((strategy) => strategy.id === selectedId) ?? strategies[0];
+  const handleRouteKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const direction =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : 0;
+    const targetIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? strategies.length - 1
+          : direction
+            ? (index + direction + strategies.length) % strategies.length
+            : -1;
+    if (targetIndex < 0 && event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    if (targetIndex >= 0) {
+      const target = strategies[targetIndex];
+      setSelectedId(target.id);
+      routeRefs.current[target.id]?.focus();
+    } else {
+      setSelectedId(event.currentTarget.dataset.routeId ?? selected.id);
+    }
+  };
   return (
     <main className="orchestration-gallery" data-orchestration-lab>
       <header className="orchestration-gallery-header">
@@ -83,6 +117,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           <strong>Preview only</strong>
           <span>No task dispatched</span>
           <span>Authorization disabled</span>
+          <span>Proposal advisory</span>
           <span>Trust override preview only</span>
         </div>
       </header>
@@ -96,7 +131,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
         </div>
         <div className="orchestration-gallery-routes" role="radiogroup" aria-label="Select a route">
-          {strategies.map((strategy) => {
+          {strategies.map((strategy, index) => {
             const selectedRoute = strategy.id === selected.id;
             return (
               <button
@@ -105,7 +140,14 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 type="button"
                 role="radio"
                 aria-checked={selectedRoute}
+                aria-controls="orchestration-gallery-receipt"
+                tabIndex={selectedRoute ? 0 : -1}
+                data-route-id={strategy.id}
+                ref={(element) => {
+                  routeRefs.current[strategy.id] = element;
+                }}
                 onClick={() => setSelectedId(strategy.id)}
+                onKeyDown={(event) => handleRouteKeyDown(event, index)}
               >
                 <span>
                   <strong>{strategy.label}</strong>
@@ -120,6 +162,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
       </section>
 
       <section
+        id="orchestration-gallery-receipt"
         className="orchestration-gallery-inspector"
         aria-live="polite"
         aria-label={`${selected.label} receipt preview`}
@@ -174,42 +217,58 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
             {selected.next}
           </span>
         </div>
-        <pre aria-label="Non-contract display sample">
-          {JSON.stringify(
-            {
-              receipt: {
-                schema_version: 1,
-                task_id: selected.task,
-                transport: selected.route.split(" · ")[0],
-                stage: "preview",
-                state: selected.receiptStatus,
-                status: selected.receiptStatus,
-                acceptance: "advisory",
-                repository: "cmux",
-                worktree: "agent-chat",
-                branch: "fixture",
-                base_sha: "1".repeat(64),
-                head_sha: "2".repeat(64),
-                artifact_sha: "3".repeat(64),
-                command: `gallery.fixture --strategy ${selected.id}`,
-                assertion_count: 0,
-                artifacts: { preview: "fixture-only" },
-                evidence: [],
-                gap: selected.blocker,
-                next_action: selected.next,
+        <details className="orchestration-gallery-json">
+          <summary>Show non-contract JSON sample</summary>
+          <pre aria-label="Non-contract display sample">
+            {JSON.stringify(
+              {
+                receipt: {
+                  schema_version: 1,
+                  message_id: "redacted",
+                  task_id: selected.task,
+                  in_reply_to: "redacted",
+                  sender: "cmux-chat",
+                  recipient: "fixture-supervisor",
+                  transport: selected.transport,
+                  host_id: "fixture-host",
+                  session_id: "redacted",
+                  root_id: "gallery-fixture",
+                  owner: "gallery-fixture",
+                  kind: "progress",
+                  authority_ref: "user-request:orchestration-lab-gallery-prototype",
+                  stage: "working",
+                  state: selected.state,
+                  status: selected.receiptStatus,
+                  acceptance: "accepted",
+                  repository: "cmux",
+                  worktree: "agent-chat",
+                  branch: "fixture",
+                  base_sha: "1".repeat(64),
+                  head_sha: "2".repeat(64),
+                  artifact_sha: "3".repeat(64),
+                  command: `gallery.fixture --strategy ${selected.id}`,
+                  assertion_count: 0,
+                  artifacts: { preview: "fixture-only" },
+                  evidence: [],
+                  gap: selected.blocker,
+                  next_action: selected.next,
+                },
+                fixture_context: {
+                  display_only: true,
+                  no_dispatch: true,
+                  redaction: "Deterministic synthetic values; no command or task ran.",
+                  route: { id: selected.id, label: selected.route, health: selected.health, lease: selected.lease },
+                  guidance: { manifest: "sha256:fixture", resolution: "fixture-only; no worker guidance loaded" },
+                  proposal: { kind: "wait", detail: selected.next },
+                  next_work: null,
+                  authorization: "disabled",
+                },
               },
-              fixture_context: {
-                display_only: true,
-                no_dispatch: true,
-                redaction: "Deterministic synthetic values; no command or task ran.",
-                route: { id: selected.id, label: selected.route, health: selected.health, lease: selected.lease },
-                authorization: "disabled",
-              },
-            },
-            null,
-            2,
-          )}
-        </pre>
+              null,
+              2,
+            )}
+          </pre>
+        </details>
       </section>
     </main>
   );
