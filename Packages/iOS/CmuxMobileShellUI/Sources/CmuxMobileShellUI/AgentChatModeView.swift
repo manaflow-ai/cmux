@@ -2136,8 +2136,9 @@ private struct AgentChatComposer: View {
     @State private var isPhotoPickerPresented = false
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var isFileImporterPresented = false
-    @State private var isStagingAttachments = false
+    @State private var attachmentStagingTask: Task<Void, Never>?
     @State private var attachmentErrorMessage: String?
+    @State private var previewAttachment: AgentChatModeModel.PendingAttachment?
     @State private var dictation: ComposerDictationController
 
     init(
@@ -2162,16 +2163,27 @@ private struct AgentChatComposer: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if isStagingAttachments {
-                HStack(spacing: 7) {
-                    ProgressView().controlSize(.small)
-                    Text("Preparing attachment…")
-                    Spacer(minLength: 0)
+            if !model.attachmentStaging.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 7) {
+                        Text("Preparing \(model.attachmentStaging.count) attachment\(model.attachmentStaging.count == 1 ? "" : "s")")
+                            .font(.caption.weight(.medium))
+                        Spacer(minLength: 0)
+                        Button("Cancel") {
+                            attachmentStagingTask?.cancel()
+                            model.cancelAttachmentStaging()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("MobileAgentAttachmentCancel")
+                    }
+                    ForEach(model.attachmentStaging) { item in
+                        AgentAttachmentStagingRow(item: item)
+                    }
                 }
-                .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
             }
             if let attachmentErrorMessage {
                 HStack(alignment: .top, spacing: 7) {
@@ -2223,6 +2235,8 @@ private struct AgentChatComposer: View {
                         ForEach(model.attachments) { attachment in
                             AgentChatAttachmentChip(attachment: attachment) {
                                 model.removeAttachment(id: attachment.id)
+                            } preview: {
+                                previewAttachment = attachment
                             }
                         }
                     }
@@ -2237,7 +2251,7 @@ private struct AgentChatComposer: View {
                         Label("Photo Library", systemImage: "photo.on.rectangle")
                     }
                     Button {
-                        Task { await model.stagePastedImages() }
+                        startAttachmentStaging { await model.stagePastedImages() }
                     } label: {
                         Label("Paste Image", systemImage: "doc.on.clipboard")
                     }
@@ -2358,22 +2372,23 @@ private struct AgentChatComposer: View {
         ) { result in
             switch result {
             case .success(let urls):
-                Task { await stageFiles(urls) }
+                startAttachmentStaging { await stageFiles(urls) }
             case .failure(let error):
                 attachmentErrorMessage = error.localizedDescription
             }
         }
         .onChange(of: photoSelection) { _, items in
             guard !items.isEmpty else { return }
-            Task {
-                await stagePhotos(items)
-            }
+            startAttachmentStaging { await stagePhotos(items) }
         }
         .onChange(of: model.selectedSessionID) { _, _ in
             // Session selection resets the draft and transcript source. Stop
             // any in-flight recognizer before those state changes can route a
             // late partial into the newly selected session.
             dictation.cancel()
+            attachmentStagingTask?.cancel()
+            model.cancelAttachmentStaging()
+            model.endAttachmentStaging()
         }
         .onChange(of: isSessionEnded) { _, ended in
             if ended {
@@ -2390,6 +2405,11 @@ private struct AgentChatComposer: View {
         }
         .onDisappear {
             dictation.cancel()
+            attachmentStagingTask?.cancel()
+            model.cancelAttachmentStaging()
+        }
+        .sheet(item: $previewAttachment) { attachment in
+            AgentAttachmentPreview(attachment: attachment)
         }
     }
 
@@ -2399,23 +2419,66 @@ private struct AgentChatComposer: View {
                 || !model.attachments.isEmpty)
     }
 
+    /// Keeps a handle to the current import so the composer can cancel a
+    /// multi-selection without waiting for every provider callback to return.
+    /// The model owns the visible per-file state; this task only controls the
+    /// lifetime of the underlying PhotosUI/FileProvider work.
+    private func startAttachmentStaging(
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        attachmentStagingTask?.cancel()
+        attachmentStagingTask = Task { @MainActor in
+            await operation()
+        }
+    }
+
     private func stagePhotos(_ items: [PhotosPickerItem]) async {
         let remaining = max(0, 10 - model.attachments.count)
         guard remaining > 0 else { return }
-        isStagingAttachments = true
-        defer { isStagingAttachments = false }
         attachmentErrorMessage = nil
         var failures = 0
-        for item in items.prefix(remaining) {
+        let selected = Array(items.prefix(remaining))
+        let stages = selected.enumerated().map { index, _ in
+            AgentChatModeModel.AttachmentStagingItem(
+                displayName: "Photo \(index + 1)",
+                format: .png
+            )
+        }
+        let stagingGeneration = model.beginAttachmentStaging(stages)
+        defer {
+            model.endAttachmentStaging(generation: stagingGeneration)
+            photoSelection = []
+        }
+        for (index, item) in selected.enumerated() {
+            let stageID = stages[index].id
             guard !Task.isCancelled else { return }
+            model.updateAttachmentStaging(
+                id: stageID,
+                state: .loading,
+                progress: 0.05
+            )
             do {
-                guard let imported = try await ImportedPhotoLibraryFile.load(item) else { continue }
+                guard let imported = try await ImportedPhotoLibraryFile.load(item) else {
+                    failures += 1
+                    model.failAttachmentStagingItem(id: stageID)
+                    continue
+                }
                 defer { try? FileManager.default.removeItem(at: imported.url) }
+                model.updateAttachmentStaging(
+                    id: stageID,
+                    displayName: imported.originalFileName,
+                    state: .preparing,
+                    progress: 0.4
+                )
+                try Task.checkCancellation()
                 guard imported.kind == .image,
                       let prepared = await MobileImageAttachmentPreparer().prepare(url: imported.url) else {
                     failures += 1
+                    model.failAttachmentStagingItem(id: stageID)
                     continue
                 }
+                try Task.checkCancellation()
+                model.updateAttachmentStaging(id: stageID, progress: 0.85)
                 let format: ChatOutboundAttachment.Format =
                     ["jpg", "jpeg"].contains(prepared.format.lowercased()) ? .jpeg : .png
                 let stem = (imported.originalFileName as NSString).deletingPathExtension
@@ -2425,29 +2488,37 @@ private struct AgentChatComposer: View {
                     format: format,
                     thumbnailData: prepared.thumbnailData
                 ))
+                model.finishAttachmentStagingItem(id: stageID)
             } catch is CancellationError {
                 return
             } catch {
                 failures += 1
+                model.failAttachmentStagingItem(id: stageID)
             }
         }
         if failures > 0 {
             attachmentErrorMessage = failures == 1
                 ? "That image could not be prepared."
                 : "Some images could not be prepared."
-        } else {
-            photoSelection = []
         }
     }
 
     private func stageFiles(_ urls: [URL]) async {
         let remaining = max(0, 10 - model.attachments.count)
         guard remaining > 0 else { return }
-        isStagingAttachments = true
-        defer { isStagingAttachments = false }
         attachmentErrorMessage = nil
         var failures = 0
-        for url in urls.prefix(remaining) {
+        let selected = Array(urls.prefix(remaining))
+        let stages = selected.map { url in
+            AgentChatModeModel.AttachmentStagingItem(
+                displayName: url.lastPathComponent.isEmpty ? "Attachment" : url.lastPathComponent,
+                format: .file
+            )
+        }
+        let stagingGeneration = model.beginAttachmentStaging(stages)
+        defer { model.endAttachmentStaging(generation: stagingGeneration) }
+        for (index, url) in selected.enumerated() {
+            let stageID = stages[index].id
             guard !Task.isCancelled else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer {
@@ -2458,11 +2529,15 @@ private struct AgentChatComposer: View {
                 guard let fileSize = values.fileSize,
                       fileSize <= 32 * 1024 * 1024 else {
                     failures += 1
+                    model.failAttachmentStagingItem(id: stageID)
                     continue
                 }
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                model.updateAttachmentStaging(id: stageID, state: .loading)
+                let data = try await readFile(url, byteCount: fileSize, stageID: stageID)
+                try Task.checkCancellation()
                 guard data.count <= 32 * 1024 * 1024 else {
                     failures += 1
+                    model.failAttachmentStagingItem(id: stageID)
                     continue
                 }
                 let name = url.lastPathComponent.isEmpty ? "attachment" : url.lastPathComponent
@@ -2471,8 +2546,12 @@ private struct AgentChatComposer: View {
                     data: data,
                     format: .file
                 ))
+                model.finishAttachmentStagingItem(id: stageID)
+            } catch is CancellationError {
+                return
             } catch {
                 failures += 1
+                model.failAttachmentStagingItem(id: stageID)
             }
         }
         if failures > 0 {
@@ -2480,6 +2559,33 @@ private struct AgentChatComposer: View {
                 ? "That file could not be attached. Files must be 32 MB or smaller."
                 : "Some files could not be attached. Files must be 32 MB or smaller."
         }
+    }
+
+    private func readFile(
+        _ url: URL,
+        byteCount: Int,
+        stageID: UUID
+    ) async throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var data = Data()
+        data.reserveCapacity(byteCount)
+        var bytesRead = 0
+        while bytesRead < byteCount {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: min(1024 * 1024, byteCount - bytesRead)) ?? Data()
+            guard !chunk.isEmpty else { break }
+            data.append(chunk)
+            bytesRead += chunk.count
+            model.updateAttachmentStaging(
+                id: stageID,
+                progress: byteCount == 0 ? 1 : Double(bytesRead) / Double(byteCount)
+            )
+            // Yield after each chunk so the cancel button remains responsive
+            // even for a large local file.
+            await Task.yield()
+        }
+        return data
     }
 
     private func toggleDictation() {
@@ -2509,27 +2615,89 @@ private struct AgentChatComposer: View {
     }
 }
 
+private struct AgentAttachmentStagingRow: View {
+    let item: AgentChatModeModel.AttachmentStagingItem
+
+    private var stateLabel: String {
+        switch item.state {
+        case .queued: return "Waiting"
+        case .loading: return "Loading"
+        case .preparing: return "Preparing"
+        case .completed: return "Ready"
+        case .failed: return "Couldn’t attach"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    private var iconName: String {
+        switch item.state {
+        case .queued, .loading, .preparing: return item.format == .file ? "doc" : "photo"
+        case .completed: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .cancelled: return "xmark.circle.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconName)
+                .foregroundStyle(item.state == .failed ? .red : .secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayName)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(stateLabel)
+                    if item.state == .loading || item.state == .preparing {
+                        Text("\(Int(item.progress * 100))%")
+                            .monospacedDigit()
+                    }
+                }
+                .font(.caption2)
+                if item.state == .loading || item.state == .preparing {
+                    ProgressView(value: item.progress)
+                        .tint(.accentColor)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.displayName), \(stateLabel)")
+        .accessibilityIdentifier("MobileAgentAttachmentStaging-\(item.id.uuidString)")
+    }
+}
+
 private struct AgentChatAttachmentChip: View {
     let attachment: AgentChatModeModel.PendingAttachment
     let remove: () -> Void
+    let preview: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            if let image = UIImage(data: attachment.thumbnailData ?? attachment.data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                Image(systemName: attachment.format == .file ? "doc" : "photo")
-                    .frame(width: 42, height: 42)
-                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            Button(action: preview) {
+                HStack(spacing: 6) {
+                    if let image = UIImage(data: attachment.thumbnailData ?? attachment.data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 42, height: 42)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Image(systemName: attachment.format == .file ? "doc" : "photo")
+                            .frame(width: 42, height: 42)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    Text(attachment.displayName)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
-            Text(attachment.displayName)
-                .font(.caption)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Preview \(attachment.displayName)")
+            .accessibilityIdentifier("MobileAgentAttachmentPreview-\(attachment.id.uuidString)")
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
@@ -2539,7 +2707,97 @@ private struct AgentChatAttachmentChip: View {
         }
         .padding(4)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct AgentAttachmentPreview: View {
+    let attachment: AgentChatModeModel.PendingAttachment
+    @Environment(\.dismiss) private var dismiss
+    @State private var fileURL: URL?
+    @State private var didAttemptFilePreview = false
+
+    private var image: UIImage? {
+        UIImage(data: attachment.thumbnailData ?? attachment.data)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let image {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding()
+                    }
+                    .background(Color.black.opacity(0.06))
+                } else if let fileURL {
+                    MobileAttachmentQuickLookView(
+                        fileURL: fileURL,
+                        title: attachment.displayName,
+                        accessibilityIdentifier: "MobileAgentAttachmentQuickLook"
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                } else if attachment.format == .file && !didAttemptFilePreview {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                        Text("Preparing preview…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 14) {
+                        Image(systemName: "doc.richtext")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text(attachment.displayName)
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: Int64(attachment.data.count),
+                            countStyle: .file
+                        ))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        Text("Preview is unavailable for this file type.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle(attachment.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .accessibilityIdentifier("MobileAgentAttachmentPreview")
+        .task {
+            guard attachment.format == .file, image == nil else { return }
+            let safeName = (attachment.displayName as NSString).lastPathComponent
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-preview-\(UUID().uuidString)-\(safeName)")
+            do {
+                try attachment.data.write(to: url, options: .atomic)
+                fileURL = url
+            } catch {
+                // The metadata fallback remains available if Quick Look cannot
+                // be given a temporary file.
+            }
+            didAttemptFilePreview = true
+        }
+        .onDisappear {
+            if let fileURL {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
     }
 }
 

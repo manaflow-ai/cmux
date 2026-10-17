@@ -47,6 +47,54 @@ final class AgentChatModeModel {
         }
     }
 
+    /// Presentation state for an attachment that is still being imported
+    /// into the composer. The transport only sees ``PendingAttachment`` once
+    /// staging succeeds; keeping this state separate lets the composer show
+    /// one progress row per selected item and cancel a slow import without
+    /// changing the outbound wire format.
+    struct AttachmentStagingItem: Identifiable, Sendable, Equatable {
+        enum State: Sendable, Equatable {
+            case queued
+            case loading
+            case preparing
+            case completed
+            case failed
+            case cancelled
+        }
+
+        let id: UUID
+        var displayName: String
+        let format: ChatOutboundAttachment.Format
+        var state: State
+        /// A best-effort fraction. Photos providers do not expose byte-level
+        /// progress, so their importer reports phase milestones while files
+        /// can report exact read progress.
+        var progress: Double
+
+        init(
+            id: UUID = UUID(),
+            displayName: String,
+            format: ChatOutboundAttachment.Format,
+            state: State = .queued,
+            progress: Double = 0
+        ) {
+            self.id = id
+            self.displayName = displayName
+            self.format = format
+            self.state = state
+            self.progress = min(max(progress, 0), 1)
+        }
+
+        var isTerminal: Bool {
+            switch state {
+            case .completed, .failed, .cancelled:
+                return true
+            case .queued, .loading, .preparing:
+                return false
+            }
+        }
+    }
+
     private(set) var sessions: [ChatSessionDescriptor] = []
     private(set) var controlsBySession: [String: ChatSessionControls] = [:]
     private(set) var updatingControlsSessionIDs: Set<String> = []
@@ -72,6 +120,7 @@ final class AgentChatModeModel {
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var errorMessage: String?
     private(set) var attachments: [PendingAttachment] = []
+    private(set) var attachmentStaging: [AttachmentStagingItem] = []
     var selectedSessionID: String?
     var draft = ""
     var selectedProvider: String = "all"
@@ -115,6 +164,7 @@ final class AgentChatModeModel {
     private var regenerationBaselineSeqBySession: [String: Int] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
+    private var attachmentStagingGeneration = 0
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let pinnedSessionIDsKey = "cmux.mobile.agentChat.pinnedSessionIDs"
@@ -464,6 +514,8 @@ final class AgentChatModeModel {
         streamingBySession = [:]
         selectedSessionID = nil
         attachments = []
+        attachmentStaging = []
+        attachmentStagingGeneration &+= 1
         historyCursors = [:]
         historyHasMore = [:]
         transcriptRevisions = [:]
@@ -575,6 +627,8 @@ final class AgentChatModeModel {
         selectedSessionID = session.id
         draft = ""
         attachments = []
+        attachmentStaging = []
+        attachmentStagingGeneration &+= 1
         let staleSessionIDs = sessionTasks.keys.filter { $0 != session.id }
         for id in staleSessionIDs {
             sessionTasks[id]?.cancel()
@@ -732,6 +786,65 @@ final class AgentChatModeModel {
         attachments.append(attachment)
     }
 
+    /// Starts a batch of imports. Callers keep the returned item IDs and use
+    /// the update methods below as each provider/file advances. This is
+    /// intentionally model-owned so SwiftUI redraws remain deterministic
+    /// when a user cancels a picker task or changes sessions mid-import.
+    @discardableResult
+    func beginAttachmentStaging(_ items: [AttachmentStagingItem]) -> Int {
+        attachmentStagingGeneration &+= 1
+        attachmentStaging = items
+        return attachmentStagingGeneration
+    }
+
+    func updateAttachmentStaging(
+        id: UUID,
+        displayName: String? = nil,
+        state: AttachmentStagingItem.State? = nil,
+        progress: Double? = nil
+    ) {
+        guard let index = attachmentStaging.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        if let displayName {
+            attachmentStaging[index].displayName = displayName
+        }
+        if let state {
+            attachmentStaging[index].state = state
+        }
+        if let progress {
+            attachmentStaging[index].progress = min(max(progress, 0), 1)
+        }
+    }
+
+    func finishAttachmentStagingItem(id: UUID) {
+        updateAttachmentStaging(
+            id: id,
+            state: .completed,
+            progress: 1
+        )
+    }
+
+    func failAttachmentStagingItem(id: UUID) {
+        updateAttachmentStaging(id: id, state: .failed)
+    }
+
+    /// Marks active rows as cancelled immediately. The importing task still
+    /// owns cleanup of provider temporary files; it calls
+    /// ``endAttachmentStaging()`` after cancellation has propagated.
+    func cancelAttachmentStaging() {
+        for index in attachmentStaging.indices where !attachmentStaging[index].isTerminal {
+            attachmentStaging[index].state = .cancelled
+        }
+    }
+
+    func endAttachmentStaging(generation: Int? = nil) {
+        if let generation, generation != attachmentStagingGeneration {
+            return
+        }
+        attachmentStaging.removeAll()
+    }
+
     func removeAttachment(id: UUID) {
         attachments.removeAll { $0.id == id }
     }
@@ -758,16 +871,33 @@ final class AgentChatModeModel {
         }
         let items = await reader.materializeAttachments(from: .general)
         defer { reader.cleanUp(items) }
-        for item in items {
-            guard !Task.isCancelled, item.kind == .image else { continue }
+        let imageItems = items.filter { $0.kind == .image }
+        let remaining = max(0, 10 - attachments.count)
+        let selected = Array(imageItems.prefix(remaining))
+        let stages = selected.enumerated().map { index, item in
+            AttachmentStagingItem(
+                displayName: item.displayName.isEmpty ? "Pasted image \(index + 1)" : item.displayName,
+                format: .png
+            )
+        }
+        let stagingGeneration = beginAttachmentStaging(stages)
+        defer { endAttachmentStaging(generation: stagingGeneration) }
+        for (index, item) in selected.enumerated() {
+            let stageID = stages[index].id
+            guard !Task.isCancelled else { return }
             guard attachments.count < 10 else {
                 errorMessage = "You can attach up to 10 images."
+                failAttachmentStagingItem(id: stageID)
                 return
             }
+            updateAttachmentStaging(id: stageID, state: .preparing, progress: 0.3)
             guard let prepared = await prepareImage(at: item.url) else {
                 errorMessage = "That image couldn’t be prepared. Choose another image."
+                failAttachmentStagingItem(id: stageID)
                 continue
             }
+            guard !Task.isCancelled else { return }
+            updateAttachmentStaging(id: stageID, progress: 0.85)
             let format: ChatOutboundAttachment.Format =
                 prepared.format.lowercased() == "jpg" || prepared.format.lowercased() == "jpeg"
                 ? .jpeg : .png
@@ -778,6 +908,7 @@ final class AgentChatModeModel {
                 format: format,
                 thumbnailData: prepared.thumbnailData
             ))
+            finishAttachmentStagingItem(id: stageID)
         }
     }
 

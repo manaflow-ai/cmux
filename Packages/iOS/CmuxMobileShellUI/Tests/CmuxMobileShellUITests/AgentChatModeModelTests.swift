@@ -930,6 +930,51 @@ import Testing
         #expect(model.selectedPendingPrompts.isEmpty)
     }
 
+    @Test func attachmentStagingTracksProgressAndCancellationPerFile() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let model = AgentChatModeModel()
+        model.beginAttachmentStaging([
+            .init(id: firstID, displayName: "screen.png", format: .png),
+            .init(id: secondID, displayName: "notes.md", format: .file),
+        ])
+
+        #expect(model.attachmentStaging.map(\.displayName) == ["screen.png", "notes.md"])
+        model.updateAttachmentStaging(
+            id: firstID,
+            state: .preparing,
+            progress: 0.45
+        )
+        #expect(model.attachmentStaging.first(where: { $0.id == firstID })?.progress == 0.45)
+        #expect(model.attachmentStaging.first(where: { $0.id == firstID })?.state == .preparing)
+
+        model.finishAttachmentStagingItem(id: firstID)
+        #expect(model.attachmentStaging.first(where: { $0.id == firstID })?.isTerminal == true)
+        #expect(model.attachmentStaging.first(where: { $0.id == firstID })?.progress == 1)
+
+        model.cancelAttachmentStaging()
+        #expect(model.attachmentStaging.first(where: { $0.id == firstID })?.state == .completed)
+        #expect(model.attachmentStaging.first(where: { $0.id == secondID })?.state == .cancelled)
+
+        model.endAttachmentStaging()
+        #expect(model.attachmentStaging.isEmpty)
+    }
+
+    @Test func staleAttachmentStagingBatchCannotClearNewerBatch() {
+        let model = AgentChatModeModel()
+        let firstGeneration = model.beginAttachmentStaging([
+            .init(displayName: "old.txt", format: .file)
+        ])
+        let secondGeneration = model.beginAttachmentStaging([
+            .init(displayName: "new.txt", format: .file)
+        ])
+
+        model.endAttachmentStaging(generation: firstGeneration)
+        #expect(model.attachmentStaging.map(\.displayName) == ["new.txt"])
+        model.endAttachmentStaging(generation: secondGeneration)
+        #expect(model.attachmentStaging.isEmpty)
+    }
+
     @Test func steerDraftInterruptsCurrentTurnThenSendsImmediately() async {
         let working = ChatSessionDescriptor(
             id: "working",
