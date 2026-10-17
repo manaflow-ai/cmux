@@ -122,10 +122,10 @@ export function createRunAttemptPromotionStore(): AttemptPromotionStorePort {
     },
 
     async release(reservation): Promise<void> {
-      await cloudDb().execute(sql`update ${runAttempts}
-        set result = case when result is null then null else result - ${MARKER} end,
-            updated_at = now()
-        where result->${MARKER}->>'claimId' = ${reservation.claimId}`);
+      await cloudDb().update(runAttempts).set({
+        result: sql`case when ${runAttempts.result} is null then null else ${runAttempts.result} - ${MARKER} end`,
+        updatedAt: new Date(),
+      }).where(sql`${runAttempts.result}->${MARKER}->>'claimId' = ${reservation.claimId}`);
     },
   };
 }
