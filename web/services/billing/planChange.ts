@@ -149,19 +149,39 @@ function planRenewalLines(invoice: Stripe.Invoice, itemId: string): readonly Pre
     line.parent.subscription_item_details.proration !== true);
 }
 
+async function completePlanRenewalLines(
+  client: StripeClient,
+  invoice: Stripe.Invoice,
+  itemId: string,
+): Promise<readonly PreviewLine[]> {
+  const embedded = planRenewalLines(invoice, itemId);
+  if (embedded.length || !invoice.lines?.has_more || !invoice.id) return embedded;
+
+  const found: PreviewLine[] = [];
+  let startingAfter: string | undefined;
+  for (;;) {
+    const listed = await client.invoices.listLineItems(invoice.id, {
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    found.push(...planRenewalLines({ ...invoice, lines: listed } as Stripe.Invoice, itemId));
+    if (found.length || !listed.has_more) return found;
+    const nextStartingAfter = listed.data.at(-1)?.id;
+    if (!nextStartingAfter || nextStartingAfter === startingAfter) return found;
+    startingAfter = nextStartingAfter;
+  }
+}
+
 async function planRenewalAmount(
   client: StripeClient,
   invoice: Stripe.Invoice,
   itemId: string,
 ): Promise<number> {
-  let lines = planRenewalLines(invoice, itemId);
-  if (lines.length === 0 && invoice.lines?.has_more && invoice.id) {
-    try {
-      const listed = await client.invoices.listLineItems(invoice.id, { limit: 100 });
-      lines = planRenewalLines({ ...invoice, lines: listed } as Stripe.Invoice, itemId);
-    } catch {
-      throw new PlanChangeError("preview_unavailable");
-    }
+  let lines: readonly PreviewLine[];
+  try {
+    lines = await completePlanRenewalLines(client, invoice, itemId);
+  } catch {
+    throw new PlanChangeError("preview_unavailable");
   }
   if (lines.length === 0) throw new PlanChangeError("preview_unavailable");
   return lines.reduce((total, line) =>
