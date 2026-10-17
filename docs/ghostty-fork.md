@@ -105,6 +105,33 @@ When we change the fork, update this document and the parent submodule SHA.
   `resolveAtFiltered` with no filter; the renderer's hover path and
   `Surface.linkAtPos` pass the filter stored in the renderer state.
 
+### Links hard-wrapped mid-token at a full row
+
+- Branch: `fix/link-midtoken-hard-wrap`
+  ([manaflow-ai/ghostty#272](https://github.com/manaflow-ai/ghostty/pull/272)),
+  based on the cmux pin `cb1ef7091`.
+- Commits: `f9fdca714` (regression tests), `06ca6fae8` (fix), `c8bcfb848`
+  (fit guard, `splitsToken`).
+- Summary: terminal UIs such as Claude Code re-render at the new width after a
+  zoom and split a long URL mid-word with a real newline and indentation. The
+  built-in URL and path matchers now join such a break when the upper row ends
+  in a letter or digit in its final column and the two tokens plus the
+  continuation indentation exceed the row width (`link_wrap.splitsToken`): a
+  word-wrapper only splits a token that cannot fit on a fresh row.
+  `link_wrap.Options` is generic over the map item and carries `row_cols`;
+  `continuationKind` takes `splits_token`.
+- Known limit: a complete URL ending exactly at the right edge still joins a
+  next word too long to have fit beside it (e.g. `x https://example.com/a` /
+  `  12 next line` at 23 columns gives `…/a12`); the two are indistinguishable
+  from the cells. Breaks at `/`, `.` or after `/` keep the older rules and may
+  still split a link.
+- Coverage: Surface.zig "URL spans an indented mid-token hard newline from a
+  full row" and link_wrap.zig "normalize joins a mid-token break only after a
+  full row", run by the `build-ghosttykit.yml` "Test Ghostty link filter" step.
+- Conflict notes: `hardWrapBoundary` (cells, `tokenCells`) and `normalize`
+  (bytes, `pinRowCols`) must agree on a boundary; both route through
+  `splitsToken` and `continuationKind`.
+
 ### OSC 7501 program status protocol
 
 - Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.
@@ -1590,6 +1617,8 @@ cmux revisions.
     punctuation with 1-16 cells of indentation inside one semantic region.
     Period-ending rows, new rooted or scheme links, and ambiguous bare paths
     after `/` fail closed instead of merging unrelated rows.
+  - Mid-token breaks from a full row: see "Links hard-wrapped mid-token at a
+    full row".
   - Excludes indentation and trailing sentence punctuation from both actions
     and highlights. The built-in path matcher uses an unmapped match delimiter
     after joined candidates; custom end-of-input matchers retain literal
