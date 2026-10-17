@@ -59,6 +59,9 @@ public final class ConversationViewController: UIViewController {
     /// conversation controller keeps its existing edit/select/reply behavior
     /// when the hook is absent.
     public var onHeaderTrailing: (() -> Void)?
+    /// Optional host hook for service-specific interactive cards. Returning true
+    /// consumes the tap before the generic poll vote path runs.
+    public var onPollTapped: ((_ messageID: String, _ optionID: String) -> Bool)?
     /// Select mode's Forward button. The host presents New Message prefilled
     /// with the draft; when unset, a minimal placeholder sheet stands in.
     public var onForward: ((ConversationForwardDraft) -> Void)?

@@ -9,6 +9,8 @@ import Foundation
 /// newest page after each send, so the generic Messages UI remains live on
 /// hosts that predate a Chief event topic.
 final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
+    /// Synthetic poll option used to open the full multi-question composer.
+    static let questionComposerOptionID = "__chief_answer_questions__"
     private let client: MobileChiefClient
     private let conversationID: String
     private let fallbackTitle: String
@@ -190,6 +192,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         guard selected else {
             throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
         }
+        if optionID == Self.questionComposerOptionID {
+            throw ConversationBackendError(code: -1, message: "Open the Chief question sheet to answer this card")
+        }
         let pendingPart: MobileChiefPart? = withState { state in
             guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
             return Self.pendingPollPart(from: parts)
@@ -289,6 +294,44 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     func markRead(upToSeq: Int) async {
         guard upToSeq > 0 else { return }
         _ = try? await client.markRead(conversation: conversationID, upToSeq: UInt64(upToSeq))
+    }
+
+    /// Returns the structured question retained for a transcript message. The
+    /// generic Messages renderer uses this to open the full Chief answer sheet
+    /// for multi-item, multi-select, and Other questions that cannot be a
+    /// single radio-style poll.
+    func question(for messageID: String) -> MobileChiefQuestion? {
+        withState { state in
+            guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
+            return parts.reversed().compactMap(\.question).first(where: \.isPending)
+        }
+    }
+
+    /// Answers a complete Chief question and returns the refreshed transcript
+    /// row. The wire contract accepts option labels or ids and one optional
+    /// free-text Other value, matching the Mac Chief implementation.
+    func answerQuestion(messageID: String, choices: [String], text: String?) async throws -> ConversationMessage {
+        guard let question = question(for: messageID), question.isPending else {
+            throw ConversationBackendError(code: -1, message: "That Chief question is no longer waiting")
+        }
+        guard !choices.isEmpty || (text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) else {
+            throw ConversationBackendError(code: -1, message: "Choose an answer before submitting")
+        }
+        _ = try await client.answer(
+            conversation: conversationID,
+            message: messageID,
+            choices: choices,
+            text: text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let refreshed = try await client.read(conversation: conversationID, limit: 200)
+        withState { state in mergeMessages(refreshed.messages, into: &state) }
+        if let message = refreshed.messages.first(where: { $0.id == messageID }) {
+            return map(message, clientMessageID: clientMessageID(for: message))
+        }
+        if let previous = withState({ $0.previousMessagesByID[messageID] }) {
+            return map(previous, clientMessageID: clientMessageID(for: previous))
+        }
+        throw ConversationBackendError(code: -1, message: "Chief did not return the answered question")
     }
 
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
@@ -455,6 +498,16 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 isMe: true
             ))
         }
+        let chiefID = participantID(in: messages)
+        if !seen.contains(chiefID) && chiefID != human {
+            participants.append(ConversationParticipant(
+                id: chiefID,
+                name: "Chief",
+                initials: "CH",
+                colorHex: "#8E8E93",
+                isMe: false
+            ))
+        }
         return (ConversationInfo(
             id: conversationID,
             title: fallbackTitle.isEmpty ? conversationID : fallbackTitle,
@@ -512,11 +565,22 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 options: options.map { ConversationPollOption(id: $0, text: $0) }
             )
         }
-        if let question = part.question, part.kind == "question",
-           let item = pollQuestion(from: question) {
+        if let question = part.question, part.kind == "question", question.isPending {
+            if let item = pollQuestion(from: question) {
+                return ConversationPoll(
+                    question: item.prompt,
+                    options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
+                )
+            }
+            // The generic poll card is an accessible entry point for the full
+            // Chief question sheet. It intentionally has one action instead
+            // of pretending a multi-item ask is a one-choice poll.
             return ConversationPoll(
-                question: item.prompt,
-                options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
+                question: question.summary,
+                options: [ConversationPollOption(
+                    id: Self.questionComposerOptionID,
+                    text: "Answer questions"
+                )]
             )
         }
         return nil
@@ -532,8 +596,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 guard !options.isEmpty else { continue }
                 return part
             }
-            if let question = part.question, part.kind == "question",
-               pollQuestion(from: question) != nil {
+            if let question = part.question, part.kind == "question", question.isPending, !question.items.isEmpty {
                 return part
             }
         }
