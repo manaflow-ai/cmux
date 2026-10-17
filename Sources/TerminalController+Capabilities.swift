@@ -325,6 +325,12 @@ extension TerminalController {
             "agent.message.mark_read",
             "agent.message.poll",
             "agent.message.settings",
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.stop",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -336,6 +342,7 @@ extension TerminalController {
             "surface.ports_kick",
             "surface.read_text",
             "surface.input_state",
+            "surface.wait_text_change",
             "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
@@ -488,6 +495,10 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
+        // Release builds answer Chief's approval and question cards only in Home (ChiefControlRequest.isAvailable).
+        methods.append("chief.approve")
+        methods.append("chief.answer")
+        methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
 

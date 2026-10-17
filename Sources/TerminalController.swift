@@ -426,7 +426,9 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        // Shows Chief Home in the target window, like workspace.select.
+        "chief.open"
     ]
 
     nonisolated static func commandHasFocusIntent(

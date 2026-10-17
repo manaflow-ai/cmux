@@ -35,6 +35,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let automation = AutomationCatalogSection()
     /// The app-wide switch for agent messages (the `agentMessages.*` keys).
     public let agentMessages = AgentMessagesCatalogSection()
+    /// Settings for Chief, the Home agent (the `chief.*` keys).
+    public let chief = ChiefCatalogSection()
     /// Settings for the local computer-use MCP integration and its menu-bar UI.
     public let computerUse = ComputerUseCatalogSection()
     public let browser = BrowserCatalogSection()

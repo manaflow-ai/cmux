@@ -2258,6 +2258,13 @@
               "enabled": "Con un espacio de trabajo tmux remoto seleccionado, «Nuevo espacio de trabajo» inicia una sesión de tmux en el host de ese espacio."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, el agente de Inicio: si se muestra y qué entorno, modelo y esfuerzo usa.",
+          "enabled": "Muestra la fila de Inicio y los accesos a Chief. Si es false, se ocultan la fila de Inicio, el atajo Abrir Chief, el elemento de menú y las entradas de la paleta de comandos.",
+          "harness": "Entorno de agente en el que se ejecuta Chief: claude (Claude Code) o codex (Codex).",
+          "model": "Modelo que se pasa al entorno. Déjalo vacío para usar el predeterminado del entorno.",
+          "effort": "Esfuerzo de razonamiento que se pasa al entorno, como low, medium o high. Déjalo vacío para usar el predeterminado del entorno."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
