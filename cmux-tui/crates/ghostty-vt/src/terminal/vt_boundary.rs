@@ -58,25 +58,6 @@ impl VtBoundaryTracker {
         }
     }
 
-    /// Same result as [`Self::feed_reference`]. While safe, ASCII other than
-    /// ESC keeps the tracker safe and only calls the idempotent
-    /// `clear_pending`, so such a run is skipped after one call.
-    pub(super) fn feed(&mut self, data: &[u8]) {
-        let mut index = 0;
-        while index < data.len() {
-            if self.is_safe() {
-                let next = byte_scan::find_esc_or_high(data, index);
-                if next != index {
-                    self.clear_pending();
-                    index = next;
-                    continue;
-                }
-            }
-            self.step(data[index]);
-            index += 1;
-        }
-    }
-
     #[inline(always)]
     pub(super) fn step(&mut self, byte: u8) {
         {

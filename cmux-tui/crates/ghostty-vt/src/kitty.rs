@@ -55,23 +55,6 @@ impl Default for KittyInFlightTracker {
 }
 
 impl KittyInFlightTracker {
-    /// Same result as [`Self::write_reference`]. In ground state only ESC,
-    /// 0x9f and multibyte UTF-8 leads leave ground, so ASCII other than ESC
-    /// is skipped.
-    pub(crate) fn write(&mut self, data: &[u8]) {
-        let mut index = 0;
-        while index < data.len() {
-            if self.is_ground() {
-                index = crate::terminal::byte_scan::find_esc_or_high(data, index);
-                if index == data.len() {
-                    break;
-                }
-            }
-            self.step(data[index]);
-            index += 1;
-        }
-    }
-
     pub(crate) fn is_ground(&self) -> bool {
         matches!(self.scan, KittyStreamScan::Ground)
     }
@@ -84,7 +67,7 @@ impl KittyInFlightTracker {
     }
 
     #[inline(always)]
-    fn step(&mut self, byte: u8) {
+    pub(crate) fn step(&mut self, byte: u8) {
         {
             let state = std::mem::take(&mut self.scan);
             self.scan = match state {

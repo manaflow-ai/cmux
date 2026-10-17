@@ -27,25 +27,6 @@ pub(super) enum MouseModeChangeState {
 }
 
 impl MouseModeChangeDetector {
-    /// Same result as [`Self::write_reference`]. In ground state with no
-    /// code point in progress, ASCII other than ESC only re-notes a zero
-    /// UTF-8 lead, so such a run is skipped.
-    pub(super) fn write(&mut self, data: &[u8]) -> bool {
-        let mut may_have_changed = false;
-        let mut index = 0;
-        while index < data.len() {
-            if self.is_idle() {
-                index = byte_scan::find_esc_or_high(data, index);
-                if index == data.len() {
-                    break;
-                }
-            }
-            may_have_changed |= self.step(data[index]);
-            index += 1;
-        }
-        may_have_changed
-    }
-
     pub(super) fn is_idle(&self) -> bool {
         matches!(self.state, MouseModeChangeState::Ground) && self.utf8_remaining == 0
     }
@@ -60,7 +41,7 @@ impl MouseModeChangeDetector {
     }
 
     #[inline(always)]
-    fn step(&mut self, byte: u8) -> bool {
+    pub(super) fn step(&mut self, byte: u8) -> bool {
         use MouseModeChangeState as State;
 
         let mut may_have_changed = false;

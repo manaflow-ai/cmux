@@ -559,13 +559,7 @@ impl Terminal {
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         let normalized = self.empty_kitty_probe_filter.write(normalized);
-        self.kitty_inflight.write(&normalized);
-        self.vt_boundary.feed(&normalized);
-        self.prompt_semantic.feed(&normalized);
-        self.cursor_override.write(&normalized);
-        self.palette_override.write(&normalized);
-        self.color_overrides.write(&normalized);
-        let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
+        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -585,6 +579,48 @@ impl Terminal {
             self.refresh_mouse_mode_revision();
         }
         normalized
+    }
+
+    /// Feeds the accepted bytes to every tracker in one pass. The trackers
+    /// never read one another, so stepping them byte by byte together equals
+    /// running them one after another. While all of them are idle, a neutral
+    /// run (see `byte_scan::neutral_run_end`) is skipped: it leaves every one
+    /// idle and only clears the boundary tracker's pending bytes.
+    /// `mux2-wrapcheck` compares this with the reference path.
+    fn feed_trackers(&mut self, data: &[u8]) -> bool {
+        let mut mouse_modes_may_have_changed = false;
+        let mut at = 0;
+        while at < data.len() {
+            if self.trackers_idle() {
+                let line_ends_neutral = !self.prompt_semantic.waits_for_line_end();
+                let end = byte_scan::neutral_run_end(data, at, line_ends_neutral);
+                if end > at {
+                    self.vt_boundary.clear_pending();
+                    at = end;
+                    continue;
+                }
+            }
+            let byte = data[at];
+            self.kitty_inflight.step(byte);
+            self.vt_boundary.step(byte);
+            self.prompt_semantic.step(byte);
+            self.cursor_override.step(byte);
+            self.palette_override.step(byte);
+            self.color_overrides.step(byte);
+            mouse_modes_may_have_changed |= self.mouse_mode_change_detector.step(byte);
+            at += 1;
+        }
+        mouse_modes_may_have_changed
+    }
+
+    fn trackers_idle(&self) -> bool {
+        self.kitty_inflight.is_ground()
+            && self.vt_boundary.is_safe()
+            && self.prompt_semantic.is_ground()
+            && self.cursor_override.is_ground()
+            && self.palette_override.is_ground()
+            && self.color_overrides.is_idle()
+            && self.mouse_mode_change_detector.is_idle()
     }
 
     /// The original byte-at-a-time form of [`Self::vt_write_with_normalized`],
