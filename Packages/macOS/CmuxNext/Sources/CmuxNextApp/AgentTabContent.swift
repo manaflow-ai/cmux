@@ -41,7 +41,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
-        if view.model.newTab != nil { rememberNewTabFrame(of: view) }
+        if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
         if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
@@ -84,29 +84,6 @@ struct AgentTabContent {
         view.hideMovedPage { [weak paneView] in
             BenchSpans.mark("newTab.cover.cleared")
             paneView?.clearLaunchImage()
-        }
-    }
-
-    /// `view` 400 ms after it painted here (its chats and chips in), clear areas left clear (the pane
-    /// paints under it): what the next New Tab page draws until it paints (cx-ec99; Leo 2026-10-13).
-    /// Only when no frame with today's chats, model, size and appearance is held; one capture per page
-    /// at a time, never of a hidden page (perf-tabs I6).
-    private func rememberNewTabFrame(of view: AgentPaneView) {
-        let frames = AgentPaneNewTabFrame.shared, redraw = view.redraw
-        guard !redraw.givesNewTabFrame else { return }
-        redraw.givesNewTabFrame = true
-        view.model.whenPainted { [weak view, weak paneView = pane.view, weak redraw] in
-            let settle = DemandTimer(owner: "newTab.frame.settle")
-            settle.schedule(after: .milliseconds(400)) { @MainActor in
-                withExtendedLifetime(settle) {}
-                defer { redraw?.givesNewTabFrame = false }
-                guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost),
-                      view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
-                let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView), takenAt = frames.generation
-                guard size != .zero, frames.image(size: size, appearance: appearance) == nil,
-                      let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
-                frames.remember(image, size: size, appearance: appearance, takenAt: takenAt)
-            }
         }
     }
 

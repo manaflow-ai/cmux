@@ -373,7 +373,7 @@ final class AgentTabStore {
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self] pick in
-            AgentPaneNewTabFrame.shared.modelChanged(agent: pick.agent, model: pick.model)
+            AgentPaneNewTabFrame.shared.modelChanged(pick)
             self?.pageHandler(provisional)?.remember(pick)
         }
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
@@ -402,9 +402,11 @@ final class AgentTabStore {
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onChatsPage = { [weak self] query in
-            let page = await self?.pageChats.page?(query)
-            if let page, query.cursor == nil, query.text?.isEmpty ?? true { AgentPaneNewTabFrame.shared.chatsChanged(page.chats) }
-            return page
+            let page = self.flatMap { $0.views[$0.resolve(provisional)] }
+            AgentPaneNewTabFrame.shared.chatsRequested(by: page)
+            let answer = await self?.pageChats.page?(query)
+            AgentPaneNewTabFrame.shared.chatsAnswered(answer, firstPage: query.cursor == nil && query.text?.isEmpty ?? true, to: page)
+            return answer
         }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
