@@ -5,7 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
 type Places = Map<string, { x: number; y: number }>;
@@ -65,9 +65,9 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-  const keysRef = useRef(keys);
-  keysRef.current = keys;
   const signature = JSON.stringify(keys);
+  // Keep one immutable key list per value signature so unrelated owner renders do not rerun layout reads.
+  const keyList = useMemo(() => keys, [signature]);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
   useLayoutEffect(
     () => () => {
@@ -82,7 +82,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   // would put the measurement work back on every render. ResizeObserver remains responsible for
   // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
-    const currentKeys = keysRef.current;
     const root = list.current;
     if (observed.current?.root !== root) {
       if (observed.current?.root) cancelRunning(running);
@@ -99,7 +98,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== currentKeys.length) {
+    if (!root || elements.length !== keyList.length) {
       cancelRunning(running);
       places.current = new Map();
       shown.current = "";
@@ -108,20 +107,20 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     }
     if (isAgentMotionOff()) {
       cancelRunning(running);
-      places.current = measure(root, elements, currentKeys);
+      places.current = measure(root, elements, keyList);
       shown.current = signature;
-      shownKeys.current = currentKeys;
+      shownKeys.current = keyList;
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [keyList[index], drawnShift(element)] as const));
     if (changed) cancelRunning(running);
-    const after = measure(root, elements, currentKeys);
+    const after = measure(root, elements, keyList);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = currentKeys;
+    shownKeys.current = keyList;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -134,7 +133,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = currentKeys[index];
+      const key = keyList[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
@@ -156,5 +155,5 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `keys` is represented by its value signature.
-  }, [list, rows, signature]);
+  }, [keyList, list, rows, signature]);
 }
