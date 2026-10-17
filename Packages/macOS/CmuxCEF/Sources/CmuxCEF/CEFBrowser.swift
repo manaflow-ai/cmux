@@ -270,7 +270,14 @@ public final class CEFBrowser {
         if isPlaceholder {
             // Its popup closed meanwhile (or was freed): nothing moves in.
             guard let owner = placeholderOwner, !owner.isClosed else { return close() }
-            owner.placeholderReady()
+            // Never inside OnAfterCreated (Chromium's tab insertion): moving
+            // a tab between tab strips there fails, and the popup closed
+            // ("could not move into its own window"). cmux Next defers the
+            // same move (`CEFPaneHost.windowCreated`).
+            Task { @MainActor [weak self, weak owner] in
+                guard let owner, !owner.isClosed else { self?.close(); return }
+                owner.placeholderReady()
+            }
             return
         }
         guard let id = browserID, let shim = runtime.shim else { return }
@@ -323,7 +330,7 @@ public final class CEFBrowser {
             hostView.postGeometryChange()
             opener?.reactivate()
         } else {
-            runtime.logger.error("CEF popup \(id) could not move into its own window; closing it")
+            runtime.logger.error("CEF popup \(id) in window \(shim.tabWindowID(id)) could not move into its own window; closing it")
             close()
         }
     }
@@ -337,8 +344,14 @@ public final class CEFBrowser {
         browserID = nil
         if contentRelease.isReleasing, !isClosed { return finishContentRelease() }
         contentRelease = CEFContentRelease()
+        // Chromium destroyed a page cmux did not close (`window.close()` in
+        // a popup, the opener's `popup.close()`): its owner closes its tab or
+        // popup window, as a WebKit page's `webViewDidClose` does.
+        let closedByChromium = !isClosed && !runtime.isShuttingDown
         isClosed = true
-        if !isPlaceholder { emitClosedOnce() }
+        guard !isPlaceholder else { return }
+        if closedByChromium { emit(.closeRequested) }
+        emitClosedOnce()
     }
 
     private func emitClosedOnce() {
@@ -477,9 +490,16 @@ public final class CEFBrowser {
     /// promises awaited) and returns the value as Foundation JSON objects:
     /// nil for undefined, NSNull for null.
     public func evaluateJavaScript(_ script: String) async throws -> Any? {
-        let params = Self.json(["expression": script, "returnByValue": true, "awaitPromise": true])
-        let result = try await devTools(method: "Runtime.evaluate", paramsJSON: params)
+        let result = try await devTools(method: "Runtime.evaluate", paramsJSON: Self.evaluateParams(script))
         return try Self.evaluationValue(result)
+    }
+
+    /// `Runtime.evaluate` parameters for an app script. It runs as a user
+    /// gesture, as WebKit runs the app's `evaluateJavaScript`: an
+    /// automation click's `window.open` or `target=_blank` link opens a tab
+    /// instead of being refused by Chromium's popup blocker.
+    nonisolated static func evaluateParams(_ script: String) -> String {
+        json(["expression": script, "returnByValue": true, "awaitPromise": true, "userGesture": true])
     }
 
     nonisolated static func evaluationValue(_ json: String) throws -> Any? {
