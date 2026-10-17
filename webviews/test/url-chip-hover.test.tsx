@@ -91,3 +91,78 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => root.unmount());
   setChipHost(undefined);
 });
+
+test("link inspection bounds burst requests and coalesces store notifications", async () => {
+  const { act, createElement } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { resetLinkStore, seedLinkStore, usePathInfo, useSiteInfo } = await import(
+    "../src/agent-session/acpmux/chips/linkStore",
+  );
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const paths = Array.from({ length: 65 }, (_, index) => `/workspace/file-${index}.md`);
+  const urls = Array.from({ length: 65 }, (_, index) => `https://example.com/page-${index}`);
+  const calls: Array<{ paths: string[]; urls: string[] }> = [];
+  const pending: Array<{ resolve: (value: unknown) => void }> = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let renders = 0;
+
+  function Probe() {
+    renders += 1;
+    for (const path of paths) usePathInfo(path);
+    for (const url of urls) useSiteInfo(url);
+    return null;
+  }
+
+  resetLinkStore();
+  setChipHost(async (method, params) => {
+    expect(method).toBe("link.inspect");
+    const batch = params as { paths: string[]; urls: string[] };
+    calls.push(batch);
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    return new Promise((resolve) => {
+      pending.push({
+        resolve: (value) => {
+          inFlight -= 1;
+          resolve(value);
+        },
+      });
+    });
+  });
+
+  await act(async () => {
+    root.render(createElement(Probe));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ paths: paths.slice(0, 64), urls: urls.slice(0, 64) });
+  expect(maxInFlight).toBe(1);
+
+  await act(async () => {
+    pending.shift()!.resolve({ paths: {}, sites: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toMatchObject({ paths: paths.slice(64), urls: urls.slice(64) });
+  expect(maxInFlight).toBe(1);
+
+  await act(async () => {
+    pending.shift()!.resolve({ paths: {}, sites: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(inFlight).toBe(0);
+
+  const beforeSeedRenders = renders;
+  seedLinkStore({ paths: { "/workspace/seed-a.md": { place: "root", folder: false } } });
+  seedLinkStore({ sites: { "https://example.com/seed": { title: "Seed" } } });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(renders - beforeSeedRenders).toBe(1);
+
+  await act(async () => root.unmount());
+  setChipHost(undefined);
+});
