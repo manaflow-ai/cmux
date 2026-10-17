@@ -28,14 +28,14 @@
 .apps-toolbar-title h1,
 .apps-discover-intro h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-title);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .apps-eyebrow {
   color: var(--page-text-3);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -131,7 +131,7 @@
   border: 0;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
@@ -174,13 +174,13 @@
 .apps-section-heading h3 {
   margin: 0;
   color: var(--page-text);
-  font-size: 12px;
+  font-size: var(--text-detail);
   font-weight: 650;
 }
 
 .apps-section-heading span {
   color: var(--page-text-3);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .apps-card {
@@ -250,7 +250,7 @@
   border-radius: 50%;
   color: var(--page-elevated);
   background: var(--page-text-2);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 700;
 }
 
@@ -697,12 +697,12 @@ code {
 
 .apps-state strong {
   color: var(--page-text);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .apps-state > span:last-child {
   max-width: 340px;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .apps-state-mark {
@@ -715,7 +715,7 @@ code {
   border-radius: 9px;
   color: var(--page-text-2);
   background: var(--page-hover);
-  font-size: 16px;
+  font-size: var(--text-title);
 }
 
 .apps-state-empty {
