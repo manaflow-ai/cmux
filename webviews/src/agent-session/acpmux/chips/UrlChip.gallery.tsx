@@ -30,6 +30,12 @@ export default componentEntry<UrlChipProps>({
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
+        await ctx.hover({ selector: ".cv-link-preview" });
+        await ctx.click({ selector: ".cv-link-preview__open" });
+      },
     },
     "long-url": {
       props: {
