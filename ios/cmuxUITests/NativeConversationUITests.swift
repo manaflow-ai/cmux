@@ -336,6 +336,16 @@ final class NativeConversationUITests: XCTestCase {
             let path = app.buttons["Sources/App.swift"]
             XCTAssertTrue(path.waitForExistence(timeout: 3))
             if !path.isHittable {
+                let filesSheet = app.descendants(matching: .any)["ConversationFilesSheet"]
+                if filesSheet.exists {
+                    // The sheet opens at its medium detent.  Swipe the sheet
+                    // itself first so the list can use the full viewport;
+                    // swiping only the list leaves its last row clipped by
+                    // the detent boundary on both iPhone and iPad.
+                    filesSheet.swipeUp()
+                }
+            }
+            if !path.isHittable {
                 // The files sheet opens at its medium detent on iPadOS.  The
                 // fixture's last row can therefore sit just below the
                 // viewport even though it exists in the list.  Exercise the
