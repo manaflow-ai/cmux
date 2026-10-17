@@ -10,6 +10,8 @@ public struct ConversationProviderEvent: Codable, Hashable, Sendable {
     public let turnID: ConversationTurnID?
     /// Normalized item kind.
     public let itemKind: ConversationItemKind?
+    /// Semantic message role when known.
+    public let role: String?
     /// Text or state label.
     public let text: String?
     /// Tool details.
@@ -30,7 +32,7 @@ public struct ConversationProviderEvent: Codable, Hashable, Sendable {
     public let rawPayload: ConversationJSONValue?
 
     /// Creates a provider event for broker normalization.
-    public init(kind: ConversationEventKind, itemID: ConversationItemID? = nil, turnID: ConversationTurnID? = nil, itemKind: ConversationItemKind? = nil, text: String? = nil, tool: ConversationTool? = nil, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil, usage: ConversationUsage? = nil, request: ConversationRequest? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.kind = kind; self.itemID = itemID; self.turnID = turnID; self.itemKind = itemKind; self.text = text; self.tool = tool; self.plan = plan; self.diff = diff; self.artifact = artifact; self.usage = usage; self.request = request; self.state = state; self.rawPayload = rawPayload }
+    public init(kind: ConversationEventKind, itemID: ConversationItemID? = nil, turnID: ConversationTurnID? = nil, itemKind: ConversationItemKind? = nil, role: String? = nil, text: String? = nil, tool: ConversationTool? = nil, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil, usage: ConversationUsage? = nil, request: ConversationRequest? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) { self.kind = kind; self.itemID = itemID; self.turnID = turnID; self.itemKind = itemKind; self.role = role; self.text = text; self.tool = tool; self.plan = plan; self.diff = diff; self.artifact = artifact; self.usage = usage; self.request = request; self.state = state; self.rawPayload = rawPayload }
 }
 
 /// A connected provider session owned by the broker.

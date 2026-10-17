@@ -123,6 +123,8 @@ public struct ConversationItem: Codable, Hashable, Sendable, Identifiable {
     public let turnID: ConversationTurnID?
     /// Normalized item kind.
     public let kind: ConversationItemKind
+    /// Semantic message role when known (`user`, `assistant`, or `system`).
+    public var role: String?
     /// User or assistant text.
     public var text: String?
     /// Structured tool information.
@@ -139,7 +141,7 @@ public struct ConversationItem: Codable, Hashable, Sendable, Identifiable {
     public var rawPayload: ConversationJSONValue?
 
     /// Creates an ordered conversation item.
-    public init(id: ConversationItemID, sequence: ConversationCursor, turnID: ConversationTurnID? = nil, kind: ConversationItemKind, text: String? = nil, tool: ConversationTool? = nil, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil, usage: ConversationUsage? = nil, rawPayload: ConversationJSONValue? = nil) {
-        self.id = id; self.sequence = sequence; self.turnID = turnID; self.kind = kind; self.text = text; self.tool = tool; self.plan = plan; self.diff = diff; self.artifact = artifact; self.usage = usage; self.rawPayload = rawPayload
+    public init(id: ConversationItemID, sequence: ConversationCursor, turnID: ConversationTurnID? = nil, kind: ConversationItemKind, role: String? = nil, text: String? = nil, tool: ConversationTool? = nil, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil, usage: ConversationUsage? = nil, rawPayload: ConversationJSONValue? = nil) {
+        self.id = id; self.sequence = sequence; self.turnID = turnID; self.kind = kind; self.role = role; self.text = text; self.tool = tool; self.plan = plan; self.diff = diff; self.artifact = artifact; self.usage = usage; self.rawPayload = rawPayload
     }
 }
