@@ -439,6 +439,10 @@
   box-sizing: border-box;
 }
 .nt-surfaces__grid {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
   display: grid;
   grid-template-columns: repeat(auto-fit, 56px);
   justify-content: center;

@@ -401,7 +401,7 @@ export function ChatHeaderTools({
     return items;
   };
   const tray = tabTools && trayed && (
-    <div className={`acpmux-header-tray acpmux-header-tray--${style}`} role="group">
+    <fieldset className={`acpmux-header-tray acpmux-header-tray--${style}`}>
       {trayItems().map((item) => (
         <button
           key={item.key}
@@ -421,7 +421,7 @@ export function ChatHeaderTools({
           )}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
   const addTools = tabTools && adds && !trayed && (
     <>

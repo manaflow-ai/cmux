@@ -109,7 +109,7 @@
 /* The tray header designs (header/headerStyle.ts tray and labels, Lucas 2026-10-17): every tab the chat
    opens beside it in one quiet group, a soft fill with the buttons inset, set off from Sources and "...";
    labels adds a word to each icon, and a narrow pane keeps the icons only. */
-.acpmux-header-tray{flex:none;display:flex;align-items:center;gap:1px;margin-right:4px;padding:2px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+.acpmux-header-tray{flex:none;display:flex;min-inline-size:0;margin-block:0;margin-inline-start:0;border:0;align-items:center;gap:1px;margin-right:4px;padding:2px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
 .acpmux-header-tray .acpmux-header-tool{height:24px;width:26px;color:var(--agent-muted)}
 .acpmux-header-tray .acpmux-header-tool:not(:disabled):hover{color:var(--agent-text)}
 .acpmux-header-tray--labels .acpmux-header-tool{width:auto;gap:5px;padding:0 8px 0 6px}

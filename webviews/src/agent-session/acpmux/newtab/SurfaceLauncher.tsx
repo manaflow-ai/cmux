@@ -23,19 +23,7 @@ export function SurfaceLauncher({ onPick }: { onPick: (surface: Surface) => void
   ];
   return (
     <div className="nt-surfaces">
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div
-        className="nt-surfaces__grid"
-        role="group"
-        aria-label={nt("create.label")}
-        onKeyDown={(event) => {
-          if (event.metaKey || event.ctrlKey || event.altKey) return;
-          const surface = KEYS[event.key.toLowerCase()];
-          if (!surface) return;
-          event.preventDefault();
-          onPick(surface);
-        }}
-      >
+      <fieldset className="nt-surfaces__grid" aria-label={nt("create.label")}>
         {tiles.map((tile, index) => (
           <button
             key={tile.surface}
@@ -49,11 +37,19 @@ export function SurfaceLauncher({ onPick }: { onPick: (surface: Surface) => void
             // oxlint-disable-next-line jsx-a11y/no-autofocus
             autoFocus={index === 0}
             onClick={() => onPick(tile.surface)}
+            onKeyDown={(event) => {
+              // A letter picks a tile (focus is always on one: the first takes it as the page opens).
+              if (event.metaKey || event.ctrlKey || event.altKey) return;
+              const surface = KEYS[event.key.toLowerCase()];
+              if (!surface) return;
+              event.preventDefault();
+              onPick(surface);
+            }}
           >
             <Icon name={tile.icon} size={20} />
           </button>
         ))}
-      </div>
+      </fieldset>
     </div>
   );
 }

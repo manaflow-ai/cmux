@@ -22,7 +22,7 @@
   height: 32px;
   padding: 0 6px 0 14px;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--cv-text-muted);
 }
 :root[data-chat-code="slim"] .cv-codeblock__header > svg:first-child {
