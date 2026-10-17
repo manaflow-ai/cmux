@@ -364,8 +364,8 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: state.receipts, activeTurnID: state.isRunning ? ConversationTurnID(rawValue: "fixture-turn") : nil, isTurnRunning: state.isRunning, capabilities: capabilities)
     }
 
-    private func makeReceipt(commandID: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, generation: ConversationGeneration, draftText: String? = nil) -> ConversationReceipt {
-        ConversationReceipt(id: commandID, sessionID: sessionID, state: state, generation: generation, draftText: draftText)
+    private func makeReceipt(commandID: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, reason: String? = nil, generation: ConversationGeneration, draftText: String? = nil) -> ConversationReceipt {
+        ConversationReceipt(id: commandID, sessionID: sessionID, state: state, reason: reason, generation: generation, draftText: draftText)
     }
 
     private func appendItem(_ state: SessionState, kind: ConversationItemKind, role: String? = nil, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil) -> SessionState {
