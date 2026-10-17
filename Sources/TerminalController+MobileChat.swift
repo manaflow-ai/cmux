@@ -740,6 +740,17 @@ extension TerminalController {
                   !unifiedDiff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .err(code: "invalid_params", message: "Applying a review requires the unified diff", data: nil)
             }
+            guard Self.chatReviewPatchMatchesPath(
+                unifiedDiff,
+                declaredPath: resolvedPath,
+                workingDirectory: workingDirectory
+            ) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "The unified diff does not match the reviewed file",
+                    data: ["file_path": resolvedPath.path]
+                )
+            }
             let result = Self.runChatReviewGit(
                 action: action,
                 workingDirectory: workingDirectory,
@@ -771,6 +782,48 @@ extension TerminalController {
             .standardizedFileURL
         guard candidate.path == root.path || candidate.path.hasPrefix(root.path + "/") else { return nil }
         return candidate
+    }
+
+    /// Checks every path named by a unified diff against the file selected by
+    /// the user. Git normally rejects `../` paths, but it can still mutate a
+    /// different in-tree file when an untrusted patch's headers disagree with
+    /// the card's declared path. `/dev/null` is allowed for create/delete
+    /// patches; all other paths must resolve to the same file.
+    static func chatReviewPatchMatchesPath(
+        _ unifiedDiff: String,
+        declaredPath: URL,
+        workingDirectory: String
+    ) -> Bool {
+        var paths: [String] = []
+        for rawLine in unifiedDiff.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine)
+            if line.hasPrefix("diff --git ") {
+                let components = line.dropFirst("diff --git ".count).split(separator: " ", omittingEmptySubsequences: true)
+                if components.count >= 2 {
+                    paths.append(String(components[0]))
+                    paths.append(String(components[1]))
+                }
+            } else if line.hasPrefix("--- ") || line.hasPrefix("+++ ") {
+                let path = line.dropFirst(4).split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                paths.append(String(path))
+            }
+        }
+        guard !paths.isEmpty else { return false }
+        return paths.allSatisfy { rawPath in
+            guard rawPath != "/dev/null" else { return true }
+            var path = rawPath
+            if path.hasPrefix("\"") && path.hasSuffix("\"") {
+                path.removeFirst()
+                path.removeLast()
+            }
+            if path.hasPrefix("a/") || path.hasPrefix("b/") {
+                path.removeFirst(2)
+            }
+            guard let resolved = chatReviewPath(path, workingDirectory: workingDirectory) else {
+                return false
+            }
+            return resolved.path == declaredPath.path
+        }
     }
 
     private static func runChatReviewGit(

@@ -447,6 +447,34 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         #expect(detailReads.value == 0)
     }
 
+    @Test func reviewPatchHeadersCannotCrossTheSelectedFile() {
+        let root = "/tmp/cmux-review"
+        let declared = URL(fileURLWithPath: root).appendingPathComponent("Sources/Retry.swift")
+        let matching = """
+        diff --git a/Sources/Retry.swift b/Sources/Retry.swift
+        --- a/Sources/Retry.swift
+        +++ b/Sources/Retry.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+        let crossFile = matching.replacingOccurrences(
+            of: "b/Sources/Retry.swift",
+            with: "b/Sources/Other.swift"
+        )
+
+        #expect(TerminalController.chatReviewPatchMatchesPath(
+            matching,
+            declaredPath: declared,
+            workingDirectory: root
+        ))
+        #expect(!TerminalController.chatReviewPatchMatchesPath(
+            crossFile,
+            declaredPath: declared,
+            workingDirectory: root
+        ))
+    }
+
     private func topProcess(
         pid: Int,
         parentPID: Int,
