@@ -12,9 +12,6 @@ final class MobilePrimarySearchCoordinator {
     var workspaces = "" {
         didSet { normalizeCommittedSearchText(for: .workspaces, oldValue: oldValue) }
     }
-    var feed = "" {
-        didSet { normalizeCommittedSearchText(for: .feed, oldValue: oldValue) }
-    }
     var notifications = "" {
         didSet { normalizeCommittedSearchText(for: .notifications, oldValue: oldValue) }
     }
@@ -23,7 +20,6 @@ final class MobilePrimarySearchCoordinator {
     private var phase: MobilePrimarySearchPhase = .inactive
     private var platformSearchingScope: MobilePrimarySearchScope?
     private var workspaceNativeSearchText = ""
-    private var feedNativeSearchText = ""
     private var notificationNativeSearchText = ""
     private let searchQueryBounds = MobileSearchQueryBounds()
 
@@ -107,8 +103,6 @@ final class MobilePrimarySearchCoordinator {
         switch scope {
         case .workspaces:
             workspaceNativeSearchText
-        case .feed:
-            feedNativeSearchText
         case .notifications:
             notificationNativeSearchText
         }
@@ -162,8 +156,6 @@ final class MobilePrimarySearchCoordinator {
         switch scope {
         case .workspaces:
             workspaces
-        case .feed:
-            feed
         case .notifications:
             notifications
         }
@@ -175,9 +167,6 @@ final class MobilePrimarySearchCoordinator {
         case .workspaces:
             guard workspaceNativeSearchText != value else { return }
             workspaceNativeSearchText = value
-        case .feed:
-            guard feedNativeSearchText != value else { return }
-            feedNativeSearchText = value
         case .notifications:
             guard notificationNativeSearchText != value else { return }
             notificationNativeSearchText = value
@@ -190,9 +179,6 @@ final class MobilePrimarySearchCoordinator {
         case .workspaces:
             guard workspaces != value else { return }
             workspaces = value
-        case .feed:
-            guard feed != value else { return }
-            feed = value
         case .notifications:
             guard notifications != value else { return }
             notifications = value
@@ -261,8 +247,6 @@ extension MobilePrimaryTab {
             .workspaces
         case .notifications:
             .notifications
-        case .feed:
-            .feed
         case .cloud:
             nil
         case .search:
@@ -278,8 +262,6 @@ extension MobilePrimarySearchScope {
             .workspaces
         case .notifications:
             .notifications
-        case .feed:
-            .feed
         }
     }
 }

@@ -7,7 +7,6 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
-    Feed: View,
     Notifications: View,
     Cloud: View,
     Search: View
@@ -15,13 +14,9 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
-    let feedNeedsInputCount: Int
-    let feedNeedsInputCountProvider: (@MainActor () -> Int)?
-    /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
-    let feed: Feed
     let notifications: Notifications
     let cloud: Cloud
     let search: Search
@@ -30,12 +25,9 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
-        feedNeedsInputCount: Int = 0,
-        feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
-        @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder cloud: () -> Cloud,
         @ViewBuilder search: () -> Search
@@ -43,12 +35,9 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
-        self.feedNeedsInputCount = feedNeedsInputCount
-        self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
-        self.feed = feed()
         self.notifications = notifications()
         self.cloud = cloud()
         self.search = search()
@@ -102,10 +91,6 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                feed
-                    .tabItem { feedLabel }
-                    .tag(MobilePrimaryTab.feed)
-                    .badge(resolvedFeedNeedsInputCount)
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
@@ -118,10 +103,6 @@ struct MobilePrimaryTabScaffold<
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
-    }
-
-    private var resolvedFeedNeedsInputCount: Int {
-        feedNeedsInputCountProvider?() ?? feedNeedsInputCount
     }
 
     /// A tab-view bottom accessory always adds a full-width plate, which is
@@ -162,13 +143,6 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        Tab(value: MobilePrimaryTab.feed) {
-            feed
-        } label: {
-            feedLabel
-        }
-        .badge(resolvedFeedNeedsInputCount)
-
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {
                 notifications
@@ -182,14 +156,6 @@ struct MobilePrimaryTabScaffold<
         } label: {
             cloudLabel
         }
-    }
-
-    private var feedLabel: some View {
-        Label(
-            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-            systemImage: "waveform"
-        )
-        .accessibilityIdentifier("MobilePrimaryTabFeed")
     }
 
     private var workspacesLabel: some View {
