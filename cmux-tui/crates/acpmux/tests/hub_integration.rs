@@ -25,6 +25,8 @@ mod lanes;
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[path = "hub_integration/prompt_ledger.rs"]
+mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]

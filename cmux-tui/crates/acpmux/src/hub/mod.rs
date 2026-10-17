@@ -38,6 +38,7 @@ mod paging;
 mod personal_stats;
 mod pool;
 mod prompt_images;
+mod prompt_ledger;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
@@ -199,9 +200,6 @@ pub struct PromptOptions {
 
 /// The outcome of one client prompt id, shared with a resend of it.
 pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
-
-/// Client prompt ids remembered per session for deduplication.
-pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
