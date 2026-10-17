@@ -21,6 +21,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private struct State {
         var previousMessagesByID: [String: MobileChiefMessage] = [:]
         var pendingSends: [String: PendingSend] = [:]
+        /// A poll/history pass may correlate the committed echo while the
+        /// send request is still waiting for its follow-up read. Keep that
+        /// echo for `send` so its fallback cannot return a second local row.
+        var correlatedMessagesByClientID: [String: MobileChiefMessage] = [:]
         var meID = "mobile-user"
         var pollTask: Task<Void, Never>?
         var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
@@ -34,6 +38,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         var serverMessageID: String?
     }
 
+    private struct EventResources {
+        let pollTask: Task<Void, Never>?
+        let continuation: AsyncStream<ConversationBackendEvent>.Continuation?
+    }
+
     init(client: MobileChiefClient, conversationID: String, title: String) {
         self.client = client
         self.conversationID = conversationID
@@ -41,25 +50,27 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
-        let (stream, continuation) = AsyncStream<ConversationBackendEvent>.makeStream()
+        let streamAndContinuation: (
+            stream: AsyncStream<ConversationBackendEvent>,
+            continuation: AsyncStream<ConversationBackendEvent>.Continuation
+        ) = AsyncStream<ConversationBackendEvent>.makeStream()
+        let stream = streamAndContinuation.stream
+        let continuation = streamAndContinuation.continuation
         let task = Task { [weak self] in
             await self?.poll(continuation: continuation)
         }
-        let previous = withState { state -> (
-            Task<Void, Never>?,
-            AsyncStream<ConversationBackendEvent>.Continuation?
-        ) in
+        let previous: EventResources = withState { state in
             guard !state.closed else {
                 continuation.finish()
-                return (task, nil)
+                return EventResources(pollTask: task, continuation: nil)
             }
-            let previous = (state.pollTask, state.continuation)
+            let previous = EventResources(pollTask: state.pollTask, continuation: state.continuation)
             state.continuation = continuation
             state.pollTask = task
             return previous
         }
-        previous.0?.cancel()
-        previous.1?.finish()
+        previous.pollTask?.cancel()
+        previous.continuation?.finish()
         return stream
     }
 
@@ -119,6 +130,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 }
                 .max(by: { $0.at < $1.at })
             if let sent {
+                _ = takeCorrelatedMessage(for: draft.clientMessageID)
                 withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
                 var message = map(sent, clientMessageID: draft.clientMessageID)
                 message.clientMessageID = draft.clientMessageID
@@ -129,6 +141,17 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             // Chief accepted the send, but its follow-up read may transiently
             // fail. Keep the pending correlation so the poll can merge the
             // committed echo into the optimistic row instead of duplicating it.
+        }
+        // A concurrent poll/history read may have observed and correlated the
+        // committed echo while the send's read was delayed or failed. Return
+        // that server row so ConversationStore's idempotent upsert sees the
+        // same id instead of appending the local fallback after the echo.
+        if let sent = takeCorrelatedMessage(for: draft.clientMessageID) {
+            withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+            var message = map(sent, clientMessageID: draft.clientMessageID)
+            message.clientMessageID = draft.clientMessageID
+            message.delivery = sendResult.queued ? .sending : .sent
+            return message
         }
         // Some Chief owners acknowledge before the committed message is
         // visible to `chief.read`; preserve the optimistic row identity so a
@@ -170,6 +193,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             AsyncStream<ConversationBackendEvent>.Continuation?
         ) = withState { state in
             state.closed = true
+            state.correlatedMessagesByClientID.removeAll()
             let resources = (state.pollTask, state.continuation)
             state.pollTask = nil
             state.continuation = nil
@@ -325,9 +349,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         return withState { state in
             let cutoff = Date().addingTimeInterval(-300)
             state.pendingSends = state.pendingSends.filter { $0.value.startedAt >= cutoff }
+            let pendingClientMessageIDs = Set(state.pendingSends.keys)
+            state.correlatedMessagesByClientID = state.correlatedMessagesByClientID.filter {
+                pendingClientMessageIDs.contains($0.key)
+            }
             if let clientMessageID = message.clientMessageID,
                state.pendingSends[clientMessageID] != nil {
                 state.pendingSends.removeValue(forKey: clientMessageID)
+                state.correlatedMessagesByClientID[clientMessageID] = message
                 return clientMessageID
             }
             guard let pending = state.pendingSends.values.filter({ pending in
@@ -337,7 +366,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             })
                 .min(by: { $0.startedAt < $1.startedAt }) else { return nil }
             state.pendingSends.removeValue(forKey: pending.clientMessageID)
+            state.correlatedMessagesByClientID[pending.clientMessageID] = message
             return pending.clientMessageID
+        }
+    }
+
+    private func takeCorrelatedMessage(for clientMessageID: String) -> MobileChiefMessage? {
+        withState { state in
+            state.correlatedMessagesByClientID.removeValue(forKey: clientMessageID)
         }
     }
 

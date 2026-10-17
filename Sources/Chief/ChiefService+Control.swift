@@ -171,7 +171,7 @@ extension ChiefService {
         } else if store.isInboxCurrent {
             throw ChiefControlFailure.from(.invalid("unknown_conversation"))
         }
-        let key = clientMessageID.map(IdempotencyKey.init) ?? IdempotencyKey.make()
+        let key = clientMessageID.map { IdempotencyKey($0) } ?? IdempotencyKey.make()
         do {
             _ = try await store.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: nil), key: key)
             return ChiefControlSendResult(conversation: conversation.rawValue, messageID: nil,
