@@ -205,12 +205,8 @@ export function OrchestrationLab({
     item.decision !== "none" && decision[item.id]
       ? "orchestration-state orchestration-state-recorded"
       : `orchestration-state orchestration-state-${item.status}`;
-  const visibleBlocker = (item: WorkItem) =>
-    item.decision !== "none" && decision[item.id]
-      ? `Preview choice recorded: ${decisionText(decision[item.id])}; no dispatch`
-      : item.blocker;
-  const visibleOutcome = (item: WorkItem) =>
-    item.decision !== "none" && decision[item.id] ? "Preview choice recorded; no work was dispatched." : item.outcome;
+  const visibleRowNote = (item: WorkItem) =>
+    item.decision !== "none" && decision[item.id] ? `Choice: ${decisionText(decision[item.id])}` : item.blocker;
   const pendingDecisionItems = workItems.filter((item) => item.decision !== "none" && !decision[item.id]);
 
   return (
@@ -265,9 +261,9 @@ export function OrchestrationLab({
                   <span className="orchestration-work-row-meta">
                     {item.agent} · {item.machine}
                   </span>
-                  {visibleBlocker(item) !== "No blocker" && (
+                  {visibleRowNote(item) !== "No blocker" && (
                     <span className={`orchestration-work-row-blocker${item.status === "blocked" ? " is-blocked" : ""}`}>
-                      {visibleBlocker(item)}
+                      {visibleRowNote(item)}
                     </span>
                   )}
                 </button>
@@ -294,16 +290,18 @@ export function OrchestrationLab({
             <span className={visibleStateClass(selected)}>{visibleStatus(selected)}</span>
           </div>
 
-          <dl className="orchestration-work-facts">
-            <div>
-              <dt>Blocker</dt>
-              <dd>{visibleBlocker(selected)}</dd>
-            </div>
-            <div>
-              <dt>Latest update</dt>
-              <dd>{visibleOutcome(selected)}</dd>
-            </div>
-          </dl>
+          {!chosenDecision && (
+            <dl className="orchestration-work-facts">
+              <div>
+                <dt>Blocker</dt>
+                <dd>{selected.blocker}</dd>
+              </div>
+              <div>
+                <dt>Latest update</dt>
+                <dd>{selected.outcome}</dd>
+              </div>
+            </dl>
+          )}
 
           {selected.decision !== "none" ? (
             <section className="orchestration-decision" aria-label="Decision needed">
