@@ -425,7 +425,7 @@ extension TerminalController {
                 )
             }
             if let surfaceID = record?.surfaceID {
-                service?.noteExplicitInput(surfaceID: surfaceID)
+                service.noteExplicitInput(surfaceID: surfaceID)
             }
             return .ok(["answered": true, "option_index": optionIndex])
         }
