@@ -42,6 +42,15 @@ async function mount(host: FakeHost) {
 }
 
 describe("owner-fenced inventory refresh", () => {
+  test("discovery explicitly requests the admitted machine catalog", async () => {
+    const host = create()
+    host.handlers["machine.list"] = ({ catalog }) => ok(catalog === true ? [local, server] : [local])
+    await mount(host)
+    expect(snapshot(host).machines.map((m: { id: string }) => m.id)).toEqual(["local", "server"])
+    expect(version(host)).toBe("1.0.0")
+    expect(host.calls.find((c) => c.name === "machine.list")?.params).toEqual({ catalog: true })
+  })
+
   test("matching owners populate their own rows without polling or execution", async () => {
     const host = create()
     await mount(host)
@@ -165,5 +174,33 @@ describe("owner-fenced inventory refresh", () => {
     await mount(host)
     await host.eval('__cmuxAppExports.signIn("server", "codex")')
     expect(host.calls.filter((c) => c.name === "action.run")).toEqual([])
+  })
+
+  test("the local Accounts fallback still works on explicit and legacy local routes", async () => {
+    for (const legacy of [false, true]) {
+      const host = create()
+      host.handlers["machine.list"] = () => legacy ? refused("operation.unsupported") : ok([local])
+      host.handlers["agent_cli.list"] = ({ machine }) => inventory(machine ?? "", "1.0.0")
+      host.handlers["agent_cli.sign_in"] = () => refused("operation.unsupported")
+      host.handlers["action.run"] = () => ok({})
+      await mount(host)
+      await host.eval(`__cmuxAppExports.signIn(${JSON.stringify(legacy ? "" : "local")}, "codex")`)
+      expect(host.calls.filter((c) => c.name === "action.run").map((c) => c.params.id)).toEqual(["accounts.reauthenticate"])
+    }
+  })
+
+  test("a local route removed while sign-in is pending cannot trigger a fallback", async () => {
+    const host = create()
+    await mount(host)
+    const pending = deferred<ReturnType<typeof refused>>()
+    host.handlers["agent_cli.sign_in"] = () => pending.promise
+    const signIn = host.eval('__cmuxAppExports.signIn("local", "codex")')
+    await host.settle()
+    host.handlers["machine.list"] = () => ok([server])
+    await refresh(host)
+    pending.resolve(refused("operation.unsupported"))
+    await signIn
+    expect(host.calls.filter((c) => c.name === "action.run")).toEqual([])
+    expect(Object.keys(snapshot(host).jobs).some((k) => k.startsWith("local/"))).toBe(false)
   })
 })
