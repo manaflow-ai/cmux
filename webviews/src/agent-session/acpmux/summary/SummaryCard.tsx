@@ -74,7 +74,14 @@ export function SummaryCard({
     card.close();
     button?.focus();
   });
-  if (!shown) return null;
+  if (!shown) {
+    // Keep the inline column's width stable before the first summary row arrives. The rail is
+    // intentionally invisible until it has content, but removing it from the flex row would make
+    // the composer jump sideways when the first subagent or tool result is received.
+    return card.column ? (
+      <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
+    ) : null;
+  }
   const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
   const counts = [
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
