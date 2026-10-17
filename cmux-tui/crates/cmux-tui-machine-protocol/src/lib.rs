@@ -623,6 +623,21 @@ pub struct MachineDescriptor {
     pub status: MachineStatus,
     pub connectable: bool,
     pub workspace_create: WorkspaceCreatePolicy,
+    /// Optional non-secret host metadata for agent and machine surfaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<MachinePlatform>,
+    /// Stable capability names; credentials and account data stay outside the catalog.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MachinePlatform {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1542,6 +1557,8 @@ mod tests {
                     default_mode: WorkspaceCreateMode::Isolated,
                     modes: vec![WorkspaceCreateMode::Isolated, WorkspaceCreateMode::Host],
                 },
+                platform: Some(MachinePlatform { os: Some("linux".into()), arch: Some("x86_64".into()) }),
+                capabilities: vec!["terminal".into(), "workspace".into(), "agent_session".into()],
             }],
             selected_machine_id: Some(id("vm-uuid")),
             capabilities: ProviderCapabilities {
@@ -1591,7 +1608,9 @@ mod tests {
                         "owner": "provider",
                         "default_mode": "isolated",
                         "modes": ["isolated", "host"]
-                    }
+                    },
+                    "platform": {"os": "linux", "arch": "x86_64"},
+                    "capabilities": ["terminal", "workspace", "agent_session"]
                 }],
                 "selected_machine_id": "vm-uuid",
                 "capabilities": {
@@ -1616,6 +1635,14 @@ mod tests {
 
         let decoded: ResponseEnvelope<SnapshotResult> = serde_json::from_value(expected).unwrap();
         assert_eq!(decoded, response);
+
+        let mut legacy = serde_json::to_value(&response).unwrap();
+        let machine = legacy["result"]["machines"][0].as_object_mut().unwrap();
+        machine.remove("platform");
+        machine.remove("capabilities");
+        let legacy: ResponseEnvelope<SnapshotResult> = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.result.machines[0].platform.is_none());
+        assert!(legacy.result.machines[0].capabilities.is_empty());
     }
 
     #[test]
