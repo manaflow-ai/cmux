@@ -83,7 +83,7 @@ final class AgentChatModeModel {
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
 
     init(
-        reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = Self.defaultReconnectDelay
+        reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = AgentChatModeModel.defaultReconnectDelay
     ) {
         self.reconnectDelay = reconnectDelay
     }
