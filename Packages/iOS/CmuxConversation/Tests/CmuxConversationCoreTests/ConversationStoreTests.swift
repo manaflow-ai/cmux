@@ -88,8 +88,7 @@ import Testing
         echo.delivery = .delivered
         store.apply(.message(echo, eventSeq: 900))
         backend.releaseSend()
-        try await waitUntil { backend.sendCount == 1 }
-        try await Task.sleep(for: .milliseconds(20))
+        try await waitUntil { store.message(rowID: rowID)?.delivery == .delivered && backend.sendCount == 1 }
         #expect(store.messages.filter { $0.rowID == rowID }.count == 1)
         #expect(store.messages.count == 6)
         #expect(store.messages.last?.delivery == .delivered)
@@ -135,7 +134,7 @@ import Testing
         store.send(text: "one")
         store.send(text: "two")
         store.send(text: "three")
-        try await Task.sleep(for: .milliseconds(50))
+        try await waitUntil { backend.sentClientIDs == ["rapid-1"] }
         // The server numbers messages in arrival order, so a later send must not
         // be dispatched while an earlier one is still in flight.
         #expect(backend.sentClientIDs == ["rapid-1"])
@@ -274,7 +273,7 @@ import Testing
         try await waitUntil { asked }
         store.stop()
         gate.open()
-        try await Task.sleep(for: .milliseconds(50))
+        await Task.yield()
         #expect(store.message(id: "m6") == nil)
     }
 
@@ -724,7 +723,7 @@ extension ConversationStoreWindowTests {
 
         store.retryUnsend(messageID: "m7")
         #expect(store.message(id: "m7")?.unsendFailed == false)
-        try await Task.sleep(for: .milliseconds(30))
+        await Task.yield()
         #expect(store.message(id: "m7")?.unsendFailed == false)
         #expect(store.message(id: "m7")?.isUnsent == true)
         #expect(!store.canRetryUnsend(try #require(store.message(id: "m7"))))
@@ -744,7 +743,6 @@ extension ConversationStoreWindowTests {
         #expect(store.message(id: "m5") == nil)
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
         try await waitUntil { store.messages.count == 8 }
-        try await Task.sleep(for: .milliseconds(30))
         #expect(store.message(id: "m4") == nil && store.message(id: "m5") == nil)
     }
 

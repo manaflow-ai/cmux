@@ -111,6 +111,7 @@ private let hank = ConversationContact(id: "hank", name: "Hank M. Zakroff", init
 final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
     let lock = NSLock()
     var searches: [(query: String, excluding: [String])] = []
+    var completedQueries: [String] = []
     var searchDelay: [String: Duration] = [:]
     var created: [[ConversationRecipientRef]] = []
     let contacts = [kate, hank]
@@ -118,6 +119,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
     func searchContacts(_ query: String, limit: Int, excluding: [String]) async throws -> [ConversationContact] {
         lock.withLock { searches.append((query, excluding)) }
         if let delay = searchDelay[query] { try await Task.sleep(for: delay) }
+        lock.withLock { completedQueries.append(query) }
         return contacts.filter { !excluding.contains($0.id) && $0.name.lowercased().hasPrefix(query.lowercased()) }
     }
 
@@ -141,7 +143,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         session.setText("k")
         session.setText("h")
         try await waitUntil { session.suggestions.map(\.id) == ["hank"] }
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil { directory.lock.withLock { directory.completedQueries.contains("k") } }
         #expect(session.suggestions.map(\.id) == ["hank"], "the slow 'k' result never replaces the newer 'h' result")
     }
 

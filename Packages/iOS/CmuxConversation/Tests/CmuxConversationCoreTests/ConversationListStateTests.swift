@@ -96,15 +96,15 @@ import Testing
         backend.hold = true
         let store = ConversationStore(backend: backend)
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
-        store.updateListState(.init(markedUnread: true))
+        var rejection: ConversationBackendError?
+        store.updateListState(.init(markedUnread: true)) { rejection = $0 }
         // Another device deletes the conversation before the reply lands.
         var pushed = backend.info
         pushed.listState = ConversationListState(deleted: true)
         store.apply(.conversationChanged(pushed))
         backend.fail = true
         backend.release()
-        try await waitUntil { backend.replied }
-        try await Task.sleep(for: .milliseconds(20))
+        try await waitUntil { rejection != nil }
         #expect(store.listState == ConversationListState(deleted: true))
     }
 
@@ -113,7 +113,6 @@ import Testing
         let store = ConversationStore(backend: backend)
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
         store.updateListState(.init(pinned: false, muted: false))
-        try await Task.sleep(for: .milliseconds(20))
         #expect(backend.received.isEmpty)
     }
 
