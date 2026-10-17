@@ -368,12 +368,16 @@ private struct AppearanceColorSchemeModifier: ViewModifier {
     let rawValue: String?
 
     func body(content: Content) -> some View {
-        let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
         let _ = systemAppearanceGeneration
         let effective = AppearanceSettings.effectiveColorScheme(for: rawValue, fallback: colorScheme)
+        // Environment only. `NSApp.appearance` (AppearanceSettings) already
+        // carries the mode to every window. `.preferredColorScheme` made the
+        // hosting view write the window appearance from viewDidMoveToWindow;
+        // on macOS 15 that write re-floats NSThemeFrame's titlebar views, which
+        // re-adds the hosting view and writes again until AttributeGraph
+        // aborts (CMUXTERM-MACOS-G71).
         content
             .environment(\.colorScheme, effective)
-            .preferredColorScheme(override)
             .cmuxAccentColorEnvironment()
             .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
                 systemAppearanceGeneration &+= 1
