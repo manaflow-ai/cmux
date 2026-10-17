@@ -55,3 +55,21 @@ extension NSWindow {
     }
     #endif
 }
+
+extension ChromiumChromeClickFacts.KeyWindow {
+    /// Classifies `keyWindow` for a press into `window`. `fallback` is the
+    /// window a parentless page window acts for (normally the main window).
+    @MainActor
+    public init(keyWindow: NSWindow?, for window: NSWindow, fallback: @autoclosure () -> NSWindow?) {
+        guard let keyWindow else {
+            self = .noKeyWindow
+            return
+        }
+        if keyWindow !== window, keyWindow.isChromiumPageWindow,
+           keyWindow.chromiumActingWindow(fallback: fallback()) === window {
+            self = .ownChromiumPage
+        } else {
+            self = .other
+        }
+    }
+}

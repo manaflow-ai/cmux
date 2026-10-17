@@ -67,3 +67,34 @@ private enum FakeChromiumRuntime {
         #expect(page.chromiumActingWindow(fallback: otherPage) == nil)
     }
 }
+
+@MainActor
+@Suite(.serialized) struct ChromiumChromeClickKeyWindowTests {
+    init() {
+        _ = FakeChromiumRuntime.pageWindowClass
+        NSWindow.noteChromiumRuntimeLoaded()
+    }
+
+    @Test func classifiesTheKeyWindowForAPressIntoACmuxWindow() {
+        defer { NSWindow.resetChromiumRuntimeForTesting() }
+        let main = FakeChromiumRuntime.makeWindow()
+        let otherMain = FakeChromiumRuntime.makeWindow()
+        let page = FakeChromiumRuntime.makePageWindow()
+        let otherPage = FakeChromiumRuntime.makePageWindow()
+        main.addChildWindow(page, ordered: .above)
+        otherMain.addChildWindow(otherPage, ordered: .above)
+        defer {
+            main.removeChildWindow(page)
+            otherMain.removeChildWindow(otherPage)
+        }
+        typealias KeyWindow = ChromiumChromeClickFacts.KeyWindow
+        #expect(KeyWindow(keyWindow: page, for: main, fallback: nil) == .ownChromiumPage)
+        #expect(KeyWindow(keyWindow: otherPage, for: main, fallback: nil) == .other)
+        #expect(KeyWindow(keyWindow: otherMain, for: main, fallback: nil) == .other)
+        #expect(KeyWindow(keyWindow: nil, for: main, fallback: nil) == .noKeyWindow)
+        #expect(KeyWindow(keyWindow: main, for: main, fallback: nil) == .other)
+        let parentless = FakeChromiumRuntime.makePageWindow()
+        #expect(KeyWindow(keyWindow: parentless, for: main, fallback: main) == .ownChromiumPage)
+        #expect(KeyWindow(keyWindow: parentless, for: main, fallback: otherMain) == .other)
+    }
+}

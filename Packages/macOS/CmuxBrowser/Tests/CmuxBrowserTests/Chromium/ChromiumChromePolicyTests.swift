@@ -192,3 +192,31 @@ import Testing
         #expect(ChromiumWindowOpenRoute.refuse.openRequestPlacement(width: nil, height: nil) == nil)
     }
 }
+
+@Suite struct ChromiumChromeClickFactsTests {
+    typealias Facts = ChromiumChromeClickFacts
+
+    /// The pane tab bar, the sidebar and every other cmux control are in the
+    /// cmux window. While its own page window has the keyboard, that window
+    /// is not key, and AppKit spends a press into a non-key window on making
+    /// it key unless the view under it accepts the first mouse: the tab click
+    /// was lost. The window takes the keys first so the press lands.
+    @Test func pressWhileOwnPageWindowHasTheKeysTakesThemFirst() {
+        #expect(Facts(isLeftMouseDown: true, windowIsKey: false, keyWindow: .ownChromiumPage).takesKeysBeforeDispatch)
+    }
+
+    /// A key window's press, and every press while the app is inactive or
+    /// another window has the keys, keeps AppKit's own handling (WebKit and
+    /// terminal panes never get here).
+    @Test func otherPressesKeepAppKitHandling() {
+        #expect(!Facts(isLeftMouseDown: true, windowIsKey: true, keyWindow: .ownChromiumPage).takesKeysBeforeDispatch)
+        #expect(!Facts(isLeftMouseDown: true, windowIsKey: false, keyWindow: .noKeyWindow).takesKeysBeforeDispatch)
+        #expect(!Facts(isLeftMouseDown: true, windowIsKey: false, keyWindow: .other).takesKeysBeforeDispatch)
+        #expect(!Facts(isLeftMouseDown: false, windowIsKey: false, keyWindow: .ownChromiumPage).takesKeysBeforeDispatch)
+    }
+
+    @Test func aSheetOrModalKeepsTheKeys() {
+        #expect(!Facts(isLeftMouseDown: true, windowIsKey: false, keyWindow: .ownChromiumPage, isBlockedByModal: true)
+            .takesKeysBeforeDispatch)
+    }
+}
