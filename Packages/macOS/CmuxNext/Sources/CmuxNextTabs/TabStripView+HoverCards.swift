@@ -1,4 +1,4 @@
-public import AppKit
+import AppKit
 public import CmuxNextDesign
 
 // The strip's side of the app's hover cards (HoverCardCoordinator); its targets
