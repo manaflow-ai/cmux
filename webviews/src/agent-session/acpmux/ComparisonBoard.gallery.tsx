@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
-import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
+import { ComposerPickers, type ComposerPermissionAccess, type ComposerPermissionGrant } from "./ComposerPickers";
+import { Composer } from "./Composer";
 import { EffortTrack } from "./EffortTrack";
 import { SessionPreviewCard, SessionSidebar } from "./SessionSidebar";
 import { setComposerSettings } from "./composerSettings";
@@ -16,6 +17,7 @@ type Props = {
   sliderStyle?: SliderStyle;
   previewVariant?: SidebarPreviewVariant;
   defaultSection?: "overview" | "slider" | "sidebar";
+  queued?: boolean;
 };
 
 const efforts = [
@@ -131,7 +133,12 @@ const hoverSidebar: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-preview") !== null);
 };
 
-function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defaultSection = "overview" }: Props) {
+function ComparisonBoard({
+  sliderStyle = "accent",
+  previewVariant = "card",
+  defaultSection = "overview",
+  queued = false,
+}: Props) {
   useEffect(() => {
     // The board opts the real ComposerPickers into the same Debug Settings slider that the app uses.
     setComposerSettings({ reasoningSlider: true, reasoningSliderStyle: sliderStyle });
@@ -160,6 +167,12 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
   }, [preview, showSidebar]);
   const composerSnapshot: AcpmuxSnapshot = {
     ...baseComposerSnapshot,
+    queue: queued
+      ? [
+          { id: "comparison-queued-1", prompt: "Move the sidebar card into the shared popover path" },
+          { id: "comparison-queued-2", prompt: "Capture the dark and light comparison" },
+        ]
+      : [],
     summary: {
       ...baseComposerSnapshot.summary!,
       model,
@@ -264,26 +277,32 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 </div>
               </div>
             </div>
-            <div className="cmux-comparison-composer" aria-label="Composer preview">
-              <div className="cmux-comparison-composer-copy">Ask anything</div>
-              <div className="cmux-comparison-composer-row">
-                <span className="cmux-comparison-compose-icon" aria-hidden="true">
-                  ＋
-                </span>
-                <span className="cmux-comparison-compose-hint">Attach files or mention a project</span>
-                <ComposerPickers
-                  snapshot={composerSnapshot}
-                  permissionAccess={{ grants }}
-                  onModel={setModel}
-                  onMode={setMode}
-                  onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-                  showPlan
-                />
-                <button type="button" className="cmux-comparison-send" aria-label="Send message">
-                  ↑
-                </button>
-              </div>
-            </div>
+            <Composer
+              snapshot={composerSnapshot}
+              sessionId={composerSnapshot.summary?.sessionId}
+              chips={function ComparisonComposerChips({
+                snapshot,
+                permissionAccess,
+              }: {
+                snapshot: AcpmuxSnapshot;
+                permissionAccess?: ComposerPermissionAccess;
+              }) {
+                return (
+                  <ComposerPickers
+                    snapshot={snapshot}
+                    permissionAccess={permissionAccess}
+                    onModel={setModel}
+                    onMode={setMode}
+                    onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+                    showPlan
+                  />
+                );
+              }}
+              permissionAccess={{ grants }}
+              onSend={() => undefined}
+              onStop={() => undefined}
+              onMode={setMode}
+            />
             <div
               className="cmux-comparison-slider-specimen"
               aria-label={`Visible ${sliderStyle} effort control specimen`}
@@ -342,6 +361,10 @@ export default componentEntry<Props>({
     "overview-minimal-outline": {
       note: "Light or dark theme: real composer controls, minimal slider, and outline preview.",
       props: { sliderStyle: "minimal", previewVariant: "outline" },
+    },
+    "overview-queued": {
+      note: "The shipped ComposerQueue renders two waiting prompts above the real composer.",
+      props: { sliderStyle: "accent", previewVariant: "card", queued: true },
     },
     "slider-accent-open": {
       note: "Accent slider treatment mounted in the shipped Composer.",
