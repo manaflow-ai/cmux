@@ -249,14 +249,14 @@ class CommandLine(unittest.TestCase):
         status, stdout, _ = self.run_lint(
             {
                 "Packages/macOS/Pkg/Sources/Pkg/Probe.swift": "#expect(errno == EAGAIN)\n",
-                "ios/cmuxUITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
+                "Packages/macOS/Pkg/Tests/PkgTests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
             }
         )
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
 
     def test_scans_the_ui_test_sources(self) -> None:
-        for path in ("ios/cmuxUITests/ProbeTests.swift",):
+        for path in ("Packages/macOS/Pkg/Tests/PkgTests/ProbeTests.swift",):
             with self.subTest(path=path):
                 status, _, stderr = self.run_lint(
                     {path: "#expect(read(fd, &byte, 1) == -1)\n#expect(errno == EAGAIN)\n"}

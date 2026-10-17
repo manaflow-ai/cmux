@@ -1030,7 +1030,7 @@ check_no_github_hosted_runners() {
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] [(]?('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)[)]?"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   local -a exceptions=(
@@ -1052,6 +1052,8 @@ check_no_github_hosted_runners() {
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # pull_request_target with a write token (test_ci_fork_runner_routing).
     "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # Advisory pull_request_target review has a write token and must remain on a hosted runner.
+    "intent-familiar-review.yml:    runs-on: ubuntu-24.04"
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"

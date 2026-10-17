@@ -136,7 +136,7 @@
 .nt-screen .nt-create .nt-tool {
   height: 28px;
   padding: 0 12px 0 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-soft);
   font-weight: 400;
