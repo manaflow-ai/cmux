@@ -6838,9 +6838,8 @@ class TerminalController {
     }
 
     // The three feed reply handlers are internal (not private) because the
-    // mobile data plane dispatches the same bodies from
-    // `TerminalController+MobileFeed.swift`'s verb family; every entrypoint
-    // resolves through the single `FeedCoordinator.deliverReply` path.
+    // mobile data plane dispatches the same bodies; every entrypoint resolves
+    // through the single `FeedCoordinator.deliverReply` path.
     nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
