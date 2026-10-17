@@ -196,6 +196,11 @@ window.__s={state:'init',errors:[]};
  catch(e){__s.state='load-failed';__s.errors.push(e.code)}})();
 function status(){const v=document.getElementById('v');const q=v.getVideoPlaybackQuality();return Object.assign({},__s,{t:v.currentTime,frames:q.totalVideoFrames})}
 setInterval(()=>{document.getElementById('o').textContent=JSON.stringify(status(),null,1)},500);</script>"""
+MP4 = """<!doctype html><meta charset=utf-8><title>h264 aac</title>
+<video id=v autoplay muted playsinline width=640 src="https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"></video><script>
+let err=null;document.getElementById('v').addEventListener('error',e=>{const m=e.target.error;err=m?m.code+' '+m.message:'error'});
+function mp4(){const v=document.getElementById('v');return {t:v.currentTime,vw:v.videoWidth,frames:v.getVideoPlaybackQuality().totalVideoFrames,
+ audioBytes:v.webkitAudioDecodedByteCount,canPlay:v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),error:err}}</script>"""
 WV_JS = r"""(async()=>{const out={};const cfgs={
  'mp4-avc1-aac':[{initDataTypes:['cenc'],videoCapabilities:[{contentType:'video/mp4; codecs="avc1.42E01E"',robustness:'SW_SECURE_CRYPTO'}],audioCapabilities:[{contentType:'audio/mp4; codecs="mp4a.40.2"',robustness:'SW_SECURE_CRYPTO'}]}],
  'webm-vp9-opus':[{initDataTypes:['webm','cenc'],videoCapabilities:[{contentType:'video/webm; codecs="vp9"',robustness:'SW_SECURE_CRYPTO'}],audioCapabilities:[{contentType:'audio/webm; codecs="opus"',robustness:'SW_SECURE_CRYPTO'}]}]};
@@ -210,6 +215,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body, ctype = json.dumps({k.lower(): v for k, v in self.headers.items() if k.lower().startswith("sec-ch") or k.lower() == "user-agent"}).encode(), "application/json"
         elif self.path.startswith("/slow"):
             body, ctype = b"x" * 200_000, "application/octet-stream"
+        elif self.path.startswith("/mp4"):
+            body, ctype = MP4.encode(), "text/html; charset=utf-8"
         elif self.path.startswith("/widevine"):
             body, ctype = SHAKA.encode(), "text/html; charset=utf-8"
         else:
@@ -429,11 +436,24 @@ def main():
                 cmux.cdp.call("Target.closeTarget", {"targetId": target})
             root = os.path.expanduser("~/Library/Application Support/%s/Chromium" % ident.get("bundle_id"))
             status["cdm_dir"] = sorted(os.listdir(os.path.join(root, "WidevineCdm"))) if os.path.isdir(os.path.join(root, "WidevineCdm")) else None
+            status["crlset_dir"] = sorted(os.listdir(os.path.join(root, "CertificateRevocation"))) if os.path.isdir(os.path.join(root, "CertificateRevocation")) else None
+            # H.264/AAC (proprietary_codecs, cmux.28): a plain MP4 plays with picture and sound.
+            target = cmux.cdp.call("Target.createTarget", {"url": "%s/mp4-%s" % (ORIGIN, RUN)}).get("result", {}).get("targetId")
+            session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
+            status["mp4"] = wait_for(lambda: (lambda s: s if isinstance(s, dict) and (s.get("error") or (s.get("t") or 0) > 3) else None)(
+                cmux.cdp.eval("typeof mp4==='function'?mp4():null", session, 10)), 40, 1) or cmux.cdp.eval("mp4()", session, 10)
+            cmux.cdp.call("Target.closeTarget", {"targetId": target})
             status["sig_files"] = subprocess.run(["find", opts.app, "-name", "*.sig"], capture_output=True, text=True).stdout.split("\n")[:-1]
             RESULTS["widevine"] = status
             print("widevine:", json.dumps(status, default=str)[:1500], flush=True)
             if opts.require_widevine:
                 check("W_eme_vp9", status["eme"] and status["eme"].get("webm-vp9-opus") is True, eme=status["eme"])
+                check("W_cdm_installed", bool(status["cdm_dir"]), cdm_dir=status["cdm_dir"])
+                check("W_crlset_installed", bool(status["crlset_dir"]), crlset_dir=status["crlset_dir"])
+                check("W_mp4_h264_aac", ((status["mp4"] or {}).get("t") or 0) > 3 and (status["mp4"] or {}).get("frames", 0) > 0
+                      and (status["mp4"] or {}).get("audioBytes", 0) > 0, mp4=status["mp4"])
+                check("W_eme_h264_aac", status["eme"] and status["eme"].get("mp4-avc1-aac") is True, eme=status["eme"])
+                check("W_playback_h264_sd", ((status["playback"].get("angel-one") or {}).get("t") or 0) > 3, playback=status["playback"].get("angel-one"))
                 check("W_playback_vp9", ((status["playback"].get("sintel-vp9") or {}).get("t") or 0) > 3, playback=status["playback"].get("sintel-vp9"))
 
         if not pid:
