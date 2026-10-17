@@ -6,6 +6,7 @@ type RunEndpoint = {
   route?: unknown;
   session?: unknown;
   trustedCarrier?: unknown;
+  expiresAtUnix?: unknown;
 };
 
 export type RunAttachNative = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -24,8 +25,12 @@ function shellQuote(value: string): string {
  * redeemed route is a short-lived capability; it is passed only to the
  * terminal process and never persisted by the board.
  */
-export function runAttachCommand(ticket: RunAttachTicket): string {
+export function runAttachCommand(ticket: RunAttachTicket, now = Date.now()): string {
   const endpoint = endpointOf(ticket);
+  const expiry = typeof endpoint.expiresAtUnix === "number" ? endpoint.expiresAtUnix : ticket.expiresAtUnix;
+  if (typeof expiry === "number" && Number.isFinite(expiry) && expiry * 1_000 <= now) {
+    throw new RunApiHttpError(410, "This worker terminal endpoint has expired. Request a fresh attach ticket.", "run_attach_expired");
+  }
   if (endpoint.transport !== "cmux-remote" || typeof endpoint.route !== "string" || !endpoint.route) {
     throw new RunApiHttpError(409, "This worker does not expose a cmux terminal endpoint.", "run_attach_transport_unsupported");
   }

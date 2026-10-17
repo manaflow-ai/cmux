@@ -27,6 +27,10 @@ describe("run terminal attach bridge", () => {
     expect(() => runAttachCommand({ ...ticket, trustedCarrier: false })).toThrow(RunApiHttpError);
   });
 
+  test("refuses a redeemed endpoint after its local expiry", () => {
+    expect(() => runAttachCommand({ ...ticket, expiresAtUnix: 100 }, 100_000)).toThrow(/expired/);
+  });
+
   test("opens a terminal tab through the native page bridge", async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = [];
     await attachRunTerminal(ticket, async (method, params) => {
