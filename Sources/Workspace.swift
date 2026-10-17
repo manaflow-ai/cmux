@@ -2788,7 +2788,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// real timestamp instead of nothing.
     let createdAt = Date()
     private var automaticTitleMutationDepth = 0
-    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    private let sidebarTitleDidChangeSubject = CurrentValueSubject<UInt64, Never>(0)
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
@@ -2796,17 +2796,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // publish a second value from didSet for a committed title.
             // Automatic process-title writes use the settled observation
             // model instead; forwarding them here would wake every sidebar
-            // row for each animation frame.
+            // row for each animation frame. Send a revision rather than the
+            // title: a skipped automatic write leaves the subject behind, and
+            // a later rename back to that stale value must not look like a
+            // duplicate.
             guard automaticTitleMutationDepth == 0 else { return }
-            sidebarTitleDidChangeSubject.send(title)
+            sidebarTitleDidChangeSubject.send(sidebarTitleDidChangeSubject.value &+ 1)
         }
     }
-    /// Publishes the workspace title after the stored value has been updated.
+    /// Publishes a revision after each committed non-automatic title write.
     ///
     /// `@Published` emits from `willSet`; sidebar snapshots must read the
     /// committed title so the first refresh after a rename cannot cache the
     /// previous value.
-    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+    var sidebarTitleDidChangePublisher: AnyPublisher<UInt64, Never> {
         sidebarTitleDidChangeSubject.eraseToAnyPublisher()
     }
 
@@ -4293,7 +4296,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
-        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
