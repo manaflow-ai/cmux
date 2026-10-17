@@ -28,6 +28,7 @@ struct AgentChatSurfaceView: View {
     @State private var isHistoryPresented = false
     @State private var isAgentPickerPresented = false
     @State private var isInfoPresented = false
+    @State private var shouldFocusComposer = false
 
     init(
         surface: MobileSurfacePreview,
@@ -60,6 +61,7 @@ struct AgentChatSurfaceView: View {
                 startNewPrompt: {
                     model.clearComposer()
                     model.errorMessage = nil
+                    shouldFocusComposer = true
                 },
                 presentInfo: { isInfoPresented = true }
             )
@@ -69,7 +71,7 @@ struct AgentChatSurfaceView: View {
             }
 
             ChatGPTAgentTimeline(model: model, sourceAvailable: source != nil)
-            ChatGPTAgentComposer(model: model)
+            ChatGPTAgentComposer(model: model, focusRequested: $shouldFocusComposer)
         }
         .background(Color(uiColor: .systemBackground))
         .task {
@@ -410,6 +412,13 @@ private struct ChatGPTMessageActions: View {
     let message: ChatMessage
     let onCopy: () -> Void
     let onRetry: () -> Void
+    @State private var feedback: Feedback?
+    @State private var speechSynthesizer = AVSpeechSynthesizer()
+
+    private enum Feedback: Equatable {
+        case positive
+        case negative
+    }
 
     var body: some View {
         HStack(spacing: 17) {
@@ -417,14 +426,24 @@ private struct ChatGPTMessageActions: View {
                 .accessibilityLabel("Copy response")
             Button { speak() } label: { Image(systemName: "speaker.wave.2") }
                 .accessibilityLabel("Read response aloud")
-            Button { } label: { Image(systemName: "hand.thumbsup") }
+            Button { toggleFeedback(.positive) } label: {
+                Image(systemName: feedback == .positive ? "hand.thumbsup.fill" : "hand.thumbsup")
+            }
                 .accessibilityLabel("Like response")
-            Button { } label: { Image(systemName: "hand.thumbsdown") }
+                .accessibilityValue(feedback == .positive ? "Selected" : "Not selected")
+            Button { toggleFeedback(.negative) } label: {
+                Image(systemName: feedback == .negative ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+            }
                 .accessibilityLabel("Dislike response")
+                .accessibilityValue(feedback == .negative ? "Selected" : "Not selected")
             Button(action: onRetry) { Image(systemName: "arrow.clockwise") }
                 .accessibilityLabel("Use response as a new prompt")
-            Button { share() } label: { Image(systemName: "square.and.arrow.up") }
+            if let text = message.copyableText {
+                ShareLink(item: text) {
+                    Image(systemName: "square.and.arrow.up")
+                }
                 .accessibilityLabel("Share response")
+            }
         }
         .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
@@ -433,13 +452,12 @@ private struct ChatGPTMessageActions: View {
 
     private func speak() {
         guard let text = message.copyableText else { return }
-        let synthesizer = AVSpeechSynthesizer()
-        synthesizer.speak(AVSpeechUtterance(string: text))
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        speechSynthesizer.speak(AVSpeechUtterance(string: text))
     }
 
-    private func share() {
-        guard let text = message.copyableText else { return }
-        UIPasteboard.general.string = text
+    private func toggleFeedback(_ next: Feedback) {
+        feedback = feedback == next ? nil : next
     }
 }
 
@@ -701,6 +719,7 @@ private struct ChatGPTCodeBlock: View {
 
 private struct ChatGPTAgentComposer: View {
     @Bindable var model: AgentChatViewModel
+    @Binding var focusRequested: Bool
     @FocusState private var isFocused: Bool
     @State private var dictation: ComposerDictationController
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -708,8 +727,9 @@ private struct ChatGPTAgentComposer: View {
     @State private var isFileImporterPresented = false
     @State private var stagingTask: Task<Void, Never>?
 
-    init(model: AgentChatViewModel) {
+    init(model: AgentChatViewModel, focusRequested: Binding<Bool>) {
         self.model = model
+        _focusRequested = focusRequested
         _dictation = State(initialValue: ComposerDictationController())
     }
 
@@ -737,6 +757,19 @@ private struct ChatGPTAgentComposer: View {
                     .focused($isFocused)
                     .disabled(dictation.locksComposerField)
                     .onSubmit { send() }
+
+                if !model.composerText.isEmpty || !model.pendingAttachments.isEmpty {
+                    Button {
+                        model.clearComposer()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear message")
+                }
 
                 Button(action: toggleDictation) {
                     Image(systemName: dictation.state.isListening ? "stop.fill" : "mic")
@@ -812,6 +845,11 @@ private struct ChatGPTAgentComposer: View {
             let selectedItems = items
             photoPickerItems = []
             stageTask { await stagePhotos(selectedItems) }
+        }
+        .onChange(of: focusRequested) { _, requested in
+            guard requested else { return }
+            isFocused = true
+            focusRequested = false
         }
         .onDisappear {
             stagingTask?.cancel()
