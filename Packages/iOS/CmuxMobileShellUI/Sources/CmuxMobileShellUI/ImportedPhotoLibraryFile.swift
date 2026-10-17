@@ -63,6 +63,8 @@ private enum PhotoLibraryTransferError: Error {
 /// Serializes picker completion, cancellation, and the timeout so a stalled
 /// iCloud asset cannot leave the composer staging task suspended forever.
 private final class PhotoLibraryTransferRace: @unchecked Sendable {
+    // lint:allow lock - synchronous continuation settlement keeps transfer,
+    // timeout, and cancellation callbacks from resuming the load twice.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>?
     private var transferTask: Task<Void, Never>?
