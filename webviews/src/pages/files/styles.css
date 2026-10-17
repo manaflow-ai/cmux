@@ -43,12 +43,20 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 .files-refresh:focus-visible { outline: 1.5px solid var(--page-text-3); outline-offset: 1px; }
 
 /* Search: a field under the header, the magnifier inside it. */
-.files-search {
+.files-bar {
   flex: none;
   display: flex;
   align-items: center;
+  gap: 4px;
+  margin: 8px 8px 6px;
+}
+
+.files-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
   gap: 6px;
-  margin: 2px 8px 6px;
   padding: 0 8px;
   height: 28px;
   border-radius: 7px;

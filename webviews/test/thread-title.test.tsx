@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture titles, not shipped UI.
 // The thread's project and title at the header's start (header/ThreadTitle.tsx, layout.json
-// threadTitle, Lucas 2026-10-17): the project opens New Chat Here in its folder; the title turns into
-// a field, Return renames (shown at once), Escape puts it back.
+// threadTitle, Lucas 2026-10-17): the project is a label; the title turns into a field, Return renames
+// (shown at once), Escape puts it back.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -33,26 +33,19 @@ afterAll(() => {
   }
 });
 
-test("the project opens New Chat Here; the title renames in place", async () => {
+test("the project is a label; the title renames in place", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ThreadTitle } = await import("../src/agent-session/acpmux/header/ThreadTitle");
-  const projects: string[] = [];
   const names: string[] = [];
   root = createRoot(host);
   act(() =>
     root!.render(
-      <ThreadTitle
-        folder="/Users/you/src/cmux"
-        title="Fix the uploader"
-        onProject={(folder) => projects.push(folder)}
-        onRename={async (name) => names.push(name)}
-      />,
+      <ThreadTitle folder="/Users/you/src/cmux" title="Fix the uploader" onRename={async (name) => names.push(name)} />,
     ),
   );
-  const project = host.querySelector<HTMLButtonElement>(".acpmux-thread-title__project")!;
+  const project = host.querySelector(".acpmux-thread-title__project")!;
   expect(project.textContent).toBe("cmux");
-  act(() => project.click());
-  expect(projects).toEqual(["/Users/you/src/cmux"]);
+  expect(project.tagName).toBe("SPAN");
 
   const press = (key: string) =>
     act(() => {

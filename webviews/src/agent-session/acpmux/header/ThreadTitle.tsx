@@ -1,6 +1,5 @@
 // The thread's place at the header's start (Lucas 2026-10-17, layout.json `threadTitle`): its
-// project, then its title. The project opens a New Tab page in that folder beside the chat, with the
-// project picked (`chat.newHere`); the title renames the chat in place (`pane.rename`): Return or
+// project, as a label, then its title, which renames the chat in place (`pane.rename`): Return or
 // leaving the field keeps the name, Escape puts the old one back.
 import { useState } from "react";
 import { useT } from "../i18n";
@@ -12,12 +11,10 @@ import { isAgentHome } from "../sessionList";
 export function ThreadTitle({
   folder,
   title,
-  onProject,
   onRename,
 }: {
   folder?: string;
   title: string;
-  onProject?: (folder: string) => void;
   onRename?: (name: string) => Promise<unknown>;
 }) {
   const t = useT();
@@ -39,16 +36,10 @@ export function ThreadTitle({
       {folder && (
         <>
           {/* A chat with no project runs in its private agent-home folder: No project, nothing to open. */}
-          <button
-            type="button"
-            className="acpmux-thread-title__project"
-            title={home ? undefined : folder}
-            disabled={!onProject || home}
-            onClick={() => onProject?.(folder)}
-          >
+          <span className="acpmux-thread-title__project" title={home ? undefined : folder}>
             <Icon name={home ? "placeholder" : "folder"} size={13} />
             <span className="acpmux-thread-title__label">{home ? nt("noProject") : folderName(folder)}</span>
-          </button>
+          </span>
           <span className="acpmux-thread-title__slash" aria-hidden="true">
             /
           </span>

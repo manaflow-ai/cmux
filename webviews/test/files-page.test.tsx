@@ -59,7 +59,9 @@ test("the Files tree walks and opens from the keyboard", async () => {
     );
   };
 
-  expect(host.querySelector(".files-header")?.textContent).toBe("app");
+  // The tab names the folder: the page starts with its search, not a title.
+  expect(host.querySelector(".files-header")).toBeNull();
+  expect(host.querySelector(".files-search-field")).not.toBeNull();
   expect(rows()).toEqual([".github", "docs", "src", ".gitignore", "package.json", "README.md", "tsconfig.json"]);
   expect(selected()).toBe(".github");
 

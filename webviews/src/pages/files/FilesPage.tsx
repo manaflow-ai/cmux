@@ -156,10 +156,38 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
 
   return (
     <div className="files">
-      <header className="files-header">
-        <span className="files-title" title={root.folder}>
-          {root.name}
-        </span>
+      {/* The tab names the folder already: the page starts with its search and Refresh. */}
+      <div className="files-bar">
+        <div className="files-search">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.4 10.4 13.5 13.5" />
+          </svg>
+          <input
+            className="files-search-field"
+            type="search"
+            value={query}
+            placeholder={strings.t("files.page.search")}
+            aria-label={strings.t("files.page.search")}
+            spellCheck={false}
+            onChange={(event) => void store.search(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && query) {
+                event.preventDefault();
+                void store.search("");
+              }
+            }}
+          />
+        </div>
         <button
           type="button"
           className="files-refresh"
@@ -182,36 +210,6 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
             <path d="M13.25 2.75v2.75H10.5" />
           </svg>
         </button>
-      </header>
-      <div className="files-search">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="7" cy="7" r="4.5" />
-          <path d="M10.4 10.4 13.5 13.5" />
-        </svg>
-        <input
-          className="files-search-field"
-          type="search"
-          value={query}
-          placeholder={strings.t("files.page.search")}
-          aria-label={strings.t("files.page.search")}
-          spellCheck={false}
-          onChange={(event) => void store.search(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && query) {
-              event.preventDefault();
-              void store.search("");
-            }
-          }}
-        />
       </div>
       <ContextMenu items={menu(current)} className="files-scroll">
         <Tree

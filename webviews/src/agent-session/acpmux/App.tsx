@@ -5438,7 +5438,6 @@ function AcpmuxPane() {
                     <ThreadTitle
                       folder={localCwd}
                       title={chatName}
-                      onProject={(cwd) => ignoreFailure(callNative("chat.newHere", { cwd }))}
                       onRename={(name) => callNative("pane.rename", { name })}
                     />
                   )}
