@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { closeWorkspace, seedStack, workspaceLead } from "./workspaces";
 
 const css = readFileSync(new URL("./prototype.css", import.meta.url), "utf8");
 
@@ -33,4 +34,17 @@ test("tab close keeps pointer hover and keyboard focus reveal behavior", () => {
   const revealed = css.slice(css.indexOf(".proto-tab:hover .proto-tab-close,"), css.indexOf(".proto-tab-close:hover,"));
   expect(revealed).toMatch(/opacity:\s*1/);
   expect(revealed).toMatch(/pointer-events:\s*auto/);
+});
+
+test("workspace close removes all tabs and focuses the next workspace", () => {
+  const workspace = seedStack.workspaces[0]!;
+  const result = closeWorkspace(seedStack, workspace.id);
+  expect(result.closed).toBe(true);
+  expect(result.stack.workspaces.some((candidate) => candidate.id === workspace.id)).toBe(false);
+  expect(result.stack.activeId).toBe(seedStack.workspaces[1]!.id);
+  expect(result.focus).toEqual({
+    workspaceId: seedStack.workspaces[1]!.id,
+    tabId: seedStack.workspaces[1]!.activeTabId,
+  });
+  expect(workspaceLead(workspace).kind).toBe("agent");
 });

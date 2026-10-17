@@ -3,7 +3,7 @@
 import { ROW_DETAIL_ITEMS, type RowDetailItem, type RowDetailItems, type RowDetailLevel } from "./rowDetail";
 
 const ROW_DETAIL_LABELS: Record<RowDetailItem, string> = {
-  preview: "Last message and age",
+  preview: "Last message",
   pullRequest: "Pull request and checks",
   branch: "Branch",
   agents: "Agents and their status",

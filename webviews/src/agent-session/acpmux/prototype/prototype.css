@@ -134,6 +134,9 @@ body {
   text-align: left;
   transition: background-color 0.5s;
 }
+.proto-workspace-row {
+  position: relative;
+}
 .proto-workspace svg {
   flex: none;
   color: var(--agent-muted);
@@ -161,6 +164,62 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.proto-workspace-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  margin-left: auto;
+  transition: margin-right 120ms ease-out;
+}
+.proto-workspace-actions {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  top: 4px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.proto-workspace-row:hover .proto-workspace-actions,
+.proto-workspace-row:focus-within .proto-workspace-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.proto-workspace-row:hover .proto-workspace-status,
+.proto-workspace-row:focus-within .proto-workspace-status {
+  margin-right: 52px;
+}
+.proto-workspace-action {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-page-bg) 84%, transparent);
+  color: var(--agent-muted) !important;
+}
+.proto-workspace-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg));
+  color: var(--agent-text) !important;
+}
+.proto-workspace-action:focus-visible {
+  outline: 1.5px solid var(--agent-accent);
+  outline-offset: -1px;
+}
+.proto-workspace-action:disabled {
+  opacity: 0.35;
+}
+.proto-workspace-close svg {
+  width: 14px;
+  height: 14px;
 }
 .proto-workspace-count {
   flex: none;
