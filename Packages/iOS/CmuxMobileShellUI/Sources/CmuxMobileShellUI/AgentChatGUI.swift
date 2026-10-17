@@ -128,6 +128,7 @@ private struct AgentChatSessionListView: View {
     @State private var model: AgentChatSessionListStore
     @State private var selectedSession: ChatSessionDescriptor?
     @State private var searchText = ""
+    @State private var showingNewChat = false
 
     init(source: MobileChatEventSource) {
         _model = State(initialValue: AgentChatSessionListStore(source: source))
@@ -160,7 +161,8 @@ private struct AgentChatSessionListView: View {
                             }
                         }
                     }
-                    .listStyle(.insetGrouped)
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Chats")
@@ -177,11 +179,17 @@ private struct AgentChatSessionListView: View {
                     .accessibilityLabel("Filter agents")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await model.refresh() } } label: {
-                        Image(systemName: "arrow.clockwise")
+                    HStack(spacing: 16) {
+                        Button { showingNewChat = true } label: {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        .accessibilityLabel("New chat")
+                        Button { Task { await model.refresh() } } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .disabled(model.isLoading)
+                        .accessibilityLabel("Refresh agent sessions")
                     }
-                    .disabled(model.isLoading)
-                    .accessibilityLabel("Refresh agent sessions")
                 }
             }
             .searchable(text: $searchText, prompt: "Search conversations")
@@ -190,6 +198,9 @@ private struct AgentChatSessionListView: View {
                 await model.start()
             }
             .onDisappear { model.stop() }
+            .sheet(isPresented: $showingNewChat) {
+                AgentChatNewConversationView(sessions: model.visibleSessions) { showingNewChat = false }
+            }
             .navigationDestination(isPresented: Binding(
                 get: { selectedSession != nil },
                 set: { if !$0 { selectedSession = nil } }
@@ -253,6 +264,57 @@ private struct AgentChatSessionListView: View {
     }
 }
 
+/// A truthful new-chat entry point. Agent sessions are owned by the running
+/// CLI process on the paired Mac; the sheet makes that relationship explicit
+/// and gives the user a quick way to choose the provider before opening the
+/// existing terminal workflow.
+private struct AgentChatNewConversationView: View {
+    let sessions: [ChatSessionDescriptor]
+    let dismiss: () -> Void
+    @State private var provider: ChatAgentKind = .codex
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Choose an agent")
+                    .font(.title2.weight(.semibold))
+                Text("Start the selected CLI in a cmux terminal on your Mac. Once it is running, the new conversation appears here automatically.")
+                    .foregroundStyle(.secondary)
+                Picker("Agent", selection: $provider) {
+                    ForEach([ChatAgentKind.claude, .codex, .opencode], id: \.sourceName) { kind in
+                        Label(kind.displayName, systemImage: kind.symbolName).tag(kind)
+                    }
+                }
+                .pickerStyle(.inline)
+                if sessions.first(where: { $0.agentKind == provider }) != nil {
+                    Label("A \(provider.displayName) session is already available below.", systemImage: "checkmark.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle("New chat")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done", action: dismiss) }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+private extension ChatAgentKind {
+    var symbolName: String {
+        switch self {
+        case .claude: return "sparkles"
+        case .codex: return "command"
+        case .opencode: return "chevron.left.forwardslash.chevron.right"
+        case .other: return "bubble.left"
+        }
+    }
+}
+
 private struct AgentChatSessionRow: View {
     let session: ChatSessionDescriptor
 
@@ -307,6 +369,8 @@ private struct AgentChatEmptyConversation: View {
 
 private struct AgentChatConversationView: View {
     @State private var model: AgentChatConversationStore
+    @State private var followsLatest = true
+    @State private var loadingEarlier = false
 
     init(source: MobileChatEventSource, session: ChatSessionDescriptor) {
         _model = State(initialValue: AgentChatConversationStore(source: source, session: session))
@@ -322,9 +386,14 @@ private struct AgentChatConversationView: View {
                         }
                         if model.hasMore {
                             Button("Load earlier messages") {
-                                Task { await model.loadEarlier() }
+                                loadingEarlier = true
+                                Task {
+                                    await model.loadEarlier()
+                                    await MainActor.run { loadingEarlier = false }
+                                }
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
+                            .tint(.secondary)
                             .frame(maxWidth: .infinity)
                         }
                         ForEach(model.messages) { message in
@@ -350,17 +419,39 @@ private struct AgentChatConversationView: View {
                             .padding(.horizontal, 6)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 20)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 24)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { value in
+                    if abs(value.translation.height) > 8 { followsLatest = false }
+                })
                 .onChange(of: model.messages.count) { _, _ in
-                    guard let id = model.messages.last?.id else { return }
+                    guard followsLatest, !loadingEarlier, let id = model.messages.last?.id else { return }
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
                 }
                 .onChange(of: model.streamingProse) { _, value in
-                    guard value != nil else { return }
+                    guard followsLatest, value != nil else { return }
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("streaming", anchor: .bottom) }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !followsLatest {
+                        Button {
+                            followsLatest = true
+                            if let id = model.messages.last?.id {
+                                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.headline.weight(.semibold))
+                                .frame(width: 42, height: 42)
+                                .background(.regularMaterial, in: Circle())
+                                .shadow(radius: 5, y: 2)
+                        }
+                        .padding(.trailing, 18)
+                        .padding(.bottom, 12)
+                        .accessibilityLabel("Jump to latest")
+                    }
                 }
             }
             AgentChatComposer(model: model)
@@ -373,12 +464,19 @@ private struct AgentChatConversationView: View {
                     .accessibilityLabel(model.session.agentKind.displayName)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if case .working = model.session.state {
-                    Button(role: .destructive) { Task { await model.interrupt() } } label: {
-                        Image(systemName: "stop.circle.fill")
+                Menu {
+                    if case .working = model.session.state {
+                        Button(role: .destructive) { Task { await model.interrupt() } } label: {
+                            Label("Stop agent", systemImage: "stop.circle")
+                        }
                     }
-                    .accessibilityLabel("Stop agent")
+                    Button { UIPasteboard.general.string = model.session.workingDirectory } label: {
+                        Label("Copy workspace path", systemImage: "doc.on.doc")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Conversation actions")
             }
         }
         .task { await model.start() }
@@ -487,43 +585,58 @@ private final class AgentChatConversationStore {
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!text.isEmpty || !pendingAttachments.isEmpty), !isSending else { return }
+        let submittedAttachments = pendingAttachments
         isSending = true
         do {
             try await source.send(
                 text: text,
-                attachments: pendingAttachments.map { $0.outbound },
+                attachments: submittedAttachments.map { $0.outbound },
                 sessionID: session.id
             )
-            draft = ""
-            pendingAttachments.removeAll()
+            // Keep edits made while the request was in flight. Only remove
+            // the exact attachment batch that was submitted.
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text {
+                draft = ""
+            }
+            let submittedIDs = Set(submittedAttachments.map(\.id))
+            pendingAttachments.removeAll { submittedIDs.contains($0.id) }
             session = session.withState(session.state.afterExplicitInput(at: Date()))
         } catch { errorMessage = "Your message wasn’t sent." }
         isSending = false
     }
 
     func interrupt() async {
-        try? await source.interrupt(sessionID: session.id, hard: false)
+        do {
+            try await source.interrupt(sessionID: session.id, hard: false)
+        } catch {
+            errorMessage = "The agent could not be stopped. Try again."
+        }
     }
 
     func answer(message: ChatMessage, optionIndex: Int) async {
         switch message.kind {
         case .permissionRequest(let permission) where permission.resolution == nil:
             if let requestID = permission.requestID {
-                try? await source.replyPermission(
-                    requestID: requestID,
-                    mode: optionIndex == 0 ? "once" : "deny"
-                )
+                do {
+                    try await source.replyPermission(
+                        requestID: requestID,
+                        mode: optionIndex == 0 ? "once" : "deny"
+                    )
+                } catch { errorMessage = "Your permission choice wasn’t sent." }
             } else {
-                try? await source.answer(optionIndex: optionIndex, sessionID: session.id)
+                do { try await source.answer(optionIndex: optionIndex, sessionID: session.id) }
+                catch { errorMessage = "Your answer wasn’t sent." }
             }
         case .question(let question) where question.selectedOptionLabel == nil:
             if let requestID = question.requestID,
                question.options.indices.contains(optionIndex) {
                 if question.questionID == "__cmux_exit_plan__" {
-                    try? await source.replyExitPlan(
-                        requestID: requestID,
-                        mode: optionIndex == 0 ? "autoAccept" : "manual"
-                    )
+                    do {
+                        try await source.replyExitPlan(
+                            requestID: requestID,
+                            mode: optionIndex == 0 ? "autoAccept" : "manual"
+                        )
+                    } catch { errorMessage = "Your plan choice wasn’t sent." }
                 } else {
                     await answerQuestion(
                         message: message,
@@ -533,10 +646,12 @@ private final class AgentChatConversationStore {
                     )
                 }
             } else {
-                try? await source.answer(optionIndex: optionIndex, sessionID: session.id)
+                do { try await source.answer(optionIndex: optionIndex, sessionID: session.id) }
+                catch { errorMessage = "Your answer wasn’t sent." }
             }
         default:
-            try? await source.answer(optionIndex: optionIndex, sessionID: session.id)
+            do { try await source.answer(optionIndex: optionIndex, sessionID: session.id) }
+            catch { errorMessage = "Your answer wasn’t sent." }
         }
     }
 
@@ -688,21 +803,27 @@ private struct AgentChatComposer: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(model.pendingAttachments) { attachment in
-                            HStack(spacing: 6) {
-                                Image(systemName: "photo.fill")
-                                Text("Image")
-                                    .font(.caption.weight(.medium))
+                            ZStack(alignment: .topTrailing) {
+                                if let image = UIImage(data: attachment.data) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 58, height: 58)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                } else {
+                                    Image(systemName: "photo")
+                                        .frame(width: 58, height: 58)
+                                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                                }
                                 Button {
                                     model.pendingAttachments.removeAll { $0.id == attachment.id }
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white, .black.opacity(0.45))
+                                .padding(2)
                             }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 7)
-                            .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
                         }
                     }
                 }
@@ -712,7 +833,6 @@ private struct AgentChatComposer: View {
                     Image(systemName: "plus")
                         .font(.headline.weight(.semibold))
                         .frame(width: 32, height: 32)
-                        .background(Color(uiColor: .secondarySystemBackground), in: Circle())
                 }
                 .accessibilityLabel("Attach image")
                 .disabled(isLoadingAttachment || model.isSending)
@@ -721,7 +841,6 @@ private struct AgentChatComposer: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
                     .accessibilityIdentifier("AgentChatComposer")
                     .onSubmit { Task { await model.send() } }
                 Button { Task { await model.send() } } label: {
@@ -729,16 +848,18 @@ private struct AgentChatComposer: View {
                         .font(.headline.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
-                        .background(canSend ? Color.accentColor : Color.gray, in: Circle())
+                        .background(canSend ? Color.accentColor : Color.gray.opacity(0.45), in: Circle())
                 }
                 .disabled(!canSend || model.isSending)
                 .accessibilityLabel("Send message")
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.quaternary))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
             isLoadingAttachment = true
@@ -759,9 +880,14 @@ private struct AgentChatComposer: View {
     private func load(_ items: [PhotosPickerItem]) async {
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
-            let format: ChatOutboundAttachment.Format = data.looksLikeJPEG ? .jpeg : .png
+            guard let image = UIImage(data: data) else { continue }
+            // The wire contract supports PNG/JPEG only. Decode HEIC/GIF and
+            // normalize it to JPEG so the declared format always matches bytes.
+            let normalized = image.jpegData(compressionQuality: 0.88) ?? image.pngData()
+            guard let normalized else { continue }
+            let format: ChatOutboundAttachment.Format = image.jpegData(compressionQuality: 0.88) != nil ? .jpeg : .png
             await MainActor.run {
-                model.pendingAttachments.append(AgentChatPendingAttachment(data: data, format: format))
+                model.pendingAttachments.append(AgentChatPendingAttachment(data: normalized, format: format))
             }
         }
     }
@@ -831,8 +957,20 @@ private struct AgentChatMessageCell: View {
                 Rectangle().fill(.quaternary).frame(height: 1)
             }
         case .attachment(let attachment):
-            Label(attachment.displayName ?? "Attachment", systemImage: "paperclip")
-                .font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Image(systemName: attachment.media == .image ? "photo" : "paperclip")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(attachment.displayName ?? "Attachment")
+                        .font(.subheadline.weight(.medium))
+                    if let path = attachment.hostPath {
+                        Text(path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.vertical, 4)
         case .unsupported(let payload):
             AgentChatCard(icon: "questionmark", title: "Unsupported event", detail: payload.rawType, content: nil)
         }
@@ -844,15 +982,27 @@ private struct AgentChatBubble: View {
     let text: String
 
     var body: some View {
-        HStack {
-            if role == .user { Spacer(minLength: 34) }
-            Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
-                .font(.body)
-                .foregroundStyle(role == .user ? .white : .primary)
-                .padding(.horizontal, 15)
-                .padding(.vertical, 11)
-                .background(role == .user ? Color.accentColor : Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
-            if role != .user { Spacer(minLength: 34) }
+        VStack(alignment: role == .user ? .trailing : .leading, spacing: 8) {
+            HStack {
+                if role == .user { Spacer(minLength: 34) }
+                Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, role == .user ? 15 : 0)
+                    .padding(.vertical, role == .user ? 11 : 0)
+                    .background(role == .user ? Color(uiColor: UIColor.systemBlue.withAlphaComponent(0.12)) : .clear, in: RoundedRectangle(cornerRadius: 18))
+                if role != .user { Spacer(minLength: 34) }
+            }
+            if role != .user {
+                HStack(spacing: 18) {
+                    Button { UIPasteboard.general.string = text } label: { Image(systemName: "doc.on.doc") }
+                    ShareLink(item: text) { Image(systemName: "square.and.arrow.up") }
+                    Button { } label: { Image(systemName: "arrow.uturn.right") }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+            }
         }
     }
 }
@@ -887,28 +1037,26 @@ private struct AgentChatProviderMark: View {
     let size: CGFloat
 
     var body: some View {
-        Image(systemName: symbolName)
+        if let assetValue {
+            TaskTemplateIcon(value: assetValue, size: size)
+                .frame(width: size, height: size)
+                .accessibilityLabel(provider.displayName)
+        } else {
+            Image(systemName: "bubble.left")
             .font(.system(size: size * 0.42, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(providerColor, in: Circle())
-    }
-
-    private var symbolName: String {
-        switch provider {
-        case .claude: return "sparkles"
-        case .codex: return "command"
-        case .opencode: return "chevron.left.forwardslash.chevron.right"
-        case .other: return "bubble.left"
+            .background(Color.gray, in: Circle())
+            .accessibilityLabel(provider.displayName)
         }
     }
 
-    private var providerColor: Color {
+    private var assetValue: String? {
         switch provider {
-        case .claude: return .orange
-        case .codex: return .green
-        case .opencode: return .purple
-        case .other: return .gray
+        case .claude: return "agent:claude"
+        case .codex: return "agent:codex"
+        case .opencode: return "agent:opencode"
+        case .other: return nil
         }
     }
 }
