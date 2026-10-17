@@ -438,6 +438,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         _ message: MobileChiefMessage,
         clientMessageID: String? = nil
     ) -> ConversationMessage {
+        // Current hosts echo the id on human messages; keep the explicit id
+        // for optimistic rows and legacy hosts that omit it.
         let resolvedClientMessageID = clientMessageID
             ?? (message.authorKind == "human" ? message.clientMessageID : nil)
         let senderIsMe = withState { state in
@@ -507,8 +509,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         messages.map { map($0) }
     }
 
-    /// Chief's transcript does not echo the mobile client id. Correlate a
-    /// human message with the optimistic row while its send is pending.
+    /// Correlate a human message with the optimistic row while its send is
+    /// pending. Older hosts may omit the wire client id, so text/timestamp
+    /// matching remains a bounded fallback for those responses.
     private func clientMessageID(for message: MobileChiefMessage) -> String? {
         guard message.authorKind == "human" else { return nil }
         return withState { state in
