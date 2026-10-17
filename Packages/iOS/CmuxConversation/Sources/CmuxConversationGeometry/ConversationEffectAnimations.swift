@@ -41,6 +41,7 @@ public enum ConversationEffectAnimationKind: String, Sendable, CaseIterable {
 /// Keyframes for Slam, Loud and Gentle: transforms of the whole bubble about
 /// its body center, with growth pinned to the sender-side edge so a swelling
 /// bubble grows into the transcript instead of off screen.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationBubbleEffectAnimation {
     public static func duration(_ kind: ConversationEffectAnimationKind, reduceMotion: Bool) -> CFTimeInterval {
         switch kind {
@@ -148,6 +149,7 @@ public enum ConversationBubbleEffectAnimation {
 
 // MARK: - Invisible Ink
 
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationInkParticles {
     /// Fine dust: about one live particle per 9 square points.
     public static func birthRate(for size: CGSize) -> Float {
@@ -182,6 +184,7 @@ public enum ConversationInkParticles {
 
 /// Builds the eight full-screen effects as sublayers of a host layer.
 @MainActor
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationScreenEffect {
     public static func duration(_ kind: ConversationEffectAnimationKind) -> CFTimeInterval {
         switch kind {
@@ -579,6 +582,7 @@ public enum ConversationScreenEffect {
 // MARK: - Images
 
 /// Particle and sprite images drawn with Core Graphics, top-left origin.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum EffectImages {
     /// Renders `size` points at `scale` with a top-left-origin context.
     public static func render(_ size: CGSize, scale: CGFloat, _ draw: (CGContext) -> Void) -> CGImage? {

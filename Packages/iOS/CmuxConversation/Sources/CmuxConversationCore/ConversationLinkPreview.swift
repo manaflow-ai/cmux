@@ -354,6 +354,7 @@ public struct ConversationLinkCardLayout: Sendable, Hashable {
 /// Caption tint for a card, from the image's average color. Messages tints
 /// the caption with the image's dominant color (iOS 26 bubble tinting) and
 /// draws the title near-white over it.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationLinkTint {
     /// `rgb` is the average image color (0...1). Returns the caption color.
     public static func caption(fromAverage rgb: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
@@ -381,6 +382,7 @@ public enum ConversationLinkTint {
 
 /// Data detectors Messages applies to bubble text: links, phone numbers,
 /// addresses and dates, each underlined and tappable.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDataDetection {
     public static let types: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.link.rawValue

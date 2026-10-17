@@ -6,6 +6,7 @@ import Foundation
 /// e.g. "Your message, I can book the table, You loved this, 3:14 AM".
 /// Status ("Delivered"), "Edited" and reply counts are separate elements, as
 /// they are separate views below the bubble.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationAccessibilityText {
     /// The bubble's label.
     /// - Parameters:
