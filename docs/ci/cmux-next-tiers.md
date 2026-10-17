@@ -20,7 +20,7 @@ webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
 or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
 type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
 proves the committed bundle matches them; the bundle is a `.copy` resource, so
-the app takes it without a compile. gallery-pr diffs the touched entries. A
+the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
 The Swift canary is the pull-request gate for a small package-only Swift diff.
