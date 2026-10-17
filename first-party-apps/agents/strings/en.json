@@ -22,6 +22,8 @@
   "folded.missing": "Not installed ({n})",
   "hint.cmux": "Comes with cmux",
   "hint.none": "No install hint for this CLI",
+  "installation.unknown": "Installation unknown",
+  "inventory.unknown": "Inventory not fully checked",
   "job.done": "Done",
   "job.failed": "Failed",
   "job.failedCode": "Failed (exit {code})",
