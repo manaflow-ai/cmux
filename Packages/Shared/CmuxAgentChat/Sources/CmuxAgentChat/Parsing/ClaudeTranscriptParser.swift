@@ -383,7 +383,11 @@ public struct ClaudeTranscriptParser: Sendable {
                     )
                 }
             }
-            return .question(ChatQuestion(prompt: prompt, options: options))
+            return .question(ChatQuestion(
+                prompt: prompt,
+                options: options,
+                multiSelect: question["multiSelect"]?.bool ?? question["multi_select"]?.bool ?? false
+            ))
         }
     }
 

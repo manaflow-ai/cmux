@@ -19,6 +19,7 @@ struct AgentChatRootView: View {
         Group {
             if let source {
                 AgentChatSessionListView(source: source)
+                    .id(source.connectionIdentity)
             } else {
                 ContentUnavailableView(
                     "Agents unavailable",
@@ -434,10 +435,12 @@ private struct AgentChatConversationView: View {
                         ForEach(model.messages) { message in
                             AgentChatMessageCell(
                                 message: message,
-                                selectedOptionIndex: model.selectedQuestionOptionIndex(for: message),
+                                selectedOptionIndices: model.selectedQuestionOptionIndices(for: message),
                                 answer: { index in
                                 Task { await model.answer(message: message, optionIndex: index) }
-                                }
+                                },
+                                toggle: { index in model.toggleQuestionOption(message: message, optionIndex: index) },
+                                submit: { Task { await model.submitQuestion(message: message) } }
                             )
                             .id(message.id)
                         }
@@ -565,7 +568,7 @@ private final class AgentChatConversationStore {
     private var streamGeneration = UUID()
     /// Feed resolves all questions belonging to one request in a single RPC.
     /// Keep local choices until every card in that request has a selection.
-    private var pendingQuestionSelections: [String: [String: String]] = [:]
+    private var pendingQuestionSelections: [String: [String: Set<String>]] = [:]
     private var questionRepliesInFlight: Set<String> = []
 
     init(source: MobileChatEventSource, session: ChatSessionDescriptor) {
@@ -689,12 +692,16 @@ private final class AgentChatConversationStore {
                         )
                     } catch { errorMessage = "Your plan choice wasn’t sent." }
                 } else {
-                    await answerQuestion(
-                        message: message,
-                        question: question,
-                        optionIndex: optionIndex,
-                        requestID: requestID
-                    )
+                    if question.multiSelect {
+                        toggleQuestionOption(message: message, optionIndex: optionIndex)
+                    } else {
+                        await answerQuestion(
+                            message: message,
+                            question: question,
+                            optionIndex: optionIndex,
+                            requestID: requestID
+                        )
+                    }
                 }
             } else {
                 do { try await source.answer(optionIndex: optionIndex, sessionID: session.id) }
@@ -730,28 +737,75 @@ private final class AgentChatConversationStore {
             // A resolved card can be restored from history before the rest of
             // its request arrives. Preserve its answer when the option id is
             // still available; unresolved cards are filled from local taps.
-            if let selectedLabel = candidateQuestion.selectedOptionLabel,
-               let selectedOption = candidateQuestion.options.first(where: { $0.label == selectedLabel }) {
-                selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] = selectedOption.id
+            if let selectedLabel = candidateQuestion.selectedOptionLabel {
+                let selectedIDs = selectedOptionIDs(for: candidateQuestion, label: selectedLabel)
+                if !selectedIDs.isEmpty {
+                    selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] = selectedIDs
+                }
             }
         }
-        selections[questionSelectionKey(message: message, question: question)] = question.options[optionIndex].id
+        selections[questionSelectionKey(message: message, question: question)] = [question.options[optionIndex].id]
+        pendingQuestionSelections[requestID] = selections
+
+        await submitQuestion(message: message)
+    }
+
+    func toggleQuestionOption(message: ChatMessage, optionIndex: Int) {
+        guard case .question(let question) = message.kind,
+              question.multiSelect,
+              question.selectedOptionLabel == nil,
+              question.options.indices.contains(optionIndex),
+              let requestID = question.requestID else { return }
+        var selections = pendingQuestionSelections[requestID] ?? [:]
+        let key = questionSelectionKey(message: message, question: question)
+        var selected = selections[key] ?? []
+        let optionID = question.options[optionIndex].id
+        if selected.contains(optionID) { selected.remove(optionID) } else { selected.insert(optionID) }
+        selections[key] = selected
+        pendingQuestionSelections[requestID] = selections
+    }
+
+    func submitQuestion(message: ChatMessage) async {
+        guard case .question(let question) = message.kind,
+              question.selectedOptionLabel == nil,
+              let requestID = question.requestID else { return }
+        let questions = messages.compactMap { candidate -> (ChatMessage, ChatQuestion)? in
+            guard case .question(let candidateQuestion) = candidate.kind,
+                  candidateQuestion.requestID == requestID else { return nil }
+            return (candidate, candidateQuestion)
+        }
+        guard !questions.isEmpty else { return }
+        var selections = pendingQuestionSelections[requestID] ?? [:]
+        for (candidateMessage, candidateQuestion) in questions {
+            if let selectedLabel = candidateQuestion.selectedOptionLabel {
+                let selectedIDs = selectedOptionIDs(for: candidateQuestion, label: selectedLabel)
+                if !selectedIDs.isEmpty {
+                    selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] = selectedIDs
+                }
+            }
+        }
         pendingQuestionSelections[requestID] = selections
 
         let unresolved = questions.filter { $0.1.selectedOptionLabel == nil }
-        guard unresolved.allSatisfy({ selections[questionSelectionKey(message: $0.0, question: $0.1)] != nil }) else {
+        guard unresolved.allSatisfy({
+            !(selections[questionSelectionKey(message: $0.0, question: $0.1)] ?? []).isEmpty
+        }) else {
             return
         }
         guard !questionRepliesInFlight.contains(requestID) else { return }
 
         let orderedSelections = questions.compactMap { pair -> String? in
             let (candidateMessage, candidateQuestion) = pair
-            guard let selectedID = selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] else {
+            let selectedIDs = selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] ?? []
+            let labels = candidateQuestion.options
+                .filter { selectedIDs.contains($0.id) }
+                .map(\.label)
+            guard !labels.isEmpty else {
                 return nil
             }
-            // Feed's reply contract carries the human-readable answer string;
-            // option ids remain local UI identities and may be provider-only.
-            return candidateQuestion.options.first(where: { $0.id == selectedID })?.label
+            // The reply contract carries one human-readable answer string per
+            // question. Multi-select labels are joined in provider order.
+            return labels.joined(separator: ", ")
         }
         guard orderedSelections.count == questions.count else { return }
 
@@ -768,18 +822,28 @@ private final class AgentChatConversationStore {
         questionRepliesInFlight.remove(requestID)
     }
 
-    func selectedQuestionOptionIndex(for message: ChatMessage) -> Int? {
+    func selectedQuestionOptionIndices(for message: ChatMessage) -> Set<Int> {
         guard case .question(let question) = message.kind,
               question.selectedOptionLabel == nil,
               let requestID = question.requestID,
-              let selectedID = pendingQuestionSelections[requestID]?[questionSelectionKey(message: message, question: question)] else {
-            return nil
+              let selectedIDs = pendingQuestionSelections[requestID]?[questionSelectionKey(message: message, question: question)] else {
+            return []
         }
-        return question.options.firstIndex { $0.id == selectedID }
+        return Set(question.options.indices.filter { selectedIDs.contains(question.options[$0].id) })
     }
 
     private func questionSelectionKey(message: ChatMessage, question: ChatQuestion) -> String {
         question.questionID ?? message.id
+    }
+
+    private func selectedOptionIDs(for question: ChatQuestion, label: String) -> Set<String> {
+        if let exact = question.options.first(where: { $0.label == label }) {
+            return [exact.id]
+        }
+        let labels = label.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return Set(question.options.filter { labels.contains($0.label) }.map(\.id))
     }
 
     private func receive(_ event: ChatSessionEvent, generation: UUID) {
@@ -948,8 +1012,10 @@ private struct AgentChatComposer: View {
 
 private struct AgentChatMessageCell: View {
     let message: ChatMessage
-    let selectedOptionIndex: Int?
+    let selectedOptionIndices: Set<Int>
     let answer: (Int) -> Void
+    let toggle: (Int) -> Void
+    let submit: () -> Void
 
     var body: some View {
         switch message.kind {
@@ -984,20 +1050,33 @@ private struct AgentChatMessageCell: View {
             .padding(14)
             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
         case .question(let question):
+            let supportsMultiSelect = question.multiSelect && question.requestID != nil
             VStack(alignment: .leading, spacing: 10) {
                 Text(question.prompt).font(.headline)
+                if supportsMultiSelect {
+                    Label("Choose one or more", systemImage: "checklist")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                    Button { answer(index) } label: {
+                    Button { supportsMultiSelect ? toggle(index) : answer(index) } label: {
                         HStack {
                             Text(option.label)
                             Spacer()
-                            Image(systemName: selectedOptionIndex == index ? "checkmark.circle.fill" : "chevron.right")
+                            Image(systemName: supportsMultiSelect
+                                  ? (selectedOptionIndices.contains(index) ? "checkmark.square.fill" : "square")
+                                  : (selectedOptionIndices.contains(index) ? "checkmark.circle.fill" : "chevron.right"))
                                 .font(.caption)
                         }
                     }
                     .buttonStyle(.bordered)
-                    .tint(selectedOptionIndex == index ? .accentColor : nil)
-                    .disabled(question.selectedOptionLabel != nil || selectedOptionIndex != nil)
+                    .tint(selectedOptionIndices.contains(index) ? .accentColor : nil)
+                    .disabled(question.selectedOptionLabel != nil || (!supportsMultiSelect && !selectedOptionIndices.isEmpty))
+                }
+                if supportsMultiSelect, question.selectedOptionLabel == nil {
+                    Button("Submit selection", action: submit)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selectedOptionIndices.isEmpty)
                 }
             }
             .padding(14)

@@ -76,6 +76,12 @@ extension TerminalController {
             return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
             return await v2MobileChatAnswer(params: params)
+        case "mobile.chat.permission.reply":
+            return v2FeedPermissionReply(params: params)
+        case "mobile.chat.question.reply":
+            return v2FeedQuestionReply(params: params)
+        case "mobile.chat.exit_plan.reply":
+            return v2FeedExitPlanReply(params: params)
         case "mobile.chat.artifact.stat":
             return await v2MobileChatArtifactStat(params: params)
         case "mobile.chat.artifact.fetch":

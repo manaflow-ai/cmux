@@ -42,6 +42,10 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
     /// The selectable answers, in display order.
     public let options: [Option]
 
+    /// Whether the provider allows more than one option for this question.
+    /// Older hosts omitted this field and therefore decode as single-select.
+    public let multiSelect: Bool
+
     /// The label of the chosen option once answered, `nil` while pending.
     public let selectedOptionLabel: String?
 
@@ -63,12 +67,14 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
     public init(
         prompt: String,
         options: [Option],
+        multiSelect: Bool = false,
         selectedOptionLabel: String? = nil,
         questionID: String? = nil,
         requestID: String? = nil
     ) {
         self.prompt = prompt
         self.options = options
+        self.multiSelect = multiSelect
         self.selectedOptionLabel = selectedOptionLabel
         self.questionID = questionID
         self.requestID = requestID
@@ -77,8 +83,19 @@ public struct ChatQuestion: Sendable, Equatable, Codable {
     private enum CodingKeys: String, CodingKey {
         case prompt
         case options
+        case multiSelect = "multi_select"
         case selectedOptionLabel = "selected_option_label"
         case questionID = "question_id"
         case requestID = "request_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        options = try container.decode([Option].self, forKey: .options)
+        multiSelect = try container.decodeIfPresent(Bool.self, forKey: .multiSelect) ?? false
+        selectedOptionLabel = try container.decodeIfPresent(String.self, forKey: .selectedOptionLabel)
+        questionID = try container.decodeIfPresent(String.self, forKey: .questionID)
+        requestID = try container.decodeIfPresent(String.self, forKey: .requestID)
     }
 }

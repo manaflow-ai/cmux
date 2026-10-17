@@ -535,28 +535,17 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
-    @Test func agentFeedListReadsAccountWideWhileRepliesFailClosedOnScopedTickets() throws {
+    @Test func chatRepliesFailClosedOnScopedTickets() throws {
         let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
         let macWideTicket = try scopedAttachTicket(workspaceID: "")
-
-        let listRequest = MobileHostRPCRequest(
-            id: "agent-feed-list",
-            method: "feed.list",
-            params: [:],
-            auth: nil
-        )
-        // The workstream feed is the same account-authoritative read model as
-        // the notification feed: tickets neither widen nor narrow it.
-        #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: listRequest) == nil)
-        #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: listRequest) == nil)
 
         // Replies resolve agent prompts that may target any workspace but
         // carry only a request_id, so a workspace-scoped ticket cannot prove
         // coverage and must fail closed; Mac-wide pairings pass.
         let replyMethods: [(method: String, params: [String: Any])] = [
-            ("feed.permission.reply", ["request_id": "r1", "mode": "once"]),
-            ("feed.question.reply", ["request_id": "r1", "selections": ["a"]]),
-            ("feed.exit_plan.reply", ["request_id": "r1", "mode": "manual"]),
+            ("mobile.chat.permission.reply", ["request_id": "r1", "mode": "once"]),
+            ("mobile.chat.question.reply", ["request_id": "r1", "selections": ["a"]]),
+            ("mobile.chat.exit_plan.reply", ["request_id": "r1", "mode": "manual"]),
         ]
         for entry in replyMethods {
             let request = MobileHostRPCRequest(

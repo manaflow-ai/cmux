@@ -373,6 +373,7 @@ final class AgentChatTranscriptService {
                         kind: .question(ChatQuestion(
                             prompt: question.prompt,
                             options: question.options,
+                            multiSelect: question.multiSelect,
                             selectedOptionLabel: selectedLabel ?? resolution.rawValue.capitalized,
                             questionID: question.questionID,
                             requestID: question.requestID
@@ -687,17 +688,31 @@ final class AgentChatTranscriptService {
     }
 
     private func removeResolvedAttentionMessages(sessionID: String, messages: [ChatMessage]) -> Bool {
-        let resolvedRequestIDs = Set(messages.compactMap { message -> String? in
+        let resolvedQuestions = messages.compactMap { message -> (requestID: String?, questionID: String?, prompt: String)? in
             guard case .question(let question) = message.kind,
                   question.selectedOptionLabel != nil else { return nil }
-            return question.requestID
-        })
-        guard !resolvedRequestIDs.isEmpty,
+            return (question.requestID, question.questionID, question.prompt)
+        }
+        guard !resolvedQuestions.isEmpty,
               var pending = pendingAttentionMessages[sessionID] else { return false }
         let originalCount = pending.count
         pending = pending.filter { _, message in
-            guard let requestID = Self.attentionRequestID(for: message) else { return true }
-            return !resolvedRequestIDs.contains(requestID)
+            guard case .question(let question) = message.kind else { return true }
+            return !resolvedQuestions.contains { resolved in
+                if let resolvedRequestID = resolved.requestID,
+                   let pendingRequestID = question.requestID,
+                   resolvedRequestID == pendingRequestID {
+                    return true
+                }
+                if let resolvedQuestionID = resolved.questionID,
+                   let pendingQuestionID = question.questionID,
+                   resolvedQuestionID == pendingQuestionID {
+                    return true
+                }
+                // Claude's transcript parser does not carry the hook request
+                // id into JSONL. Prompt text is its stable fallback identity.
+                return resolved.prompt == question.prompt
+            }
         }
         pendingAttentionMessages[sessionID] = pending
         return pending.count != originalCount
@@ -782,6 +797,7 @@ final class AgentChatTranscriptService {
             Task { await tailer.stop() }
         }
         failedResolutions.remove(record.sessionID)
+        pendingAttentionMessages.removeValue(forKey: record.sessionID)
         endedListability.remove(sessionID: record.sessionID)
         guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
@@ -896,7 +912,14 @@ final class AgentChatTranscriptService {
                 guard question.selectedOptionLabel == nil else { continue }
                 replacement = ChatMessage(
                     id: message.id, seq: message.seq, role: message.role, timestamp: message.timestamp,
-                            kind: .question(ChatQuestion(prompt: question.prompt, options: question.options, selectedOptionLabel: resolution == .approved ? "Answered" : "Dismissed", questionID: question.questionID, requestID: question.requestID))
+                    kind: .question(ChatQuestion(
+                        prompt: question.prompt,
+                        options: question.options,
+                        multiSelect: question.multiSelect,
+                        selectedOptionLabel: resolution == .approved ? "Answered" : "Dismissed",
+                        questionID: question.questionID,
+                        requestID: question.requestID
+                    ))
                 )
             default:
                 replacement = nil
@@ -959,7 +982,12 @@ final class AgentChatTranscriptService {
                     id: option["id"] as? String
                 )
             }
-            return ChatQuestion(prompt: prompt, options: options, questionID: item["id"] as? String)
+            return ChatQuestion(
+                prompt: prompt,
+                options: options,
+                multiSelect: (item["multiSelect"] as? Bool) ?? (item["multi_select"] as? Bool) ?? false,
+                questionID: item["id"] as? String
+            )
         }
     }
 

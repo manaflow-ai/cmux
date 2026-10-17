@@ -76,6 +76,7 @@ struct TranscriptToolCompletion: Sendable {
             let answered = ChatQuestion(
                 prompt: question.prompt,
                 options: question.options,
+                multiSelect: question.multiSelect,
                 selectedOptionLabel: answer,
                 questionID: question.questionID
             )

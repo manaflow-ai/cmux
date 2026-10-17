@@ -386,6 +386,7 @@ public struct CodexTranscriptParser: Sendable {
             return ChatQuestion(
                 prompt: prompt,
                 options: options,
+                multiSelect: question["multi_select"]?.bool ?? question["multiSelect"]?.bool ?? false,
                 questionID: question["id"]?.string
             )
         }

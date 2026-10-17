@@ -69,6 +69,7 @@ struct ChatMessageCodableTests {
                         ChatQuestion.Option(label: "Fast", detail: "less safe"),
                         ChatQuestion.Option(label: "Safe", id: "safe-option"),
                     ],
+                    multiSelect: true,
                     selectedOptionLabel: "Safe"
                 )
             ),
@@ -80,6 +81,15 @@ struct ChatMessageCodableTests {
             let decoded = try roundTrip(original)
             #expect(decoded == original)
         }
+    }
+
+    @Test("legacy questions default to single select")
+    func legacyQuestionDefaultsMultiSelectToFalse() throws {
+        let json = """
+        {"prompt":"Pick one","options":[{"label":"A"}]}
+        """
+        let decoded = try JSONDecoder().decode(ChatQuestion.self, from: Data(json.utf8))
+        #expect(decoded.multiSelect == false)
     }
 
     @Test("kind encodes with a readable type discriminator")

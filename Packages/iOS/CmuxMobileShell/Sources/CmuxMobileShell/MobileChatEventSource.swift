@@ -24,6 +24,9 @@ private actor MobileArtifactDownloadByteCounter {
 /// consumers resubscribe when they rebuild a source for a new connection.
 public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
+    /// Changes whenever the shell swaps to a new transport after reconnect.
+    /// The UI uses this identity to rebuild its stream-owning stores.
+    public nonisolated let connectionIdentity: String
     let diagnosticLog: DiagnosticLog?
     private let coding = ChatWireCoding()
     public nonisolated let supportsArtifacts: Bool
@@ -52,6 +55,7 @@ public actor MobileChatEventSource: ChatEventSource {
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.client = client
+        self.connectionIdentity = client.instanceID
         self.diagnosticLog = diagnosticLog
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
@@ -300,7 +304,7 @@ public actor MobileChatEventSource: ChatEventSource {
     /// Terminal-key answering remains available for prompts without a request id.
     public func replyPermission(requestID: String, mode: String) async throws {
         let request = try MobileCoreRPCClient.requestData(
-            method: "feed.permission.reply",
+            method: "mobile.chat.permission.reply",
             params: ["request_id": requestID, "mode": mode]
         )
         _ = try await client.sendRequest(request)
@@ -310,7 +314,7 @@ public actor MobileChatEventSource: ChatEventSource {
     public func replyQuestion(requestID: String, selections: [String]) async throws {
         guard !selections.isEmpty else { return }
         let request = try MobileCoreRPCClient.requestData(
-            method: "feed.question.reply",
+            method: "mobile.chat.question.reply",
             params: ["request_id": requestID, "selections": selections]
         )
         _ = try await client.sendRequest(request)
@@ -322,7 +326,7 @@ public actor MobileChatEventSource: ChatEventSource {
         if let feedback, !feedback.isEmpty {
             params["feedback"] = feedback
         }
-        let request = try MobileCoreRPCClient.requestData(method: "feed.exit_plan.reply", params: params)
+        let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.exit_plan.reply", params: params)
         _ = try await client.sendRequest(request)
     }
 
