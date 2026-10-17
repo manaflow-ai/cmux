@@ -91,27 +91,58 @@ Next steps, each gated on `mux2-verify`: idle scrollback compression with
   wrapper (shared with cmux-tui) runs at 95, 72, 51 and 34 MB/s: this, not
   the PTY, limits throughput today.
 
-## Results (first engine, a622c605)
+## Results (6904161e, M6 minis; throughput on cmux21, the rest on cmux20)
 
-| # | Metric | Rex | cmux-tui | mux2 | vs Rex |
+| # | Metric | Rex | cmux-tui | mux2 | vs Rex | Bound |
+|---|---|---|---|---|---|---|
+| 1 | Create, CLI, `sleep` payload (p50) | 11.3 ms | 53 ms | 2.2 ms | 5.1x | exec floor 0.99 ms + spawn |
+| 1 | Create, CLI, login shell (p50) | 20.5 ms | 61.9 ms | 2.7 ms | 7.6x | |
+| 2 | Create, API (p50) | | | 0.24 ms | | |
+| 3 | Server memory per terminal, login shell | 211 KB | 320 KB + 7 MB helper | 34 KB | 6.2x | |
+| 4 | System memory at 200 shells | 590 MB | 750 MB | 325 MB | 1.8x | zsh itself, ~3.2 MB each |
+| 5 | Empty server RSS | 37.6 MB | 50 MB | 2.0 MB | 19x | |
+| 6 | Server start to ready | 36 ms | 64 ms | 6.3 ms | 5.7x | |
+| 7 | Throughput, plain, no client | 389 MB/s | 69 MB/s | 371 MB/s | 0.95x | PTY round trip |
+| 8 | Throughput, SGR, no client | 221 MB/s | 45 MB/s | 163 MB/s | 0.74x | parse 278 MB/s on one core |
+| 9 | Throughput, plain, client attached | 155 MB/s | 69 MB/s | 368 MB/s | 2.4x | |
+| 9 | Throughput, SGR, client attached | 106 MB/s | 45 MB/s | 173 MB/s | 1.6x | |
+| 10 | Server CPU, 256 MB SGR | 1.18 s | 3.53 s | 1.57 s | 0.75x | parse cost |
+| 11 | Screen read, CLI (p50) | 11.8 ms | 3.7 ms | 1.5 ms | 7.9x | exec floor 0.99 ms |
+| 12 | Write to visible, CLI (p50) | 23.7 ms | 18.4 ms | 3.0 ms | 7.9x | two execs |
+| 13 | Write to visible, API (p50) | | | 16.7 µs | | |
+| 14 | Idle CPU, 500 terminals | 0.2 % | 0 % | 0 % | | |
+| 16 | Most terminals | 998 | 998 | 998 | bound | `ptmx_max` 999 |
+| 17 | Processes per terminal beyond the program | 1 (`login`) | 1 (helper) | 0 | | |
+| 18 | Server binary | 89 MB universal | 80 MB universal | 2.0 MB arm64 | 22x (one arch) | |
+| 20 | Query reply, CPR (p50, warm) | 11.9 µs | | 6.0 µs | 2.0x | PTY round trip |
+| 21 | Upgrade keeping every terminal | not offered | helper processes | in place, same pid | | |
+
+ghostty-vt wrapper parse rate (shared with cmux-tui), 16 KiB writes:
+plain 95 -> 1,538 MB/s, SGR 72 -> 278, Unicode 51 -> 111, cursor mix
+34 -> 54; raw libghostty 1,814 / 424 / 154 / 66. `-Dcpu=native` makes no
+difference.
+
+Concurrent floods, N terminals each `cat` 256 MB at once, no viewers
+(`bench/multi.sh`, cmux21):
+
+| N | Payload | mux2 aggregate | Rex aggregate | mux2 server CPU | Rex server CPU |
 |---|---|---|---|---|---|
-| 1 | Create, CLI, `sleep` payload (p50) | 11.3 ms | 53 ms | 2.2 ms | 5.1x |
-| 1 | Create, CLI, login shell (p50) | 20.5 ms | 61.9 ms | 2.7 ms | 7.6x |
-| 2 | Create, API (p50) | | | 0.24 ms (posix_spawn; 0.55 ms with fork) | |
-| 3 | Server memory per terminal, login shell | 211 KB | 320 KB + 7 MB helper | 34 KB | 6.2x |
-| 4 | System memory at 200 shells | 590 MB | 750 MB | 325 MB | 1.8x |
-| 5 | Empty server RSS | 37.6 MB | 50 MB | 2.0 MB | 19x |
-| 6 | Server start to ready | 36 ms | 64 ms | 6.3 ms | 5.7x |
-| 7 | Throughput, plain, no client | 448 MB/s | 69 MB/s | 68 MB/s | 0.15x |
-| 9 | Throughput, plain, attached client | 154 MB/s | 69 MB/s | 163 MB/s | 1.06x |
-| 11 | Screen read, CLI (p50) | 11.8 ms | 3.7 ms | 1.5 ms | 7.9x |
-| 12 | Write to visible, CLI (p50) | 23.7 ms | 18.4 ms | 3.0 ms | 7.9x |
-| 13 | Write to visible, API (p50) | | | 16.7 µs | |
-| 14 | Idle CPU, 500 terminals | 0.2 % | 0 % | 0 % | |
-| 16 | Most terminals | 998 | 998 | 510 at cap 511 | bound |
-| 17 | Processes per terminal beyond the program | 1 (`login`) | 1 (helper) | 0 | |
-| 18 | Server binary | 89 MB universal | 80 MB universal | 2.0 MB arm64 | 22x (one arch) |
-| 20 | Query reply, CPR (p50) | 11.9 µs | | 6.0 µs | 2.0x |
+| 1 | plain | 370 MB/s | 450 MB/s | 0.69 s | 0.58 s |
+| 4 | plain | 372 MB/s | 226 MB/s | 2.7 s | 15.6 s |
+| 8 | plain | 367 MB/s | 148 MB/s | 5.6 s | 56.9 s |
+| 1 | SGR | 162 MB/s | 222 MB/s | 1.58 s | 1.17 s |
+| 4 | SGR | 162 MB/s | 204 MB/s | 6.3 s | 17.0 s |
+| 8 | SGR | 154 MB/s | 134 MB/s | 13.3 s | 61.6 s |
+
+Rex runs one reader thread per PTY that spins before blocking; with
+several busy terminals the threads compete and its throughput falls while
+its CPU use grows tenfold. mux2 stays flat on its one thread. The next
+lever is sharding terminals across one event loop per core (each terminal
+stays on one thread, so its parse order is unchanged).
+
+Open: SGR throughput without a viewer is parse-bound on the one server
+thread (Rex parses the same bytes in 1.18 s of CPU, mux2 in 1.57 s);
+parsing busy terminals off the read thread can reach about 278 MB/s.
 
 Rex starts shells through `login -fp` (as Terminal.app does), which writes
 login records; mux2 runs `$SHELL -l` directly.
