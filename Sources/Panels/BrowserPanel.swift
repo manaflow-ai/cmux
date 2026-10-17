@@ -2179,9 +2179,12 @@ final class BrowserPanel: Panel, ObservableObject {
             if newValue != chromiumLoadFailure { objectWillChange.send() }
         }
     }
-    /// The address of the non-WebKit page's newest failed load: the address
-    /// bar keeps it until the next load starts, as Chrome's omnibox does.
-    var engineFailedNavigationURL: URL?
+    /// The non-WebKit page's newest failed load: the address bar keeps the
+    /// failed address, as Chrome's omnibox does, while the page still
+    /// reports the address it had before (`stale`). Chromium sends no address
+    /// change for a load that never committed, and its error page can start
+    /// a load cycle of its own after the failure.
+    var engineFailedNavigation: (failed: URL, stale: URL?)?
     /// History a reopened tab's new non-WebKit page restores in place of its
     /// first load (Reopen Closed Tab).
     var pendingEngineNavigationRestore: BrowserPageRestoreState?
@@ -6827,10 +6830,11 @@ extension BrowserPanel {
     /// Mirrors a non-WebKit page's state into the published properties the
     /// browser chrome reads. WebKit panels publish from their own observers.
     func applyEnginePageState(_ state: BrowserPageState) {
-        if state.isLoading, !isLoading { noteEngineLoadStarted() }
-        // After a failed load the address bar keeps the failed address:
-        // Chromium sends no address change for a load that never committed.
-        if engineFailedNavigationURL == nil, currentURL != state.url, let url = state.url { currentURL = url }
+        // A load cycle ends cmux's recovery view; the failed address stays
+        // until the page reports an address other than the one it had before.
+        if state.isLoading, !isLoading { chromiumLoadFailure = nil }
+        if let failed = engineFailedNavigation, state.url != failed.stale { engineFailedNavigation = nil }
+        if engineFailedNavigation == nil, currentURL != state.url, let url = state.url { currentURL = url }
         let title = state.title ?? ""
         if pageTitle != title { pageTitle = title }
         if isLoading != state.isLoading { isLoading = state.isLoading }

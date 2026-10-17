@@ -183,16 +183,25 @@ import Testing
         let provider = FakeProvider()
         let panel = chromiumPanel(provider)
         defer { panel.close() }
+        let page = try #require(provider.pages.first)
         let previous = URL(string: "https://example.com/")!
         let failed = URL(string: "http://127.0.0.1:9/")!
+        page.state = BrowserPageState(url: previous)
         panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: previous)))
         #expect(panel.currentURL == previous)
         panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: previous, isLoading: true)))
         panel.handleEnginePageEvent(.navigationFailed(failed, code: -102, message: "net::ERR_CONNECTION_REFUSED", showsEngineErrorPage: true))
         #expect(panel.currentURL == failed)
-        // Chromium's load ends without an address change: the failed address stays.
+        // Chromium's load ends without an address change, and its error page
+        // may start another load cycle: the failed address stays.
+        panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: previous, isLoading: false)))
+        panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: previous, isLoading: true)))
         panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: previous, isLoading: false)))
         #expect(panel.currentURL == failed)
+        // A real address change (a page the failed tab moves on to) shows again.
+        let next = URL(string: "https://example.com/next")!
+        panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: next)))
+        #expect(panel.currentURL == next)
     }
 
     // MARK: Back and Forward menus

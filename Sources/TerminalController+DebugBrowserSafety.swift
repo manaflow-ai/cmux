@@ -75,6 +75,16 @@ extension TerminalController {
                     break
                 }
             }
+            // The Back/Forward history menus' entries, and one chosen as the menu would.
+            if case .int(let offset)? = params["go_to_entry"] {
+                panel.goToBackForwardEntry(offset: Int(offset))
+                pressed = true
+            }
+            let historyMenu: (Bool) -> [Any] = { forward in
+                panel.backForwardMenuEntries(forward: forward).map { entry in
+                    ["offset": entry.offset, "title": self.v2OrNull(entry.title), "url": self.v2OrNull(entry.url?.absoluteString)] as [String: Any]
+                }
+            }
             let promptName = panel.pageRecoveryPrompt.map(Self.debugPromptName)
             let pagePID = panel.debugPageProcessIdentifier
             return .ok([
@@ -92,6 +102,8 @@ extension TerminalController {
                 "pressed": pressed,
                 "load_error": v2OrNull(panel.chromiumLoadFailure?.error.name),
                 "can_proceed": panel.canProceedPastChromiumLoadFailure,
+                "back_menu": historyMenu(false),
+                "forward_menu": historyMenu(true),
                 "current_url": v2OrNull(panel.currentURL?.absoluteString),
             ])
         }

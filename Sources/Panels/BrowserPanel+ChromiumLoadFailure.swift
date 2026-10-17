@@ -32,14 +32,17 @@ extension BrowserPanel {
             chromiumLoadFailure = ChromiumLoadFailure(error: error, url: url)
         }
         guard let url, url.absoluteString != blankURLString else { return }
-        engineFailedNavigationURL = url
+        let stale = enginePage?.state.url
+        engineFailedNavigation = stale == url ? nil : (url, stale)
         showEngineAddress(url)
     }
 
-    /// The non-WebKit page started a load: the failure it replaces is over.
+    /// The panel started a load in its non-WebKit page (address bar, reload,
+    /// back, forward, history menu, Proceed): the failure it replaces is
+    /// over, also while Chromium still reports the failed load.
     func noteEngineLoadStarted() {
         chromiumLoadFailure = nil
-        engineFailedNavigationURL = nil
+        engineFailedNavigation = nil
     }
 
     /// Whether the recovery view offers Proceed: a certificate error on a
