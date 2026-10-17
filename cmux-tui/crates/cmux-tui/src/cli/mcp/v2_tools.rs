@@ -395,6 +395,10 @@ impl V2Tool {
                 "Reads the cmux session daemon and changes nothing."
             }
         );
+        if matches!(self.operation, ResourceOperation::MachineList | ResourceOperation::MachineGet)
+        {
+            text.push_str(" The catalog contains this owner and currently published admitted routes. Platform and capabilities describe the owner; they grant no execution rights. Reading metadata opens no machine connection.");
+        }
         if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);

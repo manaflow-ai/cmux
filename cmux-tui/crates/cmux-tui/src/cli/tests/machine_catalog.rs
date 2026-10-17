@@ -35,7 +35,7 @@ fn cmux_next_machine_catalog_agent_surface_cli_routes_session_without_metadata_f
         else {
             panic!("catalog request")
         };
-        crate::cli::resolve::apply_global_route(&global, &mut plan).unwrap();
+        resolve::apply_global_route(&global, &mut plan).unwrap();
         assert!(plan.params.get("session").is_none());
         if plan.operation.name().unwrap() == "machine.list" {
             assert_eq!(plan.params, serde_json::json!({}));

@@ -6,7 +6,7 @@ const MACHINE: &str = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 fn cmux_next_machine_catalog_agent_surface_list_preserves_owner_metadata() {
     let machine = json!({"id":MACHINE,"name":"Linux server","origin":"ssh","status":"running",
         "platform":{"os":"linux","arch":"aarch64"},"capabilities":["terminal"]});
-    let fake = Fake { resource_result: Some(json!([machine.clone()])), ..Fake::default() };
+    let fake = Fake { resource_result: Some(json!([machine])), ..Fake::default() };
     let mut server = Server::new(fake, None);
     let result = call(&mut server, "machine_list", json!({"limit":1}));
     assert_eq!(result["isError"], false, "{result}");
@@ -96,7 +96,7 @@ fn cmux_next_machine_catalog_agent_surface_prefix_lookup_uses_one_connection_and
     });
     let tool = v2_tools::find("machine_get").unwrap();
     let plan = tool.plan(&object(json!({"machine":"machine_aaaa"}))).unwrap();
-    let global = crate::cli::GlobalArgs {
+    let global = GlobalArgs {
         socket: Some(path.clone()),
         session: Some("catalog-owner".into()),
         ..Default::default()
