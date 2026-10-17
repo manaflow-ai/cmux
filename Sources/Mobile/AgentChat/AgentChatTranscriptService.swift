@@ -109,8 +109,8 @@ final class AgentChatTranscriptService {
                 kind: .question(ChatQuestion(
                     prompt: prompt,
                     options: options,
-                    selectedOptionLabels: selectedOptionLabels,
                     questionID: questionID,
+                    selectedOptionLabels: selectedOptionLabels,
                     multiSelect: multiSelect
                 ))
             )
@@ -910,7 +910,7 @@ final class AgentChatTranscriptService {
             switch message.kind {
             case .prose, .thought, .unsupported:
                 completedAt = max(completedAt ?? message.timestamp, message.timestamp)
-            case .toolUse, .terminal, .fileEdit, .permissionRequest, .question:
+            case .toolUse, .webSearch, .terminal, .fileEdit, .permissionRequest, .question:
                 return nil
             case .status:
                 break
