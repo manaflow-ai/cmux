@@ -215,7 +215,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
 
         let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
         #expect(page.messages.count == 1)
-        guard case .question = try #require(page.messages.first?.kind) else {
+        guard case .question(_) = try #require(page.messages.first?.kind) else {
             Issue.record("Expected a pending Codex question card")
             return
         }
