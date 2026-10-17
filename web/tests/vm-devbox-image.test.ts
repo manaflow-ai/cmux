@@ -355,6 +355,15 @@ def expect(pattern, timeout=10):
     return out
 def run(keys, output):
     os.write(fd, keys); expect(output + rb"[\s\S]*" + prompt)
+def waiting_for_input(timeout=10):
+    # Bash is asleep in select/poll on the terminal: readline is idle.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with open("/proc/%d/wchan" % pid) as f:
+            if f.read() in ("do_select", "do_sys_poll", "poll_schedule_timeout"):
+                return
+        select.select([], [], [], 0.002)
+    sys.exit("Bash never went back to waiting for input")
 expect(prompt)
 # The suggestion appears after each key and is display only.
 # Each key draws as one held update: the handler starts it, and readline's
@@ -376,7 +385,9 @@ os.write(fd, b"\x12"); expect(rb"epted-ghost")  # readline redraws only the chan
 run(b"\r", rb"[\r\n]accepted-ghost\r\n")
 # Tab Tab lists ambiguous completions.
 os.write(fd, b"ls alpha-"); os.write(fd, b"\t\t"); expect(rb"alpha-one[\s\S]*alpha-two")
-os.write(fd, b"\x15\r"); expect(prompt)
+# Wait for the prompt after the newline: Ctrl-U's own redraw also ends in one,
+# and keys sent before Enter is handled reach the tty outside readline.
+os.write(fd, b"\x15\r"); expect(rb"\n[\s\S]*" + prompt)
 # Ctrl-Y then Alt-Y rotates the kill ring; Ctrl-W kills accumulate.
 os.write(fd, b"echo one\x15"); os.write(fd, b"echo two\x15")
 run(b"\x19\x1by\r", rb"[\r\n]one\r\n")
@@ -385,13 +396,13 @@ run(b"\x19\r", rb"[\r\n]a b\r\n")
 # A history entry larger than a pipe buffer does not stall typing.
 os.write(fd, b"echo xx"); expect(gray + rb"x{20}")
 os.write(fd, b"\x15"); run(b"echo alive\r", rb"[\r\n]alive\r\n")
-# Ctrl-C erases the suggestion after the ^C. The handler draws the gray text
-# before readline's redraw ends the held update; a ^C sent in between
-# interrupts the handler instead of the line, so wait for the redraw.
-os.write(fd, b"echo ol"); expect(gray + rb"der-entry[\s\S]*\x1b\[\?2026l")
+# Ctrl-C erases the suggestion after the ^C. Readline acts on a SIGINT at once
+# only while it is blocked waiting for input; one that lands while a key is
+# still being handled waits for the next key, so wait until Bash is blocked.
+os.write(fd, b"echo ol"); expect(gray + rb"der-entry"); waiting_for_input()
 os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*" + prompt)
 # set -e survives the accept keys at column 0.
-run(b"set -e\r", rb"set -e")
+run(b"set -e\r", rb"set -e\r\n")
 os.write(fd, b"\x1b[C\x1bf"); run(b"echo still-here\r", rb"[\r\n]still-here\r\n")
 print("ghost-ok")
 `;
