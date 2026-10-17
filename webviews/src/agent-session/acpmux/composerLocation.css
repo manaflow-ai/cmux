@@ -218,14 +218,14 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  --acpmux-row-gap: 4px;
-  --acpmux-row-group-gap: 12px;
+  --acpmux-row-gap: 3px;
+  --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
-  --acpmux-row-edge: 12px;
-  min-height: 52px;
+  --acpmux-row-edge: 10px;
+  min-height: 48px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
-  padding-block: 6px;
+  padding-block: 4px;
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }

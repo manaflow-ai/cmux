@@ -1412,6 +1412,17 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: 13px;
 }
+/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
+   the right, while allowing a left action rail for people who scan the footer from the transcript
+   edge. The action group leads the row when left, followed by the quiet time label. */
+:root[data-turn-actions-placement="left"] .cv-turn-actions {
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 2px;
+}
+:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
+  order: -1;
+}
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;

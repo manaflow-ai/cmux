@@ -6,6 +6,11 @@ import Testing
 /// Debug toggle can still opt out for comparison and troubleshooting.
 @Suite(.serialized)
 struct AgentPaneCodexToolRunsTests {
+    @Test func turnFooterActionsDefaultRight() {
+        #expect(AgentPaneTunables.turnActionsPlacement.defaultValue == .right)
+        #expect(AgentPaneTunables.turnActionsPlacement.descriptor.key == "agentPane.debug.turnActionsPlacement")
+    }
+
     @Test func groupingIsEnabledByDefault() {
         #expect(AgentPaneTunables.codexToolRuns.defaultValue == true)
         #expect(AgentPaneTunables.codexToolRuns.descriptor.key == "agentPane.debug.codexToolRuns")

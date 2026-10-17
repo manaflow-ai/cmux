@@ -25,6 +25,19 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     }
 }
 
+/// Where the quiet answer-footer actions sit under a completed turn.
+public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case right
+    case left
+
+    public var tunableTitle: String {
+        switch self {
+        case .right: "Right (default)"
+        case .left: "Left"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -96,6 +109,12 @@ public nonisolated struct AgentPaneTunables {
         help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, plain text, or a tray tucked under the card. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
+    /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
+    public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
+        "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
+        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
+        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
@@ -113,8 +132,8 @@ public nonisolated struct AgentPaneTunables {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = codexToolRuns.value
-            for await on in ObservationStream({ codexToolRuns.value }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -154,5 +173,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

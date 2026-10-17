@@ -52,6 +52,8 @@ export type AgentSessionTheme = {
   /// acpmux codexToolRuns.ts). Native hosts send their default explicitly; absent keeps the
   /// browser fallback off. true opts in and false opts out.
   codexToolRuns?: boolean;
+  /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
+  turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
   /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
   /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
