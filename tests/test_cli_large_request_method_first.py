@@ -68,20 +68,17 @@ class RecordingSocket:
         self.path.unlink(missing_ok=True)
 
     def take(self) -> list[str]:
-        """The lines received since the last call, once no more arrive.
+        """The lines received since the last call.
 
-        One-way sends can land just after the CLI exits, so wait until the
-        count holds still for a moment before taking them.
+        A one-way send can land after the CLI exits, so this waits, up to a
+        deadline, until a line over the classification window has arrived.
         """
-        deadline = time.monotonic() + 2
-        last = -1
+        deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             with self._lock:
-                count = len(self.lines)
-            if count == last:
-                break
-            last = count
-            time.sleep(0.15)
+                if count_large(self.lines) > 0:
+                    break
+            time.sleep(0.05)
         with self._lock:
             lines, self.lines = self.lines, []
         return lines
@@ -206,11 +203,12 @@ def scenarios() -> list[tuple[str, list[str], str | None]]:
 def run_scenarios(cli_path: str, socket_path: Path, home: Path, failures: list[str]) -> None:
     with RecordingSocket(socket_path) as recorder:
         for label, args, stdin in scenarios():
-            large_seen = 0
             for run in range(RUNS_PER_SCENARIO):
                 proc = run_cli(cli_path, socket_path, home, args, stdin)
                 lines = recorder.take()
-                large_seen += count_large(lines)
+                if count_large(lines) == 0:
+                    failures.append(f"{label} run {run}: sent no request line over "
+                                    f"{CLASSIFICATION_PREFIX_BYTES} bytes")
                 if proc.returncode != 0:
                     failures.append(f"{label} run {run}: exit {proc.returncode}\n"
                                     f"stdout={proc.stdout}\nstderr={proc.stderr}")
@@ -219,10 +217,7 @@ def run_scenarios(cli_path: str, socket_path: Path, home: Path, failures: list[s
                     failures.append(f"{label} run {run}: first key {first_key(line)!r}, "
                                     f"method at byte {line.find(chr(34) + 'method' + chr(34))} "
                                     f"of {len(line)}")
-            if large_seen == 0:
-                failures.append(f"{label}: sent no request line over {CLASSIFICATION_PREFIX_BYTES} bytes")
-            else:
-                print(f"{label}: {large_seen} large request lines checked")
+            print(f"{label}: {RUNS_PER_SCENARIO} runs checked")
 
 
 def main() -> int:
