@@ -71,7 +71,7 @@ jobs:
           path: .defaults/base
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: &defaults-paths |
+          sparse-checkout: |
             schemas/defaults
             plans/cmux-next/action-surfaces.json
             schemas/settings/settings-schema.json

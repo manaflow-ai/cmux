@@ -1105,6 +1105,8 @@ jobs:
           python3 tests/test_nightly_next_computer_use_helper.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
+          python3 tests/test_cmux_tui_republish_same_commit.py
+          python3 tests/test_nightly_sign_admit.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
           python3 tests/test_nightly_notices_submodule.py
