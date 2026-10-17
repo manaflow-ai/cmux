@@ -215,6 +215,8 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Review the networking changes and summarize risks."].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Sources/Network/RetryPolicy.swift"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileAgentWebSearchCard"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["URLSession documentation"].waitForExistence(timeout: 8))
 
         let composer = app.textFields["Message your agent"]
         XCTAssertTrue(composer.waitForExistence(timeout: 8))
