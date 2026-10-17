@@ -20,6 +20,35 @@ The starting commit is inherited work. It is recorded here so the first
 reconciliation can distinguish pre-pilot history from work added during the
 pilot.
 
+## Pilot goal contract
+
+User-visible outcome: establish a fast daytime integration lane for cmux and
+use the first end-of-day reconciliation to decide whether it is safe to keep.
+
+Acceptance criteria for this pilot:
+
+- every daytime change has an owner, scope, commit, and focused check;
+- the shared branch advances only by serialized fast-forward updates;
+- current fleet capacity and a safe cadence for occasional performance tests
+  have evidence-backed answers;
+- workspace-switching performance has a per-requirement verdict for first load,
+  fade-in, cache reuse, prefetching, and bottlenecks;
+- recent cmux-next regression patterns have concrete prevention and tracking
+  follow-ups;
+- the end-of-day branch is reconciled against current `main` and evaluated at
+  the exact reconciled SHA.
+
+Non-goals for this first run: broad refactors, native builds from the MacBook
+Air, or silently promoting a green local check to a merge decision.
+
+### Investigation tracks
+
+| Track | Owner | Status | Required evidence |
+| --- | --- | --- | --- |
+| Fleet capacity and periodic perf bandwidth | `fleet_capacity` | running | live fleet/queue receipts and cadence recommendation |
+| Regression prevention and tracking | `regression_guardrails` | running | existing guards, recent failure patterns, prioritized gaps |
+| Workspace-switching performance | `workspace_switch_perf` | running | code/test trace, bounded measurements or explicit gaps |
+
 ## Ownership ledger
 
 Claim a file, package, test area, or other narrow scope before editing it.
