@@ -162,6 +162,26 @@ describe("billing portal route", () => {
     expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
   });
 
+  test("never opens the shared switch flow for a yearly subscription", async () => {
+    stripeSubscriptionRows = [{
+      id: "sub_pro_yearly", status: "active", cancelAtPeriodEnd: false, plan: "pro",
+      raw: {
+        items: {
+          data: [{
+            price: {
+              lookup_key: "cmux-pro-yearly-480",
+              recurring: { interval: "year" },
+            },
+          }],
+        },
+      },
+    }];
+
+    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+
+    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
+  });
+
   test("never puts a lifetime Founder purchase in the plan switch flow", async () => {
     stripeSubscriptionRows = [{ id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } }];
     await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));

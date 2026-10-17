@@ -898,6 +898,27 @@ describe("billing checkout route", () => {
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
+  test("sends a past_due subscriber asking for Max to payment management, not plan switching", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_past_due" }];
+    stripeSubscriptionRows = [{
+      id: "sub_past_due",
+      status: "past_due",
+      cancelAtPeriodEnd: false,
+      plan: "pro",
+    }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    const pastDueUser = { ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    userResponses = [pastDueUser, pastDueUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=max"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/api/billing/portal");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
   test("reuses the Stripe customer for a terminally canceled Pro checkout", async () => {
     stripeConfigured = true;
     stripeCustomerRows = [{ id: "cus_canceled" }];
