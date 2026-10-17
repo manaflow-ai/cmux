@@ -93,7 +93,6 @@ extension TerminalAttachMachine {
         case send(Link, Data)
         /// Report `size` on `link`, then claim canonical geometry.
         case claim(Link, CellSize)
-        case release(Link)
         case detach(Link)
         /// Show `LinkStatus` in the view.
         case status(LinkStatus)

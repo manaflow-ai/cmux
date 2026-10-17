@@ -39,7 +39,9 @@ public import Foundation
 ///   client holds it. A visible view claims when it is shown, on every
 ///   settled resize, and, after the stream announced a grid other than the
 ///   one it reported (another client sized the terminal), on its next key
-///   press or focus. A hidden view never claims.
+///   press or focus. A hidden view never claims; it keeps a claim it holds
+///   (dormant: it sends nothing and resizes nothing) until another client
+///   takes geometry.
 ///
 /// `Link` identifies an open attachment; the driver owns the real object.
 /// Effects must be applied in the order returned, and batches in the order
@@ -62,7 +64,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// Latest settled grid (coalesced).
     public private(set) var desiredSize: CellSize?
     public private(set) var visible: Bool
-    /// Size last reported on the live link (nil after a release or a new link).
+    /// Size last reported on the live link (nil on a new link).
     public private(set) var reportedSize: CellSize?
     /// True while this view believes it holds geometry: it claimed, and the
     /// stream has not announced another client's grid since.
@@ -228,11 +230,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         // Shown again: a disconnected view re-attaches, one waiting out a backoff now.
         if visible, liveLink == nil { return reconnect() }
         guard let link = liveLink else { return [] }
-        if !visible {
-            guard claimed || reportedSize != nil else { return [] }
-            claimed = false; reportedSize = nil; echoesDue = []
-            return [.release(link)]
-        }
+        // Hidden but mounted (a parked workspace, an unselected tab): the claim goes dormant and the
+        // view sends nothing, so the PTY keeps its size and a switch away and back resizes nothing
+        // (no SIGWINCH, no release + re-claim). Another client that becomes active takes geometry
+        // (`gridAnnounced` clears the claim); shown again, this view claims only if it lost the
+        // claim or its size changed while hidden (`syncGeometry`).
+        guard visible else { return [] }
         return syncGeometry(link)
     }
 
