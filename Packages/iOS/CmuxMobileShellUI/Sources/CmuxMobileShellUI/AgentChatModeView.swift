@@ -687,36 +687,106 @@ private struct AgentChatMessageView: View {
     var answer: ((Int, String) -> Void)?
 
     var body: some View {
+        Group {
+            switch message.kind {
+            case .prose(let prose):
+                AgentProseBubble(text: prose.text, role: message.role, isStreaming: isStreaming)
+            case .thought(let thought):
+                AgentThoughtCard(text: thought.text)
+            case .toolUse(let tool):
+                AgentToolCard(tool: tool)
+            case .terminal(let terminal):
+                AgentTerminalCard(terminal: terminal)
+            case .fileEdit(let edit):
+                AgentDiffCard(edit: edit)
+            case .permissionRequest(let request):
+                AgentPermissionCard(request: request, answer: { index in answer?(index, message.id) })
+            case .question(let question):
+                AgentQuestionCard(question: question, answer: { index in answer?(index, message.id) })
+            case .status(let status):
+                Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            case .attachment(let attachment):
+                Label(attachment.displayName ?? "Attachment", systemImage: attachment.media == .image ? "photo" : "doc")
+                    .font(.subheadline)
+                    .padding(10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            case .unsupported(let payload):
+                Label("Unsupported agent event: \(payload.rawType)", systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .agentMessageActions(copying: copyText)
+    }
+
+    /// ChatGPT's long-press message menu is useful for agent output too: it
+    /// lets a user move a response, command, or diff into another app without
+    /// first selecting a small range of text. Keep the source text assembled
+    /// here so every event card gets the same copy/share affordance.
+    private var copyText: String? {
         switch message.kind {
         case .prose(let prose):
-            AgentProseBubble(text: prose.text, role: message.role, isStreaming: isStreaming)
+            return prose.text
         case .thought(let thought):
-            AgentThoughtCard(text: thought.text)
+            return thought.text
         case .toolUse(let tool):
-            AgentToolCard(tool: tool)
+            var lines = [tool.summary]
+            if let input = tool.inputDetail, !input.isEmpty { lines.append("Input:\n\(input)") }
+            if let paths = tool.referencedPaths, !paths.isEmpty { lines.append(paths.joined(separator: "\n")) }
+            if let output = tool.output, !output.isEmpty { lines.append("Output:\n\(output)") }
+            return lines.joined(separator: "\n")
         case .terminal(let terminal):
-            AgentTerminalCard(terminal: terminal)
+            var lines = [terminal.command]
+            if let output = terminal.output, !output.isEmpty { lines.append(output) }
+            if let exitCode = terminal.exitCode { lines.append("Exit \(exitCode)") }
+            return lines.joined(separator: "\n")
         case .fileEdit(let edit):
-            AgentDiffCard(edit: edit)
+            return edit.unifiedDiff ?? edit.filePath
         case .permissionRequest(let request):
-            AgentPermissionCard(request: request, answer: { index in answer?(index, message.id) })
+            return [request.title, request.subject].joined(separator: "\n")
         case .question(let question):
-            AgentQuestionCard(question: question, answer: { index in answer?(index, message.id) })
+            let options = question.options.map { "• \($0.label)" }.joined(separator: "\n")
+            return options.isEmpty ? question.prompt : "\(question.prompt)\n\(options)"
         case .status(let status):
-            Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+            return status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
         case .attachment(let attachment):
-            Label(attachment.displayName ?? "Attachment", systemImage: attachment.media == .image ? "photo" : "doc")
-                .font(.subheadline)
-                .padding(10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            return attachment.displayName
         case .unsupported(let payload):
-            Label("Unsupported agent event: \(payload.rawType)", systemImage: "questionmark.circle")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            return payload.rawType
         }
+    }
+}
+
+private struct AgentMessageActions: ViewModifier {
+    let copyText: String?
+
+    func body(content: Content) -> some View {
+        guard let copyText, !copyText.isEmpty else { return AnyView(content) }
+        return AnyView(
+            content
+                .contextMenu {
+                    Button {
+                        UIPasteboard.general.string = copyText
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    ShareLink(item: copyText) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                }
+                .accessibilityAction(named: Text("Copy")) {
+                    UIPasteboard.general.string = copyText
+                }
+        )
+    }
+}
+
+private extension View {
+    func agentMessageActions(copying text: String?) -> some View {
+        modifier(AgentMessageActions(copyText: text))
     }
 }
 
