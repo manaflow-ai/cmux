@@ -165,7 +165,10 @@ import Testing
 
         let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
-        #expect(panel.surface.respawnInitialEnvironmentOverrides == [
+        var environment = panel.surface.respawnInitialEnvironmentOverrides
+        let stableSurfaceID = try #require(environment.removeValue(forKey: "CMUX_STABLE_SURFACE_ID"))
+        #expect(UUID(uuidString: stableSurfaceID) != nil)
+        #expect(environment == [
             "CMUX_TASK_PROMPT": "",
             "GOOD": "value",
         ])
