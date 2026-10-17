@@ -142,6 +142,10 @@ public struct MobileChatHomeView: View {
         .onChange(of: model.sessions) { _, _ in
             resolvePendingLaunch()
         }
+        .onChange(of: model.activeComputerID) { _, _ in
+            navigationPath.removeAll()
+            pendingLaunch = nil
+        }
     }
 
     /// Includes the transport generation because a route can replace its RPC

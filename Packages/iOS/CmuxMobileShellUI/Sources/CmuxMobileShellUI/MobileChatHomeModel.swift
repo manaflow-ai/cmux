@@ -13,6 +13,7 @@ final class MobileChatHomeModel {
     private(set) var errorMessage: String?
     private(set) var isLoadingSessions = false
     private(set) var loadingSessionIDs: Set<String> = []
+    private(set) var activeComputerID: String?
 
     private var source: MobileChatEventSource?
     private var sessionEventsTask: Task<Void, Never>?
@@ -30,6 +31,15 @@ final class MobileChatHomeModel {
     func refresh(using store: CMUXMobileShellStore) async {
         let generation = UUID()
         refreshGeneration = generation
+        let targetComputerID = store.connectedMacDeviceID
+        if let activeComputerID,
+           let targetComputerID,
+           activeComputerID != targetComputerID {
+            openSessionIDs.removeAll()
+            messagesBySessionID.removeAll()
+            streamingMessageBySessionID.removeAll()
+            pendingLocalMessages.removeAll()
+        }
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
         conversationTasks.values.forEach { $0.cancel() }
@@ -50,6 +60,7 @@ final class MobileChatHomeModel {
             let loaded = try await nextSource.sessions(workspaceID: nil)
             guard !Task.isCancelled, refreshGeneration == generation else { return }
             source = nextSource
+            activeComputerID = targetComputerID
             sessions = Self.sortedSessions(loaded.filter(Self.isSupported))
             errorMessage = nil
             startSessionEvents(from: nextSource, generation: generation)
@@ -102,7 +113,7 @@ final class MobileChatHomeModel {
             } catch is CancellationError {
                 return
             } catch {
-                guard self?.refreshGeneration == generation else { return }
+                guard !Task.isCancelled, self?.refreshGeneration == generation else { return }
                 self?.loadingSessionIDs.remove(sessionID)
                 self?.errorMessage = "This chat could not be opened."
             }
