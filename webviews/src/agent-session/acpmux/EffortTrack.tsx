@@ -5,8 +5,7 @@ import { useT } from "./i18n";
 
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
-/// nearest stop), over its ends (Faster, Smarter) and the level the model recommends. The model
-/// picker's reasoning panel draws it.
+/// nearest stop) and the level the model recommends. The model picker's reasoning panel draws it.
 export function EffortTrack({
   efforts,
   current,
@@ -88,13 +87,11 @@ export function EffortTrack({
           }}
         />
       </div>
-      {/* Claude's slider reads from Faster to Smarter, with the model's own pick named. */}
+      {/* The recommendation is useful context; the level names and stops carry the rest. */}
       <div className="acpmux-effort-ends" aria-hidden="true">
-        <span className="acpmux-effort-faster">{t("effort.faster")}</span>
         {recommended && (
           <span className="acpmux-effort-recommended">{t("effort.recommendedLevel", { level: recommended.name })}</span>
         )}
-        <span className="acpmux-effort-smarter">{t("effort.smarter")}</span>
       </div>
     </>
   );

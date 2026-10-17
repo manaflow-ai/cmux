@@ -77,8 +77,8 @@
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
-   recommended line; the title row names the level the thumb sits on. */
+/* The opt-in slider (Debug Settings agent.reasoningSlider): the title row names the level the
+   thumb sits on and the line below names the model's recommendation. */
 .acpmux-effort-menu:has(.acpmux-effort-slider) {
   width: min(232px, calc(100vw - 24px));
 }
@@ -178,13 +178,11 @@
   background: var(--surface-popup);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
-/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
-   the recommended level on its own centred line under them: a narrow panel never cuts it. */
+/* Keep the recommendation centered below the track; the stops and level name provide the scale. */
 .acpmux-effort-ends {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  column-gap: 8px;
+  justify-content: center;
   margin-top: 6px;
   direction: ltr;
   font-size: var(--text-detail);
@@ -192,8 +190,6 @@
   color: var(--agent-muted);
 }
 .acpmux-effort-recommended {
-  order: 3;
-  flex-basis: 100%;
   text-align: center;
   direction: initial;
 }
