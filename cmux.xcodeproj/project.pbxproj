@@ -434,6 +434,7 @@
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
 		59828431A4A1B2D07491B1F3 /* BrowserChromiumAutomationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA7E86D9097FFFF1D3C8B851 /* BrowserChromiumAutomationTests.swift */; };
+		09F811C6E1398711EFB519F9 /* BrowserChromiumNavigationRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D790EC05C462C91610D48417 /* BrowserChromiumNavigationRecoveryTests.swift */; };
 		DA7AC0DE0000000000000003 /* BrowserChromiumProfileEngineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7AC0DE0000000000000004 /* BrowserChromiumProfileEngineStore.swift */; };
 		E3626E95321D04AF8E373FE3 /* BrowserCLIDialogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */; };
 		D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */; };
@@ -5215,6 +5216,7 @@
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
 		EA7E86D9097FFFF1D3C8B851 /* BrowserChromiumAutomationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserChromiumAutomationTests.swift"; sourceTree = "<group>"; };
+		D790EC05C462C91610D48417 /* BrowserChromiumNavigationRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserChromiumNavigationRecoveryTests.swift"; sourceTree = "<group>"; };
 		DA7AC0DE0000000000000004 /* BrowserChromiumProfileEngineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromiumProfileEngineStore.swift; sourceTree = "<group>"; };
 		60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserCLIDialogTests.swift"; sourceTree = "<group>"; };
 		D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateAuthenticationController.swift; sourceTree = "<group>"; };
@@ -14078,6 +14080,7 @@
 				1E73F4814DAA10FBC0B59D6B /* BrowserPanelAgentURLPolicyTests.swift */,
 				0F4C0A9DCF4269EE386F12F1 /* BrowserPanelChromiumHangRecoveryTests.swift */,
 				C48BFE1FB203113F934C3E74 /* BrowserRawInputDevToolsTests.swift */,
+				D790EC05C462C91610D48417 /* BrowserChromiumNavigationRecoveryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18162,6 +18165,7 @@
 				02F3414EDDC4B535BB525DBE /* BrowserAutomationRestoredPanelTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				59828431A4A1B2D07491B1F3 /* BrowserChromiumAutomationTests.swift in Sources */,
+				09F811C6E1398711EFB519F9 /* BrowserChromiumNavigationRecoveryTests.swift in Sources */,
 				E3626E95321D04AF8E373FE3 /* BrowserCLIDialogTests.swift in Sources */,
 				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,

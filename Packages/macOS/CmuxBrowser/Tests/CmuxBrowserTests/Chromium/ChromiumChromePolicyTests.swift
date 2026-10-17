@@ -31,6 +31,32 @@ import Testing
         #expect(ChromiumNetError(code: -310, text: "").detail == .generic)
     }
 
+    @Test func chromiumDrawsItsOwnPageExceptForCertificateAndEmptyPageErrors() {
+        // Chromium's net error page ("This site can't be reached").
+        #expect(ChromiumNetError(code: -102, text: "").chromiumShowsPage(interstitial: false))
+        #expect(ChromiumNetError(code: -105, text: "").chromiumShowsPage(interstitial: false))
+        // A certificate error shows Chromium's interstitial only when the shim says so;
+        // an agent-driven tab's cancelled load leaves the page empty.
+        #expect(!ChromiumNetError(code: -202, text: "").chromiumShowsPage(interstitial: false))
+        #expect(ChromiumNetError(code: -202, text: "").chromiumShowsPage(interstitial: true))
+        // ERR_INVALID_AUTH_CREDENTIALS: Chromium's page for it is empty.
+        #expect(!ChromiumNetError(code: -338, text: "").chromiumShowsPage(interstitial: false))
+    }
+
+    @Test func proceedContinuesOverridableErrorsOnAddressesAndLeavesTheRestToChromium() {
+        // An IP address has no HSTS: an overridable error continues at once.
+        #expect(ChromiumNetError(code: -202, text: "").certificateProceed(host: "127.0.0.1")
+            == ChromiumCertificateProceed(host: "127.0.0.1", chromiumDecides: false))
+        // Chromium keeps an IPv6 host in brackets.
+        #expect(ChromiumNetError(code: -201, text: "").certificateProceed(host: "::1")
+            == ChromiumCertificateProceed(host: "[::1]", chromiumDecides: false))
+        // A named host may be HSTS: Chromium's interstitial decides.
+        #expect(ChromiumNetError(code: -202, text: "").certificateProceed(host: "self-signed.example")
+            == ChromiumCertificateProceed(host: "self-signed.example", chromiumDecides: true))
+        // ERR_CERT_INVALID is not overridable, even on an address.
+        #expect(ChromiumNetError(code: -207, text: "").certificateProceed(host: "127.0.0.1").chromiumDecides)
+    }
+
     @Test func errorNameDropsThePrefixAndFallsBackToTheCode() {
         #expect(ChromiumNetError(code: -105, text: "net::ERR_NAME_NOT_RESOLVED").name == "ERR_NAME_NOT_RESOLVED")
         #expect(ChromiumNetError(code: -999, text: "").name == "net::-999")
