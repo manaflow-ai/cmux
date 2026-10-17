@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxConversation"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
@@ -25,6 +26,7 @@ let package = Package(
             name: "CmuxMobileRPC",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxConversation",
                 "CmuxTerminalSizing",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
@@ -39,6 +41,7 @@ let package = Package(
             name: "CmuxMobileRPCTests",
             dependencies: [
                 "CmuxMobileRPC",
+                "CmuxConversation",
                 "CMUXMobileCore",
                 "CmuxMobileShellModel",
                 "CmuxTerminalSizing",
