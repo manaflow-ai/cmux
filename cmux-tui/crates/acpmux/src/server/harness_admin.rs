@@ -19,6 +19,13 @@
 //! from a user's action.
 //! After a change the catalog reloads and `_acpmux/watch` connections get
 //! `_acpmux/harnesses_changed`.
+//!
+//! A machine-inventory consumer first requires `harnessInventory` in the
+//! initialize reply's `_meta.acpmux.features`, then asks for health with
+//! exactly `{view: "inventory"}`. Older daemons ignore unknown health params,
+//! so the feature check is required to avoid accidentally starting a check.
+//! This view reports only cached versions, install channels and auth enums;
+//! an empty cache is unknown inventory, not evidence that no CLI is installed.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,6 +84,17 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params(
             "adding, checking or updating a harness runs a program: only the unix socket may ask for it",
         ));
+    }
+    // Inventory consumers read the cache without entering the health
+    // control path (which may run a first check or start auto-updates).
+    // Keep the existing health origins: a peer still cannot read this host.
+    if m == method::MUX_HARNESS_HEALTH && params.get("view").is_some() {
+        if origin == Origin::Peer {
+            return Err(RpcError::invalid_params(
+                "a peer cannot read this host's harness inventory",
+            ));
+        }
+        return crate::harness_health::inventory::view(&hub.health.rows(), params);
     }
     // A plain browser page on the listener (Web, never a peer) may read the
     // last health rows: no refresh, no latest-version check, no auto-update
