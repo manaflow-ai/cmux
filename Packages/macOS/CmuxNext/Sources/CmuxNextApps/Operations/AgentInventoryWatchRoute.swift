@@ -10,6 +10,8 @@ public nonisolated struct AgentInventoryWatchRoute: Equatable, Sendable {
     public let epoch: Int
     /// The existing store's stamped fanout; no second connection stream is consumed.
     public let events: DaemonSideEvents
+    /// The ready transport actually observed by the registry, absent before stamped admission.
+    public let controlStamp: DaemonControlStamp?
 
     /// Captures an already admitted ready route.
     /// - Parameters:
@@ -17,8 +19,9 @@ public nonisolated struct AgentInventoryWatchRoute: Equatable, Sendable {
     ///   - connection: Existing registry-owned connection.
     ///   - epoch: Current store connection epoch.
     ///   - events: That connection's store side-event fanout.
-    public init(machine: ResourceID, connection: DaemonConnection, epoch: Int, events: DaemonSideEvents) {
+    @MainActor public init(machine: ResourceID, connection: DaemonConnection, epoch: Int, events: DaemonSideEvents) {
         self.machine = machine; self.connection = connection; self.epoch = epoch; self.events = events
+        controlStamp = events.controlStamp
     }
 
     /// Compares owner, exact carrier, route epoch and side-event owner.
@@ -27,6 +30,7 @@ public nonisolated struct AgentInventoryWatchRoute: Equatable, Sendable {
     ///   - rhs: Second admitted route.
     /// - Returns: Whether both snapshots represent the same admission.
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.machine == rhs.machine && lhs.connection === rhs.connection && lhs.epoch == rhs.epoch && lhs.events === rhs.events
+        lhs.machine == rhs.machine && lhs.connection === rhs.connection && lhs.epoch == rhs.epoch
+            && lhs.events === rhs.events && lhs.controlStamp == rhs.controlStamp
     }
 }

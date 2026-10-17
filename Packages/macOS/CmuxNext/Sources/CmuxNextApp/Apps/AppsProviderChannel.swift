@@ -25,15 +25,17 @@ struct AppsProviderLink {
     /// Over `daemon`'s connections.
     static func daemon(_ daemon: DaemonService, inventory: AgentInventoryProviderBridge) -> AppsProviderLink {
         var registered: AppProviderSession?
-        return AppsProviderLink(connection: { [weak daemon] in (registered as AnyObject?) ?? daemon?.connection }, register: { connection, families in
+        return AppsProviderLink(connection: { [weak daemon] in (registered as AnyObject?) ?? daemon?.connection }, register: { [weak daemon] connection, families in
             var session: AppProviderSession?
             do {
+                guard let stamp = daemon?.store.sideEvents.controlStamp else { return "not_connected" }
                 let captured: AppProviderSession
                 if let pinned = connection as? AppProviderSession { captured = pinned }
-                else if let connection = connection as? DaemonConnection { captured = try await AppProviderSession(connection: connection) }
+                else if let connection = connection as? DaemonConnection { captured = try await AppProviderSession(connection: connection, expectedStamp: stamp) }
                 else { return "not_connected" }
                 session = captured
-                guard !Task.isCancelled else { return "not_connected" }
+                guard !Task.isCancelled, daemon?.store.sideEvents.controlStamp == stamp,
+                      captured.sourceID == stamp.sourceID, captured.serial == stamp.serial else { return "not_connected" }
                 registered = captured
                 inventory.begin(captured)
                 let snapshot = try await captured.register(families: families)

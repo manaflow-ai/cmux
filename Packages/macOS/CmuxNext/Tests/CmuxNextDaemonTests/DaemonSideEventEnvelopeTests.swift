@@ -8,6 +8,26 @@ import Testing
 struct DaemonSideEventEnvelopeTests {
     private let sourceID = UUID()
 
+    @Test func onlyAppliedStampedConnectionChangesAdmitTheRegistryCarrier() throws {
+        let store = DaemonStore()
+        let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: 9, index: 0),
+            event: .connected(DaemonIdentity(generation: "current"), generationChanged: true), sourceID: sourceID)
+        _ = store.apply(batch: [connected])
+        let admitted = try #require(store.sideEvents.controlStamp)
+        #expect(admitted.sourceID == sourceID && admitted.serial == 9)
+        store.apply(snapshot: DaemonTree(workspaces: []))
+        _ = store.apply(batch: [.init(sequence: DaemonEventEnvelope.sequence(serial: 8, index: 1), event: demand, sourceID: UUID())])
+        #expect(store.sideEvents.controlStamp == admitted)
+        _ = store.apply(.disconnected("fixture"))
+        #expect(store.sideEvents.controlStamp == nil)
+        _ = store.apply(batch: [connected])
+        _ = store.apply(.connected(DaemonIdentity(generation: "unstamped"), generationChanged: true))
+        #expect(store.sideEvents.controlStamp == nil)
+        _ = store.apply(batch: [connected])
+        _ = store.apply(.daemonShutdown)
+        #expect(store.sideEvents.controlStamp == nil)
+    }
+
     private var demand: DaemonEvent {
         let line = #"{"event":"apps-agent-inventory-demand","sequence":2,"enabled":true}"#
         return DaemonEvent.decode(name: "apps-agent-inventory-demand", line: Data(line.utf8))

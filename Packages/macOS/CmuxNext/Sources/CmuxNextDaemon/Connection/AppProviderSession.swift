@@ -10,10 +10,14 @@ public nonisolated final class AppProviderSession: Sendable {
 
     /// Captures the current ready carrier without waiting or opening a connection.
     /// - Parameter connection: An existing ready app-provider connection.
+    /// - Parameter expectedStamp: The registry's applied connected event, when admission must be fenced.
     /// - Throws: No ready transport or missing provider capability.
-    public init(connection: isolated DaemonConnection) throws {
+    public init(connection: isolated DaemonConnection, expectedStamp: DaemonControlStamp? = nil) throws {
         guard let ready = connection.ready else { throw DaemonError.notConnected }
         guard ready.identity.supports("apps-v1") else { throw DaemonError.missingCapabilities(["apps-v1"]) }
+        if let expectedStamp {
+            guard expectedStamp.sourceID == connection.eventSourceID, expectedStamp.serial == ready.serial else { throw DaemonError.notConnected }
+        }
         self.ready = ready; sourceID = connection.eventSourceID; serial = ready.serial
     }
 

@@ -1,12 +1,20 @@
+import Observation
+
 /// Events that are not part of the tree snapshot (bookmarks, local
 /// conversations, the app supervisor's `apps-*` events), fanned out in arrival order to the services that own their
 /// projections. Each subscriber filters the cases it needs.
 @MainActor
+@Observable
 public final class DaemonSideEvents {
-    private var subscribers: [UInt64: (DaemonEvent, DaemonEventEnvelope?) -> Void] = [:]
-    private var next: UInt64 = 0
+    @ObservationIgnored private var subscribers: [UInt64: (DaemonEvent, DaemonEventEnvelope?) -> Void] = [:]
+    @ObservationIgnored private var next: UInt64 = 0
+    /// Last stamped connected event applied by this store, cleared on disconnect or unstamped admission.
+    public private(set) var controlStamp: DaemonControlStamp?
 
     public init() {}
+
+    /// Only connection lifecycle application can admit this store's control stamp.
+    func noteControl(_ envelope: DaemonEventEnvelope?) { controlStamp = envelope.flatMap(DaemonControlStamp.init) }
 
     /// Adds a subscriber; returns the token that removes it.
     @discardableResult

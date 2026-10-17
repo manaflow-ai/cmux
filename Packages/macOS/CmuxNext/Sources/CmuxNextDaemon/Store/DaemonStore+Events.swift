@@ -83,26 +83,11 @@ extension DaemonStore {
     private func applyState(_ event: DaemonEvent, envelope: DaemonEventEnvelope?) -> Followup {
         switch event {
         case .connected(let identity, _):
-            connectionEpoch += 1
-            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
-            connectionState = .connected(identity)
-            noteHandshake(identity)
-            return .resync
+            return DaemonConnectionChange.connected(identity, envelope).apply(to: self)
         case .disconnected(let reason):
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected(reason)
-            onDisconnected?()
-            // Nothing newer will arrive for commands sent on this connection.
-            drainAppliedWaiters = true
-            flushAppliedWaiters()
-            return .none
+            return DaemonConnectionChange.disconnected(reason).apply(to: self)
         case .daemonShutdown:
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected("daemon shut down")
-            onDisconnected?()
-            return .none
+            return DaemonConnectionChange.shutdown.apply(to: self)
 
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in

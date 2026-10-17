@@ -98,7 +98,7 @@ public final class AgentInventoryProviderBridge {
     func reconcile() {
         let admitted = routes()
         let unique = admitted.filter { route in
-            admitted.filter { $0.machine == route.machine || $0.connection === route.connection }.count == 1
+            route.controlStamp != nil && admitted.filter { $0.machine == route.machine || $0.connection === route.connection }.count == 1
         }
         let wanted = registered && demand?.enabled == true && !disabled ? unique : []
         let removed = slots.filter { slot in !wanted.contains(slot.route) }
@@ -116,6 +116,7 @@ public final class AgentInventoryProviderBridge {
                 do {
                     let carrier = try await AgentInventoryWatchCarrier(connection: route.connection, expectedMachineID: route.machine)
                     guard current(slot), !Task.isCancelled else { retire(slot); return }
+                    guard carrier.sourceID == route.controlStamp?.sourceID, carrier.serial == route.controlStamp?.serial else { return }
                     slot.carrier = carrier
                     slot.token = route.events.subscribeEnvelopes { [weak self, weak slot] envelope in
                         guard let self, let slot, current(slot), carrier.matches(envelope),
@@ -142,6 +143,7 @@ public final class AgentInventoryProviderBridge {
     private func current(_ slot: AgentInventoryWatchSlot) -> Bool {
         registered && demand?.enabled == true && !disabled && !slot.retired
             && slots.contains(where: { $0 === slot }) && routes().contains(slot.route)
+            && slot.route.events.controlStamp == slot.route.controlStamp
     }
 
     private func receive(_ notice: AgentInventoryWatchEvent, slot: AgentInventoryWatchSlot) {

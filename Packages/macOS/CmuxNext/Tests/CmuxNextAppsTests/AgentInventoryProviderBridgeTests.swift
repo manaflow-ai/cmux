@@ -11,8 +11,13 @@ struct AgentInventoryProviderBridgeTests {
         do {
             try await f.start()
             let oldRoutes = f.routes
+            f.applyControlStamp = false
             try await f.reconnect()
             let fresh = try await AppProviderSession(connection: f.connection)
+            do {
+                _ = try await AppProviderSession(connection: f.connection, expectedStamp: try #require(oldRoutes.first?.controlStamp))
+                Issue.record("stale observed control admitted a new provider transport")
+            } catch DaemonError.notConnected { }
             f.bridge.begin(fresh)
             let snapshot = try await fresh.register(families: ["agent_cli", "action"])
             f.bridge.registered(fresh, snapshot: snapshot)

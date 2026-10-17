@@ -19,6 +19,7 @@ final class InventoryProviderBridgeFixture {
     var pump: Task<Void, Never>?
     var bridge: AgentInventoryProviderBridge!
     var session: AppProviderSession!
+    var applyControlStamp = true
     private let handshakes = AsyncStream.makeStream(of: DaemonEventEnvelope.self)
 
     init(mode: String = "normal") {
@@ -30,18 +31,22 @@ final class InventoryProviderBridgeFixture {
 
     func start() async throws {
         try await connection.start()
-        routes = [.init(machine: machine, connection: connection, epoch: 1, events: events)]
         let events = events, connection = connection, sink = handshakes.continuation
         // task-owner: fixture pump is cancelled and its bounded subprocess closed by finish.
-        pump = Task {
+        pump = Task { [weak self] in
             do {
                 for try await envelope in connection.events {
-                    if case .connected = envelope.event { sink.yield(envelope) }
+                    if case .connected = envelope.event {
+                        if self?.applyControlStamp == true { events.noteControl(envelope) }
+                        sink.yield(envelope)
+                    }
                     events.deliver(envelope.event, envelope: envelope)
                 }
             }
             catch { }
         }
+        for await _ in handshakes.stream { break }
+        routes = [.init(machine: machine, connection: connection, epoch: 1, events: events)]
         session = try await AppProviderSession(connection: connection)
         bridge.begin(session)
         let token = events.subscribeEnvelopes { [weak self] in self?.bridge.handle($0) }
