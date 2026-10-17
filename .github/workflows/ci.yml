@@ -475,6 +475,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == feat-cmux-next ]]; then
@@ -491,7 +492,16 @@ jobs:
                 cmuxnext_route=true
               fi
             fi
-            if [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
+            if [ "$FULL_CI" = true ]; then
+              # An explicit full-ci label opts back into the generic release
+              # producer so the hosted build / release-compile check has a
+              # real job behind it. Ordinary next-line PRs stay on cmux-next's
+              # fast routing and do not pay for this second release lane.
+              echo "macos=true" >> "$GITHUB_OUTPUT"
+              echo "swift_packages=false" >> "$GITHUB_OUTPUT"
+              echo "release_build=true" >> "$GITHUB_OUTPUT"
+              echo "full_suite=true" >> "$GITHUB_OUTPUT"
+            elif [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
               # The legacy reusable macOS workflow owns focused tests for the
               # affected package. Keep that route instead of waking the full
               # CmuxNext suite; its package lane runs beside compile admission
