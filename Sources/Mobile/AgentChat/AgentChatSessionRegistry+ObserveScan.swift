@@ -510,13 +510,14 @@ extension AgentChatSessionRegistry {
         for key in ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"] {
             if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
-                return value
+                return normalizedOpenCodeSessionID(value)
             }
         }
-        guard let cwd = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cwd.isEmpty else {
+        guard let rawCWD = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawCWD.isEmpty else {
             return nil
         }
+        let cwd = (rawCWD as NSString).standardizingPath
         let databasePath = OpenCodePaths(environment: environment).databaseURL.path
         guard FileManager.default.fileExists(atPath: databasePath) else { return nil }
         var database: OpaquePointer?
@@ -568,7 +569,11 @@ extension AgentChatSessionRegistry {
     }
 
     private nonisolated static func normalizedOpenCodeSessionID(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["opencode:", "opencode-"] where trimmed.hasPrefix(prefix) {
+            trimmed = String(trimmed.dropFirst(prefix.count))
+            break
+        }
         guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
         return trimmed
     }

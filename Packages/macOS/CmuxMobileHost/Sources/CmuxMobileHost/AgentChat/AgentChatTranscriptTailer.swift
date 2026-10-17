@@ -307,6 +307,7 @@ public actor AgentChatTranscriptTailer {
     private func loadInitialOpenCode() {
         guard let result = readOpenCode() else { return }
         openCodeDatabaseInode = result.databaseInode
+        headTruncated = result.messages.count > maxCachedMessages
         cache = result.messages
         trimCacheIfNeeded()
         openCodeMessagesByID = Dictionary(uniqueKeysWithValues: cache.map { ($0.id, $0) })
@@ -325,6 +326,7 @@ public actor AgentChatTranscriptTailer {
             && (replaced || !previousIDs.isSubset(of: nextIDs))
 
         openCodeDatabaseInode = result.databaseInode
+        headTruncated = result.messages.count > maxCachedMessages
         cache = result.messages
         trimCacheIfNeeded()
         openCodeMessagesByID = Dictionary(uniqueKeysWithValues: cache.map { ($0.id, $0) })
@@ -380,9 +382,7 @@ public actor AgentChatTranscriptTailer {
         defer { sqlite3_close(database) }
         _ = sqlite3_busy_timeout(database, 100)
 
-        let querySessionID = sessionID.hasPrefix("opencode:")
-            ? String(sessionID.dropFirst("opencode:".count))
-            : sessionID
+        let querySessionID = Self.normalizedOpenCodeSessionID(sessionID) ?? sessionID
         let queries = [
             """
             SELECT m.id, m.data, p.id, p.data, m.time_created, p.time_created
@@ -824,5 +824,15 @@ public actor AgentChatTranscriptTailer {
         guard cache.count > maxCachedMessages else { return }
         cache.removeFirst(cache.count - maxCachedMessages)
         headTruncated = true
+    }
+
+    private static func normalizedOpenCodeSessionID(_ value: String) -> String? {
+        var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["opencode:", "opencode-"] where trimmed.hasPrefix(prefix) {
+            trimmed = String(trimmed.dropFirst(prefix.count))
+            break
+        }
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 }

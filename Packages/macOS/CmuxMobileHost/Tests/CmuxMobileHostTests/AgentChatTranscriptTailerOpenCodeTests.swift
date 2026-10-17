@@ -110,8 +110,10 @@ struct AgentChatTranscriptTailerOpenCodeTests {
         #expect(initial.hasMore == false)
 
         let updateSQL = """
+            BEGIN;
             UPDATE part SET data='{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"pwd"},"output":"/tmp/project"}}' WHERE id='p_tool';
             INSERT INTO part VALUES ('p_patch', 'm_agent', '{"type":"patch","files":[{"path":"Sources/App.swift","diff":"@@\\n-old\\n+new\\n","operation":"edit"},{"path":"Tests/AppTests.swift","diff":"@@\\n+test\\n","operation":"write"}]}', 3);
+            COMMIT;
             """
         #expect(sqlite3_exec(database, updateSQL, nil, nil, nil) == SQLITE_OK)
         let batch = await nextBatch(from: stream)
@@ -131,5 +133,55 @@ struct AgentChatTranscriptTailerOpenCodeTests {
         let history = await tailer.history(beforeSeq: nil, limit: 20)
         #expect(history.messages.count == 3)
         #expect(history.hasMore == true)
+    }
+
+    @Test func clearsEarlierHistoryMarkerWhenDatabaseCompactsBelowCacheLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-compact-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("opencode.db")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        guard let database else { return }
+        defer { sqlite3_close(database) }
+        let schema = """
+            PRAGMA journal_mode=WAL;
+            CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER);
+            CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created INTEGER);
+            CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER);
+            INSERT INTO session VALUES ('ses_compact', '/tmp/project', 3);
+            INSERT INTO message VALUES ('m1', 'ses_compact', '{\"role\":\"assistant\"}', 1);
+            INSERT INTO part VALUES ('p1', 'm1', '{\"type\":\"text\",\"text\":\"one\"}', 1);
+            INSERT INTO message VALUES ('m2', 'ses_compact', '{\"role\":\"assistant\"}', 2);
+            INSERT INTO part VALUES ('p2', 'm2', '{\"type\":\"text\",\"text\":\"two\"}', 2);
+            INSERT INTO message VALUES ('m3', 'ses_compact', '{\"role\":\"assistant\"}', 3);
+            INSERT INTO part VALUES ('p3', 'm3', '{\"type\":\"text\",\"text\":\"three\"}', 3);
+            """
+        #expect(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
+
+        let (stream, continuation) = AsyncStream<AgentChatTranscriptTailer.Batch>.makeStream()
+        let tailer = AgentChatTranscriptTailer(
+            sessionID: "ses_compact",
+            agentKind: .other("opencode"),
+            path: databaseURL.path,
+            maxCachedMessages: 2,
+            onBatch: { batch in continuation.yield(batch) }
+        )
+        await tailer.start()
+        #expect((await tailer.history(beforeSeq: nil, limit: 20)).hasMore == true)
+
+        let compactSQL = """
+            BEGIN;
+            DELETE FROM part WHERE id = 'p1';
+            DELETE FROM message WHERE id = 'm1';
+            UPDATE part SET data = '{\"type\":\"text\",\"text\":\"three updated\"}' WHERE id = 'p3';
+            COMMIT;
+            """
+        #expect(sqlite3_exec(database, compactSQL, nil, nil, nil) == SQLITE_OK)
+        _ = await nextBatch(from: stream)
+        #expect((await tailer.history(beforeSeq: nil, limit: 20)).hasMore == false)
+        continuation.finish()
+        await tailer.stop()
     }
 }

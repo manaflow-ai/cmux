@@ -13,6 +13,8 @@ struct AgentChatSessionRegistryObservationTests {
     @Test func openCodeSessionIdentityAcceptsExplicitSessionArguments() {
         #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "ses_abc"]) == "ses_abc")
         #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "-s=ses_def"]) == "ses_def")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "opencode-ses_prefixed"]) == "ses_prefixed")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "-s", "opencode:ses_colon"]) == "ses_colon")
         #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "--verbose"]) == nil)
     }
 
@@ -37,8 +39,18 @@ struct AgentChatSessionRegistryObservationTests {
             AgentChatSessionRegistry.openCodeSessionIDForProcess(
                 arguments: ["opencode", "--prompt", "hello"],
                 environment: ["OPENCODE_DB": databaseURL.path],
-                workingDirectory: "/tmp/project"
+                workingDirectory: "/tmp/project/../project/"
             ) == "ses_new"
+        )
+        #expect(
+            AgentChatSessionRegistry.openCodeSessionIDForProcess(
+                arguments: ["opencode", "--prompt", "hello"],
+                environment: [
+                    "OPENCODE_DB": databaseURL.path,
+                    "OPENCODE_SESSION_ID": "opencode:ses_env"
+                ],
+                workingDirectory: "/tmp/project"
+            ) == "ses_env"
         )
     }
 
