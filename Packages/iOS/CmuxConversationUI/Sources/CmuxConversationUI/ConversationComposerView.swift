@@ -24,6 +24,7 @@ struct ConversationComposerArea: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .accessibilityIdentifier("ConversationComposerTextEditor")
                         .overlay(alignment: .topLeading) {
                             if model.draft.isEmpty {
                                 Text(model.isRunning
@@ -37,7 +38,6 @@ struct ConversationComposerArea: View {
                                     .accessibilityHidden(true)
                             }
                         }
-                        .accessibilityIdentifier("ConversationComposerTextEditor")
 
                     if model.isRunning && model.supportsStopping && model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Button {
@@ -195,13 +195,11 @@ struct ConversationQuestionCard: View {
                     SecureField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("ConversationQuestionCustomAnswer")
-                        .accessibilityElement(children: .ignore)
                 } else {
                     TextField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer, axis: .vertical)
                         .lineLimit(1...4)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("ConversationQuestionCustomAnswer")
-                        .accessibilityElement(children: .ignore)
                 }
             }
             if question?.allowsCustomAnswer == true {
