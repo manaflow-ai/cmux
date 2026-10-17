@@ -36,7 +36,7 @@ export default componentEntry<{
   pane: true,
   height: 780,
   widths: { narrow: 520, normal: 860, wide: 1160 },
-  anchors: [{ selector: "[data-orchestration-lab]" }],
+  anchors: [{ selector: "[data-orchestration-lab]" }, { selector: ".orchestration-work-list" }],
   covers: ["agent-session/acpmux/OrchestrationLab.tsx#OrchestrationLab"],
   styles: () => import("./OrchestrationLab.gallery.css"),
   load: async () => {
@@ -61,6 +61,13 @@ export default componentEntry<{
     "jump-to-decision": {
       note: "The summary action selects the first pending decision without exposing receipt details.",
       props: { initialStrategy: "local-queue" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason:
+            "Selecting work inserts its in-flow decision panel; the gallery frame and work list remain anchored while the detail reflows.",
+        },
+      },
       play: jumpToDecision,
     },
     inspector: {
