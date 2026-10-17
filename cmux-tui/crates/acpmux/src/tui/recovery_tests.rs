@@ -51,3 +51,33 @@ async fn recovery_attach_pages_forward_until_exhausted() {
     assert!(!app.recovery_in_flight.contains(id));
     assert_eq!(app.status, "recovered 3 events from seq 40");
 }
+
+#[tokio::test]
+async fn recovery_attach_stops_on_a_non_advancing_page() {
+    let (mut app, _) = super::interaction_tests::app().await;
+    let id = "test-session";
+    let mut transcript = Transcript::default();
+    transcript.last_seq = 41;
+    app.transcripts.insert(id.into(), transcript);
+    app.recovery_in_flight.insert(id.into());
+    app.recovery_pages.insert(id.into(), 1);
+    app.recovery_replayed.insert(id.into(), 0);
+    app.recovery_start.insert(id.into(), 40);
+
+    app.on_msg(AppMsg::Attached {
+        id: id.into(),
+        detail: json!({"status": "running"}),
+        events: vec![
+            json!({"seq": 41, "dir": "mux", "kind": "user_message", "msg": {"text": "duplicate"}}),
+        ],
+        after_seq: Some(40),
+        has_more: true,
+        last_seq: 42,
+    });
+
+    assert!(!app.recovery_in_flight.contains(id));
+    assert_eq!(
+        app.status,
+        "recovery stopped after seq 41; 0 events recovered from seq 40, more remain"
+    );
+}
