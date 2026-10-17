@@ -131,3 +131,23 @@ The pending matrix work must capture each playable variant at every listed width
 base/head pair for report-only cases, and attach the resulting artifact or capture ID here. Until
 then, the settle budgets above are declared responsiveness thresholds, not observed latency
 measurements.
+
+## Workspace-switch journey evidence packet (2026-10-17)
+
+- **Canonical entry:** `agent-pane.new-tab#workspace-switch`.
+- **Fixture/play contract:** seed a `Release` workspace suggestion (`workspace-release`,
+  `~/src/release`), type `Release` into `.nt-field`, choose the matching `[role="option"]`, and
+  hand off `tab.jump(target="workspace", id="workspace-release")` to the native host. The fixture
+  renders three sessions and one `Release notes` tab so the browse and review surfaces have stable
+  context.
+- **Source:** gallery journey commit `dd237189826f7fb33c27339fc4255fa94ddcb926`, integrated here
+  as `ca963862daf9`.
+- **Behavior verifier:** **PASS** — 12 portable/browser assertions pass; local gallery browse-layout
+  Chromium/WebKit checks pass (2/2). The default browser lane skips outside CI/Freestyle by design.
+- **Visual/feel verifier:** **BLOCKED / PENDING** — a fresh exact-head Vite gallery did not reach
+  `galleryReady` within the bounded capture window; the available prior server was stale. No valid
+  screenshots are claimed. A local capture attempt is retained for diagnosis at
+  `/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/` (not a hosted artifact).
+- **Next action:** recapture from the exact integrated head on a fresh gallery server, then attach a
+  hosted or explicitly local viewport receipt before marking visual/feel complete. Native workspace
+  performance remains warning-only and is tracked by the existing async receipt workflow.
