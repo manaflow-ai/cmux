@@ -27,7 +27,7 @@ export function UpdatesView({ snap, store, strings }: { snap: AppsSnapshot; stor
           onClick={() => void store.refreshUpdates()}
           disabled={snap.updatesLoading}
         >
-          {t("store.updates.check")}
+          {t("store.action.checkUpdates")}
         </button>
       </div>
       {snap.updatesError && (
@@ -36,7 +36,7 @@ export function UpdatesView({ snap, store, strings }: { snap: AppsSnapshot; stor
             {snap.updatesStale ? t("store.updates.stale") : snap.updatesError}
           </span>
           <button type="button" className="apps-button" onClick={() => void store.refreshUpdates()}>
-            {t("store.updates.retry")}
+            {t("store.action.retry")}
           </button>
         </div>
       )}

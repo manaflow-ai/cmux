@@ -66,6 +66,8 @@ export class AppsStore {
   private readonly icons = new Map<string, string>();
   private starting = false;
   private generation = 0;
+  /** Monotonic token so a slower updates.list response cannot replace a newer one. */
+  private updatesGeneration = 0;
   private detailGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
@@ -160,6 +162,7 @@ export class AppsStore {
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    const updatesGeneration = ++this.updatesGeneration;
     try {
       const [catalog, installed, updateResponse] = await Promise.all([
         listCatalog(this.client),
@@ -176,9 +179,11 @@ export class AppsStore {
         .filter(listedInStore)
         .map((app) => (app.icon || !iconOf.get(app.id) ? app : { ...app, icon: iconOf.get(app.id) }));
       const installedIds = new Set(installedRows.map((app) => app.id));
-      const updates = (updateResponse.result?.updates ?? installedRows.flatMap(updateFromInstalled)).filter((update) =>
-        installedIds.has(update.app),
-      );
+      const acceptUpdates = updatesGeneration === this.updatesGeneration;
+      const updates = (acceptUpdates
+        ? (updateResponse.result?.updates ?? installedRows.flatMap(updateFromInstalled))
+        : this.snapshot.updates
+      ).filter((update) => installedIds.has(update.app));
       const updatesByApp = new Map(updates.map((update) => [update.app, update]));
       const mergedInstalled = installedRows.map((app) => {
         const update = updatesByApp.get(app.id);
@@ -195,10 +200,12 @@ export class AppsStore {
         categories: categories(listed),
         installed: mergedInstalled,
         updates,
-        updatesLoading: false,
-        updatesStale: !updateResponse.result,
-        updatesError: updateResponse.error ? message(updateResponse.error) : undefined,
-        updatesRevision: updateResponse.result?.revision ?? installed.revision,
+        updatesLoading: acceptUpdates ? false : this.snapshot.updatesLoading,
+        updatesStale: acceptUpdates ? !updateResponse.result : this.snapshot.updatesStale,
+        updatesError: acceptUpdates ? (updateResponse.error ? message(updateResponse.error) : undefined) : this.snapshot.updatesError,
+        updatesRevision: acceptUpdates
+          ? (updateResponse.result?.revision ?? installed.revision)
+          : this.snapshot.updatesRevision,
         loading: false,
         connection: "connected",
         error: undefined,
@@ -217,9 +224,11 @@ export class AppsStore {
   /** Re-reads only the update list without guessing at a new version after a failure. */
   async refreshUpdates(): Promise<void> {
     if (!this.client) return;
+    const updatesGeneration = ++this.updatesGeneration;
     this.set({ updatesLoading: true });
     try {
       const result = await listUpdates(this.client);
+      if (updatesGeneration !== this.updatesGeneration) return;
       const installedIds = new Set(this.snapshot.installed.map((app) => app.id));
       const updates = result.updates.filter((update) => installedIds.has(update.app));
       const updatesByApp = new Map(updates.map((update) => [update.app, update]));
@@ -236,6 +245,7 @@ export class AppsStore {
         }),
       });
     } catch (error) {
+      if (updatesGeneration !== this.updatesGeneration) return;
       this.set({ updatesLoading: false, updatesStale: true, updatesError: message(error) });
     }
   }

@@ -63,4 +63,38 @@ describe("AppsStore update center", () => {
     expect(updateCall?.key).toMatch(/^pg_[0-9a-f]{32}$/);
     store.stop();
   });
+
+  test("does not let an older update response replace a newer refresh", async () => {
+    const provider = new MockAppsProvider();
+    const originalCall = provider.call.bind(provider);
+    let releaseFirst: (() => void) | undefined;
+    const firstResponse = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let delayNext = false;
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === AppsOps.updatesList && delayNext) {
+        delayNext = false;
+        const response = await originalCall<R>(op, params);
+        await firstResponse;
+        return response;
+      }
+      return originalCall<R>(op, params);
+    };
+    const store = new AppsStore(provider);
+    await store.start();
+
+    delayNext = true;
+    const stale = store.refreshUpdates();
+    const github = provider.installed["cmux.github-prs"];
+    if (!github) throw new Error("sample app missing");
+    github.update = { version: "1.3.0" };
+    await store.refreshUpdates();
+    if (!releaseFirst) throw new Error("first update request did not start");
+    releaseFirst();
+    await stale;
+
+    expect(store.getSnapshot().updates[0]?.version).toBe("1.3.0");
+    store.stop();
+  });
 });
