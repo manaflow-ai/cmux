@@ -89,7 +89,7 @@ extension BrowserPanel {
     /// Hosts `popup` (created by the engine for `request`) in a new Chromium
     /// tab beside this panel, or closes it when no tab can open.
     func adoptChromiumPopup(_ popup: any BrowserPage, for request: BrowserPageOpenRequest) {
-        let focus: Bool
+        let foreground: Bool
         switch request.placement {
         case .popup(let width, let height):
             // Sized popups (sign-in, payment) open in the same popup window
@@ -97,8 +97,17 @@ extension BrowserPanel {
             ChromiumPopupWindowController.present(popup, width: width, height: height,
                                                   opener: enginePage?.contentView.window)
             return
-        case .foregroundTab: focus = true
-        case .backgroundTab: focus = false
+        case .foregroundTab: foreground = true
+        case .backgroundTab: foreground = false
+        }
+        // A tab nobody clicked for (an extension's `chrome.tabs.create`, a
+        // script's `window.open`) is selected but never pulls the keyboard
+        // out of another pane (spec §0.6).
+        let focus: Bool?
+        switch ChromiumUnownedTabPlacement.newTabFocus(foreground: foreground, userGesture: request.isUserGesture) {
+        case .focus: focus = true
+        case .selectFocusingOnlyAFocusedPane: focus = nil
+        case .background: focus = false
         }
         guard let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: id, preferredWorkspaceId: workspaceId)?.workspace,
               let paneId = workspace.paneId(forPanelId: id) else {
@@ -117,6 +126,7 @@ extension BrowserPanel {
             inPane: paneId,
             url: nil,
             focus: focus,
+            selectWhenNotFocused: foreground,
             preferredProfileID: profileID,
             engine: popup.engineKind
         )

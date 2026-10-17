@@ -94,6 +94,8 @@ final class BrowserEngineRuntime {
             }
         )
         chromiumExtensions = extensions
+        // Tabs and downloads Chromium starts for no cmux page (extension workers).
+        ChromiumUnownedTabRouter.install(on: .shared)
         let chromium = CEFBrowserEngineProvider(
             runtime: .shared,
             devToolsLayoutStore: BrowserDevToolsLayoutStore(defaults: defaults),

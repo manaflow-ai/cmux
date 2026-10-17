@@ -57,6 +57,20 @@ public final class CEFRuntime {
     /// Chromium asked for a window or tab that no cmux page can hold (a
     /// request with no opener, an incognito window): open `url` elsewhere.
     public var openURLWithoutOpener: (@MainActor (URL, CEFDisposition) -> Void)?
+    /// The page that takes a tab or download Chromium starts for no cmux
+    /// page (an extension's background worker, an install's welcome page),
+    /// for a profile (nil: any). See `CEFRuntime+UnownedTabs.swift`.
+    public var unownedTabAnchor: (@MainActor (_ profile: UUID?) -> CEFBrowser?)?
+    /// Opens such a tab's URL as a cmux Chromium tab when no page can take
+    /// it, in the request's profile (nil when Chromium named none of cmux's).
+    public var openUnownedURL: (@MainActor (_ url: URL, _ disposition: CEFDisposition, _ profile: UUID?) -> Void)?
+    /// Where a download no page can show goes.
+    public var unownedDownloadDirectory: @MainActor () -> URL = {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+    }
+    /// Downloads Chromium started for no cmux page, by shim token.
+    var unownedDownloads = CEFUnownedDownloads()
 
     let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef")
     /// CefAppProtocol on the app's NSApplication (installed at start).
@@ -362,6 +376,9 @@ public final class CEFRuntime {
         case .tab(.windowDestroyed, _, _, let value):
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
+        case .download(_, let browser, let token, _, _, _, _)
+            where browsers[browser] == nil || unownedDownloads.route(for: token) != nil:
+            routeUnownedDownload(event, token: token)
         default:
             if let id = event.browserID, let browser = browsers[id] { browser.handle(event) }
         }
