@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixture labels are a read-only visual comparison surface.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
-import { SessionSidebar } from "./SessionSidebar";
+import { SessionPreviewCard, SessionSidebar } from "./SessionSidebar";
+import { setComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import type { SidebarPreviewVariant } from "./sidebarPreview";
 
@@ -131,6 +132,11 @@ const hoverSidebar: Play = async (ctx) => {
 };
 
 function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defaultSection = "overview" }: Props) {
+  useEffect(() => {
+    // The board opts the real ComposerPickers into the same Debug Settings slider that the app uses.
+    setComposerSettings({ reasoningSlider: true, reasoningSliderStyle: sliderStyle });
+    return () => setComposerSettings({ reasoningSlider: false });
+  }, [sliderStyle]);
   const [effort, setEffort] = useState("high");
   const [model, setModel] = useState("gpt-6.1-sol");
   const [mode, setMode] = useState("default");
@@ -140,6 +146,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
   ]);
   const [section, setSection] = useState<Props["defaultSection"]>(defaultSection);
   const [preview, setPreview] = useState(previewVariant);
+  const [previewAnchor, setPreviewAnchor] = useState<HTMLElement | null>(null);
   const showSlider = section === "overview" || section === "slider";
   const showSidebar = section === "overview" || section === "sidebar";
   const composerSnapshot: AcpmuxSnapshot = {
@@ -156,18 +163,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
   };
 
   return (
-    <main className="cmux-comparison-board">
-      <section className="cmux-comparison-window" aria-label="CMUX Next comparison board">
-        <header className="cmux-comparison-titlebar">
-          <div className="cmux-comparison-traffic" aria-hidden="true">
-            <i className="cmux-comparison-traffic-close" />
-            <i className="cmux-comparison-traffic-minimize" />
-            <i className="cmux-comparison-traffic-zoom" />
-          </div>
-          <div className="cmux-comparison-title">CMUX Next · UI Lab</div>
-          <span className="cmux-comparison-build">DEBUG PREVIEW</span>
-        </header>
-
+    <main className="cmux-comparison-board" aria-label="CMUX Next comparison board">
         <div className="cmux-comparison-toolbar">
           <div>
             <p className="cmux-comparison-eyebrow">Interactive comparison board</p>
@@ -179,6 +175,8 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 key={name}
                 type="button"
                 role="tab"
+                id={`comparison-tab-${name}`}
+                aria-controls={`comparison-panel-${name}`}
                 aria-selected={section === name}
                 className={section === name ? "is-active" : ""}
                 onClick={() => setSection(name)}
@@ -189,7 +187,12 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
           </div>
         </div>
 
-        <div className="cmux-comparison-body">
+        <div
+          className="cmux-comparison-body"
+          role="tabpanel"
+          id={`comparison-panel-${section}`}
+          aria-labelledby={`comparison-tab-${section}`}
+        >
           {showSidebar && (
             <aside className="cmux-comparison-sidebar" aria-label={`Sidebar preview: ${preview}`}>
               <div className="cmux-comparison-sidebar-label">Sessions · {preview}</div>
@@ -203,19 +206,22 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 preview
                 previewVariant={preview}
               />
-              <div
-                className={`cmux-comparison-preview-specimen acpmux-session-preview-${preview}`}
-                aria-label={`Visible ${preview} sidebar preview specimen`}
-              >
-                <div className="acpmux-session-preview-title">Review the sidebar polish</div>
-                <div className="acpmux-session-preview-copy">
-                  Card, quiet and outline treatments are ready to compare.
-                </div>
-                <div className="acpmux-session-preview-meta">
-                  <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
-                  <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
-                </div>
-              </div>
+              <span ref={setPreviewAnchor} className="cmux-comparison-preview-anchor" aria-hidden="true" />
+              {previewAnchor && (
+                <SessionPreviewCard
+                  anchor={previewAnchor}
+                  open
+                  id="comparison-preview-card"
+                  previewVariant={preview}
+                >
+                  <div className="acpmux-session-preview-title">Review the sidebar polish</div>
+                  <div className="acpmux-session-preview-copy">Card, quiet and outline treatments are ready to compare.</div>
+                  <div className="acpmux-session-preview-meta">
+                    <span className="acpmux-session-preview-status acpmux-session-mark-unread">● New activity</span>
+                    <span className="acpmux-session-preview-place">⌘ feat/sidebar-preview</span>
+                  </div>
+                </SessionPreviewCard>
+              )}
               <div className="cmux-comparison-preview-toggle" role="group" aria-label="Sidebar treatment">
                 {(["card", "quiet", "outline"] as const).map((name) => (
                   <button
@@ -296,26 +302,25 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
             </div>
           )}
         </div>
-      </section>
     </main>
   );
 }
 
 export default componentEntry<Props>({
   id: "agent-pane.comparison-board",
-  title: "CMUX glass comparison board",
+  title: "CMUX composer and sidebar comparison",
   area: "Agent pane",
   experimental: true,
   height: 720,
   widths: { narrow: 520, normal: 860, wide: 1160 },
-  anchors: [{ selector: ".cmux-comparison-window" }],
+  anchors: [{ selector: ".cmux-comparison-board" }],
   covers: [
     "agent-session/acpmux/EffortPicker.tsx#EffortPicker",
     "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
   ],
   checks: {
-    anchorMovePx: { value: 0, reason: "Switching comparison sections keeps the simulated window anchored." },
-    layoutShiftMax: { value: 0, reason: "Variant controls replace content inside the fixed glass shell." },
+    anchorMovePx: { value: 0, reason: "Switching comparison sections keeps the gallery entry anchored." },
+    layoutShiftMax: { value: 0, reason: "Variant controls replace content inside the gallery entry." },
     longFrameFailMs: { value: 33, reason: "Local section and treatment toggles should remain responsive." },
   },
   load: async () => ComparisonBoard,
@@ -329,15 +334,15 @@ export default componentEntry<Props>({
     ]),
   variants: {
     "overview-accent-card": {
-      note: "Light or dark theme: full glass shell with the accent slider and card preview treatment.",
+      note: "Light or dark theme: real composer controls, accent slider treatment, and card preview.",
       props: { sliderStyle: "accent", previewVariant: "card" },
     },
     "overview-minimal-quiet": {
-      note: "Light or dark theme: quieter slider fill with the flatter quiet sidebar card.",
+      note: "Light or dark theme: real composer controls, quieter slider, and quiet preview.",
       props: { sliderStyle: "minimal", previewVariant: "quiet" },
     },
     "overview-minimal-outline": {
-      note: "Light or dark theme: outlined slider thumb with the accent rim sidebar card.",
+      note: "Light or dark theme: real composer controls, minimal slider, and outline preview.",
       props: { sliderStyle: "minimal", previewVariant: "outline" },
     },
     "slider-accent-open": {
