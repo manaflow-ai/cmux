@@ -5159,11 +5159,11 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
           for required in $REQUIRED; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
-            case "$status" in
-              ahead|identical) ;;
-              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
-                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
-            esac
+            if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
+              echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+              : > "$RUNNER_TEMP/legacy-requirement-refused"
+              exit 1
+            fi
           done
           git fetch --no-tags --depth=1 origin "$sha"
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
