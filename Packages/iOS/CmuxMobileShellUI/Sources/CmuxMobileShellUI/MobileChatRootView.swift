@@ -544,6 +544,7 @@ private struct MobileChatTranscriptView: View {
                 Button("Stop agent", systemImage: "stop.fill", role: .destructive) {
                     store.interrupt()
                 }
+                .disabled(descriptor.state == .ended)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
@@ -568,6 +569,7 @@ private struct MobileChatTranscriptView: View {
             MobileChatWelcomeView(
                 provider: descriptor.agentKind,
                 sendSuggestion: { suggestion in
+                    guard descriptor.state != .ended else { return }
                     store.draft = suggestion
                     composerFocused = true
                 }
@@ -615,49 +617,58 @@ private struct MobileChatTranscriptView: View {
 
     private var composer: some View {
         VStack(spacing: 8) {
-            if !store.stagedAttachments.isEmpty {
-                HStack {
-                    Label("\(store.stagedAttachments.count) image\(store.stagedAttachments.count == 1 ? "" : "s") attached", systemImage: "paperclip")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Clear") { store.stagedAttachments = [] }
-                        .font(.caption.weight(.semibold))
+            if descriptor.state == .ended {
+                Label("This agent session has ended", systemImage: "clock.badge.checkmark")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 9)
+                    .accessibilityLabel("This agent session has ended. Messaging is unavailable.")
+            } else {
+                if !store.stagedAttachments.isEmpty {
+                    HStack {
+                        Label("\(store.stagedAttachments.count) image\(store.stagedAttachments.count == 1 ? "" : "s") attached", systemImage: "paperclip")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") { store.stagedAttachments = [] }
+                            .font(.caption.weight(.semibold))
+                    }
                 }
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 4, matching: .images) {
-                    Image(systemName: "plus")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 34, height: 34)
-                        .background(.quaternary, in: Circle())
+                HStack(alignment: .bottom, spacing: 8) {
+                    PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 4, matching: .images) {
+                        Image(systemName: "plus")
+                            .font(.headline.weight(.semibold))
+                            .frame(width: 34, height: 34)
+                            .background(.quaternary, in: Circle())
+                    }
+                    .accessibilityLabel("Add attachment")
+                    TextField(
+                        descriptor.kind == .terminal ? "Send a command…" : "Message \(descriptor.agentKind.displayName)…",
+                        text: $store.draft,
+                        axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .focused($composerFocused)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 19, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 0.8)
+                    }
+                    Button {
+                        store.send()
+                        composerFocused = false
+                    } label: {
+                        Image(systemName: store.isSending ? "hourglass" : "arrow.up.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .disabled(store.isSending || (store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.stagedAttachments.isEmpty))
+                    .accessibilityLabel("Send message")
                 }
-                .accessibilityLabel("Add attachment")
-                TextField(
-                    descriptor.kind == .terminal ? "Send a command…" : "Message \(descriptor.agentKind.displayName)…",
-                    text: $store.draft,
-                    axis: .vertical
-                )
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .focused($composerFocused)
-                .background(.background, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.8)
-                }
-                Button {
-                    store.send()
-                    composerFocused = false
-                } label: {
-                    Image(systemName: store.isSending ? "hourglass" : "arrow.up.circle.fill")
-                        .font(.title2)
-                        .symbolRenderingMode(.hierarchical)
-                }
-                .disabled(store.isSending || (store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.stagedAttachments.isEmpty))
-                .accessibilityLabel("Send message")
             }
         }
         .padding(.horizontal, 12)
