@@ -87,6 +87,13 @@ def main() -> int:
 
     check("terminal starts focused", _focused_terminal(c))
 
+    # Unbound by default: the key does nothing until a person binds it.
+    c.set_shortcut("focus_sidebar", "default")
+    c.simulate_shortcut("ctrl+cmd+e")
+    time.sleep(0.5)
+    check("ctrl+cmd+e is unbound by default", _focused_terminal(c))
+    c.set_shortcut("focus_sidebar", "ctrl+cmd+e")
+
     c.simulate_shortcut("ctrl+cmd+e")
     time.sleep(0.5)
     check("ctrl+cmd+e moves focus off the terminal", bool(_settle(lambda: not _focused_terminal(c))))
