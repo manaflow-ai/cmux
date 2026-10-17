@@ -11,6 +11,8 @@ import {
   withoutChildren,
 } from "./sessionList";
 
+const CHIEF_AVATAR = new URL("./ChiefAvatar.png", import.meta.url).href;
+
 export type ChiefDockProps = {
   sessions: readonly AcpmuxSessionEntry[];
   currentId?: string;
@@ -54,10 +56,6 @@ const MARK_LABELS: Record<Exclude<SessionMark, undefined>, StringKey> = {
   unread: "sidebar.markUnread",
 };
 
-function StatusDot({ value }: { value: ReturnType<typeof status> }) {
-  return <span className="acpmux-chief-dock-dot" data-status={value} aria-hidden="true" />;
-}
-
 /// A small, intentionally session-only dock. The native host can later make this a window-level
 /// overlay; keeping the card model here means the first pass is useful in the Quick Composer and
 /// in the component gallery without inventing a second session store.
@@ -93,46 +91,7 @@ export function ChiefDock({
       data-attention={attention > 0 ? "true" : undefined}
       aria-label={t("header.agentChat")}
     >
-      <div className="acpmux-chief-dock-rail">
-        <button
-          type="button"
-          className="acpmux-chief-dock-mascot"
-          aria-label={t("header.agentChat")}
-          aria-expanded={expanded}
-          title={t("header.agentChat")}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <Icon name="agent.chief" size={19} />
-          {attention > 0 && <span className="acpmux-chief-dock-badge">{attention}</span>}
-        </button>
-        <span className="acpmux-chief-dock-divider" aria-hidden="true" />
-        <button
-          type="button"
-          className="acpmux-chief-dock-tool"
-          aria-label={t("sidebar.newChat")}
-          title={t("sidebar.newChat")}
-          onClick={onNewChat}
-        >
-          <span aria-hidden="true">+</span>
-        </button>
-        <button
-          type="button"
-          className="acpmux-chief-dock-tool"
-          aria-label={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
-          title={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
-          aria-pressed={attached}
-          onClick={() => setAttached((value) => !value)}
-        >
-          <Icon name="action.pin" size={16} selected={attached} />
-        </button>
-      </div>
       <div className="acpmux-chief-dock-cards" aria-hidden={!expanded}>
-        <header className="acpmux-chief-dock-header">
-          <span className="acpmux-chief-dock-title">
-            <Icon name="agent.chief" size={14} /> {t("header.agentChat")}
-          </span>
-          <span className="acpmux-chief-dock-count">{cards.length}</span>
-        </header>
         <div className="acpmux-chief-dock-stack">
           {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
           {cards.map((session, index) => {
@@ -176,7 +135,6 @@ export function ChiefDock({
                     disabled={!expanded}
                     onClick={() => onSelect(session.sessionId)}
                   >
-                    <StatusDot value={cardStatus} />
                     <span className="acpmux-chief-card-copy">
                       <strong>{title}</strong>
                       <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
@@ -187,6 +145,48 @@ export function ChiefDock({
               </ContextMenu>
             );
           })}
+        </div>
+      </div>
+      <div className="acpmux-chief-dock-mascot-wrap">
+        <button
+          type="button"
+          className="acpmux-chief-dock-mascot"
+          aria-label={t("header.agentChat")}
+          aria-expanded={expanded}
+          title={t("header.agentChat")}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <img src={CHIEF_AVATAR} alt="" aria-hidden="true" />
+        </button>
+        <div className="acpmux-chief-dock-rail">
+          <button
+            type="button"
+            className="acpmux-chief-dock-tool"
+            aria-label={t("sidebar.newChat")}
+            title={t("sidebar.newChat")}
+            onClick={onNewChat}
+          >
+            <Icon name="action.edit" size={20} />
+          </button>
+          <button
+            type="button"
+            className="acpmux-chief-dock-tool"
+            aria-label={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
+            title={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
+            aria-pressed={attached}
+            onClick={() => setAttached((value) => !value)}
+          >
+            <Icon name="media.audio" size={20} selected={attached} />
+          </button>
+          <button
+            type="button"
+            className="acpmux-chief-dock-tool"
+            aria-label={expanded ? t("header.agentChat") : t("sidebar.newChat")}
+            title={expanded ? t("header.agentChat") : t("sidebar.newChat")}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
+          </button>
         </div>
       </div>
     </aside>
