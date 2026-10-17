@@ -42,7 +42,7 @@ final class SidebarFooterMenuAnchor {
 final class SidebarFooterMenu: NSMenu {
     var selectedHandler: (() -> Void)?
 
-    init(title: String) {
+    override init(title: String) {
         super.init(title: title)
     }
 
