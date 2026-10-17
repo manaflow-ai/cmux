@@ -39,11 +39,13 @@ extension TabStripView {
         }
         if let selected { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
+        overflowHints.update()
         refreshHoverCard()
     }
 
     public func sync(fromModel: Bool, animating: Bool = true) {
-        lastSyncedInput = ModelSnapshot(model)
+        // Only a model sync runs the order bookkeeping below: an internal sync leaves the echo to run it.
+        if fromModel { lastSyncedInput = ModelSnapshot(model) }
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {

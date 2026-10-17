@@ -192,8 +192,10 @@ public final class TabStripView: NSView {
     /// Keyboard navigation (the key view loop, Full Keyboard Access) may focus the strip, where F2
     /// renames the selected tab (#17188). A click never does: the window would make the strip first
     /// responder on mouse-down and the focus model would move the keyboard back to the content, one
-    /// responder hop per tab click; the keyboard stays where it is.
+    /// responder hop per tab click; the keyboard stays where it is. While an inline rename edits, a
+    /// click in the strip still takes the keyboard, which ends (commits) the rename.
     public override var acceptsFirstResponder: Bool {
+        if inlineRename.field != nil { return true }
         switch NSApp.currentEvent?.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: false
         default: true

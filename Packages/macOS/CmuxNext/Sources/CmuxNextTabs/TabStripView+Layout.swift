@@ -134,10 +134,11 @@ extension TabStripView {
             margin: metrics.scrollFadeWidth,
             fixedLeading: scrollMapping.band
         )
-        // Already in view (a switch between shown tabs): the strip does not move.
-        guard target != scroll.target else { return }
+        let snaps = !animated || reduceMotion
+        // Already in view and at rest (a switch between shown tabs): the strip does not move.
+        guard target != scroll.target || (snaps && !scroll.isSettled) else { return }
         scroll.target = target
-        if !animated || reduceMotion { scroll.snap() }
+        if snaps { scroll.snap() }
         startAnimating()
     }
 
