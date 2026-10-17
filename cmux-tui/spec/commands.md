@@ -339,8 +339,15 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
+
+`machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
+machine registry. It is distinct from the session's `registry_id`, the boot's
+`generation`, host names and client UI routes. Older daemons may omit it; clients
+must leave the machine owner unknown rather than derive an ID from other fields.
+The conversations-only remote `identify` remains restricted to `app`, `protocol`
+and `capabilities`.
 
 With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
@@ -8920,6 +8927,36 @@ without a gesture, as it can on acpmux's own socket (same uid); the app's
 chat on another machine reaches the verb that way, behind its relay's
 fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
+
+## Agent CLI inventory
+
+`agent-inventory-v1` is advertised when the daemon has its own acpmux socket
+configured. A trusted native connection (the app's local, SSH or Cloud carrier)
+may send `{id, cmd:"agent-inventory"}` with no other fields. WebSocket clients
+and the conversations-only remote relay cannot use it. This command reads this
+daemon's machine only; it accepts no machine, session, socket or command selector.
+
+The daemon first calls `initialize` on its own acpmux socket and requires the
+exact `harnessInventory` feature in a string array at `_meta.acpmux.features`.
+Only then, on that same connection, it calls
+`_acpmux/harness/health {view:"inventory"}`. Older owners never receive the health
+request: an older acpmux can ignore `view` and run checks or updates. There is no
+legacy fallback, daemon start, handoff, PATH scan, registry lookup or refresh.
+
+The response's `data` is `{view:"inventory", cached:true, harnesses:[...]}`.
+Each row contains only `id`, `channel`, `version`, `latest`, `latestCheckedAt`,
+`outdated`, `auth` and `checkedAt`. Versions and latest-check times may be null;
+times are milliseconds since the epoch. Channels are `npm`, `bun`, `brew`,
+`brewCask`, `native`, `launcher`, `standalone` or `missing`. Sign-in evidence is
+`signedIn`, `signedOut` or `unknown`, without account labels. No program paths,
+commands or diagnostic output are forwarded. Empty rows mean no cached
+observations, not proof that the machine has no installed agents. At most 256
+rows and eight concurrent reads per daemon are accepted.
+
+Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
+`unavailable` (including a stopped or unresponsive owner), `unsupported` (no
+negotiated view), `busy` or `invalid_response`. An unavailable remote owner is
+never replaced with this computer's inventory.
 
 ## Agent CLI updates
 
