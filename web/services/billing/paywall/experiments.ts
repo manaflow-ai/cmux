@@ -50,14 +50,18 @@ export type ExperimentDefinition = {
   /** Exposures and conversions before this date are ignored. */
   readonly startDate: string;
   /**
-   * HogQL predicate over the server's `paywall_assigned` events for this
-   * experiment (exclusions: internal, synthetic, non-production).
+   * HogQL predicate over this experiment's `paywall_assigned` events
+   * (exclusions: internal, synthetic, non-production). iOS: the server sends
+   * them when it serves a variant. Web: the browser sends them with the arm
+   * the proxy cookie assigned.
    */
   readonly assignmentWhere: string;
   /**
    * The client event that is the exposure: the person actually saw the
-   * paywall. It must carry `paywall_experiment`; the variant always comes
-   * from the server assignment, never from the client.
+   * paywall or pricing page (iOS: `ios_paywall_viewed`; web: the pricing
+   * view). It must carry `paywall_experiment`; the variant always comes from
+   * the assignment record (iOS: server-assigned; web: proxy cookie), never
+   * from the exposure event.
    */
   readonly exposureEvent: string;
   /** HogQL predicate over the exposure event (web experiments add bot filtering here). */
@@ -91,9 +95,9 @@ export const DEFAULT_EXPERIMENT_POLICY: ExperimentPolicy = {
 
 /**
  * Assignment exclusions every experiment shares: internal and synthetic
- * accounts and non-production channels. The server's `paywall_assigned`
- * events carry these properties; web experiments add bot filtering in their
- * exposure predicate.
+ * accounts and non-production channels. `paywall_assigned` events carry
+ * these properties (sent by the server on iOS, by the browser on the web);
+ * web experiments add bot filtering in their exposure predicate.
  */
 export const COMMON_EXPOSURE_EXCLUSIONS = [
   "coalesce(toString(properties.paywall_internal), '') NOT IN ('true', '1')",

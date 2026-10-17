@@ -34,26 +34,28 @@ Code:
      new variant key. Do not edit an exposed variant: the optimizer logs
      every edit as `copy_changed`, and that arm then holds two versions.
 3. **Assignment and exposure are different events.**
-   - **Assignment:** the server records `paywall_assigned` when it serves a
-     variant (at most once per user, variant and UTC day). It carries
-     `paywall_experiment`, `paywall_variant`, `paywall_layout`,
+   - **Assignment, iOS:** the server records `paywall_assigned` when it
+     serves a variant (at most once per user, variant and UTC day). It
+     carries `paywall_experiment`, `paywall_variant`, `paywall_layout`,
      `paywall_platform`, `paywall_channel`, `paywall_internal` and
      `paywall_sticky`. The app also fetches the config from the Settings
      plan row, so an assignment is not an exposure.
-   - **Exposure:** the app's own view event (`ios_paywall_viewed` for iOS),
-     which carries `paywall_experiment` and `paywall_variant`. A person is
-     exposed at their first view event after their first assignment (5
-     minutes of clock skew allowed). The person is counted in the
-     server-assigned arm, never the arm the client reports. The report counts
-     people whose app reported a different arm; that number must be 0.
+   - **Assignment, web:** the proxy assigns the arm in a cookie, and the
+     browser sends `paywall_assigned` for that arm (see the web experiment's
+     own section).
+   - **Exposure:** the client's view event: `ios_paywall_viewed` on iOS, the
+     pricing page view on the web. It carries `paywall_experiment` and
+     `paywall_variant`. A person is exposed at their first view event after
+     their first assignment (5 minutes of clock skew allowed). The person is
+     counted in the assigned arm (iOS: server-assigned; web: proxy cookie),
+     never the arm the view event reports. The report counts people whose
+     view event reported a different arm; that number must be 0.
    - At current traffic, about 1 view a day, counting config fetches would
      dilute the arms, which is why the client view event is the exposure.
    - **PostHog Experiments:** use the custom exposure event
      `ios_paywall_viewed`. The analytics proxy stamps `$feature/<experiment>`
      from `paywall_variant` on every app event that carries both properties,
-     so PostHog can read the arm. It carries `paywall_experiment`,
-   `paywall_variant`, `paywall_layout`, `paywall_platform`,
-   `paywall_channel`, `paywall_internal` and `paywall_sticky`.
+     so PostHog can read the arm.
 4. **Exclusions.** These groups never enter the analysis:
    - internal accounts (staff, and `PAYWALL_EXPERIMENT_INTERNAL_EMAILS`),
      which are tagged `paywall_internal` on the assignment;
