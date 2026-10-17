@@ -7,6 +7,22 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)),
                   .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui and app host"))
 struct MachineCatalogAppJourneyTests {
+    @Test func actualAppSubscriptionReceivesEmptyInvalidationFromAdmittedServerWatch() async throws {
+        let fixture = try MachineCatalogAppFixture(binary: #require(SameTreeDaemonBinary.url))
+        do {
+            try await fixture.start()
+            try await fixture.grantInventory(true)
+            _ = try await fixture.run("watch")
+            // Only the admitted server has acpmux. Delivery requires the actual
+            // JS subscription, native demand, production bridge and owner watch ACK.
+            let notice = try await fixture.run("next")
+            #expect(notice == .object([:]))
+            _ = try await fixture.run("unwatch")
+            try await fixture.grantInventory(false)
+        } catch { await fixture.stop(); throw error }
+        await fixture.stop()
+    }
+
     @Test func serverDiscoveryAndScopedInventoryUseTheActualAppProvider() async throws {
         let fixture = try MachineCatalogAppFixture(binary: #require(SameTreeDaemonBinary.url))
         do {

@@ -61,7 +61,7 @@ final class MachineCatalogAppFixture {
         server.connect()
         try await wait("server registry handshake") { server.daemon.connection != nil && server.daemon.identity != nil }
 
-        let transport = DaemonAppsTransport(daemon: local)
+        let transport = DaemonAppsTransport(daemon: local, inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
         self.transport = transport
         transport.provider.attach(AppHostCapabilities([AgentCLICapabilityHandler { [registry] in registry.agentInventoryRoutes() }]))
         transport.start()
@@ -95,6 +95,7 @@ final class MachineCatalogAppFixture {
         publisher?.stop()
         publisher = nil
         transport?.provider.connectionChanged(epoch: nil)
+        transport?.inventory.stop()
         transport = nil
         server?.close()
         local.shutdownConnection()

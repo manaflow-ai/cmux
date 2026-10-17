@@ -1,4 +1,5 @@
-import CmuxNextDaemon
+import CmuxNextCompat
+public import CmuxNextDaemon
 import CmuxNextWakeups
 
 /// Connects permissioned native provider demand to already admitted machine watches.
