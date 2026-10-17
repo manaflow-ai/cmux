@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxTerminalCore
+internal import Darwin
 
 /// Filesystem operations injected into ``TerminalSurface`` runtime creation.
 public struct TerminalSurfaceRuntimeFilesystem: Sendable {
@@ -18,6 +19,24 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
+    /// Opens a runtime working directory before native surface creation.
+    ///
+    /// `ghostty_surface_new` opens the requested working directory on the
+    /// calling thread. Opening it here first, off the main actor, absorbs a
+    /// slow volume, File Provider or privacy check so the main-thread open
+    /// hits a warm lookup (#21260). The result is advisory: Ghostty still
+    /// decides whether the directory is usable.
+    public let prepareWorkingDirectory: @Sendable (_ path: String) async -> Void
+
+    /// Opens and closes a directory, blocking the calling thread until the
+    /// kernel lookup completes.
+    public static let openWorkingDirectory: @Sendable (_ path: String) async -> Void = { path in
+        let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if descriptor >= 0 {
+            close(descriptor)
+        }
+    }
+
     /// Creates the runtime filesystem seam with a policy-aware shim installer.
     public init(
         agentCommandShimRootDirectory: URL,
@@ -28,11 +47,14 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ rootDirectory: URL,
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
-        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
+        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
+        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Void =
+            TerminalSurfaceRuntimeFilesystem.openWorkingDirectory
     ) {
         self.agentCommandShimRootDirectory = agentCommandShimRootDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.isExecutableFile = isExecutableFile
+        self.prepareWorkingDirectory = prepareWorkingDirectory
     }
 
     /// Creates the runtime filesystem seam with an installer that ignores
@@ -45,7 +67,9 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ surfaceId: UUID,
                 _ rootDirectory: URL
             ) async -> TerminalSurfaceAgentCommandShimSet?,
-        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
+        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
+        prepareWorkingDirectory: @escaping @Sendable (_ path: String) async -> Void =
+            TerminalSurfaceRuntimeFilesystem.openWorkingDirectory
     ) {
         self.init(
             agentCommandShimRootDirectory: agentCommandShimRootDirectory,
@@ -56,7 +80,8 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                     rootDirectory
                 )
             },
-            isExecutableFile: isExecutableFile
+            isExecutableFile: isExecutableFile,
+            prepareWorkingDirectory: prepareWorkingDirectory
         )
     }
 }
