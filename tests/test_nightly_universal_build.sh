@@ -237,6 +237,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
@@ -277,6 +278,7 @@ fi
 
 if ! awk '
   /^  build-nightly-app:/ { job="build"; next }
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "build" && /^      - name: Derive Sparkle public key from private key/ { derived_in_build=1 }
@@ -289,6 +291,7 @@ if ! awk '
 fi
 
 if ! awk '
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "publish" && /variant: \$\{\{ fromJSON\(needs\.decide\.outputs\.variants\) \}\}/ { saw_matrix=1 }
@@ -440,13 +443,23 @@ if ! awk '
   exit 1
 fi
 
+# Nightly runs no bundle code in the signing job. verify-signed-nightly, a job
+# without secrets, launches the signed app and drives its CLI, and both
+# publication paths wait for it (publish-nightly needs it; the notarization
+# continuation requires its success). A launch failure is found after the
+# Apple submission, never after publication.
 if ! awk '
-  /^      - name: Codesign apps/ { sign_line=NR }
-  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
-  /^      - name: Notarize app ticket through final DMG/ { notarize_line=NR }
-  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+  /^  verify-signed-nightly:/ { job="verify"; next }
+  /^  publish-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "verify" && /^    environment:/ { verify_env=1 }
+  job == "verify" && /secrets\./ { verify_secret=1 }
+  job == "verify" && /^      - name: Smoke launch signed app$/ { smoke=1 }
+  job == "verify" && /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli=1 }
+  job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
+  END { exit !(smoke && cli && gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  echo "FAIL: nightly must launch the signed app and its CLI in a secret-free verify job that gates publication"
   exit 1
 fi
 
@@ -559,9 +572,9 @@ done
 # job's strip, so it must run strip-release-bundle.sh again after that install.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
-  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
-  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
-  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "prepare-nightly-variant:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "prepare-nightly-variant:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
   END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
@@ -594,9 +607,10 @@ if ! awk '
   exit 1
 fi
 
-# The launch smoke only proves the process stays alive. Both signing jobs must
-# also drive the signed app through its bundled CLI before notarization.
-for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+# release still smokes in its signing job (its split is a separate change);
+# it must also drive the signed app through its bundled CLI before notarization.
+
+for workflow in "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }

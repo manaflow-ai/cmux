@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -209,6 +210,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.output, /name: 'apikey',\s+domains: \[ 'localhost' \],\s+totp: false/);
       r = await run(`
         const rec = session.record();
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${primary}/agent-tools.html?peer=${peer}");
         await page.fill("#apikey", secret("apikey"));
         await page.locator("#pass").pressSequentially(secret("pw"));
@@ -274,6 +276,44 @@ test("secrets: a registered value never appears in output, errors, page reads or
   }
 });
 
+// A page that receives a typed secret can send it on; only the domain
+// policy's content rules, which hold in the tabs the session opened, stop
+// that. So a secret is typed only into such a tab while the policy keeps it
+// on the secret's domains, never into a user's tab or another session's.
+test("secrets: typed only into the session's own tab under a policy within the secret's domains", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const fill = `await page.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message)`;
+  try {
+    const outputs = await runDevCells([
+      { code: `const t = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html?user-owned"); await t.keep(); console.log("kept");` },
+      {
+        session: "typist",
+        code: `
+secrets.set("key", "sk-owned-4242", { domains: ["localhost"] });
+const out = {};
+await page.goto(${JSON.stringify(primary)} + "/agent-tools.html");
+out.noPolicy = ${fill};
+session.allowedDomains(["http://localhost", "http://127.0.0.1"]);
+out.widerPolicy = ${fill};
+session.allowedDomains(["http://localhost"]);
+out.withinPolicy = ${fill};
+const row = (await tabs.list()).find((t) => t.url.endsWith("?user-owned"));
+const user = await tabs.use(row.id);
+out.userTab = await user.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message);
+out.userValue = await user.locator("#apikey").inputValue();
+console.log(JSON.stringify(out));`,
+      },
+    ]);
+    const out = JSON.parse(outputs[1].output.trim().split("\n").at(-1));
+    assert.equal(out.withinPolicy, "typed", JSON.stringify(out));
+    for (const key of ["noPolicy", "widerPolicy", "userTab"]) assert.notEqual(out[key], "typed", `${key}: ${JSON.stringify(out)}`);
+    assert.equal(out.userValue, "", JSON.stringify(out));
+  } finally {
+    await servers.close();
+  }
+});
+
 test("secrets: a TOTP secret types the current code, and reading it back shows the mask", async () => {
   const servers = await startFixtureServers();
   try {
@@ -284,6 +324,7 @@ test("secrets: a TOTP secret types the current code, and reading it back shows t
       const candidates = [totp(seed, now), totp(seed, now + 30_000), totp(seed, now + 60_000)];
       const r = await run(`
         secrets.set("otp", "${seed}", { domains: ["localhost"], totp: true });
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${servers.origins.primary}/agent-tools.html");
         await page.fill("#otp", secret("otp"));
         const typed = await page.evaluate((codes) => codes.includes(document.getElementById("otp").value), ${JSON.stringify(candidates)});
@@ -362,6 +403,40 @@ test("storage state: scoped to the current tab's site unless { all: true }", asy
       assert.deepEqual(all, [[host(primary), host(peer)].sort(), [primary, peer].sort()]);
       assert.deepEqual(otherScoped, [[host(peer)], [peer]]);
       assert.deepEqual(byUrl, [[host(peer)], [peer]]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// An empty URL list is no scope at all: it means the current tab's site, as
+// an absent one does, never the whole profile (that needs { all: true }).
+// A URL that is not absolute http(s) is refused, not ignored.
+test("storage state: an empty urls list scopes to the current tab's site", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        await page.goto("${primary}/set-cookie");
+        const other = await tabs.open("${peer}/set-cookie");
+        await other.close();
+        await page.goto("${primary}/agent-tools.html");
+        const view = (s) => s.cookies.map((c) => c.domain).sort();
+        const out = {};
+        out.empty = await session.storageState({ urls: [] }).then(view, (e) => e.message);
+        out.contextEmpty = await page.context().storageState({ urls: [] }).then(view, (e) => e.message);
+        out.blank = await session.storageState({ urls: [""] }).then(view, (e) => e.message);
+        out.relative = await session.storageState({ urls: ["/x"] }).then(view, (e) => e.message);
+        fs.writeFileSync("./empty-scope.json", JSON.stringify(out));
+      `);
+      assert.equal(r.error, null);
+      const out = JSON.parse(fs.readFileSync(path.join(dir, "empty-scope.json"), "utf8"));
+      const host = (o) => new URL(o).hostname;
+      assert.deepEqual(out.empty, [host(primary)], JSON.stringify(out));
+      assert.deepEqual(out.contextEmpty, [host(primary)], JSON.stringify(out));
+      assert.match(String(out.blank), /urls/, JSON.stringify(out));
+      assert.match(String(out.relative), /urls/, JSON.stringify(out));
     });
   } finally {
     await servers.close();
@@ -459,6 +534,153 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   }
 });
 
+// A lazy page (the session's first `page` before any call opens its tab)
+// has no tab yet. Its cookie reads and writes open that tab first, as its
+// clear does, so the driver uses the store the page's own tab is in: a call
+// without a tab would reach the active tab's store, another site's (a
+// private tab's, or a user's tab the session drives).
+test("a lazy page's cookie calls open its tab and never use the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method.startsWith("cookies.")) calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-lazy-${process.pid}`, print: () => {} }), driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      await other.bringToFront();
+      await lazy.context().addCookies([{ name: "lazy", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      await lazy.context().cookies();
+      JSON.stringify({ wasLazy, lazy: lazy._targetId, other: other._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(calls.length, 2, JSON.stringify(calls));
+    for (const c of calls) {
+      assert.notEqual(c.targetId, undefined, `${c.method} names a tab: ${JSON.stringify(calls)}`);
+      assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}`);
+    }
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// fetch() goes through the current page's tab. While that page is lazy (no
+// tab yet), fetch opens its tab first, reads cookies from that tab's store
+// and binds the request to it: without a tab both would use the active
+// tab's store, another site's.
+test("fetch from a lazy current page opens its tab and never uses the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-fetch-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method === "cookies.get") calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const host = createNodeHost({ workDir: dir, sessionId: `fetch-lazy-${process.pid}`, print: () => {} });
+  const hostFetch = host.fetch.bind(host);
+  host.fetch = (url, init = {}) => {
+    calls.push({ method: "host.fetch", targetId: init.targetId });
+    return hostFetch(url, init);
+  };
+  const repl = createDevRepl({ host, driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html", { background: true });
+      await other.bringToFront();
+      const res = await fetch(${JSON.stringify(primary)} + "/index.html");
+      JSON.stringify({ wasLazy, status: res.status, lazy: lazy._targetId, other: other._targetId, current: page._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(ids.status, 200);
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+    assert.equal(ids.current, ids.lazy, "the lazy page stays the current page");
+    assert.deepEqual(calls.map((c) => c.method), ["cookies.get", "host.fetch"], JSON.stringify(calls));
+    for (const c of calls) assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}: ${JSON.stringify(calls)}`);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// A page whose tab closed (the user closed it, or a narrowed domain policy
+// closed it) has no site and no store any more: its cookie calls fail with
+// `closed` and never fall back to the current tab. Seen on the app: once
+// tabs.list() let the close event land, clearCookies() through the closed
+// blocked tab cleared the allowed current tab's site.
+test("cookie calls through a closed page fail with closed and never reach the current tab", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-closed-");
+  const driver = browser.driver();
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver });
+  try {
+    const setup = await repl.evaluate(`
+      await page.goto(${JSON.stringify(primary)} + "/set-cookie");
+      globalThis.primaryTab = page;
+      globalThis.peerTab = await tabs.open(${JSON.stringify(peer)} + "/set-cookie");
+      await tabs.use(primaryTab);
+      peerTab._targetId
+    `);
+    assert.equal(setup.ok, true, setup.error);
+    // Closed from outside the page object, as the app closes a tab.
+    await driver.call("tabs.close", { targetId: setup.value });
+    const r = await repl.evaluate(`
+      await tabs.list();
+      const outcome = async (f) => { try { await f(); return "done"; } catch (e) { return e.code || e.message; } };
+      const cx = peerTab.context();
+      const url = ${JSON.stringify(primary)} + "/";
+      const out = { closed: peerTab.isClosed() };
+      out.clear = await outcome(() => cx.clearCookies());
+      out.clearName = await outcome(() => cx.clearCookies({ name: "parity" }));
+      out.clearRegExp = await outcome(() => cx.clearCookies({ name: /parity/ }));
+      out.get = await outcome(() => cx.cookies());
+      out.set = await outcome(() => cx.addCookies([{ name: "planted", value: "1", url }]));
+      out.state = await outcome(() => cx.storageState({ all: true }));
+      out.setState = await outcome(() => cx.setStorageState({ cookies: [{ name: "planted2", value: "1", url }] }));
+      out.primary = (await primaryTab.context().cookies([url])).map((c) => c.name).sort();
+      JSON.stringify(out)
+    `);
+    assert.equal(r.ok, true, r.error);
+    const out = JSON.parse(r.value);
+    assert.equal(out.closed, true, "the close landed");
+    for (const key of ["clear", "clearName", "clearRegExp", "get", "set", "state", "setState"]) {
+      assert.equal(out[key], "closed", `${key} through the closed page: ${JSON.stringify(out)}`);
+    }
+    assert.deepEqual(out.primary, ["parity"], "the current tab's site keeps its cookies and gets none planted");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
 // localStorage lives in a tab's data store too: storageState and
 // setStorageState read and write it only through tabs in the page's own
 // store, and restore an origin no such tab shows in a new tab of that store.
@@ -514,29 +736,30 @@ test("storage state reads and writes localStorage only in the page's own data st
   }
 });
 
-// Playwright's context outlives its pages: a closed page's context still
-// reads and adds cookies, through the session's default store.
-test("a closed page's context still reads and adds cookies", async () => {
-  const browser = await createDevBrowser();
+// setStorageState writes an origin's items only into a document of that
+// exact origin: an origin whose page redirects elsewhere (or a tab that
+// moved since it was listed) must not hand its items to the other origin.
+test("storage state: an origin that redirects to another origin gets no items, and neither does the other", async () => {
   const servers = await startFixtureServers();
   const { primary } = servers.origins;
   const dir = makeTestDir("cmux-repl-cookie-closed-");
   const repl = createHostedRepl(ns, { host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver: browser.driver() }).repl;
   try {
-    const r = await repl.evaluate(`
-      const p = await tabs.open(${JSON.stringify(primary)} + "/index.html");
-      const context = p.context();
-      await p.close();
-      await context.addCookies([{ name: "after-close", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
-      (await context.cookies(${JSON.stringify(primary)} + "/")).map((c) => c.name)
-    `);
-    assert.equal(r.ok, true, r.error);
-    assert.ok(r.value.includes("after-close"), JSON.stringify(r.value));
+    await withRepl(async ({ run }) => {
+      let r = await run(`
+        let failed = null;
+        try { await session.setStorageState({ origins: [{ origin: ${JSON.stringify(from)}, localStorage: [{ name: "planted", value: "x" }] }] }); } catch (e) { failed = e.message; }
+        failed
+      `);
+      assert.equal(r.error, null);
+      assert.match(r.output, /redirect|is now|not written|instead of/i, "the restore failed naming the other origin");
+      r = await run(`await page.goto("${primary}/agent-tools.html"); await page.evaluate(() => localStorage.getItem("planted"))`);
+      assert.equal(r.error, null);
+      assert.equal(r.output, "null", "the redirect target's localStorage holds no item of the other origin");
+    });
   } finally {
-    repl.dispose();
-    await browser.close();
+    await new Promise((r) => redirect.close(r));
     await servers.close();
-    removeTestDir(dir);
   }
 });
 
@@ -592,6 +815,58 @@ test("cookie and storage-state scope follow the Public Suffix List", async () =>
     assert.deepEqual(out.afterGithub, ["bob.github.io", "example.co.uk", "www.example.co.uk", "y.co.at"]);
     assert.deepEqual(out.afterCoUk, ["bob.github.io", "y.co.at"]);
   }, { setupContext });
+});
+
+test("cookies.get for a URL sends a Secure cookie over http only to a loopback host, as the app's driver", async () => {
+  // HTTPCookie.browserReplMatches: https, or a loopback host (localhost and
+  // its subdomains, [::1], 127.0.0.0/8 as an address); never a name that
+  // only starts with 127. Host-only cookies go to their exact host.
+  const browser = await createDevBrowser();
+  try {
+    const driver = browser.driver();
+    const cookie = (name, domain, extra = {}) => ({ name, value: "1", domain, path: "/", ...extra });
+    await driver.call("cookies.set", {
+      cookies: [
+        cookie("v4", "127.0.0.1", { secure: true }),
+        cookie("v4other", "127.0.0.2", { secure: true }),
+        cookie("local", "localhost", { secure: true }),
+        cookie("lookalike", "127.0.0.1.example.test", { secure: true }),
+        cookie("remote", "example.test", { secure: true }),
+        cookie("plain", "example.test"),
+        cookie("sub", "app.example.test"),
+      ],
+    });
+    const names = async (url) => (await driver.call("cookies.get", { urls: [url] })).map((c) => c.name).sort();
+    assert.deepEqual(await names("http://127.0.0.1:8080/a"), ["v4"]);
+    assert.deepEqual(await names("http://127.0.0.2/"), ["v4other"]);
+    assert.deepEqual(await names("http://localhost:3000/"), ["local"]);
+    assert.deepEqual(await names("http://127.0.0.1.example.test/"), []);
+    assert.deepEqual(await names("http://example.test/"), ["plain"]);
+    assert.deepEqual(await names("https://example.test/"), ["plain", "remote"]);
+    await driver.detach();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a host-only cookie is in reach only when the policy allows its exact host", async () => {
+  // BrowserReplDomainPolicy.cookieBlockReason: example.com's host-only
+  // cookie never goes to app.example.com, so a session allowed only
+  // app.example.com does not list it; a Domain cookie on example.com does.
+  await withRepl(async ({ run, dir }) => {
+    const r = await run(`
+      await page.context().addCookies([
+        { name: "hostonly", value: "1", domain: "example.com", path: "/" },
+        { name: "domain", value: "2", domain: ".example.com", path: "/" },
+        { name: "app", value: "3", domain: "app.example.com", path: "/" },
+      ]);
+      session.allowedDomains(["https://app.example.com"]);
+      const names = (await page.context().cookies()).map((c) => c.name).sort();
+      fs.writeFileSync("./reach.json", JSON.stringify(names));
+    `);
+    assert.equal(r.error, null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "reach.json"), "utf8")), ["app", "domain"]);
+  });
 });
 
 test("storage state: sites by the Public Suffix List (the dev backend's stand-in for the app's)", () => {

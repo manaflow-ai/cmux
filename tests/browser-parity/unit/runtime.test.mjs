@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
+import { loadRuntime, runDevRepl, createFsOp, createDevBrowser, createDevRepl, createNodeHost } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
@@ -370,6 +370,39 @@ test("handled events: after a dropped update removing the last listener, the emp
   assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
 });
 
+// r17 native#2: a cancelled (timed-out) cell is over. Its suspended code
+// can resume when something settles a promise it awaited, and a page
+// listener it registered can fire later; neither does host work then.
+function cancelFixture() {
+  const ops = [];
+  const listeners = new Map();
+  const host = {
+    workDir: "/work",
+    tmpdir: "/work/tmp",
+    homedir: "/home",
+    sessionId: "cancel-test",
+    setTimeout,
+    clearTimeout,
+    now: Date.now,
+    print: () => {},
+    console: { error: () => {} },
+    fsOp: (op) => (ops.push(op), op === "exists" ? false : null),
+    readResource: (path) => (ops.push("readResource"), path === "guide.md" ? "# guide" : null),
+  };
+  const driver = {
+    call: async (method) => (ops.push(method), method === "tabs.list" ? [] : null),
+    on: (event, handler) => {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(handler);
+      return () => {};
+    },
+    capabilities: () => [],
+  };
+  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  const emit = (event, payload) => (listeners.get(event) || []).forEach((h) => h(payload));
+  return { repl, ops, emit };
+}
+
 test("cancel: a function a cancelled cell defined still prints when a later cell calls it", async () => {
   const printed = [];
   const host = { setTimeout, clearTimeout, now: Date.now };
@@ -564,6 +597,347 @@ test("frames: without the driver's frame identity, an iframe is not matched to a
   const main = new Frame(page, "", null);
   all = [main, new Frame(page, "1", main), new Frame(page, "2", main)];
   assert.equal(await main._contentFrame("h1"), null);
+});
+
+test("frames: a click in a nested frame never lands on another element: a transformed <iframe> is refused, a covering element in the parent intercepts", async () => {
+  // The frame's point in the tab is its owner <iframe>'s box plus the point
+  // in the frame. A scale (or rotation, zoom) on the <iframe> or an ancestor
+  // moves the frame's content away from that sum, and an element of the
+  // parent can cover the <iframe>: the trusted click would land there.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle, extra) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate(([frameStyle, extra]) => {
+          window.clicked = [];
+          document.body.style.margin = "0";
+          document.body.innerHTML = extra + '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button><button style=position:absolute;left:100px;top:160px;width:100px;height:40px onclick=parent.clicked.push(&quot;other&quot;)>Other</button></body>"></iframe>';
+          for (const b of document.querySelectorAll("[data-decoy]")) b.onclick = () => window.clicked.push(b.dataset.decoy);
+        }, [frameStyle, extra]);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        let error = null;
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+        } catch (e) {
+          error = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+        return { clicked: await page.evaluate(() => window.clicked), error };
+      };
+      const decoy = (name, left, top) => '<button data-decoy="' + name + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:200px;z-index:0">' + name + '</button>';
+      const r = {
+        scaled: await scene("transform:scale(0.5);transform-origin:0 0", decoy("decoy", 350, 350)),
+        rotated: await scene("transform:rotate(180deg)", decoy("decoy", 350, 350)),
+        covered: await scene("", '<div data-decoy="overlay" style="position:absolute;left:0;top:0;width:700px;height:700px;z-index:5"></div>'),
+        translated: await scene("transform:translate(30px, 20px)", ""),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    for (const name of ["scaled", "rotated"]) {
+      assert.deepEqual(r[name].clicked, [], `${name}: the click landed on ${JSON.stringify(r[name].clicked)}`);
+      assert.match(r[name].error || "", /transform/, `${name}: ${r[name].error}`);
+    }
+    assert.deepEqual(r.covered.clicked, [], `covered: the click landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /intercepts pointer events/, r.covered.error);
+    // A translation keeps the frame's geometry: the click reaches the target.
+    assert.deepEqual(r.translated, { clicked: ["target"], error: null });
+  } finally {
+    await server.close();
+  }
+});
+
+test("frames: the error for a transformed <iframe> names the CSS property and its value type, never the page's value text", async () => {
+  // The page writes the computed geometry value: its text can carry what
+  // the page chose (a path, numbers that encode a secret). The input error
+  // reaches the session, and a cut prefix of a secret-bearing value would
+  // pass native whole-value masking, so no part of the value is returned.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate((frameStyle) => {
+          document.body.style.margin = "0";
+          document.body.innerHTML = '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:40px;top:40px;width:100px;height:40px>Target</button></body>"></iframe>';
+        }, frameStyle);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e);
+        }
+      };
+      const r = {
+        path: await scene("offset-path:path('M 0 0 L 4242424242 7373737373')"),
+        matrix: await scene("transform:matrix(0.5, 0.25, 0.125, 0.5, 0, 0)"),
+        rotate: await scene("rotate:13.5deg"),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.match(r.path || "", /offset-path/, r.path);
+    assert.doesNotMatch(r.path || "", /4242|7373|M 0 0/, `the error carried the page's offset-path text: ${r.path}`);
+    assert.match(r.matrix || "", /transform/, r.matrix);
+    assert.doesNotMatch(r.matrix || "", /0\.25|0\.125/, `the error carried the page's transform text: ${r.matrix}`);
+    assert.match(r.rotate || "", /rotate/, r.rotate);
+    assert.doesNotMatch(r.rotate || "", /13\.5/, `the error carried the page's rotate text: ${r.rotate}`);
+  } finally {
+    await server.close();
+  }
+});
+
+test("pointer: a page that moves another frame over the target when the click's pointer arrives gets no press in that frame", async () => {
+  // The click checks the hit target after the pointer moves there, then
+  // moves it once more and presses. A page that puts another frame (or
+  // element) over the point on that last move would get the trusted press:
+  // the target is checked again right before the press, and the click fails.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        const t = document.getElementById("t");
+        t.onclick = () => window.clicked.push("target");
+        let moves = 0;
+        t.addEventListener("mousemove", () => {
+          if (++moves === 2) document.getElementById("f").style.left = "0px";
+        });
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      let error = null;
+      try {
+        await page.locator("#t").click({ timeout: 1500 });
+      } catch (e) {
+        error = String(e.message || e).split("\\n")[0];
+      }
+      console.log("@@" + JSON.stringify({ clicked: await page.evaluate(() => window.clicked), error }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.clicked, [], `the press landed on ${JSON.stringify(r.clicked)}`);
+    assert.match(r.error || "", /intercepts pointer events|frame/, r.error);
+  } finally {
+    await server.close();
+  }
+});
+
+// Runs `code` in a dev session whose driver calls the page's
+// `onPressWindow()` right before it handles each input.mouse down, after
+// the runtime's last check: what a page can do in the driver round trip
+// between that check and the press.
+async function runWithPressWindow(code) {
+  const browser = await createDevBrowser();
+  const dir = fs.realpathSync(makeTestDir("cmux-repl-"));
+  const lines = [];
+  let host = null;
+  try {
+    const raw = browser.driver({ sessionId: "press-window" });
+    const driver = Object.create(raw);
+    driver.call = async (method, params = {}) => {
+      if ((method === "input.mouse" && params.type === "down") || method === "input.drag") {
+        await raw.call("frame.evaluate", {
+          targetId: params.targetId,
+          world: "page",
+          source: "() => { if (typeof window.onPressWindow === 'function') window.onPressWindow(); }",
+          args: [],
+          handles: [],
+          awaitPromise: true,
+        });
+      }
+      return raw.call(method, params);
+    };
+    host = createNodeHost({ workDir: dir, sessionId: "press-window", print: (level, text) => lines.push(text) });
+    const repl = createDevRepl({ host, driver });
+    const r = await repl.evaluate(code);
+    repl.dispose();
+    await raw.detach();
+    return r.ok ? lines.join("\n") : `${lines.join("\n")}\nUncaught ${r.error}`;
+  } finally {
+    await browser.close();
+    removeTestDir(dir);
+    if (host) removeTestDirIfEmpty(host.tmpdir);
+  }
+}
+
+test("pointer: the driver refuses a click's press when the page changes the point in the round trip after the runtime's last check", async () => {
+  // The runtime checks the target and each parent frame's <iframe> right
+  // before the press, but the press is another driver call: the page runs
+  // between the two. The driver checks again where it sends the press, so
+  // a frame moved over the target, or a frame moved away from under the
+  // pointer, gets no press.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const click = async (locator) => {
+        try {
+          await locator.click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        document.getElementById("t").onclick = () => window.clicked.push("target");
+        window.onPressWindow = () => { document.getElementById("f").style.left = "0px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      const covered = { error: await click(page.locator("#t")), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.innerHTML = '<button data-decoy style="position:absolute;left:300px;top:300px;width:400px;height:400px;z-index:0" onclick="clicked.push(&quot;decoy&quot;)">Decoy</button>' +
+          '<iframe id="g" style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;z-index:1" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button></body>"></iframe>';
+        window.onPressWindow = () => { document.getElementById("g").style.left = "700px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("g").contentDocument; return !!(d && d.querySelector("button")); });
+      const moved = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.getElementById("g").style.left = "0px";
+        window.onPressWindow = null;
+      });
+      const still = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+      console.log("@@" + JSON.stringify({ covered, moved, still }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.covered.clicked, [], `covered: the press landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /no press was sent: .*intercepts pointer events/, r.covered.error);
+    assert.deepEqual(r.moved.clicked, [], `moved: the press landed on ${JSON.stringify(r.moved.clicked)}`);
+    assert.match(r.moved.error || "", /no press was sent: .*(moved|intercepts pointer events)/, r.moved.error);
+    // A page that leaves the point alone still gets the click.
+    assert.deepEqual(r.still, { error: null, clicked: ["target"] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("pointer: a locator drag starts and drops only on the elements the runtime checked, also after the page changes the points", async () => {
+  // dragTo is two points, and the page runs between the runtime's checks
+  // and the driver's drag, and during the drag itself: it can put another
+  // element or another (allowed) frame over the source before the press,
+  // or over the target once the drag started. The driver checks the source
+  // right before the press and the target right before the release, as it
+  // does a click's press, and makes no drop when either changed.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const drag = async () => {
+        try {
+          await page.locator("#s").dragTo(page.locator("#t"), { timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      const setUp = (mode) => page.evaluate((mode) => {
+        window.events = [];
+        document.body.style.margin = "0";
+        const decoy = (left, top) => '<iframe id="d" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:120px;border:0;z-index:5" ' +
+          'srcdoc="<body style=margin:0;height:120px ondragover=event.preventDefault() ondrop=event.preventDefault();parent.events.push(&quot;decoy-drop&quot;) onmousedown=parent.events.push(&quot;decoy-down&quot;)></body>"></iframe>';
+        document.body.innerHTML =
+          '<div id="s" draggable="true" style="position:absolute;left:20px;top:20px;width:100px;height:60px;background:#ccc">source</div>' +
+          '<div id="t" style="position:absolute;left:300px;top:300px;width:120px;height:80px;background:#eee">target</div>' +
+          decoy(-1000, 0);
+        const s = document.getElementById("s");
+        const t = document.getElementById("t");
+        s.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", "x");
+          window.events.push("dragstart");
+          if (mode === "drop") { const d = document.getElementById("d"); d.style.left = "250px"; d.style.top = "280px"; }
+        });
+        t.addEventListener("dragenter", (e) => e.preventDefault());
+        t.addEventListener("dragover", (e) => e.preventDefault());
+        t.addEventListener("drop", (e) => { e.preventDefault(); window.events.push("target-drop"); });
+        window.onPressWindow = mode === "start" ? () => { const d = document.getElementById("d"); d.style.left = "0px"; d.style.top = "0px"; } : null;
+      }, mode);
+      const ready = () => page.waitForFunction(() => { const d = document.getElementById("d").contentDocument; return !!(d && d.body); });
+      const result = {};
+      for (const mode of ["start", "drop", "still"]) {
+        await setUp(mode);
+        await ready();
+        const error = await drag();
+        result[mode] = { error, events: await page.evaluate(() => window.events) };
+      }
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.ok(!r.start.events.includes("decoy-down") && !r.start.events.includes("decoy-drop"), `start: the drag reached the frame over the source: ${JSON.stringify(r.start)}`);
+    assert.match(r.start.error || "", /no press was sent: /, JSON.stringify(r.start));
+    assert.ok(!r.drop.events.includes("decoy-drop") && !r.drop.events.includes("target-drop"), `drop: the drop landed on ${JSON.stringify(r.drop.events)}`);
+    assert.match(r.drop.error || "", /no drop was made: /, JSON.stringify(r.drop));
+    // A page that leaves the points alone still gets the drop.
+    assert.deepEqual(r.still, { error: null, events: ["dragstart", "target-drop"] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("frames: finding a frame's <iframe> for an action walks at most the node budget of the parent frame", async () => {
+  // The parent frame is the page's: it can hold millions of elements, and a
+  // walk of all of them before every action in a child frame would let it
+  // stall the session. An <iframe> in the light DOM is found through the
+  // frame's own place in window.frames; one in a shadow tree past the
+  // snapshot's node budget (250000 elements) is not looked for.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        const button = (name) => '<button onclick=parent.clicked.push(&quot;' + name + '&quot;)>' + name + '</button>';
+        document.body.innerHTML = '<div style="display:none">' + "<i></i>".repeat(260000) + '</div>' +
+          '<iframe name="light" style="position:absolute;left:0;top:0;width:300px;height:100px" srcdoc="' + button("light") + '"></iframe>' +
+          '<div id="host" style="position:absolute;left:0;top:200px"></div>';
+        document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<iframe name="shadow" style="width:300px;height:100px" srcdoc="' + button("shadow") + '"></iframe>';
+      });
+      await page.waitForFunction(() => {
+        const ready = (f) => { const d = f && f.contentDocument; return !!(d && d.querySelector("button")); };
+        return ready(document.querySelector("iframe")) && ready(document.getElementById("host").shadowRoot.querySelector("iframe"));
+      });
+      // An action refreshes the page's frame list.
+      await page.mouse.click(1200, 700);
+      const result = {};
+      for (const name of ["light", "shadow"]) {
+        try {
+          await page.frame(name).getByRole("button").click({ timeout: 3000 });
+          result[name] = "clicked";
+        } catch (e) {
+          result[name] = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+      }
+      result.clicked = await page.evaluate(() => window.clicked);
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.equal(r.light, "clicked", r.light);
+    assert.match(r.shadow, /node budget/, `the shadow-tree <iframe> past the budget was looked for: ${r.shadow}`);
+    assert.deepEqual(r.clicked, ["light"]);
+  } finally {
+    await server.close();
+  }
 });
 
 test("network: requests that never finish are not kept without bound", () => {

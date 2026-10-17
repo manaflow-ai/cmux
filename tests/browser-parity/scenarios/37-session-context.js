@@ -1,6 +1,7 @@
 // Whose browser-context options (session.configure: user agent, headers,
 // permissions and the domain policy's content rules) a tab carries: a tab a
-// session created carries its creator's while the creator is attached; a
+// session created carries its creator's while the creator is attached, and
+// another session can neither drive that tab nor change its options; a
 // user's tab, including one a session only drives, keeps its own. The dev
 // driver cannot change the user agent, so there each check holds trivially.
 // oracle: skip (session and tab ownership are cmux-defined)
@@ -29,8 +30,10 @@ await ownTab.close();
 await userTab.close();
 await setUserAgent(null);
 // ---- cell session=ctxowner cmux-only
-// The owner's tab keeps the owner's options while another session drives it
-// and after that session ends.
+// The owner's tab keeps the owner's options while another session is
+// active. That session cannot drive the owner's tab (a tab another running
+// session created is refused), so its own session.configure and its
+// refused attempt are the activity the owner's options must survive.
 let ownerApplies = true;
 try {
   await session.configure({ userAgent: "brepl-owner-ua" });
@@ -39,10 +42,7 @@ try {
   ownerApplies = false;
 }
 const ownerTab = await tabs.open(`${PRIMARY}/index.html?ctx-owner`);
-await ownerTab.evaluate((applies) => localStorage.setItem("ctxOwnerApplies", String(applies)), ownerApplies);
 // ---- cell cmux-only
-const otherRow = (await tabs.list()).find((t) => t.url.endsWith("?ctx-owner"));
-const otherView = await tabs.use(otherRow.id);
 try {
   await session.configure({ userAgent: "brepl-other-ua" });
 } catch (e) {

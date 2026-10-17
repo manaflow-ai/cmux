@@ -6,6 +6,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
   const ORIGIN = "https://x.com";
   const SIGN_IN = [/x\.com\/(i\/flow\/login|login|i\/flow\/signup)/, /twitter\.com\/(i\/flow\/login|login)/];
 
@@ -73,6 +74,37 @@
     };
   }
 
+  // The bearer token X's web client sends with its own API calls. It is
+  // public (it ships in X's web app script) and names the web app, not a
+  // user: the user is the one X's HttpOnly session cookie authenticates.
+  const WEB_BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
+
+  // Runs in an x.com page: the account X authenticates this browser as,
+  // { screenName, id }, from the verify_credentials endpoint of X's web
+  // API (the session cookie, the bearer token and the ct0 CSRF value), in
+  // one response so the pair is consistent; null when X does not answer
+  // with both. The id (id_str, the account's rest_id) is immutable; the
+  // screen name is reusable once its account gives it up. Not the twid
+  // cookie, which names a user id but which any page script, another
+  // session's too, can write.
+  async function authenticatedUser(arg) {
+    const csrf = /(?:^|;\s*)ct0=([^;]+)/.exec(document.cookie);
+    if (!csrf) return null;
+    try {
+      const r = await fetch("/i/api/1.1/account/verify_credentials.json?include_entities=false&skip_status=true", {
+        credentials: "include",
+        headers: { authorization: "Bearer " + arg.bearer, "x-csrf-token": decodeURIComponent(csrf[1]), "x-twitter-auth-type": "OAuth2Session", "x-twitter-active-user": "yes" },
+      });
+      if (!r.ok) return null;
+      const body = await r.json();
+      if (!body || typeof body.screen_name !== "string" || !/^\w{1,15}$/.test(body.screen_name)) return null;
+      if (typeof body.id_str !== "string" || !/^[1-9]\d{0,24}$/.test(body.id_str)) return null;
+      return { screenName: body.screen_name, id: body.id_str };
+    } catch (e) {
+      return null;
+    }
+  }
+
   S.register(
     "x",
     (t) => {
@@ -125,15 +157,25 @@
         tweet: (id, options = {}) => tweets(`${ORIGIN}/i/status/${statusId(id)}`, options.limit || 20, "the X post"),
         // Draft a post, or a reply with { replyTo }. post(draftId, { confirm: true }) publishes it.
         post(input, options) {
-          return t.write("x", "post", input, options, (p) => {
+          return t.write("x", "post", input, options, async (p) => {
             const spec = typeof p === "string" ? { text: p } : p || {};
             if (typeof spec.text !== "string" || !spec.text.trim()) throw new S.SiteError("invalid", "x.post: expected the post text");
             const replyTo = spec.replyTo ? statusId(spec.replyTo) : null;
+            // The draft pins the account X authenticates (its immutable id
+            // and its screen name); X switches accounts in the shared
+            // profile, so another session can, and a screen name can pass
+            // to another account.
+            const user = await t.inOrigin(ORIGIN, authenticatedUser, { bearer: WEB_BEARER });
+            const account = user && user.screenName;
+            if (!user) throw new S.SiteError("account_unknown", "x.post: X did not say which X account the cmux browser is signed in as; nothing was drafted. If it is signed out, open https://x.com with tabs.open() and ask the user to sign in");
             return {
               category: "[9] representational communication (public post)",
-              summary: replyTo ? `Reply on X to post ${replyTo}` : "Publish a post on X",
-              preview: { text: spec.text, replyTo },
-              run: () =>
+              summary: replyTo ? `Reply on X to post ${replyTo} as @${account}` : `Publish a post on X as @${account}`,
+              account: { account, accountId: user.id },
+              target: { replyTo },
+              content: { text: spec.text },
+              canon: { text: t.normText, account: (v) => String(v).toLowerCase() },
+              commit: (c) =>
                 t.withTab(`${ORIGIN}/intent/post?text=${encodeURIComponent(spec.text)}${replyTo ? `&in_reply_to=${replyTo}` : ""}`, async (page) => {
                   t.assertSignedIn("x.post", page, SIGN_IN);
                   const button = page.locator('[data-testid="tweetButton"]');
@@ -151,6 +193,6 @@
         },
       };
     },
-    { summary: "X profiles, timelines, search, posts with replies; confirmed-draft posts and replies" },
+    { summary: "X profiles, timelines, search, posts with replies; confirmed-draft posts and replies", writes: ["post"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);
