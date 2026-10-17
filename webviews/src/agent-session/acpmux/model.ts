@@ -228,7 +228,13 @@ export type AcpmuxSnapshot = {
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
     effort?: string;
-    promptCapabilities?: { image?: boolean };
+    promptCapabilities?: {
+      image?: boolean;
+      audioInput?: boolean;
+      dictation?: boolean;
+      realtimeVoice?: boolean;
+      audioOutput?: boolean;
+    };
     /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).

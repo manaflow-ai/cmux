@@ -23,6 +23,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// JSON-RPC `code` and `data.code` of a refused method.
     public static let unsupportedCode = -32601
     public static let unsupported = "remote.unsupported"
+    public static let readOnly = "agent_session.read_only"
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
@@ -109,6 +110,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 }
             }
         case "session/cancel":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
@@ -123,6 +125,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 return try await self.page(method, page, client: client)
             }
         case "session/prompt":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
             let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
                 ?? UUID().uuidString.lowercased()
@@ -136,6 +139,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
         case "_acpmux/permission_respond":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
                   let option = params["optionId"] as? String else { return refuse(id, method) }
             // The decision proof the host added (never the page): acpmux on that machine decides.
@@ -299,6 +303,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private func refuse(_ id: String?, _ method: String) {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    private func refuseReadOnly(_ id: String?, _ method: String) {
+        fail(id, code: Self.readOnly, message: "\(method) is not available on a read-only agent session")
+    }
+
+    private var isReadOnly: Bool {
+        state.withLock { $0.client?.isReadOnly ?? false }
     }
 
     private func fail(_ id: String?, code: String, message: String, data: [String: Any] = [:]) {
