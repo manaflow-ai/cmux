@@ -6,6 +6,7 @@
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
+import { isAgentMotionOff } from "../../shared/motion";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -68,6 +69,14 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     if (!root || elements.length !== keys.length) {
       places.current = new Map();
       shown.current = "";
+      return;
+    }
+    if (isAgentMotionOff()) {
+      for (const animation of running.current) animation.cancel();
+      running.current = [];
+      places.current = measure(root, elements, keys);
+      shown.current = signature;
+      shownKeys.current = keys;
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
