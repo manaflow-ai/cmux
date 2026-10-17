@@ -147,7 +147,6 @@ struct ConversationFilesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let items: [ConversationItem]
     let capabilities: ConversationCapabilities?
-    @State private var selection: ConversationItemID?
     @State private var filter = DiffFilter.all
 
     private enum DiffFilter: String, CaseIterable, Identifiable {
@@ -196,8 +195,8 @@ struct ConversationFilesSheet: View {
                         .listRowBackground(Color.clear)
                 } else {
                     ForEach(diffs, id: \.id) { entry in
-                        Button {
-                            selection = entry.id
+                        NavigationLink {
+                            ConversationDiffDestination(diff: entry.diff)
                         } label: {
                             HStack {
                                 Image(systemName: "doc.text")
@@ -224,17 +223,6 @@ struct ConversationFilesSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
             }
-            // Push the diff in this stack instead of presenting a second sheet.
-            // Nested sheets can leave the outer files sheet presented without
-            // ever installing the destination on iPadOS (and intermittently
-            // on iPhone), even though the row's selection binding changes.
-            .navigationDestination(item: Binding(get: {
-                selection.flatMap { id in diffs.first(where: { $0.id == id }).map { ConversationDiffItem(id: id, diff: $0.diff) } }
-            }, set: { value in selection = value?.id })) { item in
-                ConversationDiffView(diff: item.diff)
-                    .navigationTitle(diffTitle(item.diff))
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { selection = nil } } }
-            }
         }
         // File browsing needs the full sheet height so the final changed-file
         // row remains a real hit target on both iPhone and iPad.
@@ -248,9 +236,23 @@ struct ConversationFilesSheet: View {
     }
 }
 
-private struct ConversationDiffItem: Identifiable {
-    let id: ConversationItemID
+private struct ConversationDiffDestination: View {
     let diff: ConversationDiff
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ConversationDiffView(diff: diff)
+            .navigationTitle(diffTitle)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() }
+                }
+            }
+    }
+
+    private var diffTitle: String {
+        diff.path.isEmpty ? ConversationL10n.value("conversation.task_changes", "Task changes") : diff.path
+    }
 }
 
 /// A small native diff viewer with line numbers and colored additions/removals.
