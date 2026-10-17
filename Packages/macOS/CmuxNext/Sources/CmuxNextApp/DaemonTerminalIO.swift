@@ -29,10 +29,10 @@ import os
 ///   after the view stops resizing, or the next frame in a live resize.
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
-///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
-///   cx-wwtam), then waits for an event: shown again, a key press, a click,
-///   focus or Retry, or the App's ``reconnect()`` (terminal or connection
-///   back). A restored view says "Restoring…" until its first replay.
+///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach
+///   works; a hidden one waits for an event: shown again, a key press, a
+///   click, focus or Retry, or the App's ``reconnect()`` (terminal or
+///   connection back). A restored view says "Restoring…" until its first replay.
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -182,7 +182,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// the view's own retries and the event-started ones after them.
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        for _ in 1..<max(1, failed) { _ = backoff.next() }
+        // A visible view retries without end; past 8 doublings the wait is the 30 s cap.
+        for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
         // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
         try await backoff.wait(owner: "terminal.reattach")
     }
