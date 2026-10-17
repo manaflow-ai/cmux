@@ -2681,9 +2681,6 @@
 		F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */; };
 		7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */; };
 		1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */; };
-		D1B800000000000000000005 /* MobileTaskDirectoryListServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */; };
-		D1A700000000000000000003 /* MobileTaskDirectorySearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */; };
-		F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
 		5FBEE7A11EE7A11EE7A10001 /* MobileTerminalByteTeeAppendCostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */; };
 		5FBEE7A31EE7A31EE7A30001 /* MobileTerminalFramePacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A31EE7A31EE7A30002 /* MobileTerminalFramePacer.swift */; };
@@ -3909,8 +3906,6 @@
 		F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000E /* TerminalController+MobileBrowser.swift */; };
 		ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */; };
 		C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */; };
-		D1B800000000000000000006 /* TerminalController+MobileDirectoryList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */; };
-		D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */; };
 		D7AB00000000000000C101 /* TerminalController+MobileFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */; };
 		4688B527FE390A0BC3B772E8 /* TerminalController+MobileInputDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67FB0CE02C2AC02973B75A89 /* TerminalController+MobileInputDelivery.swift */; };
 		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
@@ -3918,8 +3913,6 @@
 		D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */; };
 		F33000000000000000000014 /* TerminalController+MobileSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000004 /* TerminalController+MobileSimulator.swift */; };
 		C7AF30000000000000000001 /* TerminalController+MobileSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF30000000000000000002 /* TerminalController+MobileSurfaces.swift */; };
-		A77A30000000000000000002 /* TerminalController+MobileTaskAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */; };
-		A77A31000000000000000002 /* TerminalController+MobileTaskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */; };
 		C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */; };
 				B11D00000000000000000001 /* TerminalController+MobileTerminalLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11D00000000000000000002 /* TerminalController+MobileTerminalLifecycle.swift */; };
 		C7AF31000000000000000001 /* TerminalController+MobileTodos.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF31000000000000000002 /* TerminalController+MobileTodos.swift */; };
@@ -7256,9 +7249,6 @@
 		F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorWireEncoder.swift; sourceTree = "<group>"; };
 		A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileStateSync.swift; sourceTree = "<group>"; };
 		1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSurfaceKindMappingTests.swift; sourceTree = "<group>"; };
-		D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListServiceTests.swift; sourceTree = "<group>"; };
-		D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchServiceTests.swift; sourceTree = "<group>"; };
-		F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuotaTests.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTeeAppendCostTests.swift; sourceTree = "<group>"; };
 		5FBEE7A31EE7A31EE7A30002 /* MobileTerminalFramePacer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalFramePacer.swift; sourceTree = "<group>"; };
@@ -8467,8 +8457,6 @@
 		F1100000000000000000000E /* TerminalController+MobileBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileBrowser.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChat.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChatArtifacts.swift"; sourceTree = "<group>"; };
-		D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileDirectoryList.swift"; sourceTree = "<group>"; };
-		D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileDirectorySearch.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileFeed.swift"; sourceTree = "<group>"; };
 		67FB0CE02C2AC02973B75A89 /* TerminalController+MobileInputDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileInputDelivery.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
@@ -8476,8 +8464,6 @@
 		D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileScrollPrefetch.swift"; sourceTree = "<group>"; };
 		F33000000000000000000004 /* TerminalController+MobileSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileSimulator.swift"; sourceTree = "<group>"; };
 		C7AF30000000000000000002 /* TerminalController+MobileSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileSurfaces.swift"; sourceTree = "<group>"; };
-		A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTaskAttachments.swift"; sourceTree = "<group>"; };
-		A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTaskModels.swift"; sourceTree = "<group>"; };
 		C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTerminalArtifacts.swift"; sourceTree = "<group>"; };
 				B11D00000000000000000002 /* TerminalController+MobileTerminalLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTerminalLifecycle.swift"; sourceTree = "<group>"; };
 		C7AF31000000000000000002 /* TerminalController+MobileTodos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTodos.swift"; sourceTree = "<group>"; };
@@ -11148,8 +11134,6 @@
 				D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */,
 				D1F0A0040000000000000002 /* TerminalController+MobilePhonePushSettings.swift */,
 				D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */,
-				D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */,
-				D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */,
 				C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
 				C0DEBEEF0000000000000001 /* TerminalController+DebugMethodNames.swift */,
@@ -11181,8 +11165,6 @@
 				C7AF30000000000000000002 /* TerminalController+MobileSurfaces.swift */,
 				ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */,
 				C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */,
-				A77A30000000000000000001 /* TerminalController+MobileTaskAttachments.swift */,
-				A77A31000000000000000001 /* TerminalController+MobileTaskModels.swift */,
 				C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */,
 				C7AF31000000000000000002 /* TerminalController+MobileTodos.swift */,
 				C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */,
@@ -13662,9 +13644,6 @@
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
-				D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */,
-				D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */,
-				F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */,
 				7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */,
 				C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */,
 				C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */,
@@ -16967,8 +16946,6 @@
 				F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */,
 				ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */,
 				C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */,
-				D1B800000000000000000006 /* TerminalController+MobileDirectoryList.swift in Sources */,
-				D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */,
 				D7AB00000000000000C101 /* TerminalController+MobileFeed.swift in Sources */,
 				4688B527FE390A0BC3B772E8 /* TerminalController+MobileInputDelivery.swift in Sources */,
 				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
@@ -16976,8 +16953,6 @@
 				D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */,
 				F33000000000000000000014 /* TerminalController+MobileSimulator.swift in Sources */,
 				C7AF30000000000000000001 /* TerminalController+MobileSurfaces.swift in Sources */,
-				A77A30000000000000000002 /* TerminalController+MobileTaskAttachments.swift in Sources */,
-				A77A31000000000000000002 /* TerminalController+MobileTaskModels.swift in Sources */,
 				C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */,
 				B11D00000000000000000001 /* TerminalController+MobileTerminalLifecycle.swift in Sources */,
 				C7AF31000000000000000001 /* TerminalController+MobileTodos.swift in Sources */,
@@ -18680,9 +18655,6 @@
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */,
 				F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */,
 				1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */,
-				D1B800000000000000000005 /* MobileTaskDirectoryListServiceTests.swift in Sources */,
-				D1A700000000000000000003 /* MobileTaskDirectorySearchServiceTests.swift in Sources */,
-				F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */,
 				5FBEE7A11EE7A11EE7A10001 /* MobileTerminalByteTeeAppendCostTests.swift in Sources */,
 				AEF5CBAAC4D67800B57B0250 /* MobileTerminalFramePacerTests.swift in Sources */,
 				D5B6C2EA337442FF589FC85C /* MobileTerminalInputRoutingTests.swift in Sources */,
