@@ -6,7 +6,7 @@
 import { type InstallMethod, providerFor } from "./model/providers.ts"
 import { call } from "./ops.ts"
 import { gesture, withGesture } from "./runtime.ts"
-import { dispatchJob, load, localMachine } from "./store.ts"
+import { dispatchJob, load, machineById } from "./store.ts"
 import type { JobKind } from "./model/jobs.ts"
 
 type Started = { job: string; terminal?: string | null }
@@ -36,7 +36,7 @@ export async function signIn(machine: string, cli: string) {
   const token = gesture()
   const r = await run("sign_in", machine, cli, "agent_cli.sign_in", {}, token)
   const provider = providerFor(cli)?.accountsProvider
-  const isLocal = !machine || machine === localMachine().id
+  const isLocal = machineById(machine)?.origin === "local"
   if (!r.ok && r.error.code === "operation.unsupported" && provider && isLocal) {
     dispatchJob(machine, cli, { type: "clear" })
     dispatchJob(machine, cli, { type: "request", kind: "sign_in" })
