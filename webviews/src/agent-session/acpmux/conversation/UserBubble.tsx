@@ -149,7 +149,10 @@ function SentImage({ image }: { image: PromptImage }) {
   // Keep the thumbnail's 72px row slot while the host reads the attachment. Without this,
   // the sent-image band appears after the transcript row has already been placed and pushes
   // the prompt and everything below it down by a frame. A missing image keeps the old behavior.
-  if (!src) return state === "loading" ? <span className="cv-user__image-placeholder" aria-hidden="true" /> : null;
+  if (!src)
+    return state === "loading" ? (
+      <span className="cv-user__image-placeholder" aria-hidden="true" />
+    ) : null;
   const alt = image.name ?? "";
   const thumbnail = <img className="cv-user__image cv-enter" src={src} alt={alt} decoding="async" />;
   if (!openImage) return thumbnail;
