@@ -41,6 +41,7 @@ public actor AgentChatTranscriptTailer {
     private var cache: [ChatMessage] = []
     private var parseState = ChatTranscriptParseState()
     private var usageAccumulator = ChatUsageAccumulator()
+    private var contextAccumulator: AgentUsageTranscriptAccumulator?
     private var usageSnapshot: ChatUsageTotals?
     private var byteOffset: UInt64 = 0
     private var lineCount = 0
@@ -83,6 +84,7 @@ public actor AgentChatTranscriptTailer {
         self.path = path
         self.maxInitialLines = maxInitialLines
         self.maxCachedMessages = maxCachedMessages
+        self.contextAccumulator = Self.makeContextAccumulator(agentKind: agentKind)
         self.onBatch = onBatch
     }
 
@@ -239,6 +241,7 @@ public actor AgentChatTranscriptTailer {
             cache = []
             parseState = ChatTranscriptParseState()
             usageAccumulator = ChatUsageAccumulator()
+            contextAccumulator = Self.makeContextAccumulator(agentKind: agentKind)
             usageSnapshot = nil
             headTruncated = false
             // A rotated/replaced transcript (e.g. `claude --resume` rewriting
@@ -1089,22 +1092,42 @@ public actor AgentChatTranscriptTailer {
     /// parser is deliberately independent from message extraction, so a usage
     /// line that carries no visible card still reaches the mobile surface.
     private func ingestUsage(_ lines: some Sequence<String>) {
-        switch agentKind {
-        case .codex:
-            usageAccumulator.ingest(codexLines: lines)
-        case .claude, .other:
-            usageAccumulator.ingest(claudeLines: lines)
+        for line in lines {
+            switch agentKind {
+            case .codex:
+                usageAccumulator.ingest(codexLine: line)
+            case .claude, .other:
+                usageAccumulator.ingest(claudeLine: line)
+            }
+            contextAccumulator?.ingest(line: line)
         }
     }
 
     private var currentUsageSnapshot: ChatUsageTotals? {
-        let totals = usageAccumulator.totals
+        var totals = usageAccumulator.totals
+        if let context = contextAccumulator?.snapshot() {
+            totals.contextTokens = context.contextTokens
+            totals.contextWindowTokens = context.contextWindow
+        }
         guard !totals.usage.isEmpty
             || totals.contextTokens != nil
             || totals.contextWindowTokens != nil
             || totals.rateLimit != nil
         else { return nil }
         return totals
+    }
+
+    private static func makeContextAccumulator(
+        agentKind: ChatAgentKind
+    ) -> AgentUsageTranscriptAccumulator? {
+        switch agentKind {
+        case .claude:
+            return AgentUsageTranscriptAccumulator(source: .claude)
+        case .codex:
+            return AgentUsageTranscriptAccumulator(source: .codex)
+        case .other:
+            return nil
+        }
     }
 
     /// The inode of a path, or nil when it can't be stat'd. Used to spot
