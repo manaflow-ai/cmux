@@ -8,27 +8,22 @@ extension ScreenContentView {
         return zoomMotion.isMoving || paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
-    /// Advances springs by `dt` with the frame's motion `policy`. Returns
-    /// true while anything still moves. A screen at rest (a drag frame that
-    /// moved nothing, a still pointer) does no work.
-    func step(_ dt: Double, policy: MotionPolicy = Motion.policy) -> Bool {
-        guard hasMotion || reportScrollOnSettle else { return false }
+    /// Advances springs by `dt`. Returns true while anything still moves.
+    func step(_ dt: Double) -> Bool {
         var moving = false
-        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         for key in Array(paneFrames.keys) {
-            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advance(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                        alphaParameters: appear) == true { moving = true }
+            if paneFrames[key]?.advance(dt, parameters: Motion.spring(zoomMotion.spring(for: key, fallback: motionState.frameSpring)),
+                                        alphaParameters: Motion.spring(.appear)) == true { moving = true }
         }
         if zoomMotion.advance(dt) { moving = true }
         releaseCovered()
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advance(dt, parameters: frameSpring) == true { moving = true }
+            if dividerFrames[key]?.advance(dt, parameters: Motion.spring(motionState.frameSpring)) == true { moving = true }
         }
-        if stepRows(dt, policy: policy) { moving = true }
+        if stepRows(dt) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: policy.spring(.scroll), epsilon: 0.25) {
+            if scroll.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -66,14 +61,10 @@ extension ScreenContentView {
             clips.append((host, scrolls, revealing))
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it.
-        // The panes a zoom leaves fade under it (`zoomMotion.opacities`).
-        let leaving = zoomMotion.opacities.compactMap { pane, alpha in
-            context.hosts[pane].flatMap { $0.superview === self ? ($0, alpha) : nil }
+        for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing) }
+        for (pane, alpha) in zoomMotion.opacities {
+            if let host = context.hosts[pane], host.superview === self { host.alphaValue = alpha; clipToStrip(host, scrolls: false, clip: nil) }
         }
-        for (host, alpha) in leaving { host.alphaValue = alpha }
-        let above = panesAbove()
-        for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing, above: above) }
-        for (host, _) in leaving { clipToStrip(host, scrolls: false, clip: nil, above: above) }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)

@@ -127,12 +127,10 @@ final class ScreenContentView: NSView {
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
-        // One style read per pass: it is resolved from the settings.
-        let style = context.style
-        baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
+        // `ui.paneAnimations` (default off): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
         let arrivals = splits && structural && !unzooming
             ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
@@ -164,6 +162,7 @@ final class ScreenContentView: NSView {
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes.
+        let style = context.style
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 if carried {
@@ -218,9 +217,9 @@ final class ScreenContentView: NSView {
                 addSubview(view)
                 dividerViews[kind] = view
             }
-            view.lineThickness = style.dividerThickness
-            view.showsIdleLine = style.showsDividerLine
-            view.showsActiveLine = style.showsDividerFeedback
+            view.lineThickness = context.style.dividerThickness
+            view.showsIdleLine = context.style.showsDividerLine
+            view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 if scrolls(kind) {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
@@ -291,11 +290,6 @@ final class ScreenContentView: NSView {
     fileprivate var firstDividerView: NSView? {
         subviews.first { $0 is DividerHandleView }
     }
-
-    /// A row divider release's preview waits for the layout that carries
-    /// it: the next model sync reconciles this screen even when its layout
-    /// did not change (the daemon refused the heights).
-    var holdsRowDragPreview: Bool { rowDragPreview != nil && activeDrag == nil }
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
