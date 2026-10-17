@@ -19,7 +19,7 @@ struct AgentChatModeView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var searchText = ""
     @State private var isLoading = true
-    @State private var isShowingNewSessionGuide = false
+    @State private var isShowingNewSessionComposer = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -30,7 +30,7 @@ struct AgentChatModeView: View {
                 isConnected: store.connectionState == .connected
                     && model.connectionState == .connected,
                 selectSession: selectSession,
-                showNewSessionGuide: { isShowingNewSessionGuide = true },
+                showNewSessionComposer: { isShowingNewSessionComposer = true },
                 refresh: { await refresh() }
             )
             .navigationTitle("Agents")
@@ -67,12 +67,21 @@ struct AgentChatModeView: View {
         } message: {
             Text(model.errorMessage ?? "Unknown error")
         }
-        .sheet(isPresented: $isShowingNewSessionGuide) {
-            AgentNewSessionGuide {
-                isShowingNewSessionGuide = false
+        // Agent Chat owns the same task composer used by the workspace shell.
+        // A task created here is sent through `workspace.create` with the
+        // selected provider's launch command, so the resulting agent session
+        // appears in this mode through the normal session event stream.
+        .taskComposerPresentation(
+            isPresented: $isShowingNewSessionComposer,
+            onDismiss: {
                 Task { await refresh() }
             }
-            .presentationDetents([.medium])
+        ) { launch, switchDraft in
+            TaskComposerSheet(
+                store: store,
+                launchIntent: launch.intent,
+                onSwitchDraft: switchDraft
+            )
         }
         .accessibilityIdentifier("MobileAgentChatMode")
     }
@@ -106,7 +115,7 @@ private struct AgentChatSidebar: View {
     let isLoading: Bool
     let isConnected: Bool
     let selectSession: (ChatSessionDescriptor) -> Void
-    let showNewSessionGuide: () -> Void
+    let showNewSessionComposer: () -> Void
     let refresh: () async -> Void
 
     private var filteredSessions: [ChatSessionDescriptor] {
@@ -137,7 +146,7 @@ private struct AgentChatSidebar: View {
         VStack(spacing: 0) {
             AgentSidebarHeader(
                 selectedProvider: $model.selectedProvider,
-                showNewSessionGuide: showNewSessionGuide,
+                showNewSessionComposer: showNewSessionComposer,
                 refresh: refresh
             )
 
@@ -160,7 +169,7 @@ private struct AgentChatSidebar: View {
                         hasSearch: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                         isConnected: isConnected,
                         clearSearch: { searchText = "" },
-                        showNewSessionGuide: showNewSessionGuide
+                        showNewSessionComposer: showNewSessionComposer
                     )
                     .listRowSeparator(.hidden)
                 } else {
@@ -197,7 +206,7 @@ private struct AgentChatSidebar: View {
 
 private struct AgentSidebarHeader: View {
     @Binding var selectedProvider: String
-    let showNewSessionGuide: () -> Void
+    let showNewSessionComposer: () -> Void
     let refresh: () async -> Void
 
     var body: some View {
@@ -207,7 +216,7 @@ private struct AgentSidebarHeader: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Menu {
-                Button { showNewSessionGuide() } label: {
+                Button { showNewSessionComposer() } label: {
                     Label("New session", systemImage: "plus")
                 }
                 Button { Task { await refresh() } } label: {
@@ -330,7 +339,7 @@ private struct AgentSessionEmptyRow: View {
     let hasSearch: Bool
     let isConnected: Bool
     let clearSearch: () -> Void
-    let showNewSessionGuide: () -> Void
+    let showNewSessionComposer: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -352,7 +361,7 @@ private struct AgentSessionEmptyRow: View {
                 Button("Clear search", action: clearSearch)
                     .buttonStyle(.bordered)
             } else if isConnected {
-                Button("How to start a session", action: showNewSessionGuide)
+                Button("Start a new session", action: showNewSessionComposer)
                     .buttonStyle(.bordered)
             }
         }
@@ -371,26 +380,6 @@ private struct AgentSessionLoadingRows: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 32)
-    }
-}
-
-private struct AgentNewSessionGuide: View {
-    let refresh: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label("Start a new agent session", systemImage: "plus.bubble")
-            } description: {
-                Text("Launch Claude Code, Codex, or OpenCode in a connected cmux workspace. New sessions will appear in Agent history automatically.")
-            } actions: {
-                Button("Refresh sessions", action: refresh)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, 18)
-            .navigationTitle("New session")
-            .navigationBarTitleDisplayMode(.inline)
-        }
     }
 }
 
