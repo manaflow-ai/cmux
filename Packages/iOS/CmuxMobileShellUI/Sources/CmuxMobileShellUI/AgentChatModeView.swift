@@ -447,9 +447,19 @@ private struct AgentChatSessionRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 12) {
-                Image(systemName: iconName)
-                    .foregroundStyle(iconColor)
-                    .frame(width: 28)
+                Group {
+                    if isKnownAgent {
+                        TaskTemplateIcon(
+                            value: "agent:\(session.agentKind.sourceName)",
+                            size: 26
+                        )
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(iconColor)
+                    }
+                }
+                .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(session.title ?? session.agentKind.displayName)
                         .font(.headline)
@@ -486,12 +496,10 @@ private struct AgentChatSessionRow: View {
         )
     }
 
-    private var iconName: String {
+    private var isKnownAgent: Bool {
         switch session.agentKind.sourceName {
-        case "claude": return "c.circle.fill"
-        case "codex": return "chevron.left.forwardslash.chevron.right"
-        case "opencode": return "square.stack.3d.up.fill"
-        default: return "sparkles"
+        case "claude", "codex", "opencode": return true
+        default: return false
         }
     }
 
@@ -739,8 +747,18 @@ private struct AgentExecutionContextBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Label(session.agentKind.displayName, systemImage: "sparkles")
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 7) {
+                    if ["claude", "codex", "opencode"].contains(session.agentKind.sourceName) {
+                        TaskTemplateIcon(
+                            value: "agent:\(session.agentKind.sourceName)",
+                            size: 21
+                        )
+                    } else {
+                        Image(systemName: "sparkles")
+                    }
+                    Text(session.agentKind.displayName)
+                }
+                .font(.subheadline.weight(.semibold))
                 Spacer()
                 AgentStatusIndicator(state: session.state)
             }
