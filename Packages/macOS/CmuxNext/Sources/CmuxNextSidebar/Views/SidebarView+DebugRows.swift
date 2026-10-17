@@ -10,6 +10,9 @@ public struct SidebarDebugRow: Sendable {
     public var windowFrame: CGRect
     public var viewFrame: CGRect?
     public var viewAlpha: CGFloat?
+    /// The workspace row's `SidebarRowState` (`live`, `stale`, `placeholder`, `creating`) and folder line.
+    public var rowState: String?
+    public var directory: String?
     public var inList: Bool
     public var suppressed: Bool
     /// The row's view stands for the selection now (`fill` says whether it paints).
@@ -184,7 +187,9 @@ extension SidebarView {
             var drawn = debugRow.drawn(by: view)
             drawn.iconAddress = view?.debugIconAddress
             if case let .item(id) = row.key { (drawn.item, drawn.itemKind) = (id, list.listItems[id]?.ref.kind) }
-            if case let .workspace(id) = row.key { drawn.unread = byID[id].map { String(describing: $0.unread) } }
+            if case let .workspace(id) = row.key, let workspace = byID[id] {
+                (drawn.unread, drawn.rowState, drawn.directory) = (String(describing: workspace.unread), String(describing: workspace.rowState), workspace.directory)
+            }
             (drawn.progress, drawn.showsWorking) = (row.content?.progress != nil, row.content?.showsWorking == true)
             return drawn
         }
