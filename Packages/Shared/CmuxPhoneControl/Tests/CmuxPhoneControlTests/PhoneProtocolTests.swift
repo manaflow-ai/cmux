@@ -82,4 +82,22 @@ struct PhoneProtocolTests {
             try codec.decode(data)
         }
     }
+
+    @Test
+    func envelopeRequiredFieldsAreRejected() throws {
+        let codec = PhoneWireCodec()
+        let invalidEnvelopes = [
+            PhoneEnvelope(type: .request, method: "device.list"),
+            PhoneEnvelope(type: .response),
+            PhoneEnvelope(type: .event, method: "ui.changed"),
+            PhoneEnvelope(type: .error),
+        ]
+
+        for envelope in invalidEnvelopes {
+            let encoded = try JSONEncoder().encode(envelope) + Data([0x0A])
+            #expect(throws: PhoneWireCodecError.invalidMessageType) {
+                try codec.decode(encoded)
+            }
+        }
+    }
 }

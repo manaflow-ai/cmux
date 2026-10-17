@@ -82,6 +82,22 @@ struct PhoneSessionTests {
     }
 
     @Test
+    func mismatchedCloseDoesNotDiscardSession() async throws {
+        let server = PhoneControlServer(driver: MockPhoneDriver())
+        let opened = await server.handle(.request(id: "open", method: "session.open"))
+        let sessionID = try #require(opened.first?.sessionID)
+        let rejected = await server.handle(.request(
+            id: "close-wrong-session",
+            method: "session.close",
+            sessionID: "other-session"
+        ))
+        #expect(rejected.first?.error?.code == "session_mismatch")
+
+        let secondOpen = await server.handle(.request(id: "second-open", method: "session.open"))
+        #expect(secondOpen.first?.error?.code == "session_exists")
+    }
+
+    @Test
     func staleScreenSequenceIsRejectedBeforeInput() async throws {
         let server = PhoneControlServer(driver: MockPhoneDriver())
         let opened = await server.handle(.request(id: "open", method: "session.open"))
