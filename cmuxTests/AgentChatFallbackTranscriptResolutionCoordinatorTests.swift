@@ -10,6 +10,28 @@ import Testing
 #endif
 
 struct AgentChatFallbackTranscriptResolutionCoordinatorTests {
+    @Test func resolverFindsOpenCodeDatabaseFromInjectedEnvironment() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-resolver-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let database = home.appendingPathComponent("sessions/opencode.db")
+        try FileManager.default.createDirectory(at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("SQLite format 3".utf8).write(to: database)
+        let resolver = AgentChatTranscriptResolver(
+            homeDirectory: home,
+            environment: ["OPENCODE_DB": database.path]
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "ses_test",
+            agentKind: .other("opencode"),
+            state: .ended,
+            lastActivityAt: Date()
+        )
+        #expect(resolver.transcriptPath(for: record) == database.path)
+        #expect(resolver.boundedTranscriptPath(for: record) == database.path)
+    }
+
     @MainActor
     @Test func authoritativeTranscriptBindingCancelsFallbackResolution() async throws {
         let fixture = try makeCodexFixture()

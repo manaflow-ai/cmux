@@ -258,7 +258,19 @@ extension AgentChatSessionRegistry {
            let id = firstUUIDLike(in: envSessionID) {
             return id
         }
-        if let argv = details?.arguments {
+        if agentID == "opencode", let details {
+            let workingDirectory = VaultAgentProcessScanner.openCodeWorkingDirectoryForProcess(
+                arguments: details.arguments,
+                environment: details.environment
+            ) ?? details.environment["CMUX_AGENT_LAUNCH_CWD"]
+                ?? details.environment["PWD"]
+            return openCodeSessionIDForProcess(
+                arguments: details.arguments,
+                environment: details.environment,
+                workingDirectory: workingDirectory
+            )
+        }
+        if agentID != "opencode", let argv = details?.arguments {
             return sessionIDFromArguments(argv)
         }
         return nil

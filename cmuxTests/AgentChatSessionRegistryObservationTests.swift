@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import SQLite3
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,6 +10,75 @@ import CMUXAgentLaunch
 #endif
 
 struct AgentChatSessionRegistryObservationTests {
+    @Test func openCodeSessionIdentityAcceptsExplicitSessionArguments() {
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "ses_abc"]) == "ses_abc")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "-s=ses_def"]) == "ses_def")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "--verbose"]) == nil)
+    }
+
+    @Test func openCodeSessionIdentityFallsBackToNewestSessionForWorkingDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-observe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("opencode.db")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        guard let database else { return }
+        defer { sqlite3_close(database) }
+        let schema = """
+            CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, time_updated INTEGER NOT NULL);
+            INSERT INTO session VALUES ('ses_old', '/tmp/project', 10);
+            INSERT INTO session VALUES ('ses_new', '/tmp/project', 20);
+            INSERT INTO session VALUES ('ses_other', '/tmp/other', 30);
+            """
+        #expect(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
+        #expect(
+            AgentChatSessionRegistry.openCodeSessionIDForProcess(
+                arguments: ["opencode", "--prompt", "hello"],
+                environment: ["OPENCODE_DB": databaseURL.path],
+                workingDirectory: "/tmp/project"
+            ) == "ses_new"
+        )
+    }
+
+    @Test func mobileChatObserverDetectsOpenCodeSessionArgument() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "ses_0e5411393ffeCDprItbIm19S5J"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 121,
+                    name: "opencode",
+                    path: "/opt/homebrew/bin/opencode",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 100),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 121 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["opencode", "--session", sessionID],
+                    environment: ["CMUX_AGENT_LAUNCH_CWD": "/Users/example/project"]
+                )
+            },
+            codexRolloutPaths: { _ in [] }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .other("opencode"))
+        #expect(session.workingDirectory == "/Users/example/project")
+    }
+
     @Test func mobileChatObserverDetectsNodeHostedClaudeFromProcessDetails() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()

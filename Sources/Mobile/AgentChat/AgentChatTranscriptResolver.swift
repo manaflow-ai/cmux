@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import Foundation
@@ -13,6 +14,10 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     let codexConfigRoot: URL
+    /// OpenCode's SQLite session database (`OPENCODE_DB`, XDG data, or the
+    /// documented default). OpenCode stores its transcript in this database
+    /// rather than a JSONL file.
+    private let openCodeDatabaseURL: URL
 
     /// Creates a resolver.
     ///
@@ -41,6 +46,11 @@ struct AgentChatTranscriptResolver: Sendable {
             override: environment["CODEX_HOME"],
             default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
+        var openCodeEnvironment = environment
+        if openCodeEnvironment["HOME"] == nil {
+            openCodeEnvironment["HOME"] = homeDirectory.path
+        }
+        self.openCodeDatabaseURL = OpenCodePaths(environment: openCodeEnvironment).databaseURL
     }
 
     /// Resolves a config-dir root from an env override, expanding a leading `~`,
@@ -71,6 +81,8 @@ struct AgentChatTranscriptResolver: Sendable {
             return claudeFallbackPath(record: record)
         case .codex:
             return codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
+        case .other(let source) where source == "opencode":
+            return openCodeDatabasePath
         case .other:
             return nil
         }
@@ -87,9 +99,19 @@ struct AgentChatTranscriptResolver: Sendable {
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
-        case .codex, .other:
+        case .codex:
+            return nil
+        case .other(let source) where source == "opencode":
+            return openCodeDatabasePath
+        case .other:
             return nil
         }
+    }
+
+    private var openCodeDatabasePath: String? {
+        FileManager.default.fileExists(atPath: openCodeDatabaseURL.path)
+            ? openCodeDatabaseURL.path
+            : nil
     }
 
     private func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
