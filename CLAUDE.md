@@ -97,6 +97,15 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- The normal merge path is `gh-merge-green`, including its coordinator `WINDOW` freeze check.
+  A maintainer’s direct merge directive may use a narrow CI-only exception when that helper
+  refuses solely because the coordinator `WINDOW` is unavailable or unreadable: verify live that
+  the exact head SHA is unchanged, `ci-status` is successful, the exact-head `cmux-next` run is
+  successful, no required check is pending or red, no conflict markers or unresolved actionable
+  review threads remain, and the PR changes only CI, tests, docs, or developer tooling. Record the
+  helper refusal and each verification receipt in the PR before using the direct merge. This
+  exception never bypasses a failed or pending check and never applies to app/runtime/UI changes,
+  frozen paths, or a missing exact-head workflow run.
 
 ## Implementation rules by task
 
