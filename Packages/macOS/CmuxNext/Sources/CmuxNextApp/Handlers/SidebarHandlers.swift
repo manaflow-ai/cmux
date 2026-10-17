@@ -24,11 +24,11 @@ enum SidebarHandlers {
             ("match-terminal-background", ["palette.toggleMatchTerminalBackground"]),
         ]
         for (feature, ids) in features {
-            for id in ids where !(id == "toggleRightSidebar" && AgentPaneTunables.sideColumn.value) {
+            for id in ids where id != "toggleRightSidebar" {
                 registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
             }
         }
-        if AgentPaneTunables.sideColumn.value { bindSideColumn(into: registry, context: context) }
+        bindSideColumn(into: registry, context: context)
         let checklist: [ActionID] = [
             "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem",
             "checklistOpenAsPane", "checklistAttachImages",
@@ -42,9 +42,13 @@ enum SidebarHandlers {
     /// the agent chat's side column, the panes beside it. The chat's own New tab / Hide tabs runs it
     /// (AgentChatSplitToggles.sideTabs): beside a lone chat a New Tab page opens in a column on its
     /// right; with panes beside the chat they hide (the chat zooms, closing nothing) and show again.
-    /// The focused chat, else a chat showing in the window, takes it.
+    /// The focused chat, else a chat showing in the window, takes it. Off, it reports that cmux-next
+    /// has no right sidebar, as before; the toggle is read on every press, so no relaunch is needed.
     private static func bindSideColumn(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("toggleRightSidebar", run: { invocation in
+        let off: @MainActor () -> String? = {
+            AgentPaneTunables.sideColumn.value ? nil : RefusalStrings.needsAppCapability("right-sidebar")
+        }
+        registry.bind("toggleRightSidebar", unavailable: off, invoke: { invocation in
             let tabs = context.services.agentTabs
             let focused = context.scope(invocation).pane
             let panes = [focused].compactMap { $0 } + (context.services.windows.active?.content?.panes.values.map { $0 } ?? [])
