@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
 import { StatusRow } from "./components/StatusRow";
@@ -333,7 +333,26 @@ function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
 
 function OrchestrationLab({ open }: { open: boolean }) {
   const [selectedId, setSelectedId] = useState(orchestrationStrategies[0].id);
+  const routeButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const selectedStrategy = orchestrationStrategies.find((strategy) => strategy.id === selectedId) ?? orchestrationStrategies[0];
+
+  const selectRoute = (id: string) => setSelectedId(id);
+  const handleRouteKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
+      : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+    const targetIndex = event.key === "Home" ? 0
+      : event.key === "End" ? orchestrationStrategies.length - 1
+      : direction ? (index + direction + orchestrationStrategies.length) % orchestrationStrategies.length : -1;
+    if (targetIndex < 0) return;
+    event.preventDefault();
+    const target = orchestrationStrategies[targetIndex];
+    selectRoute(target.id);
+    routeButtonRefs.current[target.id]?.focus();
+  };
+
+  const blockerFor = (strategy: OrchestrationStrategy) => strategy.admission.dependency.state === "none"
+    ? strategy.admission.capacity_reason
+    : strategy.admission.dependency.detail ?? strategy.admission.dependency.state;
 
   if (!open) {
     return <div className="orchestration-collapsed" role="status">Orchestration lab hidden. Use the top-left toggle to reopen the fixture.</div>;
@@ -342,6 +361,42 @@ function OrchestrationLab({ open }: { open: boolean }) {
   return (
     <div className="gallery-stack orchestration-lab">
       <div className="gallery-label">Fixture-only comparison surface. Values are redacted examples; no task is dispatched.</div>
+      <section className="orchestration-route-compare" aria-label="Route comparison">
+        <div className="orchestration-route-compare-heading">
+          <div>
+            <span className="orchestration-inspector-kicker">Route comparison</span>
+            <p>Choose a route to inspect its typed receipt and action path.</p>
+          </div>
+          <span className="orchestration-route-compare-hint">Arrow keys select · Enter inspects</span>
+        </div>
+        <div className="orchestration-route-options" role="radiogroup" aria-label="Select a route for receipt inspection">
+          {orchestrationStrategies.map((strategy, index) => {
+            const selected = strategy.id === selectedId;
+            return (
+              <button
+                key={strategy.id}
+                id={`orchestration-route-${strategy.id}`}
+                ref={(element) => { routeButtonRefs.current[strategy.id] = element; }}
+                className={`orchestration-route-option${selected ? " selected" : ""}`}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-controls="orchestration-receipt-inspector"
+                tabIndex={selected ? 0 : -1}
+                onClick={() => selectRoute(strategy.id)}
+                onKeyDown={(event) => handleRouteKeyDown(event, index)}
+              >
+                <span className="orchestration-route-option-top">
+                  <strong>{strategy.label}</strong>
+                  <span className={`orchestration-admission-badge orchestration-admission-${strategy.admission.decision}`}>{strategy.admission.decision}</span>
+                </span>
+                <span className="orchestration-route-option-line"><b>Blocker</b>{blockerFor(strategy)}</span>
+                <span className="orchestration-route-option-line"><b>Next</b>{strategy.admission.next_safe_action.detail}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
       <div className="orchestration-grid" role="list" aria-label="Orchestration strategies">
         {orchestrationStrategies.map((strategy) => {
           const selected = strategy.id === selectedId;
@@ -351,7 +406,8 @@ function OrchestrationLab({ open }: { open: boolean }) {
                 className="orchestration-card-select"
                 type="button"
                 aria-pressed={selected}
-                onClick={() => setSelectedId(strategy.id)}
+                aria-controls="orchestration-receipt-inspector"
+                onClick={() => selectRoute(strategy.id)}
               >
                 <span className="orchestration-card-heading">
                   <span className="orchestration-card-title">{strategy.label}</span>
@@ -378,7 +434,7 @@ function OrchestrationLab({ open }: { open: boolean }) {
           );
         })}
       </div>
-      <section className="orchestration-inspector" aria-label={`${selectedStrategy.label} receipt preview`} aria-live="polite">
+      <section id="orchestration-receipt-inspector" className="orchestration-inspector" aria-label={`${selectedStrategy.label} receipt preview`} aria-live="polite">
         <div className="orchestration-inspector-header">
           <div>
             <div className="orchestration-inspector-kicker">Focused receipt preview · non-contract display sample</div>
@@ -693,10 +749,12 @@ export function GalleryApp() {
             ? "A focused routing, admission, and receipt preview. No task is dispatched."
             : "Mock-driven visual QA surface. No WebSocket, no provider process, no live sessions."}</p>
           {focusedOrchestration && (
-            <div className="orchestration-focus-signal" role="note" aria-label="Orchestration preview guard">
+            <div className="orchestration-focus-signal orchestration-preview-guard" role="note" aria-label="Orchestration preview guard">
               <span><strong>Signal</strong> decision → blocker → next safe action</span>
+              <span><strong>Preview</strong> fixture only · no dispatch</span>
               <span><strong>Trust override</strong> preview only</span>
               <span><strong>Authorization</strong> disabled</span>
+              <span><strong>Proposal</strong> advisory</span>
             </div>
           )}
           {!focusedOrchestration && (
