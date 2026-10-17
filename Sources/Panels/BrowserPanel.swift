@@ -2716,6 +2716,11 @@ final class BrowserPanel: Panel, ObservableObject {
         if !pageTitle.isEmpty {
             return pageTitle
         }
+        // A Cloud port preview reads `:3000 · machine` until its page names itself,
+        // never the machine's raw private address.
+        if let cloudTitle = cloudPortPreviewTitle {
+            return cloudTitle
+        }
         if let url = currentURL {
             return url.host ?? url.absoluteString
         }

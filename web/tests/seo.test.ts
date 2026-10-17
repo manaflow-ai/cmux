@@ -473,9 +473,12 @@ describe("SEO metadata helpers", () => {
         ["/docs/coderouter", "coderouterOverview"],
         ["/docs/coderouter/agents", "coderouterAgents"],
         ["/docs/coderouter/cli", "coderouterCli"],
+        ["/docs/cloud/secrets", "cloudSecrets"],
+        ["/docs/cloud/open-repo", "cloudOpenRepo"],
       ] as const;
+      const enJaDocsPages = new Set<string>(["remoteTmux", "cloudSecrets", "cloudOpenRepo"]);
       for (const [path, pageKey] of auditedDocsPages) {
-        if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
+        if (enJaDocsPages.has(pageKey) && locale !== "en" && locale !== "ja") {
           continue;
         }
         const page = messages.docs[pageKey];
@@ -1078,6 +1081,33 @@ describe("SEO middleware", () => {
       "https://cmux.com/en/docs/remote-tmux",
     );
     expect(canonicalEnglish.headers.get("location")).toBeNull();
+  });
+
+  test("serves en-ja Cloud docs without locale redirect loops", () => {
+    for (const path of [
+      "/docs/cloud/secrets",
+      "/docs/cloud/open-repo",
+      "/docs/cloud-security",
+      "/docs/managed-policies",
+    ]) {
+      const unsupportedLocale = middleware(
+        requestFor(`/de${path}`, { "accept-language": "de" }),
+      );
+      expect(unsupportedLocale.status).toBe(301);
+      expect(unsupportedLocale.headers.get("location")).toBe(`https://cmux.com${path}`);
+
+      const canonicalEnglish = middleware(
+        requestFor(path, { "accept-language": "de" }),
+      );
+      expect(canonicalEnglish.status).toBe(200);
+      expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
+        `https://cmux.com/en${path}`,
+      );
+
+      const japanese = middleware(requestFor(`/ja${path}`));
+      expect(japanese.status).toBe(200);
+      expect(japanese.headers.get("location")).toBeNull();
+    }
   });
 
   test("redirects fallback-only locale routes to translated content", () => {

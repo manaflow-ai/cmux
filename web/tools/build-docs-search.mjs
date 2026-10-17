@@ -58,6 +58,8 @@ const searchAliases = {
   cloudOverview: ["cloud VM", "cloud machine", "remote agents", "cmux vm"],
   cloudMachines: ["VM size", "snapshot", "checkpoint", "fork", "pause", "resize", "agent updates"],
   cloudWorkspaces: ["cloud agents", "durable terminals", "vm agent", "vm run"],
+  cloudOpenRepo: ["vm clone", "clone repo", "git clone", "open repo in cloud"],
+  cloudSecrets: ["API keys", "environment variables", ".env", "vm secrets", "GH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
   cloudNetworking: ["vm push", "port forwarding", "public URL", "custom domain", "WireGuard", "VPN"],
   cloudCli: ["cmux vm", "cmux cloud", "vm commands"],
   cloudTroubleshooting: ["cloud errors", "cloud security"],

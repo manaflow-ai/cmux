@@ -29,6 +29,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newBrowserWorkspace
     case newCloudWorkspace
     case newCloudMachine
+    /// Clones a repository onto a Cloud machine and opens it there.
+    case openRepositoryInCloud
+    /// Opens the Cloud Secrets sheet.
+    case openCloudSecrets
+    /// Shows the right sidebar's Cloud panel, or hides it when it is showing.
+    case toggleCloudPanel
     case saveLayoutTemplate
     case openFolder
     case reopenPreviousSession

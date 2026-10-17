@@ -406,6 +406,9 @@ extension TerminalController {
                         "remote_workspace_name": workspace.name,
                         "existing": true,
                         "opened": true,
+                        // Already open here: that local workspace came back (focused when
+                        // asked), and no second copy was made.
+                        "reused": opened.reused,
                         "terminal_id": opened.starterTerminalID ?? NSNull(),
                         "workspace_id": opened.workspaceID.uuidString,
                         "surface_id": opened.projections.first?.panelID.uuidString ?? NSNull(),
@@ -450,7 +453,15 @@ extension TerminalController {
         provider: any SurfaceProvider,
         catalog: SurfaceCatalog,
         focus: Bool
-    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection], starterTerminalID: String?) {
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection], starterTerminalID: String?, reused: Bool) {
+        if let open = catalog.cloudWorkspaceCreationCoordinator.alreadyOpenLocalWorkspace(
+            machine: machine,
+            remoteWorkspaceID: workspace.id,
+            scope: .anyWindow,
+            focus: focus
+        ) {
+            return (open.workspaceID, open.projections, nil, true)
+        }
         var starterTerminalID: String?
         let group: SurfaceResourceGroup
         if let existing = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id), !existing.isEmpty {
@@ -478,7 +489,7 @@ extension TerminalController {
             remoteWorkspaceID: workspace.id,
             generatedTitle: title
         )
-        return (opened.workspaceID, opened.projections, starterTerminalID)
+        return (opened.workspaceID, opened.projections, starterTerminalID, false)
     }
 
     /// `vm.workspace_open {id, workspace_id, here?, …dest}` → the remote workspace's terminals
@@ -521,9 +532,22 @@ extension TerminalController {
             let focus = Self.surfaceBool(params["focus"]) ?? false
             let workspaceID: UUID
             let projections: [SurfaceProjection]
+            var reused = false
             if let destination {
                 projections = try await catalog.projectGroup(group, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
+            } else if let open = await MainActor.run(body: { [remoteWorkspaceID = workspace.id] in
+                catalog.cloudWorkspaceCreationCoordinator.alreadyOpenLocalWorkspace(
+                    machine: machine,
+                    remoteWorkspaceID: remoteWorkspaceID,
+                    scope: .anyWindow,
+                    focus: focus
+                )
+            }) {
+                // Already open here: come back to it rather than open a second copy.
+                workspaceID = open.workspaceID
+                projections = open.projections
+                reused = true
             } else {
                 // The machine screen's geometry, when the daemon can report it: the new
                 // local workspace then mirrors its splits, ratios and tabs (nil → grid).
@@ -559,6 +583,7 @@ extension TerminalController {
                 "surface_ids": projections.map { $0.panelID.uuidString },
                 "opened": projections.count,
                 "here": destination != nil,
+                "reused": reused,
             ], focus: focus)
         }
     }
@@ -779,6 +804,10 @@ extension TerminalController {
     /// gains (or overwrites) those variables. Values travel over the machine's link into
     /// the in-VM `cmux env receive` (see `CloudEnvDelivery`): never through `vm.exec`, a
     /// command line, or a terminal's visible screen. The result names keys only.
+    /// When an entry is a provider key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+    /// `ANTHROPIC_AUTH_TOKEN`), the Cloud Secrets routing guard runs first, so the key
+    /// reaches its provider and never cmux model routing
+    /// (``CloudSecretsProviderRouting/deliverGuarded(machineID:entries:exec:deliver:)``).
     nonisolated func socketWorkerVMEnvSetResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "cli.vm.env.setRequiresIdRunCmuxVmLsTo", defaultValue: "vm.env_set requires `id`. Run `cmux vm ls` to find one."))
@@ -799,7 +828,12 @@ extension TerminalController {
         }
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
-            let outcome = try await provider.deliverEnvironment(entries)
+            let outcome = try await CloudSecretsProviderRouting.deliverGuarded(
+                machineID: vmId,
+                entries: entries,
+                exec: CloudSecretsService.Transport.live.exec,
+                deliver: { try await provider.deliverEnvironment($0) }
+            )
             var count = entries.count
             var path: Any = NSNull()
             if case .ok(let keys, let reported) = outcome {
@@ -847,7 +881,9 @@ extension TerminalController {
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
-            var screen = try await provider.readScreen(terminalID: terminalID)
+            // An exited terminal answers with its final screen and exit receipt
+            // (`exited`, `exit_code`) instead of a generic request failure.
+            var screen = try await provider.readScreenReportingExit(terminalID: terminalID)
             screen["machine"] = vmId
             screen["terminal_id"] = terminalID
             return screen

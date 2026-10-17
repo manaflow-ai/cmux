@@ -781,5 +781,119 @@
     "arguments": [
       1
     ]
+  },
+  "cli.vm.clone.secretsSent": {
+    "source": "%ld delivered",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.check.failed": {
+    "source": "%ld declared secrets are missing",
+    "arguments": [
+      1
+    ]
+  },
+  "cloud.gettingStarted.progress.accessibility": {
+    "source": "%1$ld of %2$ld steps done",
+    "arguments": [
+      2
+    ]
+  },
+  "cloudSecrets.cli.set.stdinCount": {
+    "source": "vm secrets set: expected %1$ld lines on stdin (one value per NAME), got %2$ld",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.set.stdinCount.one": {
+    "source": "vm secrets set: expected %1$ld line on stdin (one value per NAME), got %2$ld",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.sync.changed.one": {
+    "source": "Synced %1$ld change to %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudSecrets.cli.sync.changed.many": {
+    "source": "Synced %1$ld changes to %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.dot.uncommitted.one": {
+    "source": "Cloning %1$@ — %2$ld uncommitted change in this checkout is not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.clone.dot.uncommitted.many": {
+    "source": "Cloning %1$@ — %2$ld uncommitted changes in this checkout are not included. Use `cmux vm push` or `cmux vm dev` to send working-tree changes.",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.clone.dot.unpushed.one": {
+    "source": "%1$ld local commit is not on %2$@ yet, so the machine will not have it. Push first (git push) to include it.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.dot.unpushed.many": {
+    "source": "%1$ld local commits are not on %2$@ yet, so the machine will not have them. Push first (git push) to include them.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.setup.doneDetail": {
+    "source": "%ld steps in terminal %@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.setup.timedOut": {
+    "source": "setup step %1$ld/%2$ld `%3$@` was still running after %4$ld minutes (not stopped)",
+    "arguments": [
+      4
+    ]
+  },
+  "cli.vm.clone.setup.confirm": {
+    "source": "Run these %1$ld setup commands from %2$@ on %3$@? They run with your Cloud Secrets. [y/N] ",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.doctor.problems": {
+    "source": "vm doctor: %1$ld agents on %2$@ need a fix.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.doctor.summary": {
+    "source": "%1$@: %2$ld of %3$ld ready.",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.clone.setup.doneDetail.one": {
+    "source": "%ld step in terminal %@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.clone.setup.confirm.one": {
+    "source": "Run %1$ld setup command from %2$@ on %3$@? It runs with your Cloud Secrets. [y/N] ",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.new.plan.freeWindow.short": {
+    "source": "Free for %d days",
+    "arguments": [
+      1
+    ]
   }
 }

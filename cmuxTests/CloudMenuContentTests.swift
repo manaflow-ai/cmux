@@ -54,9 +54,9 @@ struct CloudMenuContentTests {
             layout: .mainMenu
         )
         let ids = entries.filter { if case .separator = $0 { return false } else { return true } }.map(\.id)
-        #expect(ids == ["cloud.account", "cloud.newWorkspace", "cloud.newMachine", "cloud.machines.title"]
+        #expect(ids == ["cloud.account", "cloud.newWorkspace", "cloud.openRepository", "cloud.newMachine", "cloud.machines.title"]
             + machines.map { "machine.\($0.id)" }
-            + ["cloud.showMachines", "cloud.dashboard", "cloud.diagnostics", "cloud.signOut"])
+            + ["cloud.secrets", "cloud.showMachines", "cloud.dashboard", "cloud.diagnostics", "cloud.signOut"])
         try Self.perform("cloud.newWorkspace", in: entries)
         try Self.perform("cloud.newMachine", in: entries)
         try Self.perform("cloud.signOut", in: entries)
@@ -136,7 +136,8 @@ struct CloudMenuContentTests {
         limited.capabilities.fork = false
         let plainIDs = recorder.actions.machine.submenuEntries(limited).compactMap(Self.actionID)
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
-                             "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
+                             "machine.plain.rename", "machine.plain.status", "machine.plain.secrets",
+                             "machine.plain.delete"])
 
         // Missing or false capability metadata must hide recovery in every
         // menu. An explicit server opt-in routes to the shared CLI action.

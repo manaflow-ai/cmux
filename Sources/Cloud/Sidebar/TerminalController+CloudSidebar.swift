@@ -12,7 +12,10 @@ extension TerminalController {
         return v2VmCall(id: id) {
             let rows = try await MainActor.run {
                 let catalog = SurfaceCatalog.shared
-                let nodes = catalog.sidebarNodes(unread: CloudNotificationSyncHub.shared.unreadTerminalIDs)
+                let nodes = catalog.sidebarNodes(
+                    unread: CloudNotificationSyncHub.shared.unreadTerminalIDs,
+                    unreadFailures: CloudNotificationSyncHub.shared.unreadFailureTerminalIDs
+                )
                 if verb != "list" {
                     let action: CloudSidebarOrganizationAction
                     switch verb {

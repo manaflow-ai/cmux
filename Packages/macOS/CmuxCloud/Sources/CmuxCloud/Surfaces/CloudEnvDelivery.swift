@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// How environment variables reach a machine without ever being a secret in transit.
@@ -28,7 +29,8 @@ import Foundation
 public enum CloudEnvDelivery {
     /// Absolute: the daemon's own PATH is not a login shell's.
     public static let receiverCommand = ["/usr/local/bin/cmux", "env", "receive"]
-    public static let receiverTitle = "cmux env"
+    /// Also the reserved prefix of its internal workspace (`SurfaceRemoteWorkspace.isInternalReceiver`).
+    public static let receiverTitle = SurfaceRemoteWorkspace.environmentReceiverTitle
     public static let readyMarker = "CMUX-ENV-READY"
     public static let endMarker = "CMUX-ENV-END"
     public static let resultPattern = "CMUX-ENV-(OK|ERR)"
@@ -133,6 +135,9 @@ public enum CloudEnvDelivery {
 
     public enum DeliveryError: Error, LocalizedError, Equatable {
         case invalidKey(String)
+        /// A name the machine's shells or cmux own (``CloudSecretInput/isReservedName(_:)``);
+        /// the machine's `cmux env receive` refuses it too.
+        case reservedKey(String)
         case multilineValue(String)
         case emptyPayload
         case tooLarge(Int)
@@ -146,6 +151,8 @@ public enum CloudEnvDelivery {
             switch self {
             case .invalidKey(let key):
                 return "invalid variable name '\(key)' (keys match [A-Za-z_][A-Za-z0-9_]*)"
+            case .reservedKey(let key):
+                return String(format: String(localized: "cloudEnv.error.reservedKey", defaultValue: "%@ is reserved by the machine or by cmux and cannot be set."), key)
             case .multilineValue(let key):
                 return "value of \(key) must be a single line"
             case .emptyPayload:
@@ -204,6 +211,7 @@ public enum CloudEnvDelivery {
         var text = ""
         for entry in entries {
             guard isValidKey(entry.key) else { throw DeliveryError.invalidKey(entry.key) }
+            guard !CloudSecretInput.isReservedName(entry.key) else { throw DeliveryError.reservedKey(entry.key) }
             guard !entry.value.contains("\n"), !entry.value.contains("\r") else {
                 throw DeliveryError.multilineValue(entry.key)
             }

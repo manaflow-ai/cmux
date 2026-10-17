@@ -378,7 +378,7 @@ struct CloudBrowserProxyIntegrationTests {
         let gate = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-proxy-exit-\(UUID())")
         defer { try? FileManager.default.removeItem(at: gate) }
         let releases = CloudBrowserProxyTestReleases()
-        let process = CloudBrowserProxyProcess(addresses: ["10.16.0.7"])
+        let process = CloudBrowserProxyProcess(addresses: ["10.16.0.7"], quitRegistry: CloudBrowserProxyQuitRegistry())
         let readyJSON = "{\"host\":\"127.0.0.1\",\"port\":12345,\"username\":\"fixture\",\"password\":\"fixture-secret\"}"
         do {
             let endpoint = try await process.start(
@@ -404,7 +404,7 @@ struct CloudBrowserProxyIntegrationTests {
     @Test("stopping a live carrier clears its endpoint and releases its claim once")
     func stoppingCarrierReleasesClaim() async throws {
         let releases = CloudBrowserProxyTestReleases()
-        let process = CloudBrowserProxyProcess(addresses: ["10.16.0.7"])
+        let process = CloudBrowserProxyProcess(addresses: ["10.16.0.7"], quitRegistry: CloudBrowserProxyQuitRegistry())
         let readyJSON = "{\"host\":\"127.0.0.1\",\"port\":12345,\"username\":\"fixture\",\"password\":\"fixture-secret\"}"
         do {
             _ = try await process.start(

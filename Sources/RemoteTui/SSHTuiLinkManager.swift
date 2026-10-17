@@ -23,8 +23,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private var loopbackForwards: [Int: LoopbackForwardProcess] = [:]
     private var loopbackForwardStarts: [Int: Task<UInt16, Error>] = [:]
 
+    private let browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry
+
     init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool,
-         agentHookProviders: @escaping @Sendable () -> [String] = { [] }) {
+         agentHookProviders: @escaping @Sendable () -> [String] = { [] },
+         browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry = CloudBrowserProxyQuitRegistry()) {
+        self.browserProxyQuitRegistry = browserProxyQuitRegistry
         self.connection = connection
         self.clientURL = clientURL
         self.paths = paths
@@ -138,7 +142,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         _ = try await connected(machineID: machineID)
         if let browser, let ready = await browser.readyEndpoint { return ready }
         if let browserStarting { return try await browserStarting.value }
-        let proxy = CloudBrowserProxyProcess(addresses: ["127.0.0.1", "localhost", "::1"])
+        let proxy = CloudBrowserProxyProcess(addresses: ["127.0.0.1", "localhost", "::1"], quitRegistry: browserProxyQuitRegistry)
         browser = proxy
         let task = Task {
             try await proxy.start(client: clientURL, arguments: connection.browserArguments(stateDirectory: paths.stateDir.path),

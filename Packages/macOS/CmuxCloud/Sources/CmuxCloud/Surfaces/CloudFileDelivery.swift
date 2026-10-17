@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One file to a machine over its link — for anything that must never transit
@@ -29,7 +30,8 @@ import Foundation
 public enum CloudFileDelivery {
     /// Absolute: the daemon's own PATH is not a login shell's.
     static let receiverProgram = "/usr/local/bin/cmux"
-    public static let receiverTitle = "cmux file"
+    /// Also the reserved prefix of its internal workspace (`SurfaceRemoteWorkspace.isInternalReceiver`).
+    public static let receiverTitle = SurfaceRemoteWorkspace.fileReceiverTitle
     public static let readyMarker = "CMUX-FILE-READY"
     public static let endMarker = "CMUX-FILE-END"
     public static let resultPattern = "CMUX-FILE-(OK|ERR)"

@@ -62,6 +62,12 @@ extension AppDelegate {
                 if !NewMachineSheetPresenter.shared.startFork(
                     sourceMachineID: machine.id, sourceName: machine.displayName, preferredWindow: window()
                 ) { NSSound.beep() }
+            },
+            editSecrets: { machine in
+                if fromStatusItem { NSApp.activate() }
+                CloudSecretsSheetPresenter.shared.present(
+                    machineID: machine.id, machineLabel: machine.displayName, preferredWindow: window()
+                )
             }
         )
         return CloudMenuActions(
@@ -102,7 +108,15 @@ extension AppDelegate {
             },
             upgrade: { [weak self] in self?.auth?.accountFlow.openProUpgrade() },
             retry: { [weak model] in model?.refresh() },
-            machine: machine
+            machine: machine,
+            showSecrets: {
+                if fromStatusItem { NSApp.activate() }
+                CloudSecretsSheetPresenter.shared.present(preferredWindow: window())
+            },
+            openRepository: { [weak self] in
+                if fromStatusItem { NSApp.activate() }
+                self?.performOpenRepositoryInCloudAction(preferredWindow: window(), debugSource: source)
+            }
         )
     }
 

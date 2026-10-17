@@ -376,11 +376,15 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
             guard let activation = app?.cloudActivationCoordinator else { return }
             activation.enable()
-            if let onEnabled {
-                Task { @MainActor in await Self.resume(onEnabled, after: activation) }
-            }
+            // With no action to continue, enabling leads straight into the
+            // first-run tour: a running agent is the point of enabling.
+            let next = onEnabled ?? { CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow) }
+            Task { @MainActor in await Self.resume(next, after: activation) }
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
+            // Not `onEnabled`: Cloud is still gated here, so resuming the
+            // action would route back through this card and recurse.
+            CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow)
         }
     }
 

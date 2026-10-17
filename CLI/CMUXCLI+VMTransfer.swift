@@ -866,6 +866,65 @@ extension CMUXCLI {
         }
     }
 
+    // MARK: - waking a parked machine
+
+    /// Statuses of a machine that is parked rather than gone: `vm.resume` brings it back.
+    static let vmParkedStatuses: Set<String> = ["paused", "standby", "asleep", "sleeping", "suspended"]
+
+    /// Long enough for the backend's resume, which waits for the provider to report running.
+    static let vmWakeResponseTimeoutSeconds: TimeInterval = 16 * 60
+
+    /// The one wake step verbs that work in a machine's session share (`vm clone`, `vm agent`,
+    /// `vm open`): a parked machine is resumed before the verb's first request, with one
+    /// status line ("Waking brave-otter… 2.3s"), so the verb never meets a sleeping daemon
+    /// and the wait is never silent. `knownStatus` comes from a `vm.list` the caller already
+    /// read; with `readStatus` the status is read when it is not known. An unreadable status
+    /// (an app without `vm.status`, a label the backend does not know) leaves the decision to
+    /// the verb, whose own not-found answer still drives label resolution. A provider without
+    /// an explicit resume is left to the verb's own request, which wakes the machine on the
+    /// backend. Returns the seconds spent waking, or nil when nothing was woken. A definitive
+    /// refusal (the plan's machine limit, the free window) stops the verb, naming the machine.
+    @discardableResult
+    func wakeVMIfParked(
+        machine: String,
+        knownStatus: String?,
+        readStatus: Bool = true,
+        displayName: String? = nil,
+        client: SocketClient
+    ) throws -> Double? {
+        var status = knownStatus?.lowercased()
+        if status == nil, readStatus {
+            status = ((try? client.sendV2(method: "vm.status", params: ["id": machine], responseTimeout: 30))?["status"] as? String)?.lowercased()
+        }
+        guard let status, Self.vmParkedStatuses.contains(status) else { return nil }
+        let name = displayName ?? Self.vmMachineDisplayName(machine)
+        let started = Date()
+        cliWriteStderr(String(format: String(localized: "cli.vm.wake.waking", defaultValue: "Waking %@\u{2026}"), name))
+        do {
+            _ = try client.sendV2(method: "vm.resume", params: ["id": machine], responseTimeout: Self.vmWakeResponseTimeoutSeconds)
+        } catch let error as CLIError {
+            cliWriteStderr("\n")
+            if error.vmBackendCode == "vm_operation_unsupported" || error.vmBackendHTTPStatus == 501 || error.v2Code == "method_not_found" {
+                return nil
+            }
+            if Self.isVMMachineNotFoundError(error) { throw error }
+            throw CLIError(
+                message: String(
+                    format: String(localized: "cli.vm.wake.failed", defaultValue: "Could not wake %1$@: %2$@"),
+                    name, error.message
+                ),
+                exitCode: error.exitCode,
+                v2Code: error.v2Code,
+                isStructuredProtocolResponse: error.isStructuredProtocolResponse,
+                vmBackendCode: error.vmBackendCode,
+                vmBackendHTTPStatus: error.vmBackendHTTPStatus
+            )
+        }
+        let seconds = Date().timeIntervalSince(started)
+        cliWriteStderr(" \(String(format: "%.1fs", seconds))\n")
+        return seconds
+    }
+
     /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
     static func vmReadyPollInterval(
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -1700,7 +1759,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--remote-cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1713,7 +1772,8 @@ extension CMUXCLI {
         and can be reattached from any device with `cmux vm open <machine>/<ws>/<term>`.
 
         A bare prompt runs the agent's one-shot form (claude -p, codex exec,
-        opencode run, pi -p). Arguments that start with a flag or a subcommand
+        opencode run, pi -p). `codex exec` runs with --skip-git-repo-check,
+        because a pushed tree carries no .git. Arguments that start with a flag or a subcommand
         pass through verbatim.
 
         Options:
@@ -1722,6 +1782,12 @@ extension CMUXCLI {
           --sync           Push --cwd (default: the current directory) to work/<basename>
                            first and start the agent there.
           --cwd <dir>      Local directory to route for (and sync with --sync).
+          --remote-cwd <dir>
+                           Start the agent in this directory on the machine,
+                           relative to the work user's home (e.g. work/app).
+                           With --sync, the push lands there instead of
+                           work/<basename>. The agent fails to start if the
+                           directory does not exist.
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
           --focus, --no-focus
@@ -1763,16 +1829,50 @@ extension CMUXCLI {
             "pi": ["config", "install", "uninstall", "update", "list", "login", "logout", "mcp"],
         ]
         if first.hasPrefix("-") || (passthroughSubcommands[agent] ?? []).contains(first) {
+            if agent == "codex", first == "exec" || first == "e" {
+                return ["codex", first] + vmCodexExecGitCheckFlag(args.dropFirst()) + Array(args.dropFirst())
+            }
             return [agent] + args
         }
         let prompt = args.joined(separator: " ")
         switch agent {
         case "claude": return ["claude", "-p", prompt]
-        case "codex": return ["codex", "exec", prompt]
+        case "codex": return ["codex", "exec", "--skip-git-repo-check", prompt]
         case "opencode": return ["opencode", "run", prompt]
         case "pi": return ["pi", "-p", prompt]
         default: return nil
         }
+    }
+
+    /// The `--remote-cwd` value as a path relative to the session's $HOME (or an
+    /// absolute path, kept as given). `~` and `~/` spell the home itself; nil means
+    /// start in the home. Empty values are refused rather than silently ignored.
+    static func vmAgentRemoteDirectory(_ raw: String) throws -> String? {
+        var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else {
+            throw CLIError(message: "vm agent: --remote-cwd needs a directory (relative to the machine's home, e.g. work/app)\n\n\(vmAgentUsage)")
+        }
+        if path == "~" { return nil }
+        if path.hasPrefix("~/") { path.removeFirst(2) }
+        // A leading dash is a flag that lost its value (`--remote-cwd --name x`), never a
+        // directory to `cd` into.
+        guard !path.hasPrefix("-") else {
+            throw CLIError(message: "vm agent: --remote-cwd '\(raw)' is not a directory; name one relative to the machine's home (e.g. work/app)\n\n\(vmAgentUsage)")
+        }
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path.isEmpty || path == "." ? nil : path
+    }
+
+    /// `codex exec` refuses to run outside a git work tree ("Not inside a trusted
+    /// directory and --skip-git-repo-check was not specified"). A machine's agent cwd is
+    /// usually not one: `vm push`/`--sync` copy the tree without `.git`, and the default
+    /// cwd is the work user's home. The check guards a laptop against an agent editing
+    /// an unversioned tree; on a disposable Cloud machine it only blocks the run, so the
+    /// exec form always skips it. Interactive `codex` asks about trust instead of
+    /// exiting, so only `exec` gets the flag. Passing the flag is harmless inside a repo
+    /// and keeps the pushed tree free of a surprise `.git` (no `git init`).
+    static func vmCodexExecGitCheckFlag(_ execArgs: ArraySlice<String>) -> [String] {
+        execArgs.contains("--skip-git-repo-check") ? [] : ["--skip-git-repo-check"]
     }
 
     /// Normalizes the ergonomic provider-first aliases into the canonical
@@ -1895,6 +1995,7 @@ extension CMUXCLI {
         var machineOverride: String?
         var sync = false
         var cwdOption: String?
+        var remoteCwdOption: String?
         var nameOption: String?
         var noOpen = false
         var focus: Bool?
@@ -1924,6 +2025,7 @@ extension CMUXCLI {
             case "--machine": machineOverride = try takeValue()
             case "--sync": sync = true
             case "--cwd": cwdOption = try takeValue()
+            case "--remote-cwd": remoteCwdOption = try takeValue()
             case "--name": nameOption = try takeValue()
             case "--no-open": noOpen = true
             case "--remote-workspace": remoteWorkspaceOption = try takeValue()
@@ -1965,6 +2067,11 @@ extension CMUXCLI {
         }
         let workDirectory = cwdOption.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
             ?? FileManager.default.currentDirectoryPath
+        // Validated before routing so a bad value never selects (or creates) a machine.
+        var remoteStartDirectory: String?
+        if let remoteCwdOption {
+            remoteStartDirectory = try Self.vmAgentRemoteDirectory(remoteCwdOption)
+        }
 
         if sync {
             // Help stays readable; refuse the transfer before VM selection.
@@ -1979,12 +2086,16 @@ extension CMUXCLI {
             client: client
         )
         cliWriteStderr("[cmux vm agent] \(selection.id) (\(selection.reason))\n")
+        // A paused machine wakes here with one line, before the sync and the agent's terminal.
+        if !selection.created {
+            try wakeVMIfParked(machine: selection.id, knownStatus: nil, client: client)
+        }
         Self.saveVMRunBinding(workKey: Self.vmRunWorkKey(forDirectory: workDirectory), machine: selection.id)
 
         var syncedRemoteDir: String?
         if sync {
             let basename = (workDirectory as NSString).lastPathComponent
-            let remoteDir = "work/\(basename)"
+            let remoteDir = remoteStartDirectory ?? "work/\(basename)"
             try runVMPushCommand(
                 rest: [selection.id, workDirectory, remoteDir],
                 client: client,
@@ -1993,9 +2104,20 @@ extension CMUXCLI {
             )
             syncedRemoteDir = remoteDir
         }
+        // Cloud Secrets first, so the agent starts with its API keys. A fast no-op when
+        // the machine is current; a failure is one warning and the agent starts anyway.
+        syncVMSecretsBeforeAgent(machine: selection.id, workDirectory: workDirectory, client: client)
+        // Names the repository declares (`.cmux/cloud.json`, devcontainer secrets) that
+        // the machine still lacks: a warning with the add command, never a blocker.
+        for line in vmSecretsPreflightWarnings(machine: selection.id, project: nil, directory: workDirectory, client: client) {
+            cliWriteStderr(line + "\n")
+        }
+        // Whether the agent has a credential at all (quick, no network, 5 s at most).
+        warnIfVMAgentNotReady(machine: selection.id, agent: agent, client: client)
         // Reported, not requested: the daemon starts the terminal in its own home and the
         // command cd's from there, so the CLI never has to know which user owns the machine.
-        let remoteCwd = syncedRemoteDir.map { "~/\($0)" } ?? "~"
+        let agentDirectory = syncedRemoteDir ?? remoteStartDirectory
+        let remoteCwd = agentDirectory.map { $0.hasPrefix("/") ? $0 : "~/\($0)" } ?? "~"
 
         let name = nameOption ?? Self.vmAgentTerminalName(agent: agent, args: agentArgs)
         // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
@@ -2003,7 +2125,7 @@ extension CMUXCLI {
         // pane unless --no-open.
         var params: [String: Any] = [
             "machine": selection.id,
-            "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
+            "command": vmAgentShellCommand(argv: argv, workDirectory: agentDirectory),
             "name": name,
             "open": !noOpen,
             "focus": focus ?? Self.defaultFocusForUserOpen(),

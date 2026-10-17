@@ -42,6 +42,10 @@ struct CloudMenuActions {
     var upgrade: @MainActor () -> Void
     var retry: @MainActor () -> Void
     var machine: CloudMachineMenuVerbs
+    /// Opens the Cloud Secrets sheet for every machine.
+    var showSecrets: @MainActor () -> Void = {}
+    /// Opens "Open Repository in Cloud…".
+    var openRepository: @MainActor () -> Void = {}
 }
 
 enum CloudMenuContent {
@@ -193,6 +197,12 @@ enum CloudMenuContent {
                 perform: actions.newWorkspace
             )),
             .action(CloudMenuAction(
+                id: "cloud.openRepository",
+                title: String(localized: "cloudOpenRepository.menu", defaultValue: "Open Repository in Cloud…"),
+                shortcut: .openRepositoryInCloud,
+                perform: actions.openRepository
+            )),
+            .action(CloudMenuAction(
                 id: "cloud.newMachine",
                 title: String(localized: "cloudMenu.newMachine", defaultValue: "New Cloud Machine…"),
                 shortcut: .newCloudMachine,
@@ -204,8 +214,15 @@ enum CloudMenuContent {
     private static func toolEntries(_ actions: CloudMenuActions) -> [CloudMenuEntry] {
         [
             .action(CloudMenuAction(
+                id: "cloud.secrets",
+                title: String(localized: "cloudSecrets.menu.app", defaultValue: "Cloud Secrets\u{2026}"),
+                shortcut: .openCloudSecrets,
+                perform: actions.showSecrets
+            )),
+            .action(CloudMenuAction(
                 id: "cloud.showMachines",
                 title: String(localized: "cloudMenu.showMachines", defaultValue: "Show Machines Sidebar"),
+                shortcut: .toggleCloudPanel,
                 perform: actions.showMachines
             )),
             dashboardEntry(actions),

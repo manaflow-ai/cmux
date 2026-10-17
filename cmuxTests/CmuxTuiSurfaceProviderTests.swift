@@ -1013,14 +1013,19 @@ import Testing
 
     @Test func exitedTerminalWithoutATabIsNotASurface() {
         // cmux-tui keeps the record of a terminal whose process exited after its tab went
-        // away; its selector no longer resolves, so nothing could open or close it.
+        // away; its selector no longer resolves, so nothing could open or close it. A
+        // failed run is the exception: its row remains visible so the user can see why
+        // the agent stopped.
         var snapshot = Self.sessionSnapshot
         var terminals = snapshot["terminals"] as! [[String: Any]]
         terminals.append(["id": "term_gone", "tab_id": NSNull(), "tab_ids": [], "title": "", "lifecycle": "exited", "running": false,
+                          "exit": ["outcome": ["kind": "exit", "code": 0]]])
+        terminals.append(["id": "term_failed", "tab_id": NSNull(), "tab_ids": [], "title": "failed agent", "lifecycle": "exited", "running": false,
                           "exit": ["outcome": ["kind": "exit", "code": 130]]])
         snapshot["terminals"] = terminals
         let keys = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine).map { $0.id.key }
         #expect(!keys.contains("term_gone"))
+        #expect(keys.contains("term_failed"))
         // An exited terminal that still has a tab stays: that one can be closed.
         #expect(keys.contains("term_shell"))
         let tabs = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)

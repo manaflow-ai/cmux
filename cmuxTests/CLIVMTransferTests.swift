@@ -1148,9 +1148,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "hello world\n")
         XCTAssertTrue(result.stderr.contains("exited code=3"), result.stderr)
         XCTAssertTrue(result.stderr.contains("Started claude on vivid-newt"), "launch report moves to stderr with --output: \(result.stderr)")
+        // `vm agent` first reads the machine's status (a paused machine is woken), syncs
+        // Cloud Secrets and checks repo-declared names (best effort; this mock answers
+        // none of them), then launches and waits.
         XCTAssertEqual(
-            log.methods,
-            ["surface.new_terminal", "vm.terminal_wait_exit", "vm.terminal_wait_exit", "vm.terminal_output", "vm.terminal_output"],
+            log.methods.filter { !$0.hasPrefix("vm.secrets_") && $0 != "vm.agent_readiness" },
+            ["vm.status", "surface.new_terminal", "vm.terminal_wait_exit", "vm.terminal_wait_exit", "vm.terminal_output", "vm.terminal_output"],
             log.methods.description
         )
         let newTerminal = log.params(ofFirst: "surface.new_terminal")

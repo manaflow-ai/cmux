@@ -156,6 +156,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Receipts from older backends without an address keep the old path.
     func recordCreatedMachine(_ summary: VMSummary, attach: VMCmuxRemoteEndpoint? = nil, scope: UUID?) async -> CmuxTuiSurfaceProvider? {
         guard let scope, scope == creationScope, let catalog else { return nil }
+        // This session created the machine: its first workspace may be named for what
+        // it is when it is first bound (and only then; see SurfaceCatalog+CloudBinding).
+        catalog.noteMachineCreatedThisSession(.cloud(summary.id))
         var receipt = summary
         if receipt.addressIPv4 == nil { receipt.addressIPv4 = attach?.networkAddresses?.ipv4 }
         if receipt.addressIPv6 == nil { receipt.addressIPv6 = attach?.networkAddresses?.ipv6 }

@@ -36,6 +36,8 @@ public protocol CloudMachinesSettingsActions: AnyObject {
     func openCloudVPNSetup()
     /// Opens the host's plan management / upgrade flow.
     func openCloudMachinesBilling()
+    /// Opens the Cloud Secrets sheet: keys every Cloud machine receives.
+    func openCloudSecrets()
 }
 
 public extension CloudMachinesSettingsActions {
@@ -57,4 +59,5 @@ public extension CloudMachinesSettingsActions {
     func openCloudMachinesPanel() {}
     func openCloudVPNSetup() {}
     func openCloudMachinesBilling() {}
+    func openCloudSecrets() {}
 }

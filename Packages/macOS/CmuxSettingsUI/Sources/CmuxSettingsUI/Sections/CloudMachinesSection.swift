@@ -40,6 +40,8 @@ public struct CloudMachinesSection: View {
                     SettingsCardDivider()
                     panelRow
                     SettingsCardDivider()
+                    secretsRow
+                    SettingsCardDivider()
                     vpnRow
                 }
             }
@@ -49,6 +51,7 @@ public struct CloudMachinesSection: View {
                         "setting:cloudMachines:enable",
                         "setting:cloudMachines:plan",
                         "setting:cloudMachines:open-panel",
+                        "setting:cloudMachines:secrets",
                         "setting:cloudMachines:vpn",
                     ]
                     : ["setting:cloudMachines:enable"]
@@ -273,6 +276,30 @@ public struct CloudMachinesSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .id("setting:cloudMachines:open-panel")
+    }
+
+    private var secretsRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "settings.cloudMachines.secrets.title", defaultValue: "Cloud Secrets"))
+                Text(String(
+                    localized: "settings.cloudMachines.secrets.subtitle",
+                    defaultValue: "API keys every Cloud machine receives. Kept in this Mac’s Keychain and sent over each machine’s encrypted link, never to cmux servers."
+                ))
+                .cmuxFont(.caption)
+                .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(String(localized: "settings.cloudMachines.secrets.manage", defaultValue: "Manage…")) {
+                hostActions.openCloudSecrets()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsCloudSecretsManage")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .id("setting:cloudMachines:secrets")
     }
 
     private var vpnRow: some View {

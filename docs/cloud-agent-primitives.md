@@ -19,7 +19,7 @@ keep running when the laptop closes.
 | `vm dev` (detect/record/replay environment, named workspace) | designed (cloud-project-environments.md) |
 | `vm push --watch` (fs-event incremental sync) | next |
 | Browser device authentication (`cmux open-url`, `BROWSER`, OS URL openers; exact terminal projection, acknowledgement, headless fallback) | implemented; updated guest/Mac binaries required |
-| `vm repo clone <url>` (clone *in* the cloud — big repos never transit the Mac; gh auth via edge-injected credentials, never a token in the guest) | next |
+| `vm clone <repo> [--agent …]` (clone *in* the cloud — big repos never transit the Mac; the vault's `GH_TOKEN` reaches the machine and git's credential helper reads it) | shipped |
 
 ## Goal 2 — agents that outlive the laptop
 
@@ -77,16 +77,23 @@ cmux vm layout apply  <machine> <file|-> [--name <n>|--workspace <empty-ws>] [--
 The checklist an agent runs through, each item a primitive (not a doc):
 
 1. **Machine**: `vm route`/`vm new --size` (per-size snapshots) — shipped.
-2. **Code**: `vm push` (shipped) / `vm repo clone` (next).
+2. **Code**: `vm push` (shipped) / `vm clone <repo> [--agent …]` — clones on
+   the machine over HTTPS with the vault's `GH_TOKEN`, links the machine to the
+   repo's project key, syncs secrets, opens a workspace in the checkout.
 3. **Toolchain + deps**: `vm dev` detect→record→replay; devcontainer.json
    honored — designed.
-4. **Secrets**: `vm env set|ls|rm` — shipped machine-local (0600 file on the
-   persistent volume, sourced by every shell cmux starts: terminals, `vm exec`,
-   `vm agent`, layout panes, in-VM `cmux agent`). Values never ride `vm.exec`:
-   they cross the machine's end-to-end link into `cmux env receive` with PTY
-   echo off (`CloudEnvDelivery`), so no server, command line, or screen ever
-   holds them; per-(user, project) storage and edge-resident values remain the
-   long game (docs/vm-identity-edge-auth.md).
+4. **Secrets**: Cloud Secrets — a vault on the Mac (one Keychain item,
+   this-device-only), scoped all > project (normalized git remote) > machine,
+   most specific wins. `vm secrets ls|set|import|rm|sync|status|check|link`
+   plus the Cloud Secrets sheet; values never in argv, write-only (names +
+   HMAC fingerprints out). Delivery reuses `vm env`'s path: the machine's
+   end-to-end link into `cmux env receive` with PTY echo off
+   (`CloudEnvDelivery`) → `~/.config/cmux/env` (0600), sourced by every shell
+   cmux starts; removals are names-only `cmux env rm`. Synced on create, on
+   change, and before `vm agent`; a per-machine ledger drives
+   `status --verify`. Repos declare names in `.cmux/cloud.json` `env` or devcontainer
+   `secrets`. No server ever holds a value; edge-resident values for
+   multi-Mac/team use remain the long game (docs/vm-identity-edge-auth.md).
 5. **Services**: recipe `services` (postgres/redis via the baked docker) with
    health gates — next, part of `vm dev` P2.
 6. **Workspace + layout**: `vm workspace new --name` + `vm layout apply` —
@@ -115,7 +122,8 @@ The checklist an agent runs through, each item a primitive (not a doc):
    `--layout` document + geometry-honoring open; `--command`/`--port` override.
 4. ~~`vm push --watch`~~ shipped (mtime/size scan, same excludes); `vm push --secret`
    shipped (one file over the link into `cmux file receive`, the env receiver
-   generalized). Still open: `vm repo clone`, recipe `services`.
+   generalized). ~~`vm clone <repo>`~~ shipped (the vault's `GH_TOKEN` reaches
+   the machine for git's credential helper); still open: recipe `services`.
 5. ~~`vm agent --wait --output`~~ shipped on `vm agent`, `vm run`, and the in-VM
    `cmux agent`/peer `cmux vm agent` (until-done, exit code passes through).
    Still open: push-notification forwarding for the ledger, `--fan-out` (today:

@@ -25,6 +25,16 @@ export const cloudSecurityDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+export const cloudSecretsDocsLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
+export const cloudOpenRepoDocsLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
 // Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",

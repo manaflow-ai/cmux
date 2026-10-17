@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// A Cloud sheet's window, sized from its SwiftUI content without letting
@@ -26,19 +27,22 @@ final class CloudSheetWindow {
     private var isOpening = false
     private var pendingContentSize: NSSize?
     private var isResizeScheduled = false
+    private let chrome: CloudSheetChrome
 
     init<Content: View>(rootView: Content) {
         // The presenter retains this wrapper while the window is presented;
         // the root view retains the reporter that points back to this owner.
         let reporter = SizeReporter()
-        let controller = NSHostingController(rootView: CloudSheetContent(content: rootView, report: reporter))
+        let chrome = CloudSheetChrome()
+        self.chrome = chrome
+        let controller = NSHostingController(rootView: CloudSheetContent(content: rootView, report: reporter, chrome: chrome))
         controller.sizingOptions = []
         window = NSWindow(contentViewController: controller)
         // NSHostingController's flexible root view can report its temporary
         // attached-sheet proposal (1×0). Measure an unattached hosting view so
         // the first window frame is based on the content's intrinsic size.
         let initialSize = NSHostingView(
-            rootView: CloudSheetContent(content: rootView, report: reporter)
+            rootView: CloudSheetContent(content: rootView, report: reporter, chrome: chrome)
         ).fittingSize
         initialContentSize = Self.rounded(initialSize)
         if initialSize.width > 0, initialSize.height > 0 {
@@ -64,6 +68,7 @@ final class CloudSheetWindow {
             guard let self else { return }
             self.restoreInitialContentSizeIfNeeded()
             self.applyPendingContentSize()
+            self.updateChrome()
         }
     }
 
@@ -78,7 +83,20 @@ final class CloudSheetWindow {
             guard let self else { return }
             self.restoreInitialContentSizeIfNeeded()
             self.applyPendingContentSize()
+            self.updateChrome()
         }
+    }
+
+    /// Reads the window's corner radius once it is attached, so the dark-mode
+    /// hairline follows the sheet's own corners. The radius is only exposed as
+    /// AppKit's private `_cornerRadius` (read the same way as the window glass
+    /// effect does); without it the hairline is left off rather than drawn
+    /// with corners that do not match.
+    private func updateChrome() {
+        guard window.responds(to: Selector(("_cornerRadius"))),
+              let radius = window.value(forKey: "_cornerRadius") as? CGFloat,
+              radius > 0 else { return }
+        if chrome.cornerRadius != radius { chrome.cornerRadius = radius }
     }
 
     fileprivate func contentIdealSizeChanged(_ size: NSSize) {
@@ -130,6 +148,7 @@ final class CloudSheetWindow {
 struct CloudSheetContent<Content: View>: View {
     let content: Content
     fileprivate let report: CloudSheetWindow.SizeReporter
+    fileprivate let chrome: CloudSheetChrome
 
     var body: some View {
         content
@@ -145,5 +164,33 @@ struct CloudSheetContent<Content: View>: View {
             } action: { size in
                 report.owner?.contentIdealSizeChanged(size)
             }
+            .overlay { CloudSheetEdge(chrome: chrome) }
+    }
+}
+
+/// What the sheet's frame tells its content: the window's corner radius,
+/// known once the sheet is attached.
+@MainActor
+@Observable
+final class CloudSheetChrome {
+    var cornerRadius: CGFloat?
+}
+
+/// The sheet's edge in Dark Mode: a light hairline on the window's own
+/// corners. Over the dimmed host a dark sheet's shadow barely shows, so
+/// without it the sheet reads as a lighter patch rather than a surface above
+/// the window (Codex's dark sheets draw the same rim). Light Mode keeps the
+/// system shadow alone, which already separates the sheet.
+private struct CloudSheetEdge: View {
+    let chrome: CloudSheetChrome
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .dark, let radius = chrome.cornerRadius {
+            RoundedRectangle(cornerRadius: radius, style: .circular)
+                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }

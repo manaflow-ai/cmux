@@ -352,7 +352,8 @@ extension CMUXCLI {
             let format = keys.count == 1
                 ? String(localized: "cli.vm.env.set.one", defaultValue: "OK set %1$ld variable on %2$@: %3$@")
                 : String(localized: "cli.vm.env.set.many", defaultValue: "OK set %1$ld variables on %2$@: %3$@")
-            print(String(format: format, keys.count, machine, keys.joined(separator: ", ")))
+            // The machine as the person typed it (a resolved label), not the id behind it.
+            print(String(format: format, keys.count, Self.vmMachineDisplayName(machine), keys.joined(separator: ", ")))
 
         case "ls", "list":
             let show = hasFlag(tail, name: "--show")
@@ -382,8 +383,9 @@ extension CMUXCLI {
             guard !keys.isEmpty else {
                 throw CLIError(message: String(format: String(localized: "cli.vm.env.rmGiveAtLeastOneKEY", defaultValue: "vm env rm: give at least one KEY\n\n%1$@"), String(describing: Self.vmEnvUsage)), exitCode: 2)
             }
-            if let bad = keys.first(where: { !Self.isValidVMEnvKey($0) }) {
-                throw CLIError(message: String(format: String(localized: "cli.vm.env.rmInvalidVariableNameKeysMatchA", defaultValue: "vm env rm: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"), String(describing: bad)), exitCode: 2)
+            if keys.contains(where: { !Self.isValidVMEnvKey($0) }) {
+                // The name is not shown: text in the name position can be a pasted value.
+                throw CLIError(message: String(localized: "cli.vm.env.rmInvalidNameHidden", defaultValue: "vm env rm: a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"), exitCode: 2)
             }
             let result = try runVMShim(
                 Self.vmEnvRemoveCommand(keys: keys),
@@ -400,7 +402,7 @@ extension CMUXCLI {
                 let format = keys.count == 1
                     ? String(localized: "cli.vm.env.remove.one", defaultValue: "OK removed %1$ld variable on %2$@: %3$@")
                     : String(localized: "cli.vm.env.remove.many", defaultValue: "OK removed %1$ld variables on %2$@: %3$@")
-                print(String(format: format, keys.count, machine, keys.joined(separator: ", ")))
+                print(String(format: format, keys.count, Self.vmMachineDisplayName(machine), keys.joined(separator: ", ")))
             } else {
                 Self.printVerbatim(result.stdout)
             }
@@ -546,16 +548,29 @@ extension CMUXCLI {
         key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
+    /// Names owned by the machine's shell or cmux. Keep this in the CLI target so
+    /// dotenv import can skip them without pulling the app-only CmuxCloud package.
+    /// The guest shim rejects the same case-insensitive names before writing them.
+    static func isReservedVMEnvKey(_ key: String) -> Bool {
+        let upper = key.uppercased()
+        let names: Set<String> = [
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PS4", "PROMPT_COMMAND",
+            "PWD", "OLDPWD", "TERM",
+        ]
+        return names.contains(upper) || upper.hasPrefix("LD_") || upper.hasPrefix("DYLD_") || upper.hasPrefix("CMUX_")
+    }
+
     /// One argv `KEY=VALUE`. The value is taken literally (it already went through the
-    /// caller's shell); it may be empty, never multi-line.
+    /// caller's shell); it may be empty, never multi-line. A malformed argument or an
+    /// invalid name is not echoed: it may be a pasted value.
     static func parseVMEnvAssignment(_ raw: String) throws -> VMEnvAssignment {
         guard let separator = raw.firstIndex(of: "=") else {
-            throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.expectedKEYVALUEGotValue", defaultValue: "expected KEY=VALUE, got '%1$@'"), String(describing: raw)))
+            throw VMEnvError(description: String(localized: "cli.vm.layoutEnv.expectedAssignmentHidden", defaultValue: "an argument is not KEY=VALUE"))
         }
         let key = String(raw[..<separator])
         let value = String(raw[raw.index(after: separator)...])
         guard isValidVMEnvKey(key) else {
-            throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.invalidVariableNameValueKeysMatchAZaZA", defaultValue: "invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"), String(describing: key)))
+            throw VMEnvError(description: String(localized: "cli.vm.layoutEnv.invalidNameHidden", defaultValue: "a name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"))
         }
         guard !value.contains("\n"), !value.contains("\r") else {
             throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.valueOfValueMustBeASingleLine", defaultValue: "value of %1$@ must be a single line"), String(describing: key)))
@@ -602,48 +617,84 @@ extension CMUXCLI {
         return (machine, sources)
     }
 
-    static func parseVMEnvFileValue(_ value: String) -> String {
-        if let quote = value.first, quote == "\"" || quote == "'" {
-            var escaped = false
-            for index in value.indices.dropFirst() {
-                let character = value[index]
-                if character == quote, !escaped {
-                    let suffix = value[value.index(after: index)...].trimmingCharacters(in: .whitespaces)
-                    if suffix.isEmpty || suffix.hasPrefix("#") {
-                        return String(value[value.index(after: value.startIndex)..<index])
-                    }
-                }
-                escaped = character == "\\" && !escaped
+    /// What one raw `.env` value parses to.
+    enum VMEnvFileValue: Equatable {
+        case value(String)
+        /// It opens a quote it never closes on its line.
+        case unclosedQuote
+        /// It is quoted, with text other than a comment after the closing quote.
+        case trailingText
+    }
+
+    /// The value rules of the vault's dotenv parser (CmuxCloud `CloudSecretDotenv`,
+    /// which this target cannot import; keep the two in step): a matching pair of
+    /// surrounding quotes is stripped, inside double quotes `\"` is a quote (no other
+    /// escapes), inside single quotes nothing is an escape, and a ` # comment` outside
+    /// quotes is dropped.
+    static func parseVMEnvFileValue(_ value: String) -> VMEnvFileValue {
+        guard let quote = value.first, quote == "\"" || quote == "'" else {
+            if let comment = value.range(of: "[ \\t]+#", options: .regularExpression) {
+                return .value(value[..<comment.lowerBound].trimmingCharacters(in: .whitespaces))
             }
+            return .value(value)
         }
-        if let comment = value.range(of: "[ \\t]+#", options: .regularExpression) {
-            return value[..<comment.lowerBound].trimmingCharacters(in: .whitespaces)
+        var unquoted = ""
+        var index = value.index(after: value.startIndex)
+        while index < value.endIndex {
+            let character = value[index]
+            let next = value.index(after: index)
+            if quote == "\"", character == "\\", next < value.endIndex, value[next] == "\"" {
+                unquoted.append("\"")
+                index = value.index(after: next)
+                continue
+            }
+            if character == quote {
+                let suffix = value[next...].trimmingCharacters(in: .whitespaces)
+                return suffix.isEmpty || suffix.hasPrefix("#") ? .value(unquoted) : .trailingText
+            }
+            unquoted.append(character)
+            index = next
         }
-        return value
+        return .unclosedQuote
+    }
+
+    /// The lines of a `.env` text: a leading byte-order mark dropped, `\r\n` read as one
+    /// line break (it is one Character, so it is normalized before splitting).
+    static func vmEnvFileLines(_ text: String) -> [Substring] {
+        var body = text.replacingOccurrences(of: "\r\n", with: "\n")
+        if body.hasPrefix("\u{FEFF}") { body.removeFirst() }
+        return body.split(separator: "\n", omittingEmptySubsequences: false)
     }
 
     /// dotenv, the common subset: blank lines and `#` comments skipped, optional
-    /// `export `, `KEY=VALUE`, a matching pair of surrounding quotes stripped (no escape
-    /// processing), trailing comments outside the quotes dropped. Line numbers are
-    /// reported so a bad file is fixable.
+    /// `export `, `KEY=VALUE`, values read by ``parseVMEnvFileValue(_:)``. The first bad
+    /// line refuses the file by line number, so it is fixable; the line's text is never
+    /// shown (it may be a value).
     static func parseVMEnvFile(_ text: String) throws -> [VMEnvAssignment] {
         var assignments: [VMEnvAssignment] = []
-        for (index, rawLine) in text.components(separatedBy: .newlines).enumerated() {
+        for (index, rawLine) in vmEnvFileLines(text).enumerated() {
+            let lineNumber = String(describing: index + 1)
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("#") { continue }
             if line.hasPrefix("export ") || line.hasPrefix("export\t") {
                 line = String(line.dropFirst("export".count)).trimmingCharacters(in: .whitespaces)
             }
             guard let separator = line.firstIndex(of: "=") else {
-                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineValueExpectedKEYVALUEGotValue", defaultValue: "line %1$@: expected KEY=VALUE, got '%2$@'"), String(describing: index + 1), String(describing: rawLine.trimmingCharacters(in: .whitespaces))))
+                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineExpectedAssignment", defaultValue: "line %1$@: expected KEY=VALUE"), lineNumber))
             }
             let key = line[..<separator].trimmingCharacters(in: .whitespaces)
             guard isValidVMEnvKey(key) else {
-                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineValueInvalidVariableNameValueKeysMatchAZa", defaultValue: "line %1$@: invalid variable name '%2$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"), String(describing: index + 1), String(describing: key)))
+                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineInvalidNameHidden", defaultValue: "line %1$@: the name is not a valid variable name (names match [A-Za-z_][A-Za-z0-9_]*)"), lineNumber))
             }
             let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
-            let value = parseVMEnvFileValue(rawValue)
-            assignments.append(VMEnvAssignment(key: key, value: value))
+            switch parseVMEnvFileValue(rawValue) {
+            case .value(let value):
+                assignments.append(VMEnvAssignment(key: key, value: value))
+            case .unclosedQuote:
+                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineUnclosedQuote", defaultValue: "line %1$@: the value of %2$@ opens a quote that does not close on its line"), lineNumber, key))
+            case .trailingText:
+                throw VMEnvError(description: String(format: String(localized: "cli.vm.layoutEnv.lineTrailingText", defaultValue: "line %1$@: the value of %2$@ has text after its closing quote"), lineNumber, key))
+            }
         }
         return assignments
     }

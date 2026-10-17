@@ -15,6 +15,9 @@ extension ContentView {
         if let parityCommand = ShortcutParityPaletteCommand(rawValue: commandId) {
             return parityCommand.shortcutAction
         }
+        if let cloudTeachingAction = commandPaletteCloudTeachingShortcutAction(forCommandID: commandId) {
+            return cloudTeachingAction
+        }
 
         switch commandId {
         case Self.commandPaletteAuthTeamPickerCommandId:

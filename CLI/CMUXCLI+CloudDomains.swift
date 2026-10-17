@@ -2,8 +2,9 @@ import Foundation
 
 /// The CLI target does not compile `Sources/Cloud/VMClient.swift`, so it keeps
 /// its own copy of the access modes; the app validates the wire value against
-/// `VMPublicationAccessMode` when it handles `vm.publication_*`.
-private enum CloudDomainAccessMode: String {
+/// `VMPublicationAccessMode` when it handles `vm.publication_*`. `vm share`
+/// resolves its team through the same validation.
+enum CloudDomainAccessMode: String {
     case personal
     case team
     case `public`
@@ -224,7 +225,7 @@ extension CMUXCLI {
         }
     }
 
-    private func validatedPublicationAccess(
+    func validatedPublicationAccess(
         _ rawValue: String,
         teamID: String?,
         client: SocketClient

@@ -72,6 +72,27 @@ extension BrowserPanel {
         return resource?.machine.isLocal == false ? resource : nil
     }
 
+    /// The tab title of a Cloud port preview before its page reports one.
+    var cloudPortPreviewTitle: String? {
+        guard let resource = cloudResourceForDuplication, let port = resource.forwardedPort else { return nil }
+        let info = SurfaceCatalog.shared.machineInfo(for: resource.machine)
+        return CloudTreePortPresentation.previewTabTitle(
+            port: port,
+            machineLabel: info?.name ?? resource.machine.cloudMachineID ?? resource.machine.rawValue
+        )
+    }
+
+    /// The Cloud machine port this preview shows, for the toolbar's share
+    /// control. Nil for every other page, including SSH machines (which have
+    /// no publications).
+    var cloudPortShareContext: CloudPortShareContext? {
+        guard let resource = cloudResourceForDuplication,
+              let machineID = resource.machine.cloudMachineID,
+              let port = resource.forwardedPort else { return nil }
+        let info = SurfaceCatalog.shared.machineInfo(for: resource.machine)
+        return CloudPortShareContext(machineID: machineID, machineLabel: info?.name ?? machineID, port: port)
+    }
+
     var retainsCloudResourceForDuplication: Bool {
         cloudAccess.model != nil || cloudResourceForDuplication != nil
     }

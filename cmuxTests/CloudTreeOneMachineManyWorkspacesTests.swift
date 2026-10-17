@@ -140,6 +140,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         arguments: [String],
         machine: [String: Any],
         resources: [[String: Any]],
+        leadingResponses: [[String: Any]] = [],
         extraResponses: [[String: Any]] = []
     ) throws -> CloudTreeCLIResult {
         let socketPath = "/tmp/cmux-cloud-tree-cli-\(UUID().uuidString.prefix(8)).sock"
@@ -163,7 +164,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
                 "projections": [],
             ],
         ]
-        let payloads = try ([catalog] + extraResponses).map { object in
+        let payloads = try (leadingResponses + [catalog] + extraResponses).map { object in
             String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
         }
         let responder = try UnixSocketResponder(path: socketPath, responses: payloads)
@@ -606,6 +607,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             arguments: ["vm", "open", "\(machineID)/ws_main/term_shared/tab_a", "--json"],
             machine: machine,
             resources: [resource],
+            // `vm open` reads the machine's status first (a paused machine is woken).
+            leadingResponses: [["ok": true, "result": ["id": machineID, "status": "running"]]],
             extraResponses: [[
                 "ok": true,
                 "result": [

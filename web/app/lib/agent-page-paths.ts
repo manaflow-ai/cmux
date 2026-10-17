@@ -14,6 +14,8 @@ import {
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
+  cloudSecretsDocsLocales,
+  cloudOpenRepoDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -218,6 +220,16 @@ export const agentReadablePages = [
   { path: "/docs/cloud", title: "cmux Cloud" },
   { path: "/docs/cloud/machines", title: "Cloud Machines" },
   { path: "/docs/cloud/workspaces", title: "Cloud Workspaces and Agents" },
+  {
+    path: "/docs/cloud/open-repo",
+    title: "Open a Repo in the Cloud",
+    locales: cloudOpenRepoDocsLocales,
+  },
+  {
+    path: "/docs/cloud/secrets",
+    title: "Cloud Secrets",
+    locales: cloudSecretsDocsLocales,
+  },
   { path: "/docs/cloud/networking", title: "Cloud Files and Networking" },
   { path: "/docs/cloud/cli", title: "Cloud CLI Reference" },
   { path: "/docs/cloud/troubleshooting", title: "Cloud Security and Troubleshooting" },

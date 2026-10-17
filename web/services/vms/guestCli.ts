@@ -172,7 +172,10 @@ require_coderouter() {
     *[!A-Za-z0-9:/._-]*)
       die_message 2 invalidCodeRouter ;;
   esac
-  cmux_coderouter_key="\${OPENAI_API_KEY:-cmux-vm-edge-placeholder}"
+  # Always the public placeholder: OPENAI_API_KEY may be the user's own key
+  # (Cloud Secrets), which never goes to CodeRouter. The edge adds the
+  # machine's credential.
+  cmux_coderouter_key=cmux-vm-edge-placeholder
 }
 
 # ---------------------------------------------------------------------------
@@ -211,7 +214,7 @@ reflection_fetch_url() {
   cmux_rf_out="\$2"
   : > "\$cmux_rf_out"
   cmux_rf_raw="\$(cmux_curl -sSL --connect-timeout 5 --max-time 20 \\
-    -H "authorization: Bearer \${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" -H 'accept: application/json' \\
+    -H "authorization: Bearer cmux-vm-edge-placeholder" -H 'accept: application/json' \\
     --write-out '\\n%{http_code}' "\$1" 2>/dev/null)" || :
   cmux_rf_status="\$(printf '%s' "\$cmux_rf_raw" | tail -n 1)"
   case "\$cmux_rf_status" in ''|*[!0-9]*) cmux_rf_status=000; return 1 ;; esac
@@ -444,7 +447,7 @@ guest_auth_status() {
     case "\$CMUX_CODEROUTER_URL" in
       https://*)
         if cmux_edge_status="\$(cmux_curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 20 \\
-          -H "authorization: Bearer \${OPENAI_API_KEY:-cmux-vm-edge-placeholder}" \\
+          -H "authorization: Bearer cmux-vm-edge-placeholder" \\
           "\${CMUX_CODEROUTER_URL%/}/api/coderouter/vm-usage/self" 2>/dev/null)"; then :; else :; fi
         case "\$cmux_edge_status" in
           200) cmux_tls_reachable=1; cmux_route_auth=accepted ;;
@@ -903,6 +906,26 @@ env_key_ok() {
   return 0
 }
 
+# Names the env file must not set: every login shell and every cmux exec on
+# the machine sources it, so these would break program lookup, the work
+# user's home, word splitting or shell startup, inject code (LD_*), or confuse
+# cmux itself (CMUX_*). Case-insensitive, like the Mac's Cloud Secrets vault
+# (CloudSecretInput.isReservedName). \`env rm\` still takes them, so a file
+# written before this check can be repaired.
+env_key_reserved() {
+  case "\$(printf '%s' "\$1" | tr '[:lower:]' '[:upper:]')" in
+    PATH|HOME|USER|LOGNAME|SHELL|IFS|ENV|BASH_ENV|PS4|PROMPT_COMMAND|PWD|OLDPWD|TERM|LD_*|DYLD_*|CMUX_*) return 0 ;;
+  esac
+  return 1
+}
+
+# env_key_settable <key>: dies with a clear message unless \$1 may be set.
+env_key_settable() {
+  env_key_ok "\$1" || die "env: invalid key '\$1' (letters, digits and _ only, not starting with a digit)" 2
+  env_key_reserved "\$1" && die "env: '\$1' is reserved by the machine or by cmux and cannot be set" 2
+  return 0
+}
+
 # Single-quote a value for an \`export KEY='…'\` line (' becomes '\\'').
 env_quote() { printf '%s\\n' "\$1" | sed "s/'/'\\\\\\\\''/g"; }
 
@@ -1000,6 +1023,85 @@ env_install_hook() {
   return 0
 }
 
+# Provider routing. The model plane points OPENAI_BASE_URL at CodeRouter in
+# every machine shell, so a provider key the user keeps here (Cloud Secrets,
+# \`cmux env set\`) would otherwise be sent there. Beside a user's own key and no
+# endpoint of their own, the file also names the provider's own endpoint, so
+# the key always goes to that provider directly (add, on every set); when the
+# key goes, an endpoint added this way goes with it (drop, on every rm). A set
+# never drops one: the Mac's Cloud Secrets sync adds the endpoint before it
+# delivers the key, so the two never meet a CodeRouter endpoint in between.
+# An empty key ('') is no key.
+#
+# Only an endpoint this routing added is ever dropped: it records the names it
+# added in the routes file beside the env file (names only, no values), and an
+# endpoint set explicitly (\`cmux env set\`, the Mac's sync) is the setter's,
+# even when it equals the provider default. A machine whose env file predates
+# the routes file treats a default endpoint already in it as added here, which
+# is what the shim that wrote it did.
+# env_provider_routes <file of export KEY='value' lines> add|drop
+env_provider_routes() {
+  env_routes_seed
+  env_provider_route "\$1" "\$2" OPENAI_BASE_URL https://api.openai.com/v1 OPENAI_API_KEY
+  env_provider_route "\$1" "\$2" ANTHROPIC_BASE_URL https://api.anthropic.com ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+  return 0
+}
+
+env_routes_file() { printf '%s.routes' "\$(env_file)"; }
+# Creates the routes file once, from the env file as the shim before it left
+# it. Runs before a write touches either file.
+env_routes_seed() {
+  cmux_rs_marks="\$(env_routes_file)"
+  [ -e "\$cmux_rs_marks" ] && return 0
+  mkdir -p "\${cmux_rs_marks%/*}" && : > "\$cmux_rs_marks"
+  if grep -qxF "export OPENAI_BASE_URL='https://api.openai.com/v1'" "\$(env_file)" 2>/dev/null; then env_route_mark OPENAI_BASE_URL; fi
+  if grep -qxF "export ANTHROPIC_BASE_URL='https://api.anthropic.com'" "\$(env_file)" 2>/dev/null; then env_route_mark ANTHROPIC_BASE_URL; fi
+  return 0
+}
+env_route_marked() { grep -qxF "\$1" "\$(env_routes_file)" 2>/dev/null; }
+env_route_mark() {
+  env_route_marked "\$1" && return 0
+  cmux_rm_marks="\$(env_routes_file)"
+  mkdir -p "\${cmux_rm_marks%/*}" && printf '%s\\n' "\$1" >> "\$cmux_rm_marks"
+}
+env_route_unmark() {
+  env_route_marked "\$1" || return 0
+  cmux_rm_marks="\$(env_routes_file)"
+  grep -vxF "\$1" "\$cmux_rm_marks" > "\$cmux_rm_marks.next" 2>/dev/null || true
+  mv -f "\$cmux_rm_marks.next" "\$cmux_rm_marks"
+}
+
+# env_provider_route <file> add|drop <endpoint-name> <endpoint> <key-name>...
+env_provider_route() {
+  cmux_pr_file="\$1"
+  cmux_pr_mode="\$2"
+  cmux_pr_base="\$3"
+  cmux_pr_url="\$4"
+  shift 4
+  cmux_pr_user_key=0
+  for cmux_pr_name in "\$@"; do
+    if grep "^export \$cmux_pr_name=" "\$cmux_pr_file" 2>/dev/null \\
+      | grep -vxF "export \$cmux_pr_name='cmux-vm-edge-placeholder'" \\
+      | grep -qvxF "export \$cmux_pr_name=''"; then
+      cmux_pr_user_key=1
+    fi
+  done
+  if [ "\$cmux_pr_user_key" -eq 1 ]; then
+    [ "\$cmux_pr_mode" = add ] || return 0
+    if ! grep -q "^export \$cmux_pr_base=" "\$cmux_pr_file" 2>/dev/null; then
+      printf "export %s='%s'\\n" "\$cmux_pr_base" "\$cmux_pr_url" >> "\$cmux_pr_file"
+      env_route_mark "\$cmux_pr_base"
+    fi
+  elif [ "\$cmux_pr_mode" = drop ]; then
+    if env_route_marked "\$cmux_pr_base" && grep -qxF "export \$cmux_pr_base='\$cmux_pr_url'" "\$cmux_pr_file" 2>/dev/null; then
+      grep -vxF "export \$cmux_pr_base='\$cmux_pr_url'" "\$cmux_pr_file" > "\$cmux_pr_file.next" 2>/dev/null || true
+      mv -f "\$cmux_pr_file.next" "\$cmux_pr_file"
+      env_route_unmark "\$cmux_pr_base"
+    fi
+  fi
+  return 0
+}
+
 # Rewrite the managed file from KEY=VALUE lines on stdin (replacing those keys,
 # keeping every other key), sorted by key.
 env_merge_and_write() {
@@ -1007,12 +1109,15 @@ env_merge_and_write() {
   cmux_env_tmp="\$(mktemp "\${TMPDIR:-/tmp}/cmux-env.XXXXXX")"
   cmux_env_new="\$(mktemp "\${TMPDIR:-/tmp}/cmux-env.XXXXXX")"
   cat > "\$cmux_env_new"
+  env_routes_seed
   : > "\$cmux_env_tmp"
   while IFS= read -r cmux_pair || [ -n "\$cmux_pair" ]; do
     [ -n "\$cmux_pair" ] || continue
     cmux_key="\${cmux_pair%%=*}"
     cmux_val="\${cmux_pair#*=}"
-    env_key_ok "\$cmux_key" || { rm -f "\$cmux_env_tmp" "\$cmux_env_new"; die "env: invalid key '\$cmux_key' (letters, digits and _ only, not starting with a digit)" 2; }
+    if ! env_key_ok "\$cmux_key" || env_key_reserved "\$cmux_key"; then rm -f "\$cmux_env_tmp" "\$cmux_env_new"; env_key_settable "\$cmux_key"; fi
+    # An endpoint set explicitly is the setter's, not the provider routing's.
+    env_route_unmark "\$cmux_key"
     # Later assignments of the same key win.
     grep -v "^export \$cmux_key=" "\$cmux_env_tmp" > "\$cmux_env_tmp.next" || true
     mv -f "\$cmux_env_tmp.next" "\$cmux_env_tmp"
@@ -1025,6 +1130,7 @@ env_merge_and_write() {
       grep -q "^export \$cmux_key=" "\$cmux_env_tmp" || printf '%s\\n' "\$cmux_line" >> "\$cmux_env_tmp"
     done
   fi
+  env_provider_routes "\$cmux_env_tmp" add
   {
     printf '%s\\n' "# managed by cmux env; KEY='value' lines; edit with cmux env set/rm"
     LC_ALL=C sort -t = -k 1,1 "\$cmux_env_tmp"
@@ -1074,7 +1180,7 @@ env_collect_input() {
   # Keys are checked here, before anything is written, so a bad line never half-applies.
   while IFS= read -r cmux_ec_pair || [ -n "\$cmux_ec_pair" ]; do
     [ -n "\$cmux_ec_pair" ] || continue
-    env_key_ok "\${cmux_ec_pair%%=*}" || die "env: invalid key '\${cmux_ec_pair%%=*}' (letters, digits and _ only, not starting with a digit)" 2
+    env_key_settable "\${cmux_ec_pair%%=*}"
   done < "\$cmux_ec_file"
 }
 
@@ -1152,6 +1258,7 @@ guest_env_receive() {
       *) printf 'CMUX-ENV-ERR invalid-key %s\\n' "\$cmux_er_pair"; exit 1 ;;
     esac
     if ! env_key_ok "\${cmux_er_pair%%=*}"; then printf 'CMUX-ENV-ERR invalid-key %s\\n' "\${cmux_er_pair%%=*}"; exit 1; fi
+    if env_key_reserved "\${cmux_er_pair%%=*}"; then printf 'CMUX-ENV-ERR reserved-key %s\\n' "\${cmux_er_pair%%=*}"; exit 1; fi
     cmux_er_n=\$((cmux_er_n + 1))
   done < "\$cmux_er_dir/payload"
   if [ "\$cmux_er_n" -eq 0 ]; then printf 'CMUX-ENV-ERR empty\\n'; exit 1; fi
@@ -1195,6 +1302,7 @@ guest_env_rm() {
   for cmux_key in "\$@"; do
     env_key_ok "\$cmux_key" || die "env rm: invalid key '\$cmux_key'" 2
   done
+  env_routes_seed
   cmux_env_tmp="\$(mktemp "\${TMPDIR:-/tmp}/cmux-env.XXXXXX")"
   if [ -f "\$cmux_env_path" ]; then
     grep '^export [A-Za-z_][A-Za-z0-9_]*=' "\$cmux_env_path" > "\$cmux_env_tmp" 2>/dev/null || true
@@ -1203,6 +1311,8 @@ guest_env_rm() {
     grep -v "^export \$cmux_key=" "\$cmux_env_tmp" > "\$cmux_env_tmp.next" || true
     mv -f "\$cmux_env_tmp.next" "\$cmux_env_tmp"
   done
+  env_provider_routes "\$cmux_env_tmp" drop
+  for cmux_key in "\$@"; do env_route_unmark "\$cmux_key"; done
   {
     printf '%s\\n' "# managed by cmux env; KEY='value' lines; edit with cmux env set/rm"
     LC_ALL=C sort -t = -k 1,1 "\$cmux_env_tmp"

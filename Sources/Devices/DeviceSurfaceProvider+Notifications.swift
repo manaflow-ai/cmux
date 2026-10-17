@@ -34,6 +34,9 @@ extension DeviceSurfaceProvider {
             unreadChanged: { terminalIDs in
                 hub.setUnread(terminalIDs, machineID: machineID)
             },
+            failuresChanged: { terminalIDs in
+                hub.setUnreadFailures(terminalIDs, machineID: machineID)
+            },
             withdraw: { ids in
                 // The other Mac dropped these records from its history.
                 guard let store = AppDelegate.shared?.notificationStore else { return }

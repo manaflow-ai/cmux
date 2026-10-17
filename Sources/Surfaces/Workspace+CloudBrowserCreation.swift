@@ -91,7 +91,7 @@ extension Workspace {
         }()
         let remoteWorkspaceID = boundRemoteWorkspaceID
             ?? sourceView?.workspace.id
-            ?? (SurfaceCatalog.shared.provider(for: machine) as? CmuxTuiSurfaceProvider)?.info.remoteWorkspaces?.first(where: \.focused)?.id
+            ?? (SurfaceCatalog.shared.provider(for: machine) as? CmuxTuiSurfaceProvider)?.info.remoteWorkspaces?.first(where: { $0.focused && !$0.isInternalReceiver })?.id
         guard let remoteWorkspaceID, !remoteWorkspaceID.isEmpty else { return nil }
         let url = requestedURL ?? URL(string: "about:blank")!
         return CloudBrowserCreationRoute(

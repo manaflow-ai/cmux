@@ -25,6 +25,15 @@ debug.bonsplit_underflow.reset
 debug.browser.address_bar_focused
 debug.browser.favicon
 debug.canvas.command_scroll_hint
+debug.cloud_first_run.interact
+debug.cloud_first_run.show
+debug.cloud_first_run.state
+debug.cloud_getting_started.interact
+debug.cloud_getting_started.state
+debug.cloud_panel.show
+debug.cloud_secrets.interact
+debug.cloud_secrets.show
+debug.cloud_secrets.state
 debug.cloudtree.gallery
 debug.cloudtree.rows
 debug.cloudtree.spacing

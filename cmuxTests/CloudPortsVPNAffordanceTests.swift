@@ -121,8 +121,9 @@ struct CloudPortsVPNAffordanceTests {
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
         // Port rows carry no inline open action: a port with no process name
-        // has no hover text and is labelled by its number.
-        #expect(cell.toolTip == nil)
+        // is labelled by its number, while the tooltip explains the private
+        // VPN route.
+        #expect(cell.toolTip?.contains("Private: opens through your cmux VPN only") == true)
         #expect(cell.accessibilityLabel() == "Port 33015")
     }
 

@@ -14,6 +14,7 @@ struct CloudMenuEntriesView: View {
                 } else {
                     Button(action.title) { action.perform() }
                         .disabled(!action.isEnabled)
+                        .cloudMenuOwnedShortcut(action.shortcut)
                 }
             case .header(_, let title):
                 Button(title) {}

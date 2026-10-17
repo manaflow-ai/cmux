@@ -9,6 +9,8 @@ enum CloudTreeIconPalette {
     static let display = Color.teal
     static let browser = Color.orange
     static let machine = Color.accentColor
+    /// Needs the user: a failed agent run (amber, like an agent waiting on input).
+    static let attention = Color.orange
 }
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
@@ -156,9 +158,18 @@ struct CloudTreeRowContentView: View {
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
-                detail: presentation.detail
+                detail: presentation.detail,
+                accessories: {
+                    // Who can open the port, from the shared publication store.
+                    if let target = presentation.shareTarget {
+                        CloudPortAudienceBadgeView(machineID: target.machineID, port: target.port, style: style)
+                    }
+                }
             )
-            if let toolTip = presentation.toolTip {
+            let sharing = presentation.shareTarget.flatMap {
+                CloudPortSharingStore.shared.sharing(machineID: $0.machineID, port: $0.port)
+            }
+            if let toolTip = presentation.toolTip(sharing: sharing) {
                 row.help(toolTip)
             } else {
                 row
@@ -419,15 +430,24 @@ struct CloudTreeTerminalRowContent: View {
         }
     }
 
+    /// A failed run keeps its row in the attention color with its exit status,
+    /// instead of greying out like an ordinary exited shell.
+    private var failure: CloudTerminalExitPresentation? { row.exitFailure }
+    /// The amber mark: a tabless failed run, an exited run still in a tab, or
+    /// a live terminal whose agent reported an error (the shell `vm clone`
+    /// keeps after the agent). Only a tabless run swaps the click for the
+    /// exit popover; the others still open their pane.
+    private var reportsFailure: Bool { row.reportsFailure }
+
     var body: some View {
         CloudTreeLeafRow(
             style: style,
-            icon: glyph,
-            tint: CloudTreeIconPalette.terminal,
-            iconAsset: terminal.terminalAgentIconAssetName,
+            icon: reportsFailure ? "exclamationmark.triangle.fill" : glyph,
+            tint: reportsFailure ? CloudTreeIconPalette.attention : CloudTreeIconPalette.terminal,
+            iconAsset: reportsFailure ? nil : terminal.terminalAgentIconAssetName,
             title: resolvedTitle,
-            titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
-            detail: row.workspaceLabel
+            titleDimmed: !reportsFailure && (terminal.lifecycle == .exited || showsDetachedState),
+            detail: failure?.shortStatus ?? row.workspaceLabel
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
@@ -441,7 +461,13 @@ struct CloudTreeTerminalRowContent: View {
     /// Keep secondary information on hover so the narrow row gives its width to the title.
     var toolTip: String {
         var details = [row.directoryHelp, agentLabel].compactMap { $0 }
-        if showsDetachedState {
+        if let failure {
+            details.append(failure.help)
+        } else if row.hasUnreadFailureNotification {
+            details.append(CloudTerminalExitPresentation.reportedErrorHelp)
+        } else if reportsFailure, let exit = terminal.exit {
+            details.append(CloudTerminalExitPresentation(exit: exit).headline)
+        } else if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
         } else if let views = Self.multiplierBadge(row.viewBadge) {
             details.append(Self.viewsHelp(views))

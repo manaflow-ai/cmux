@@ -1280,6 +1280,30 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(JSON.parse((await runStateful(fresh, ["env", "ls", "--json"])).stdout)).toEqual({ path: join(fresh, ".config", "cmux", "env"), keys: [] });
     });
 
+    test("set refuses names the machine's shells or cmux own, without writing anything; rm still removes them", async () => {
+      const dir = makeStatefulDir();
+      const file = join(dir, ".config", "cmux", "env");
+      const reserved = [
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PS4", "PROMPT_COMMAND",
+        "PWD", "OLDPWD", "TERM", "LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "CMUX_SOCKET_PATH", "path", "cmux_x",
+      ];
+      for (const name of reserved) {
+        const run = await runStateful(dir, ["env", "set", "OK=1", `${name}=x`]);
+        expect(run.status).toBe(2);
+        expect(run.stderr).toContain(`'${name}' is reserved`);
+        const viaStdin = await runStateful(dir, ["env", "set", "-"], {}, `${name}=x\n`);
+        expect(viaStdin.status).toBe(2);
+      }
+      expect(existsSync(file)).toBe(false);
+      // Near names stay settable.
+      expect((await runStateful(dir, ["env", "set", "MY_PATH=1", "PATHS=2", "TERM_PROGRAM_X=3", "XCMUX=4"])).status).toBe(0);
+      // A file written before the check (or by hand) can still be repaired.
+      writeFileSync(file, `${readFileSync(file, "utf8")}export PATH='/nonexistent'\n`);
+      const rm = await runStateful(dir, ["env", "rm", "PATH"]);
+      expect(rm.status).toBe(0);
+      expect((await runStateful(dir, ["env", "ls"])).stdout).toBe("MY_PATH\nPATHS\nTERM_PROGRAM_X\nXCMUX\n");
+    });
+
     test("env receive --stdin: READY first, then OK with the key count; values are byte-literal", async () => {
       const dir = makeStatefulDir();
       const payload = "FOO=bar\nBAZ=it's  here \nURL=postgres://u:p%40ss@h/db?x=1\n";
@@ -1303,6 +1327,10 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(badKey.status).toBe(1);
       expect(badKey.stdout).toBe("CMUX-ENV-READY\nCMUX-ENV-ERR invalid-key 1BAD\n");
       expect(existsSync(join(dir, ".config", "cmux", "env"))).toBe(false);
+      const reserved = await runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("OK=1\nLD_PRELOAD=/tmp/x.so\n").toString("base64")}\nCMUX-ENV-END\n`);
+      expect(reserved.status).toBe(1);
+      expect(reserved.stdout).toBe("CMUX-ENV-READY\nCMUX-ENV-ERR reserved-key LD_PRELOAD\n");
+      expect(existsSync(join(dir, ".config", "cmux", "env"))).toBe(false);
       const noEnd = await runStateful(dir, ["env", "receive", "--stdin"], {}, `${Buffer.from("A=1\n").toString("base64")}\n`);
       expect(noEnd.status).toBe(1);
       expect(noEnd.stdout).toBe("CMUX-ENV-READY\nCMUX-ENV-ERR eof\n");
@@ -1317,9 +1345,9 @@ describe("in-VM cmux shim: agent primitives", () => {
 
     test("agents started through the shim see the machine env", async () => {
       const dir = makeStatefulDir();
-      await runStateful(dir, ["env", "set", "CMUX_TEST_TOKEN=from-env"]);
+      await runStateful(dir, ["env", "set", "SHIM_TEST_TOKEN=from-env"]);
       const claude = join(dir, "claude");
-      writeFileSync(claude, "#!/bin/sh\nprintf '%s\\n' \"$CMUX_TEST_TOKEN\"\n");
+      writeFileSync(claude, "#!/bin/sh\nprintf '%s\\n' \"$SHIM_TEST_TOKEN\"\n");
       chmodSync(claude, 0o755);
       const run = await runStateful(dir, ["agent", "claude", "say hi"]);
       expect(run.status).toBe(0);

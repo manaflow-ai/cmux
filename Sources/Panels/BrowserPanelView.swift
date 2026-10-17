@@ -1202,6 +1202,15 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                // A Cloud port preview names who can open it, one click from sharing.
+                if let shareContext = panel.cloudPortShareContext {
+                    CloudPortShareToolbarControl(
+                        context: shareContext,
+                        iconPointSize: devToolsButtonIconSize,
+                        height: addressBarButtonSize,
+                        tint: devToolsColorOption.color(accent: cmuxAccent)
+                    )
+                }
                 if isChromeCompact {
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator

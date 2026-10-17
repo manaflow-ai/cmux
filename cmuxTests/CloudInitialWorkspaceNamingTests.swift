@@ -227,6 +227,49 @@ struct CloudInitialWorkspaceNamingTests {
         }
     }
 
+    /// The fixture machine reduced to one workspace, `a`, still carrying the daemon's
+    /// counter name, with a friendly label to be named after.
+    private func installSoleCounterWorkspace(_ fixture: CloudNameAuthorityFixture) throws {
+        var document = try #require(fixture.provider.graph.snapshotObject())
+        let cursor = try #require(fixture.provider.graph.cursor)
+        document["cursor"] = ["generation": cursor.generation, "revision": String(cursor.revision + 1)]
+        document["workspaces"] = [["id": "a", "name": "workspace-1"]]
+        for collection in ["screens", "panes", "tabs", "terminals"] {
+            let rows = (document[collection] as? [[String: Any]]) ?? []
+            document[collection] = rows.filter { ($0["id"] as? String)?.hasSuffix("_a") == true }
+        }
+        fixture.provider.info.name = "brave-otter"
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))
+        #expect(fixture.provider.install(state))
+    }
+
+    @Test("Opening an existing machine never renames its sole workspace-1; a machine this session created is named")
+    func onlyMachinesCreatedThisSessionAreAutoNamed() async throws {
+        try await withUnboundFixture { fixture in
+            try installSoleCounterWorkspace(fixture)
+            let machine = fixture.provider.machine
+            let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: "a")
+
+            // An existing machine opened from the tree binds with a generated title too.
+            fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
+                machine: machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
+            try await fixture.settle()
+            #expect(fixture.catalog.pendingCloudRenameName(for: key) == nil)
+            #expect(fixture.provider.writes.isEmpty, "an existing machine's workspace keeps its name on every device")
+            #expect(fixture.workspace.title == "workspace-1")
+
+            // The same bind on a machine this session created names it for what it is, once.
+            fixture.catalog.noteMachineCreatedThisSession(machine)
+            fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
+                machine: machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
+            #expect(fixture.workspace.title == "brave-otter")
+            try await fixture.settle()
+            #expect(fixture.provider.writes.map { $0.0 } == ["a"])
+            #expect(fixture.provider.writes.map { $0.1 } == ["brave-otter"])
+            #expect(!fixture.catalog.machinesAwaitingInitialWorkspaceName.contains(machine), "the mark is spent")
+        }
+    }
+
     private func withUnboundFixture(_ body: (CloudNameAuthorityFixture) async throws -> Void) async throws {
         let fixture = try CloudNameAuthorityFixture()
         let previous = fixture.catalog.cloudWorkspaceRenameService

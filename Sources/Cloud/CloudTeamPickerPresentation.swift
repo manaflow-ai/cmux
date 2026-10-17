@@ -8,6 +8,8 @@ final class CloudTeamPickerPresentation {
     var isPresented = false
     /// The Invite popover anchored to the header Invite button.
     var isInvitePresented = false
+    /// The "What can I do here?" popover anchored to the header's ? button.
+    var isHelpPresented = false
     /// The last failed switch or create, shown under the header until
     /// dismissed or the menu opens again.
     var teamChangeError: String?
