@@ -876,6 +876,9 @@ impl Server {
         let mut eof = false;
         let mut total = 0;
         let mut spins = 0;
+        // Set once the program has asked something: it is now waiting for
+        // the answer, not writing, so spinning for more output only delays.
+        let mut asked = false;
         let (parse_batch, read_spins) = (self.parse_batch, self.read_spins);
         while total < budget {
             // SAFETY: buf is valid for its length.
@@ -893,6 +896,14 @@ impl Server {
                     if watched {
                         forwarded.extend_from_slice(&accepted);
                     }
+                    // A program that asked something waits for the answer:
+                    // write it now, and stop spinning for more output.
+                    let replies = std::mem::take(&mut *term.replies.lock().expect("reply sink"));
+                    if !replies.is_empty() {
+                        term.input.extend(replies);
+                        write_input_now(term);
+                        asked = true;
+                    }
                 } else {
                     term.pending.extend_from_slice(chunk);
                     if term.pending.len() >= parse_batch {
@@ -904,7 +915,7 @@ impl Server {
             }
             if n == 0 || io::Error::last_os_error().kind() != io::ErrorKind::WouldBlock {
                 eof = true;
-            } else if total > 0 && spins < read_spins {
+            } else if total > 0 && spins < read_spins && !asked {
                 spins += 1;
                 std::hint::spin_loop();
                 continue;
@@ -974,6 +985,20 @@ impl Server {
         for c in notify {
             self.send(c, proto::EXIT, &code.to_le_bytes());
         }
+    }
+}
+
+/// Writes queued input until the PTY is full, without touching kqueue; the
+/// caller's flush_input arms EVFILT_WRITE for whatever is left.
+fn write_input_now(term: &mut Term) {
+    while !term.input.is_empty() && term.pty_open {
+        let (front, _) = term.input.as_slices();
+        // SAFETY: front is a valid slice.
+        let n = unsafe { libc::write(term.master, front.as_ptr().cast(), front.len()) };
+        if n <= 0 {
+            return;
+        }
+        term.input.drain(..n as usize);
     }
 }
 
