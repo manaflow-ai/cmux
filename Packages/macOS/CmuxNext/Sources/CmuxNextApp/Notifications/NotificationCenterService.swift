@@ -28,6 +28,9 @@ final class NotificationCenterService {
     /// new session, so the dismissals apply only within this one.
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
+    /// Bumped when a window's settled focus changes: the viewed-tab rules
+    /// (`followViewedProgramStatus`) re-read which tabs are viewed.
+    private(set) var viewedRevision: UInt64 = 0
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
@@ -157,16 +160,12 @@ final class NotificationCenterService {
         interacted(.click, tabID: tab)
     }
 
-    /// A window's focus settled: the viewed tab counts as focused while the
-    /// window is key and cmux is active. The tab is found in the window's own
-    /// focused pane (no walk of every workspace); a pane of another machine
-    /// is not this daemon's to acknowledge.
+    /// A window's settled focus changed (window key, app active, workspace or
+    /// keyboard target): the viewed tab counts as focused while the window is
+    /// key and cmux is active. The viewed-tab rules read it (one path for a
+    /// focus and for an unread mark that lands on a viewed tab).
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
-        guard state.windowKey, state.appActive, let id = Self.contentTab(state.resolved), let pane = state.resolved.pane,
-              let services, let model = controller.content?.paneModel(key: pane),
-              services.daemon.store.pane(model.handle) === model,
-              let tab = model.tabs.first(where: { $0.id == id }) else { return }
-        interacted(.focus, tab: tab)
+        viewedRevision &+= 1
     }
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
