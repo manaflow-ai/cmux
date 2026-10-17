@@ -97,6 +97,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false
+    /// The next emulation run clears this session's metrics first (after DevTools device mode).
+    @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false

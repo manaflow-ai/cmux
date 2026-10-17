@@ -174,11 +174,13 @@ public final class FrameScheduler: NSObject {
         } else if !isScreenHost, let window {
             // concurrency-allow: the sanctioned display link (one per window)
             let display = window.displayLink(target: self, selector: #selector(tick(_:)))
+            display.preferredFrameRateRange = Self.motionRange
             display.add(to: .main, forMode: .common)
             made = display
         } else if let screen = NSScreen.main ?? NSScreen.screens.first {
             // concurrency-allow: the sanctioned display link (window-less work)
             let display = screen.displayLink(target: self, selector: #selector(tick(_:)))
+            display.preferredFrameRateRange = Self.motionRange
             display.add(to: .main, forMode: .common)
             made = display
         } else {
@@ -187,6 +189,9 @@ public final class FrameScheduler: NSObject {
         link = made
         return made
     }
+
+    /// Springs step every display frame: 120 Hz on ProMotion (never below 80), the display's rate elsewhere.
+    private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
 
     @objc private func tick(_ link: CADisplayLink) {
         frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)

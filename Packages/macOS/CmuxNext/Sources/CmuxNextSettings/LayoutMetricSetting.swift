@@ -19,12 +19,11 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     public static let columnGap = LayoutMetricSetting(name: "columnGap", range: 0...24, compact: 6, comfortable: 8)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: 24...56, compact: 32, comfortable: 40)
 
-    /// The tab strip's widths (the Tabs group): the max is today's per density; the minimums keep a
-    /// shrunk tab's title partly readable (`MetricTunables.tabMinInactiveWidth`, cx-kp9b4); the pinned
-    /// width is Chrome's, from the shared tokens (design-tokens.json `motion.tabStrip`).
+    /// The tab strip's widths (the Tabs group): the max is today's per density; the minimums and the
+    /// pinned width are Chrome's, from the shared tokens (design-tokens.json `motion.tabStrip`).
     public static let tabMaxWidth = LayoutMetricSetting(name: "tabMaxWidth", range: 120...320, compact: 200, comfortable: 240)
-    public static let tabMinActiveWidth = LayoutMetricSetting(name: "tabMinActiveWidth", range: 32...200, compact: 96, comfortable: 100)
-    public static let tabMinInactiveWidth = LayoutMetricSetting(name: "tabMinInactiveWidth", range: 16...120, compact: 76, comfortable: 80)
+    public static let tabMinActiveWidth = token("tabMinActiveWidth", 32...200) { $0.minActiveWidth }
+    public static let tabMinInactiveWidth = token("tabMinInactiveWidth", 16...120) { $0.minInactiveWidth }
     public static let tabPinnedWidth = token("tabPinnedWidth", 24...120) { $0.pinnedWidth }
     public static let tabWidths: [LayoutMetricSetting] = [tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth]
 

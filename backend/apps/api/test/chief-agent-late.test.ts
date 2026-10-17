@@ -71,7 +71,7 @@ const pairAndDial = async (token: string, name: string, onReq: (f: any, send: (x
   ws.addEventListener("message", (e) => onReq(JSON.parse(e.data as string), send))
   ws.accept()
   send({ t: "hello", version: "test", profile: "sandbox", roots: ["/work"], agent_policy: "approve-edits", harnesses: ["claude", "codex", "opencode"], caps: ["levels"], os: "linux", arch: "x86_64", hostname: name })
-  return send
+  return Object.assign(send, { hand: paired.json.value.hand as string })
 }
 
 const cards = (ms: Array<any>, chief: string) => ms.filter((m) => m.author === chief && m.parts[0]?.type === "work" && String(m.parts[0].session).startsWith("agent_"))
@@ -112,5 +112,22 @@ describe("an agent result after the Chief's agent call returned", { timeout: 150
     const last = ms.filter((m) => m.author === chief.id && m.parts[0]?.type === "text").at(-1)
     expect(last.parts[0].text).toContain("child.txt is written")
     expect(last.seq).toBeGreaterThan(found[0].seq)
+
+    // A send that failed (the brain did not answer): the row stays in the hand's object and the alarm sends it
+    // again; the brain takes it once however often it comes.
+    const handDO = (testEnv as any).HAND_DO.get((testEnv as any).HAND_DO.idFromName(send.hand))
+    const outcome = { hand: send.hand, hand_name: "sb-late", session: "sess-resent", seq: 900, end_seq: 901, status: "done", stop_reason: "end_turn", text: "resent result arrived", tools: [], errors: [] }
+    await runInDurableObject(handDO, async (_i: unknown, s: DurableObjectState) => void s.storage.sql.exec(`INSERT INTO hand_outcome (key, target, body, tries, first_at, next_at) VALUES ('sess-resent:900', ?, ?, 1, ?, 0)`, `${chief.id}/${chief.main_conversation}`, JSON.stringify(outcome), Date.now()))
+    await fireAlarm(handDO)
+    for (let i = 0; i < 300 && !cards(await history(token, chief.main_conversation), chief.id).some((m) => m.parts[0].session === "agent_sess-resent"); i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    // The same outcome once more (a resend after a lost ack): no second card.
+    const insert = () => runInDurableObject(handDO, async (_i: unknown, s: DurableObjectState) => void s.storage.sql.exec(`INSERT INTO hand_outcome (key, target, body, tries, first_at, next_at) VALUES ('sess-resent:900', ?, ?, 1, ?, 0) ON CONFLICT DO NOTHING`, `${chief.id}/${chief.main_conversation}`, JSON.stringify(outcome), Date.now()))
+    await insert()
+    await fireAlarm(handDO)
+    for (let i = 0; i < 40; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    const again = cards(await history(token, chief.main_conversation), chief.id).filter((m) => m.parts[0].session === "agent_sess-resent")
+    expect(again).toHaveLength(1)
+    expect(again[0].parts[0].preview).toContain("resent result arrived")
+    expect(await runInDurableObject(handDO, async (_i: unknown, s: DurableObjectState) => Number(s.storage.sql.exec(`SELECT COUNT(*) AS n FROM hand_outcome`).one().n))).toBe(0)
   })
 })

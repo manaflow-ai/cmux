@@ -38,7 +38,7 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
-    /// `sectionsRevision` when the user last moved rows (a keyboard move, a drop): the next structural set may scroll to
+    /// `sectionsRevision` when the user last moved rows (a keyboard move; never a drop): the next structural set may scroll to
     /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?

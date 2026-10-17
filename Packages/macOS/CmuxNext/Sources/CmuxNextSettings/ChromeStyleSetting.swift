@@ -6,10 +6,10 @@ public import CmuxNextDesign
 /// `layout.paneSeparation`, `sidebar.border` and `appearance.sidebarSurface`
 /// (the table: schemas/settings/chrome-styles.json).
 /// A key set in the file still wins over its style. A missing key is
-/// `default`; a bad value is `default` plus a diagnostic.
+/// `flat-sidebar-line` (Lawrence 2026-10-16); a bad value is that plus a diagnostic.
 public nonisolated struct ChromeStyleSetting: Sendable {
     public static let configPath = ["appearance", "chromeStyle"]
-    public static let fallback: ChromeStyle = .default
+    public static let fallback: ChromeStyle = .flatSidebarLine
 
     public init() {}
 

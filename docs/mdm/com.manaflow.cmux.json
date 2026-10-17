@@ -584,7 +584,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -3020,7 +3020,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"
