@@ -45,20 +45,14 @@ struct PinCommands {
     /// later, like any macOS undo. While the toast shows, its Undo button and
     /// Cmd-Z (TOAST-UNDO-KEY, or the undo stack when it holds the step) run
     /// `inverse` once; the other path then does nothing. `inverse` shows the
-    /// next toast (registered during an undo, its step becomes the redo).
-    /// The undo step and toast of a change sent and not answered yet (`ToastUndoStep.pending`); nil without a window.
-    func registerPendingUndo(title: String) -> PinUndoStep? {
+    /// next toast (registered during an undo, its step becomes the redo). Nil `inverse`: a change sent, not answered yet
+    /// (`ToastUndoStep.pending`, cx-kpicb); the reply fills the step it returns.
+    @discardableResult func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: (@MainActor (PinCommands) -> Void)?) -> PinUndoStep? {
         let windows = context.services.windows
         guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return nil }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: handle)
-    }
-
-    func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
-        let windows = context.services.windows
-        guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: handle) { inverse(self) }
+        guard let inverse else { return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: handle) }
+        return ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: handle) { inverse(self) }
     }
 }
 

@@ -25,22 +25,12 @@ enum SidebarDocWiring {
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
-        // A user's change gets its undo step and toast when it is sent (cx-kpicb): a Cmd-Z before the daemon's reply undoes
-        // this change, not the one before it.
-        store.onUndoPending = { [weak services] (title: String) -> AnyObject? in
-            guard let services else { return nil }
-            return PinCommands(context: AppActionContext(services: services)).registerPendingUndo(title: title)
-        }
+        store.onUndoPending = { [weak services] title in services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
-            guard let services else { return }
             // The inverse runs with its undo step as the origin, so the change it sends fills that step (the redo).
-            let inverse: @MainActor () -> Void = {
-                SidebarDocStore.undoOrigin = PinUndoStep.filling
-                defer { SidebarDocStore.undoOrigin = nil }
-                undo()
-            }
+            let inverse: @MainActor () -> Void = { SidebarDocStore.undoOrigin = PinUndoStep.filling; defer { SidebarDocStore.undoOrigin = nil }; undo() }
             if let step = origin as? PinUndoStep, step.awaitsReply { return step.fillPending(title: title, inverse) }
-            PinCommands(context: AppActionContext(services: services)).registerUndo(title: title, filling: origin as? PinUndoStep) { _ in inverse() }
+            _ = services.map { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, filling: origin as? PinUndoStep) { _ in inverse() } }
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
