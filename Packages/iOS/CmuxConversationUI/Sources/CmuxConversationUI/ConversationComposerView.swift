@@ -4,8 +4,6 @@ import SwiftUI
 
 struct ConversationComposerArea: View {
     @Bindable var model: ConversationModel
-    @State private var pendingSteerOrQueue = false
-
     private var canSend: Bool {
         !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && model.connectionState == .connected
@@ -63,22 +61,29 @@ struct ConversationComposerArea: View {
                                 .foregroundStyle(canSend ? .white : .tertiary)
                         }
                         .disabled(!canSend)
-                        .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                                guard canSend, model.isRunning, model.supportsSteering || model.supportsQueueing else { return }
-                                pendingSteerOrQueue = true
+                        // A context menu owns the long press. It prevents the
+                        // primary Button action from firing when a user chooses
+                        // Steer or Queue, while exposing both actions to VoiceOver.
+                        .contextMenu {
+                            if model.isRunning && model.supportsSteering {
+                                Button(ConversationL10n.value("conversation.steer", "Steer"), systemImage: "arrow.turn.up.right") {
+                                    model.steer()
+                                }
+                                .accessibilityIdentifier("ConversationSteerButton")
                             }
-                        )
+                            if model.isRunning && model.supportsQueueing {
+                                Button(ConversationL10n.value("conversation.queue", "Queue"), systemImage: "text.badge.plus") {
+                                    model.queueTurn()
+                                }
+                                .accessibilityIdentifier("ConversationQueueButton")
+                            }
+                        }
+                        .accessibilityHint(model.isRunning && (model.supportsSteering || model.supportsQueueing)
+                            ? ConversationL10n.value("conversation.send_working.hint", "Long press for Steer or Queue")
+                            : "")
                         .accessibilityLabel(model.isRunning ? ConversationL10n.value("conversation.send_followup", "Send follow up") : ConversationL10n.value("conversation.send", "Send message"))
                         .accessibilityIdentifier("ConversationSendButton")
                     }
-                }
-                .confirmationDialog(ConversationL10n.value("conversation.send_working", "Send while working"), isPresented: $pendingSteerOrQueue, titleVisibility: .visible) {
-                    if model.supportsSteering { Button(ConversationL10n.value("conversation.steer", "Steer")) { model.steer() } }
-                    if model.supportsQueueing { Button(ConversationL10n.value("conversation.queue", "Queue")) { model.queueTurn() } }
-                    Button(ConversationL10n.value("conversation.cancel", "Cancel"), role: .cancel) {}
-                } message: {
-                    Text(ConversationL10n.value("conversation.send_working.message", "Choose whether this message should guide the current turn or wait in the queue."))
                 }
             }
             HStack(spacing: 10) {
@@ -136,10 +141,11 @@ private struct ConversationRequestCard: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityIdentifier("ConversationBlockingRequest-\(request.id.rawValue)")
+        .id(request.id.rawValue)
     }
 }
 
-private struct ConversationQuestionCard: View {
+struct ConversationQuestionCard: View {
     let request: ConversationRequest
     @Bindable var model: ConversationModel
     let isBlocking: Bool
@@ -182,23 +188,32 @@ private struct ConversationQuestionCard: View {
                 .accessibilityIdentifier("ConversationQuestionOption-\(option.id)")
             }
             if question?.allowsCustomAnswer == true {
-                TextField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer, axis: .vertical)
-                    .lineLimit(1...4)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("ConversationQuestionCustomAnswer")
-            }
-            HStack {
-                Button(ConversationL10n.value("conversation.send", "Send")) {
-                    model.answer(request: request, value: customAnswer)
+                if question?.isSecret == true {
+                    SecureField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("ConversationQuestionCustomAnswer")
+                } else {
+                    TextField(ConversationL10n.value("conversation.your_answer", "Your answer"), text: $customAnswer, axis: .vertical)
+                        .lineLimit(1...4)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("ConversationQuestionCustomAnswer")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Spacer()
+            }
+            if question?.allowsCustomAnswer == true {
+                HStack {
+                    Button(ConversationL10n.value("conversation.send", "Send")) {
+                        model.answer(request: request, value: customAnswer)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                }
             }
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityIdentifier(isBlocking ? "ConversationBlockingQuestion" : "ConversationAsyncQuestion")
+        .id(request.id.rawValue)
     }
 }
 

@@ -14,7 +14,10 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         case emptyList = "empty-list"
         case approval
         case question
+        case secretQuestion = "secret-question"
         case files
+        case noGit = "no-git"
+        case noLastTurn = "no-last-turn"
         case emptyFiles = "empty-files"
         case artifact
         case asyncQuestion = "async-question"
@@ -27,7 +30,10 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             case "empty": self = .empty
             case "empty-list": self = .emptyList
             case "question": self = .question
+            case "secret-question": self = .secretQuestion
             case "files": self = .files
+            case "no-git": self = .noGit
+            case "no-last-turn": self = .noLastTurn
             case "empty-files": self = .emptyFiles
             case "artifact": self = .artifact
             case "async-question": self = .asyncQuestion
@@ -172,9 +178,10 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
             state = appendEvent(state, kind: .queue, queue: state.queued)
         case .cancelQueued(let itemID):
+            let restoredText = state.queued.first(where: { $0.id == itemID })?.text
             state.queued.removeAll { $0.id == itemID }
             state.queued = state.queued.enumerated().map { index, item in var value = item; value.position = index; return value }
-            receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
+            receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation, draftText: restoredText)
             state = appendEvent(state, kind: .queue, queue: state.queued)
         case .steer(let text):
             state = appendItem(state, kind: .message, role: "user", text: text)
@@ -244,8 +251,9 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             state = appendTool(state, name: "shell", input: .object(["command": .string("pwd")]), output: .string("/tmp/cmux-fixture"), status: .success)
             state = appendItem(state, kind: .result, text: "Workspace is ready.")
         }
-        if scenario != .empty && scenario != .emptyFiles {
-            let diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
+        if scenario != .empty && scenario != .emptyFiles && scenario != .noGit {
+            var diff = ConversationDiff(path: "Sources/App.swift", text: "@@ -1,3 +1,4 @@\n import SwiftUI\n+import CmuxConversationUI\n\n struct App: View {", comparison: "last-turn")
+            if scenario == .noLastTurn { diff.comparison = "unstaged" }
             state = appendItem(state, kind: .files, text: nil, diff: diff)
         }
         switch scenario {
@@ -253,9 +261,11 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
             if scenario == .approval { state.pendingRequests = [approvalRequest(generation: state.session.generation)] }
         case .question:
             state.pendingRequests = [questionRequest(generation: state.session.generation, index: 0)]
+        case .secretQuestion:
+            state.pendingRequests = [ConversationRequest(id: ConversationRequestID(rawValue: "fixture-secret-question"), generation: state.session.generation, kind: "question", question: ConversationQuestion(category: "Credentials", prompt: "Enter the workspace token", options: [], allowsCustomAnswer: true, isSecret: true))]
         case .asyncQuestion:
             state.pendingRequests = [ConversationRequest(id: ConversationRequestID(rawValue: "fixture-async-question"), generation: state.session.generation, kind: "input", question: ConversationQuestion(category: "Follow-up", prompt: "Add any context for this task", options: [], allowsCustomAnswer: true))]
-        case .files, .emptyFiles, .empty, .emptyList: break
+        case .files, .emptyFiles, .empty, .emptyList, .noGit, .noLastTurn: break
         case .artifact: 
             let payload = Data("cmux fixture artifact\n".utf8)
             let hash = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
@@ -286,8 +296,8 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: state.receipts, activeTurnID: state.isRunning ? ConversationTurnID(rawValue: "fixture-turn") : nil, isTurnRunning: state.isRunning, capabilities: capabilities)
     }
 
-    private func makeReceipt(commandID: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, generation: ConversationGeneration) -> ConversationReceipt {
-        ConversationReceipt(id: commandID, sessionID: sessionID, state: state, generation: generation)
+    private func makeReceipt(commandID: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, generation: ConversationGeneration, draftText: String? = nil) -> ConversationReceipt {
+        ConversationReceipt(id: commandID, sessionID: sessionID, state: state, generation: generation, draftText: draftText)
     }
 
     private func appendItem(_ state: SessionState, kind: ConversationItemKind, role: String? = nil, text: String?, plan: ConversationPlan? = nil, diff: ConversationDiff? = nil, artifact: ConversationArtifact? = nil) -> SessionState {

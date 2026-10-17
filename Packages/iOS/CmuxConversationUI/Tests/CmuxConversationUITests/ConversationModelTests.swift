@@ -31,6 +31,71 @@ final class ConversationModelTests: XCTestCase {
         XCTAssertFalse(request.isBlocking)
     }
 
+
+    func testCompactItemUpdatesAppendTextAndToolOutput() {
+        let model = ConversationModel(scopeID: "host-a")
+        let sessionID = ConversationID(rawValue: "session-a")
+        model.selectSession(id: sessionID)
+
+        let textID = ConversationItemID(rawValue: "message-1")
+        model.apply(event: ConversationEvent(
+            sessionID: sessionID,
+            sequence: 1,
+            generation: "g1",
+            kind: .item,
+            item: ConversationItem(id: textID, sequence: 1, kind: .message, role: "assistant", text: "hello")
+        ))
+        model.apply(event: ConversationEvent(
+            sessionID: sessionID,
+            sequence: 2,
+            generation: "g1",
+            kind: .item,
+            item: ConversationItem(id: textID, sequence: 2, kind: .message, text: " world"),
+            itemUpdate: .appendText
+        ))
+
+        let toolID = ConversationItemID(rawValue: "tool-1")
+        model.apply(event: ConversationEvent(
+            sessionID: sessionID,
+            sequence: 3,
+            generation: "g1",
+            kind: .item,
+            item: ConversationItem(
+                id: toolID,
+                sequence: 3,
+                kind: .tool,
+                tool: ConversationTool(toolID: "shell", name: "shell", output: .string("one"), status: .running)
+            )
+        ))
+        model.apply(event: ConversationEvent(
+            sessionID: sessionID,
+            sequence: 4,
+            generation: "g1",
+            kind: .item,
+            item: ConversationItem(
+                id: toolID,
+                sequence: 4,
+                kind: .tool,
+                tool: ConversationTool(toolID: "shell", name: "shell", output: .string(" two"), status: .success)
+            ),
+            itemUpdate: .appendToolOutput
+        ))
+
+        XCTAssertEqual(model.items.first(where: { $0.id == textID })?.text, "hello world")
+        XCTAssertEqual(model.items.first(where: { $0.id == toolID })?.tool?.output, .string("one two"))
+    }
+
+    func testLateCompletionForPriorTurnDoesNotStopCurrentTurn() {
+        let model = ConversationModel(scopeID: "host-a")
+        let sessionID = ConversationID(rawValue: "session-a")
+        model.selectSession(id: sessionID)
+        model.apply(event: ConversationEvent(sessionID: sessionID, sequence: 1, generation: "g1", kind: .run, turnID: "turn-new", state: "running"))
+        model.apply(event: ConversationEvent(sessionID: sessionID, sequence: 2, generation: "g1", kind: .turn, turnID: "turn-old", state: "completed"))
+
+        XCTAssertTrue(model.isRunning)
+        XCTAssertEqual(model.activeTurnID, ConversationTurnID(rawValue: "turn-new"))
+    }
+
     func testJSONDescriptionPreservesStructuredToolPayload() {
         let value: ConversationJSONValue = .object([
             "command": .string("pwd"),

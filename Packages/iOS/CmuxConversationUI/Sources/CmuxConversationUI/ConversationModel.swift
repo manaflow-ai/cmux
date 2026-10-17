@@ -520,7 +520,7 @@ public final class ConversationModel {
         replay.forEach { apply(event: $0) }
     }
 
-    private func apply(event: ConversationEvent) {
+    func apply(event: ConversationEvent) {
         guard event.sessionID == selectedSessionID else { return }
         guard event.sequence > currentCursor else { return }
         if event.generation != currentProviderGeneration {
@@ -533,8 +533,9 @@ public final class ConversationModel {
         switch event.kind {
         case .item:
             if let item = event.item {
-                if let index = items.firstIndex(where: { $0.id == item.id }) { items[index] = item } else { items.append(item) }
-                items.sort { $0.sequence < $1.sequence }
+                let previous = items.first(where: { $0.id == item.id })
+                let reduced = item.applying(to: previous, mode: event.itemUpdate)
+                if let index = items.firstIndex(where: { $0.id == reduced.id }) { items[index] = reduced } else { items.append(reduced) }
             }
         case .request:
             if let request = event.request {
@@ -543,6 +544,13 @@ public final class ConversationModel {
         case .queue:
             if let queue = event.queue { self.queue = queue }
         case .run, .turn:
+            // A provider can finish an earlier turn after a newer turn has
+            // already started (especially while reconnecting). Keep the
+            // current run alive until a lifecycle event for that turn arrives.
+            let isForDifferentActiveTurn = activeTurnID != nil
+                && event.turnID != nil
+                && activeTurnID != event.turnID
+            guard !isForDifferentActiveTurn else { break }
             activeTurnID = event.turnID ?? activeTurnID
             if let state = event.state {
                 isRunning = ["running", "starting", "working", "thinking"].contains(state.lowercased())
@@ -577,10 +585,12 @@ public final class ConversationModel {
             command: command
         )
         let task = Task { [weak self] in
+            var draftToRestore = restoreDraft
             do {
                 let receipt = try await client.execute(envelope)
                 guard let self, self.generation == expectedGeneration else { return }
                 self.apply(receipt: receipt)
+                draftToRestore = receipt.draftText ?? restoreDraft
                 if receipt.state == .rejected || receipt.state == .uncertain,
                    let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
             } catch {
@@ -589,7 +599,9 @@ public final class ConversationModel {
                 self.errorMessage = Self.userMessage(for: error)
             }
             if let self, self.generation == expectedGeneration {
-                if let restoreDraft, self.draft.isEmpty { self.updateDraft(restoreDraft) }
+                if self.draft.isEmpty, let draftToRestore {
+                    self.updateDraft(draftToRestore)
+                }
                 self.isSubmitting = false
                 self.commandTasks.removeValue(forKey: commandID.rawValue)
             }
