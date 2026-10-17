@@ -1,4 +1,5 @@
-public import CmuxNextSidebar
+import CmuxNextBridge
+import CmuxNextSidebar
 import Foundation
 
 /// A place in one window's sidebar, named by meaning instead of by index,
@@ -9,7 +10,7 @@ import Foundation
 /// then to one `SidebarBridge.place` call: personal order in the home
 /// session when it serves personal state, else `move-workspace-to-group`
 /// on the owning daemon (plans/cmux-next/data-model.md 1.2c).
-public enum WorkspaceSlot: Hashable, Sendable {
+enum WorkspaceSlot: Hashable, Sendable {
     /// First in the container of `anchor` (its group, else the loose rows);
     /// without an anchor, first among the section's loose rows.
     case top(anchor: String?)
@@ -29,7 +30,7 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// The drop position that puts `moving` at this slot of `section` in
     /// `sections`, counted after `moving`'s own rows are removed
     /// (`DropPosition`). Nil when the anchor or group is not listed there.
-    public func position(moving: Set<String>, section: SectionID, in sections: [SidebarRowSection]) -> DropPosition? {
+    func position(moving: Set<String>, section: SectionID, in sections: [SidebarRowSection]) -> DropPosition? {
         guard let listed = sections.first(where: { $0.id == section }) else { return nil }
         let nodes = listed.nodes.filter { node in
             if case let .workspace(workspace) = node { return !moving.contains(workspace.id.rawValue) }
@@ -102,7 +103,7 @@ private extension SidebarNode {
 /// How Sort Workspaces orders one container (the loose rows, or one group).
 /// Groups keep their place and their members; only the order inside each
 /// container changes.
-public enum WorkspaceSortKey: String, CaseIterable, Sendable {
+enum WorkspaceSortKey: String, CaseIterable, Sendable {
     case name
     case lastUsed
     case directory
@@ -111,7 +112,7 @@ public enum WorkspaceSortKey: String, CaseIterable, Sendable {
     /// `directory` by first terminal directory then name, `lastUsed` by the
     /// window's recency (most recent first, never shown ones last in their
     /// current order).
-    public func sorted(_ ids: [String], names: [String: String], directories: [String: String], recency: [String]) -> [String] {
+    func sorted(_ ids: [String], names: [String: String], directories: [String: String], recency: [String]) -> [String] {
         let position = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let recent = Dictionary(recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func byName(_ lhs: String, _ rhs: String) -> Bool {

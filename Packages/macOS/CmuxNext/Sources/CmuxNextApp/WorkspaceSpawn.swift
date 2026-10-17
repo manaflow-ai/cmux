@@ -147,7 +147,7 @@ struct WorkspaceSpawner {
         let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
-            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
+            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine))
         }
         let named = renamed(name)
         if let windowID, let name {
@@ -156,6 +156,7 @@ struct WorkspaceSpawner {
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule), name: name)
         }
+        defer { PendingWorkspaceRows.shared.release(key.rawValue) }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         do {
             return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in

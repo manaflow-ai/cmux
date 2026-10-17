@@ -2,8 +2,7 @@
 //! panes in layout order, their tabs (strip order), the selected tab, and
 //! the columns of every screen (plans/cmux-next/focus.md section 4).
 //! The app builds it from the daemon mirror and the window's client-local
-//! selection, and sends it only when it changed. A topology keeps pane and
-//! tab indexes, so a lookup by id is O(1) (`Topology::index`).
+//! selection.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
@@ -59,8 +58,7 @@ pub struct Column {
     pub panes: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(from = "TopologyWire")]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Topology {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
@@ -71,69 +69,9 @@ pub struct Topology {
     /// one column holding `panes` in order.
     #[serde(default)]
     pub screens: Vec<Vec<Column>>,
-    /// Pane id -> index in `panes`; tab id -> (pane index, tab index).
-    /// Derived from `panes` by `index`; not part of the value. Build a
-    /// topology with `new` (or decode it); after any direct edit of `panes`
-    /// other than a selection, call `index`.
-    #[serde(skip)]
-    panes_by_id: HashMap<String, usize>,
-    #[serde(skip)]
-    tabs_by_id: HashMap<String, (usize, usize)>,
 }
-
-/// The decoded shape; `From` builds the indexes.
-#[derive(Deserialize)]
-struct TopologyWire {
-    #[serde(default)]
-    workspace: Option<String>,
-    #[serde(default)]
-    panes: Vec<Pane>,
-    #[serde(default)]
-    screens: Vec<Vec<Column>>,
-}
-
-impl From<TopologyWire> for Topology {
-    fn from(wire: TopologyWire) -> Topology {
-        Topology::new(wire.workspace, wire.panes, wire.screens)
-    }
-}
-
-impl PartialEq for Topology {
-    fn eq(&self, other: &Self) -> bool {
-        self.workspace == other.workspace
-            && self.panes == other.panes
-            && self.screens == other.screens
-    }
-}
-
-impl Eq for Topology {}
 
 impl Topology {
-    pub fn new(workspace: Option<String>, panes: Vec<Pane>, screens: Vec<Vec<Column>>) -> Topology {
-        let mut topology = Topology {
-            workspace,
-            panes,
-            screens,
-            panes_by_id: HashMap::new(),
-            tabs_by_id: HashMap::new(),
-        };
-        topology.index();
-        topology
-    }
-
-    /// Rebuilds the id indexes from `panes` (after a decode). The first pane
-    /// or tab with an id wins, as the linear lookups did.
-    pub fn index(&mut self) {
-        self.panes_by_id.clear();
-        self.tabs_by_id.clear();
-        for (p, pane) in self.panes.iter().enumerate() {
-            self.panes_by_id.entry(pane.id.clone()).or_insert(p);
-            for (t, tab) in pane.tabs.iter().enumerate() {
-                self.tabs_by_id.entry(tab.id.clone()).or_insert((p, t));
-            }
-        }
-    }
-
     /// The columns of the screen that holds `pane`.
     pub fn columns_containing(&self, pane: &str) -> Option<Vec<Column>> {
         if self.screens.is_empty() {
@@ -166,20 +104,19 @@ impl Topology {
     }
 
     pub fn pane(&self, id: &str) -> Option<&Pane> {
-        self.panes_by_id.get(id).map(|&index| &self.panes[index])
+        self.panes.iter().find(|pane| pane.id == id)
     }
 
     pub fn contains_pane(&self, id: &str) -> bool {
-        self.panes_by_id.contains_key(id)
-    }
-
-    pub fn contains_tab(&self, id: &str) -> bool {
-        self.tabs_by_id.contains_key(id)
+        self.panes.iter().any(|pane| pane.id == id)
     }
 
     /// Pane and tab holding the tab with this id.
     pub fn location_of_tab(&self, id: &str) -> Option<(String, String)> {
-        self.tabs_by_id.get(id).map(|&(pane, _)| (self.panes[pane].id.clone(), id.to_owned()))
+        self.panes
+            .iter()
+            .find(|pane| pane.tabs.iter().any(|tab| tab.id == id))
+            .map(|pane| (pane.id.clone(), id.to_owned()))
     }
 
     /// Pane and tab showing this daemon surface.
@@ -198,8 +135,8 @@ impl Topology {
 
     /// Selects `tab` in `pane` in this copy (the applier makes it real).
     pub fn select(&mut self, tab: &str, pane: &str) {
-        if let Some(&index) = self.panes_by_id.get(pane) {
-            self.panes[index].selected = Some(tab.to_owned());
+        if let Some(model) = self.panes.iter_mut().find(|p| p.id == pane) {
+            model.selected = Some(tab.to_owned());
         }
     }
 
