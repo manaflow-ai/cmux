@@ -30,6 +30,47 @@ import Testing
         model.selectedProvider = "all"
     }
 
+    @Test func forkLaunchDeduplicatesAndSelectsChildTerminal() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "parent", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let launchGate = await source.holdLaunches()
+        let child = descriptor(
+            id: "child",
+            agent: .codex,
+            title: "Side chat",
+            activity: 20
+        )
+        await source.setLaunchResult(
+            ChatSessionLaunchResult(
+                action: .fork,
+                parentSessionID: "parent",
+                sessionID: "child",
+                workspaceID: "workspace",
+                terminalID: "child-terminal"
+            ),
+            adding: child
+        )
+        let launchTask = Task { await model.forkSelectedSession() }
+        await source.waitForLaunchStart()
+        #expect(model.isLaunchingSelectedSession)
+
+        // A second tap while the host request is crossing the boundary is a
+        // no-op, so only one provider terminal is created.
+        await model.forkSelectedSession()
+        #expect((await source.launches).count == 1)
+
+        await launchGate.open()
+        await launchTask.value
+        #expect(model.selectedSessionID == "child")
+        #expect(!model.isLaunchingSelectedSession)
+    }
+
     @Test func providerFilterReconcilesSelectedDetailSession() async {
         let source = FakeAgentChatSource(sessions: [
             descriptor(id: "claude", agent: .claude, title: "Claude", activity: 10),
@@ -1215,7 +1256,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
         let limit: Int
     }
 
-    let sessionDescriptors: [ChatSessionDescriptor]
+    private var sessionDescriptors: [ChatSessionDescriptor]
     let historyPages: [String: [ChatHistoryPage]]
     private var pageIndices: [String: Int] = [:]
     private(set) var historyRequests: [HistoryRequest] = []
@@ -1225,6 +1266,11 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     private(set) var sentAttachments: [[ChatOutboundAttachment]] = []
     private(set) var answers: [(Int, String)] = []
     private(set) var interrupts: [(Bool, String)] = []
+    private(set) var launches: [(ChatSessionLaunchResult.Action, String)] = []
+    private var launchResult: ChatSessionLaunchResult?
+    private var launchReleaseGate: TestAsyncGate?
+    private var launchStarted = 0
+    private var launchStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var sendReleaseGate: TestAsyncGate?
     private var sendStarted = 0
     private var sendStartWaiters: [CheckedContinuation<Void, Never>] = []
@@ -1248,6 +1294,55 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
 
     func sessions(workspaceID: String?) async throws -> [ChatSessionDescriptor] {
         sessionDescriptors
+    }
+
+    func fork(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launch(.fork, sessionID: sessionID)
+    }
+
+    func resume(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launch(.resume, sessionID: sessionID)
+    }
+
+    func reopen(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launch(.reopen, sessionID: sessionID)
+    }
+
+    private func launch(
+        _ action: ChatSessionLaunchResult.Action,
+        sessionID: String
+    ) async throws -> ChatSessionLaunchResult {
+        launches.append((action, sessionID))
+        launchStarted += 1
+        let waiters = launchStartWaiters
+        launchStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if let launchReleaseGate {
+            await launchReleaseGate.wait()
+            self.launchReleaseGate = nil
+        }
+        return launchResult ?? ChatSessionLaunchResult(action: action, parentSessionID: sessionID)
+    }
+
+    func holdLaunches() -> TestAsyncGate {
+        let gate = TestAsyncGate()
+        launchReleaseGate = gate
+        return gate
+    }
+
+    func waitForLaunchStart() async {
+        guard launchStarted == 0 else { return }
+        await withCheckedContinuation { continuation in
+            launchStartWaiters.append(continuation)
+        }
+    }
+
+    func setLaunchResult(
+        _ result: ChatSessionLaunchResult,
+        adding descriptor: ChatSessionDescriptor
+    ) {
+        launchResult = result
+        sessionDescriptors.append(descriptor)
     }
 
     func session(sessionID: String) async throws -> ChatSessionDescriptor {

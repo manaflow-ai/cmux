@@ -467,7 +467,8 @@ extension AgentChatTranscriptService {
         return ChatHistoryPage(
             messages: merged.messages,
             hasMore: page.hasMore || merged.hasMore,
-            terminalBlocks: page.terminalBlocks
+            terminalBlocks: page.terminalBlocks,
+            usage: page.usage
         )
     }
 
