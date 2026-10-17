@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import {
   listed,
   sessionTitle,
@@ -143,41 +144,46 @@ export function ChiefDock({
             const cardStatus = status(session, selected);
             const markLabel = mark ? t(MARK_LABELS[mark]) : undefined;
             const queueLabel = queued > 0 ? `${queued} ${t("composer.queued")}` : undefined;
+            const menuItems: ContextMenuItem[] = [
+              {
+                id: "move-to-tab",
+                label: t("floating.moveToTab"),
+                icon: <Icon name="link.open.newtab" size={14} />,
+                onSelect: () => onMoveToTab(session.sessionId),
+              },
+            ];
             return (
-              <article
-                className="acpmux-chief-card"
-                data-selected={selected}
-                data-status={cardStatus}
-                data-steering={steering ? "true" : undefined}
-                data-depth={index}
+              <ContextMenu
                 key={session.sessionId}
+                className="acpmux-chief-card-menu-host"
+                items={menuItems}
+                targets="own"
               >
-                <button
-                  type="button"
-                  className="acpmux-chief-card-main"
-                  aria-current={selected ? "true" : undefined}
-                  aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
-                  disabled={!expanded}
-                  onClick={() => onSelect(session.sessionId)}
+                <article
+                  className="acpmux-chief-card"
+                  data-selected={selected}
+                  data-status={cardStatus}
+                  data-steering={steering ? "true" : undefined}
+                  data-depth={index}
                 >
-                  <StatusDot value={cardStatus} />
-                  <span className="acpmux-chief-card-copy">
-                    <strong>{title}</strong>
-                    <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
-                  </span>
-                  {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
-                </button>
-                <button
-                  type="button"
-                  className="acpmux-chief-card-open"
-                  aria-label={t("floating.moveToTab")}
-                  title={t("floating.moveToTab")}
-                  disabled={!expanded}
-                  onClick={() => onMoveToTab(session.sessionId)}
-                >
-                  <Icon name="link.open.newtab" size={14} />
-                </button>
-              </article>
+                  <button
+                    type="button"
+                    className="acpmux-chief-card-main"
+                    aria-current={selected ? "true" : undefined}
+                    aria-haspopup="menu"
+                    aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
+                    disabled={!expanded}
+                    onClick={() => onSelect(session.sessionId)}
+                  >
+                    <StatusDot value={cardStatus} />
+                    <span className="acpmux-chief-card-copy">
+                      <strong>{title}</strong>
+                      <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
+                    </span>
+                    {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
+                  </button>
+                </article>
+              </ContextMenu>
             );
           })}
         </div>

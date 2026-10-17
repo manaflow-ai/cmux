@@ -453,6 +453,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-dock-divider{display:none}
 .acpmux-chief-dock-badge{position:absolute;right:-2px;top:-3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--agent-warning);color:var(--agent-page-bg);font-size:var(--text-caption);line-height:15px;font-weight:700;text-align:center}
 .acpmux-chief-dock-cards{order:1;display:flex;flex-direction:column;width:min(292px,calc(100vw - 24px));min-width:0;max-height:min(248px,calc(100vh - 84px));overflow:hidden;padding:4px;border-radius:15px;transform-origin:bottom right;transition:max-height var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out),transform var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),padding var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),border-color var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out),box-shadow var(--agent-motion-in,120ms) var(--agent-ease-out,ease-out)}
+.acpmux-chief-card-menu-host{display:contents}
 .acpmux-chief-dock[data-expanded=false] .acpmux-chief-dock-cards{max-height:0;opacity:0;pointer-events:none;transform:translateY(5px) scale(.98);padding-block:0;border-color:transparent;box-shadow:none}
 .acpmux-chief-dock-header{display:flex;align-items:center;gap:6px;padding:2px 5px 4px;color:var(--agent-muted);font-size:var(--text-caption)}
 .acpmux-chief-dock-title{display:inline-flex;align-items:center;gap:5px;color:var(--agent-text);font-weight:650}
@@ -471,7 +472,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card[data-status=error]{box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-danger,var(--agent-warning)) 42%,transparent)}
 .acpmux-chief-card[data-steering=true]{background:color-mix(in srgb,var(--agent-accent) 8%,transparent)}
 .acpmux-chief-card[data-selected=true]{background:color-mix(in srgb,var(--agent-accent) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 36%,transparent)}
-.acpmux-chief-card-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;height:max(var(--ui-row-height,28px),calc(36px * var(--cmux-interface-scale,1)));padding:3px var(--ui-row-padding-inline,8px);border:0;border-radius:var(--ui-row-radius,5px) 0 0 var(--ui-row-radius,5px);background:transparent;color:inherit;text-align:left;cursor:pointer}
+.acpmux-chief-card-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(36px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:3px var(--ui-row-padding-inline,8px);border:0;border-radius:var(--ui-row-radius,5px);background:transparent;color:inherit;text-align:left;cursor:pointer}
 .acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-chief-card-copy{display:flex;flex-direction:column;min-width:0;gap:1px}
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -482,10 +483,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-dock-dot[data-status=streaming]{background:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
 .acpmux-chief-dock-dot[data-status=attention]{background:var(--agent-warning)}
 .acpmux-chief-dock-dot[data-status=error]{background:var(--agent-danger,var(--agent-warning))}
-.acpmux-chief-card-open{display:inline-flex;align-items:center;justify-content:center;align-self:stretch;width:max(var(--ui-row-height,28px),calc(36px * var(--cmux-interface-scale,1)));height:auto;margin:0;border:0;border-radius:0 var(--ui-row-radius,5px) var(--ui-row-radius,5px) 0;background:transparent;color:var(--agent-muted);cursor:pointer}
-.acpmux-chief-card-open:hover{background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text)}
 .acpmux-chief-card:has(:focus-visible){box-shadow:inset 0 0 0 var(--cmux-focus-ring-width,1.5px) var(--ui-ring,var(--cmux-focus-ring-color,var(--agent-text)))}
-.acpmux-chief-card-main:focus-visible,.acpmux-chief-card-open:focus-visible{outline:0}
+.acpmux-chief-card-main:focus-visible{outline:0}
 @media (max-width:520px){.acpmux-chief-dock{right:8px;bottom:8px}.acpmux-chief-dock-cards{width:min(292px,calc(100vw - 16px))}}
 @media (max-width:360px){.acpmux-chief-dock-cards{width:calc(100vw - 16px)}}
 .acpmux-quick[data-floating=compact] .acpmux-chief-dock{position:relative;right:auto;bottom:auto;align-items:center;align-self:center;flex:none}
