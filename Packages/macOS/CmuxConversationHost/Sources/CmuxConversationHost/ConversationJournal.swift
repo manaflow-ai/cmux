@@ -10,6 +10,11 @@ public actor ConversationJournal {
     private let decoder: JSONDecoder
     private let maximumJournalBytes = 64 * 1_024 * 1_024
     private var lastSequenceValue: ConversationCursor
+    private struct EventOffset: Sendable {
+        let offset: UInt64
+        let length: Int
+    }
+    private var eventOffsets: [EventOffset]
 
     /// Creates or opens a journal directory.
     /// - Parameter directory: Private directory for one session.
@@ -29,12 +34,14 @@ public actor ConversationJournal {
             catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
             guard !data.isEmpty else {
                 try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
+                self.eventOffsets = []
                 self.lastSequenceValue = 0
                 return
             }
             guard data.count <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
             let validation = try Self.validate(data: data, decoder: decoder, path: journalURL.path)
             last = validation.lastSequence
+            self.eventOffsets = validation.offsets
             if validation.truncateOffset != nil || validation.appendTerminator {
                 let handle = try FileHandle(forWritingTo: journalURL)
                 defer { try? handle.close() }
@@ -47,6 +54,7 @@ public actor ConversationJournal {
             }
             try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
         }
+        if !FileManager.default.fileExists(atPath: journalURL.path) { self.eventOffsets = [] }
         self.lastSequenceValue = last
     }
 
@@ -54,6 +62,7 @@ public actor ConversationJournal {
         let lastSequence: ConversationCursor
         let truncateOffset: Int?
         let appendTerminator: Bool
+        let offsets: [EventOffset]
     }
 
     /// Validates every complete line and recovers only a malformed, unterminated final tail.
@@ -64,6 +73,7 @@ public actor ConversationJournal {
         var lastSequence: ConversationCursor = 0
         var lastGoodOffset = 0
         var appendTerminator = false
+        var offsets: [EventOffset] = []
         while start < bytes.count {
             let newline = bytes[start...].firstIndex(of: 10)
             let end = newline ?? bytes.count
@@ -75,11 +85,12 @@ public actor ConversationJournal {
                     throw ConversationJournalError.sequenceMismatch(expected: lastSequence + 1, actual: event.sequence)
                 }
                 lastSequence = event.sequence
+                offsets.append(EventOffset(offset: UInt64(start), length: line.count))
             } catch {
                 // Only a final line with no newline may be a crash-truncated write.
                 if let journalError = error as? ConversationJournalError { throw journalError }
                 if newline == nil && end == bytes.count {
-                    return Validation(lastSequence: lastSequence, truncateOffset: lastGoodOffset, appendTerminator: false)
+                    return Validation(lastSequence: lastSequence, truncateOffset: lastGoodOffset, appendTerminator: false, offsets: offsets)
                 }
                 throw ConversationJournalError.corruptJournal(path)
             }
@@ -93,7 +104,7 @@ public actor ConversationJournal {
                 appendTerminator = true
             }
         }
-        return Validation(lastSequence: lastSequence, truncateOffset: nil, appendTerminator: appendTerminator)
+        return Validation(lastSequence: lastSequence, truncateOffset: nil, appendTerminator: appendTerminator, offsets: offsets)
     }
 
     /// The highest durable event sequence.
@@ -116,6 +127,7 @@ public actor ConversationJournal {
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
         try handle.synchronize()
+        eventOffsets.append(EventOffset(offset: UInt64(currentSize), length: data.count - 1))
         lastSequenceValue = event.sequence
     }
 
@@ -123,16 +135,32 @@ public actor ConversationJournal {
     public func events(after cursor: ConversationCursor, limit: Int = 256) throws -> [ConversationEvent] {
         guard limit > 0 else { return [] }
         guard FileManager.default.fileExists(atPath: journalURL.path) else { return [] }
-        let data: Data
-        do { data = try Data(contentsOf: journalURL) }
+        let attributes: [FileAttributeKey: Any]
+        do { attributes = try FileManager.default.attributesOfItem(atPath: journalURL.path) }
         catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
-        guard !data.isEmpty else { return [] }
-        guard data.count <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
-        _ = try Self.validate(data: data, decoder: decoder, path: journalURL.path)
+        let size = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard size <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
+        guard cursor < ConversationCursor(eventOffsets.count) else { return [] }
+        let startIndex = Int(cursor)
+        let endIndex = min(eventOffsets.count, startIndex + limit)
+        let handle: FileHandle
+        do { handle = try FileHandle(forReadingFrom: journalURL) }
+        catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
+        defer { try? handle.close() }
         var result: [ConversationEvent] = []
-        for line in data.split(separator: 10, omittingEmptySubsequences: true) {
-            let event = try decoder.decode(ConversationEvent.self, from: Data(line))
-            if event.sequence > cursor { result.append(event); if result.count == limit { break } }
+        for index in startIndex..<endIndex {
+            let entry = eventOffsets[index]
+            do {
+                try handle.seek(toOffset: entry.offset)
+                guard let data = try handle.read(upToCount: entry.length), data.count == entry.length else {
+                    throw ConversationJournalError.corruptJournal(journalURL.path)
+                }
+                result.append(try decoder.decode(ConversationEvent.self, from: data))
+            } catch let error as ConversationJournalError {
+                throw error
+            } catch {
+                throw ConversationJournalError.corruptJournal(journalURL.path)
+            }
         }
         return result
     }
@@ -152,8 +180,12 @@ public actor ConversationJournal {
 
     /// Loads the latest complete snapshot, when one has been written.
     public func loadSnapshot() throws -> ConversationSnapshot? {
-        guard let data = try? Data(contentsOf: snapshotURL) else { return nil }
-        return try decoder.decode(ConversationSnapshot.self, from: data)
+        guard FileManager.default.fileExists(atPath: snapshotURL.path) else { return nil }
+        let data: Data
+        do { data = try Data(contentsOf: snapshotURL) }
+        catch { throw ConversationJournalError.corruptJournal(snapshotURL.path) }
+        do { return try decoder.decode(ConversationSnapshot.self, from: data) }
+        catch { throw ConversationJournalError.corruptJournal(snapshotURL.path) }
     }
 }
 

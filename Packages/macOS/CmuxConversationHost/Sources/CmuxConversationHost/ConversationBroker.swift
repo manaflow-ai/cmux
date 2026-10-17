@@ -69,6 +69,8 @@ public actor ConversationBroker: ConversationClient {
     private var creationReservations: [ConversationCommandID: CreationReservation] = [:]
     private var subscribers: [ConversationID: [UUID: AsyncThrowingStream<ConversationEvent, any Error>.Continuation]] = [:]
     private let encoder = JSONEncoder()
+    private var isShutdown = false
+    private var attachmentTasks: [ConversationID: Task<Void, any Error>] = [:]
 
     /// Creates an account-scoped broker.
     /// - Parameters:
@@ -97,8 +99,9 @@ public actor ConversationBroker: ConversationClient {
 
     /// Reopens persisted sessions whose native providers support resume.
     public func restore() async {
+        guard !isShutdown else { return }
         for id in sessions.keys {
-            guard let state = sessions[id], state.connection == nil, let adapter = adapters[state.session.provider] else { continue }
+            guard let state = sessions[id], state.connection == nil, state.session.providerSessionID != nil, let adapter = adapters[state.session.provider] else { continue }
             do { try await attach(id: id, adapter: adapter) }
             catch {
                 sessions[id]?.session.state = .stopped
@@ -113,6 +116,7 @@ public actor ConversationBroker: ConversationClient {
 
     /// Creates and starts a provider session, idempotently when `requestID` repeats.
     public func createSession(_ request: ConversationCreateRequest) async throws -> ConversationSession {
+        guard !isShutdown else { throw ConversationBrokerError.brokerShutDown }
         let requestFingerprint = try Self.fingerprint(CreateFingerprint(provider: request.provider, workspaceID: request.workspaceID, title: request.title))
         if let requestID = request.requestID, let reservation = creationReservations[requestID] {
             guard reservation.fingerprint == requestFingerprint else {
@@ -187,6 +191,7 @@ public actor ConversationBroker: ConversationClient {
 
     /// Executes one command with generation and turn preconditions.
     public func execute(_ envelope: ConversationCommandEnvelope) async throws -> ConversationReceipt {
+        guard !isShutdown else { throw ConversationBrokerError.brokerShutDown }
         guard sessions[envelope.sessionID] != nil else { throw ConversationBrokerError.sessionNotFound(envelope.sessionID) }
         let id = envelope.sessionID
         let fingerprint = try Self.fingerprint(envelope.command)
@@ -266,6 +271,9 @@ public actor ConversationBroker: ConversationClient {
 
     /// Closes all provider connections and event streams.
     public func shutdown() async {
+        isShutdown = true
+        for task in attachmentTasks.values { task.cancel() }
+        attachmentTasks.removeAll()
         for id in sessions.keys { await close(id: id) }
         for values in subscribers.values { for continuation in values.values { continuation.finish() } }
         subscribers.removeAll()
@@ -287,7 +295,14 @@ public actor ConversationBroker: ConversationClient {
         case .queue(let text):
             let item = ConversationQueueItem(id: ConversationItemID(rawValue: UUID().uuidString), commandID: commandID, text: text, position: sessions[id]!.queued.count)
             sessions[id]!.queued.append(item)
-            if sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn { return try await drainQueue(id: id, commandID: commandID) }
+            if sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn {
+                if sessions[id]!.connection == nil {
+                    guard sessions[id]!.session.providerSessionID != nil else { throw ConversationProviderError.unavailable("Provider session cannot be resumed safely") }
+                    guard let adapter = adapters[sessions[id]!.session.provider] else { throw ConversationProviderError.unsupported("No adapter for provider") }
+                    try await ensureAttached(id: id, adapter: adapter)
+                }
+                return try await drainQueue(id: id, commandID: commandID)
+            }
             try await emitQueue(id: id); return try await applied(commandID, id: id)
         case .editQueued(let itemID, let text):
             guard let index = sessions[id]!.queued.firstIndex(where: { $0.id == itemID }) else { throw ConversationProviderError.rejected("queued item not found") }
@@ -303,7 +318,7 @@ public actor ConversationBroker: ConversationClient {
             if sessions[id]!.connection == nil {
                 guard sessions[id]!.session.providerSessionID != nil else { throw ConversationProviderError.unavailable("Provider session cannot be resumed safely") }
                 guard let adapter = adapters[sessions[id]!.session.provider] else { throw ConversationProviderError.unsupported("No adapter for provider") }
-                try await attach(id: id, adapter: adapter)
+                try await ensureAttached(id: id, adapter: adapter)
             }
             return try await sendProvider(.startTurn(text: text, model: model ?? sessions[id]!.session.model, effort: effort ?? sessions[id]!.session.effort), commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
         case .steer(let text): return try await sendProvider(.steer(text: text), commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
@@ -313,11 +328,25 @@ public actor ConversationBroker: ConversationClient {
     }
 
     private func sendProvider(_ command: ConversationCommand, commandID: ConversationCommandID, id: ConversationID, expectedGeneration: ConversationGeneration? = nil, expectedTurnID: ConversationTurnID? = nil) async throws -> ConversationReceipt {
+        guard !isShutdown else { throw ConversationProviderError.unavailable("conversation broker is shut down") }
         if let expectedGeneration, expectedGeneration != sessions[id]?.session.generation { throw ConversationProviderError.staleGeneration }
         if let expectedTurnID, expectedTurnID != sessions[id]?.currentTurnID { throw ConversationProviderError.rejected("stale active turn") }
+        if case .startTurn = command, sessions[id]!.currentTurnID != nil || sessions[id]!.dispatchingTurn { throw ConversationProviderError.rejected("a turn is already active or being dispatched") }
         guard let connection = sessions[id]?.connection else { throw ConversationProviderError.unavailable("provider connection is not ready") }
-        if case .startTurn = command { sessions[id]!.dispatchingTurn = true; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!) }
-        try await connection.send(command)
+        let isStart = if case .startTurn = command { true } else { false }
+        if isStart { sessions[id]!.dispatchingTurn = true; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!) }
+        do { try await connection.send(command) }
+        catch let error as ConversationProviderError {
+            if isStart {
+                switch error {
+                case .unsupported, .rejected, .staleGeneration:
+                    sessions[id]!.dispatchingTurn = false
+                    try? persist(sessions[id]!)
+                case .unavailable, .malformed: break
+                }
+            }
+            throw error
+        }
         return try await applied(commandID, id: id)
     }
 
@@ -331,7 +360,18 @@ public actor ConversationBroker: ConversationClient {
         try persist(sessions[id]!)
         try await emitQueue(id: id)
         guard let connection = sessions[id]!.connection else { throw ConversationProviderError.unavailable("provider connection is not ready") }
-        try await connection.send(.startTurn(text: item.text, model: sessions[id]!.session.model, effort: sessions[id]!.session.effort))
+        do { try await connection.send(.startTurn(text: item.text, model: sessions[id]!.session.model, effort: sessions[id]!.session.effort)) }
+        catch let error as ConversationProviderError {
+            switch error {
+            case .unsupported, .rejected, .staleGeneration:
+                sessions[id]!.queued[0].isDelivering = false
+                sessions[id]!.dispatchingTurn = false
+                try? persist(sessions[id]!)
+                try? await emitQueue(id: id)
+            case .unavailable, .malformed: break
+            }
+            throw error
+        }
         sessions[id]!.queued.removeFirst()
         reindexQueue(id: id)
         try persist(sessions[id]!)
@@ -425,12 +465,25 @@ public actor ConversationBroker: ConversationClient {
 
     private func attach(id: ConversationID, adapter: any ConversationProviderAdapter) async throws {
         guard let state = sessions[id] else { throw ConversationBrokerError.sessionNotFound(id) }
-        let connection = try await adapter.open(session: state.session, target: state.target)
+        guard sessions[id]?.connection == nil else { return }
+        guard !isShutdown else { throw ConversationBrokerError.brokerShutDown }
         let token = UUID()
-        sessions[id]!.connection = connection
         sessions[id]!.connectionToken = token
-        if let nativeID = await connection.providerSessionID() { sessions[id]!.session.providerSessionID = nativeID }
-        if var capabilities = await connection.capabilities() { capabilities.features.insert("queue"); sessions[id]!.capabilities = capabilities }
+        let connection = try await adapter.open(session: state.session, target: state.target)
+        guard !isShutdown, sessions[id]?.connectionToken == token else {
+            await connection.close()
+            throw ConversationBrokerError.brokerShutDown
+        }
+        sessions[id]!.connection = connection
+        if let nativeID = await connection.providerSessionID() {
+            guard !isShutdown, sessions[id]?.connectionToken == token else { await connection.close(); sessions[id]?.connection = nil; throw ConversationBrokerError.brokerShutDown }
+            sessions[id]!.session.providerSessionID = nativeID
+        }
+        if var capabilities = await connection.capabilities() {
+            guard !isShutdown, sessions[id]?.connectionToken == token else { await connection.close(); sessions[id]?.connection = nil; throw ConversationBrokerError.brokerShutDown }
+            capabilities.features.insert("queue"); sessions[id]!.capabilities = capabilities
+        }
+        guard !isShutdown, sessions[id]?.connectionToken == token else { await connection.close(); sessions[id]?.connection = nil; throw ConversationBrokerError.brokerShutDown }
         sessions[id]!.session.state = .ready
         try persist(sessions[id]!)
         let task = Task { [weak self] in
@@ -440,6 +493,21 @@ public actor ConversationBroker: ConversationClient {
             } catch { await self?.markProviderRestarted(id: id, token: token, reason: error.localizedDescription) }
         }
         sessions[id]!.eventTask = task
+    }
+
+    private func ensureAttached(id: ConversationID, adapter: any ConversationProviderAdapter) async throws {
+        guard sessions[id]?.connection == nil else { return }
+        if let task = attachmentTasks[id] {
+            try await task.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { throw ConversationBrokerError.brokerShutDown }
+            try await self.attach(id: id, adapter: adapter)
+        }
+        attachmentTasks[id] = task
+        defer { attachmentTasks.removeValue(forKey: id) }
+        try await task.value
     }
 
     private func ingest(_ providerEvent: ConversationProviderEvent, id: ConversationID, token: UUID) async {
@@ -467,7 +535,15 @@ public actor ConversationBroker: ConversationClient {
             if let index = state.pendingRequests.firstIndex(where: { $0.id == request.id }) { state.pendingRequests[index] = normalizedRequest! } else if normalizedRequest!.state == .pending { state.pendingRequests.append(normalizedRequest!) }
         }
         if providerEvent.kind == .turn || providerEvent.kind == .run {
-            if let stateLabel = providerEvent.state, ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(stateLabel) { state.currentTurnID = nil; state.dispatchingTurn = false; didFinishTurn = true }
+            if let stateLabel = providerEvent.state, ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(stateLabel) {
+                let matchesActiveTurn: Bool
+                if let activeTurn = state.currentTurnID {
+                    matchesActiveTurn = providerEvent.turnID == activeTurn
+                } else {
+                    matchesActiveTurn = state.dispatchingTurn && providerEvent.turnID != nil
+                }
+                if matchesActiveTurn { state.currentTurnID = nil; state.dispatchingTurn = false; didFinishTurn = true }
+            }
             else if providerEvent.turnID != nil { state.currentTurnID = providerEvent.turnID; state.dispatchingTurn = false }
         }
         state.session.updatedAt = Date()
@@ -494,6 +570,8 @@ public actor ConversationBroker: ConversationClient {
     }
 
     private func close(id: ConversationID) async {
+        attachmentTasks[id]?.cancel()
+        attachmentTasks.removeValue(forKey: id)
         guard let connection = sessions[id]?.connection else { sessions[id]?.connectionToken = nil; return }
         sessions[id]!.connectionToken = nil
         await connection.close()
@@ -553,7 +631,7 @@ public actor ConversationBroker: ConversationClient {
         // always include the payload fingerprint, so a legacy reservation remains safely bound to its
         // original command but cannot silently accept a different payload.
         if let legacy = try? decoder.decode([String: String].self, from: data) {
-            return legacy.reduce(into: [:]) { $0[ConversationCommandID(rawValue: $1.key)] = CreationReservation(sessionID: ConversationID(rawValue: $1.value), fingerprint: "legacy:($1.value)") }
+            return legacy.reduce(into: [:]) { $0[ConversationCommandID(rawValue: $1.key)] = CreationReservation(sessionID: ConversationID(rawValue: $1.value), fingerprint: "legacy:\($1.value)") }
         }
         throw ConversationJournalError.corruptSession(url.path)
     }
