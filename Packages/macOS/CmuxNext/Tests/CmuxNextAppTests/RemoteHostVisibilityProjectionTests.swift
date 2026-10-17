@@ -1,7 +1,6 @@
 import CmuxNextRemote
 import Foundation
 import Testing
-@testable import CmuxNextApp
 
 @Suite
 struct RemoteHostVisibilityProjectionTests {

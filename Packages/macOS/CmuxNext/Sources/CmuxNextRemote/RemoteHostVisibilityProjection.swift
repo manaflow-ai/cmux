@@ -1,5 +1,4 @@
-import CmuxNextRemote
-import Foundation
+public import Foundation
 
 /// A read-only projection for a remote host's details surface.
 ///
