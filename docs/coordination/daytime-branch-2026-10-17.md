@@ -27,7 +27,7 @@ SHA, command, host, and receipt in each row.
 | ID | Owner | Scope | Commit(s) | State | Checks / receipt |
 | --- | --- | --- | --- | --- | --- |
 | `DAY-000` | Leo | Inherited feature-branch history | `00e3f3a` | accepted | Starting-point receipt above |
-| `DAY-001` | Leo | Pilot branch policy and ledger | pending | active | This document |
+| `DAY-001` | Leo | Pilot branch policy and ledger | `9dd1166` | complete | `git diff --check`; branch push and fast-forward sync verified |
 | `DAY-002` | `/root/perf_practices_research` | Cross-repo regression/perceived-performance patterns | analysis-only | verified | Chromium, Firefox, rustc-perf, AndroidX, and existing cmux-next workflows |
 | `DAY-003` | `/root/cmux_next_async_perf` | Async workspace-switch benchmark lane | analysis-only | verified | Existing tab-switch/frame-pacing benches; no native build run |
 | `DAY-004` | `/root/fleet_health_repair` | Fleet health and supported repair audit | analysis-only | verified | `fleet up`, `xcode-pin-audit`, Tailscale ping receipts; no mutation applied |
