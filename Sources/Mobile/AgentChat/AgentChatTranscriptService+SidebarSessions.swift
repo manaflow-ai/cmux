@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 
 /// The service's contribution to the sidebar session rows: pane lookups, the
