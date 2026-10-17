@@ -273,6 +273,15 @@ extension AgentChatSessionRegistry {
             let loadedDetails = loadDetails()
             let argv = loadedDetails?.arguments
             let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
+            let processWorkingDirectory: String? = {
+                guard def.id == "opencode", let loadedDetails else {
+                    return observedWorkingDirectory(loadedDetails?.environment)
+                }
+                return VaultAgentProcessScanner.openCodeWorkingDirectoryForProcess(
+                    arguments: loadedDetails.arguments,
+                    environment: loadedDetails.environment
+                ) ?? observedWorkingDirectory(loadedDetails.environment)
+            }()
             var sessionID: String?
             var transcriptPath: String?
             if def.id == "codex",
@@ -294,7 +303,7 @@ extension AgentChatSessionRegistry {
             if def.id == "opencode", let loadedDetails {
                 sessionID = openCodeSessionID(
                     process.pid,
-                    observedWorkingDirectory(loadedDetails.environment),
+                    processWorkingDirectory,
                     loadedDetails.arguments,
                     loadedDetails.environment
                 )
@@ -312,7 +321,7 @@ extension AgentChatSessionRegistry {
                 ?? (def.id == "opencode" ? openCodeSessionIDForProcess(
                     arguments: argv ?? [],
                     environment: loadedDetails?.environment ?? [:],
-                    workingDirectory: observedWorkingDirectory(loadedDetails?.environment)
+                    workingDirectory: processWorkingDirectory
                 ) : nil)
                 ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
             let candidate = Candidate(
@@ -322,7 +331,7 @@ extension AgentChatSessionRegistry {
                     surfaceID: surfaceID.uuidString,
                     workspaceID: process.cmuxWorkspaceID?.uuidString,
                     pid: process.pid,
-                    workingDirectory: observedWorkingDirectory(details?.environment),
+                    workingDirectory: processWorkingDirectory ?? observedWorkingDirectory(details?.environment),
                     transcriptPath: transcriptPath,
                     sampledAt: snapshot.sampledAt
                 ),
