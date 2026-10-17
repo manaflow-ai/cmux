@@ -282,8 +282,6 @@ export function Composer({
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
-  // arrive in the same render; preferring the host value keeps it visible through initialization.
   const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
@@ -456,9 +454,6 @@ export function Composer({
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
-    // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
-    // when the local remount cache is empty; otherwise this effect can clear the host-provided
-    // draft before the editor has initialized.
     const initial = restored || draft || "";
     setText(initial);
     setCaret(initial.length);
