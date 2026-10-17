@@ -65,7 +65,7 @@ fn dispatch(
     mux: &Arc<Mux>,
     operation: ResourceOperation,
     machine: Option<&str>,
-) -> Result<Value, crate::resource::ResourceError> {
+) -> Result<Value, ResourceError> {
     mux.resource_machine_service().dispatch(&ResourceMachineRequest {
         operation,
         selectors: ResourceSelectors { machine: machine.map(str::to_owned), ..Default::default() },
@@ -204,4 +204,40 @@ fn cmux_next_machine_catalog_default_owner_stays_local_without_a_publisher() {
     assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(listed[0]["id"], json!(mux.machine_public_id));
     assert!(dispatch(&mux, ResourceOperation::MachineGet, remote()["id"].as_str()).is_err());
+}
+
+#[test]
+fn cmux_next_machine_catalog_never_confers_session_or_agent_execution_authority() {
+    let mux = mux();
+    let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
+    let record = remote();
+    assert_eq!(publisher.send(&mux, 1, json!([record]))["ok"], true);
+    assert!(dispatch(&mux, ResourceOperation::SessionList, record["id"].as_str()).is_err());
+    assert_eq!(
+        dispatch(&mux, ResourceOperation::SessionList, Some("current"))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    mux.bind_conversation_principal(publisher.client, "agent:catalog-test".to_owned()).unwrap();
+    assert_eq!(publisher.send(&mux, 2, json!([]))["error_code"], "machine_catalog.not_trusted");
+    assert_eq!(
+        dispatch(&mux, ResourceOperation::MachineList, None).unwrap().as_array().unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn cmux_next_machine_catalog_owner_metadata_withdraws_with_verified_app_authority() {
+    let mux = mux();
+    let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
+    assert_eq!(publisher.send(&mux, 1, json!([remote()]))["ok"], true);
+    origin_gate::set_verified_app_for_test(&mux, publisher.client, false);
+    assert_eq!(
+        dispatch(&mux, ResourceOperation::MachineList, None).unwrap().as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(publisher.send(&mux, 2, json!([]))["error_code"], "machine_catalog.not_trusted");
 }

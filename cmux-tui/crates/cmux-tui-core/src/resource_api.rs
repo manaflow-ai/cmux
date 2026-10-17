@@ -10,6 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Weak;
 
+mod machines;
+
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
@@ -123,11 +125,15 @@ impl ResourceMachineService for LocalResourceMachineService {
         match request.operation {
             ResourceOperation::MachineList => {
                 require_no_selectors(&request.selectors)?;
-                Ok(json!([machine_snapshot(&context)]))
+                let mut machines = vec![machine_snapshot(&context)];
+                machines.extend(self.remote_machine_snapshots());
+                Ok(json!(machines))
             }
             ResourceOperation::MachineGet => {
-                resolve_local_machine(&request.selectors, &context)?;
-                Ok(machine_snapshot(&context))
+                if resolve_local_machine(&request.selectors, &context).is_ok() {
+                    return Ok(machine_snapshot(&context));
+                }
+                self.remote_machine_snapshot(&request.selectors)
             }
             ResourceOperation::SessionList => {
                 resolve_local_machine(&request.selectors, &context)?;
