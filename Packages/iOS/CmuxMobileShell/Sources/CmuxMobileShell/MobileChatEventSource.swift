@@ -78,6 +78,32 @@ public actor MobileChatEventSource: ChatEventSource {
         return try coding.decode(MobileChatSessionsResponse.self, from: result).sessions
     }
 
+    /// Creates a real cmux workspace whose first terminal starts the selected
+    /// agent CLI. The host owns process/session discovery; the caller refreshes
+    /// `mobile.chat.sessions` after this request and opens the discovered row.
+    public func startNewChat(agent: ChatAgentKind, workingDirectory: String? = nil) async throws {
+        let command: String
+        switch agent {
+        case .claude: command = "claude"
+        case .codex: command = "codex"
+        case .opencode: command = "opencode"
+        case .other: throw NSError(domain: "MobileChat", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported agent"])
+        }
+        var params: [String: Any] = [
+            "title": "(agent.displayName) chat",
+            "initial_command": command,
+        ]
+        if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["working_directory"] = workingDirectory
+        }
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
+        let result = try await client.sendRequest(request)
+        guard let response = try? MobileSyncWorkspaceListResponse.decode(result),
+              response.createdWorkspaceID != nil else {
+            throw NSError(domain: "MobileChat", code: 2, userInfo: [NSLocalizedDescriptionKey: "The new workspace was not created"])
+        }
+    }
+
     /// Pulls the authoritative snapshot of one session by id.
     ///
     /// The client's reconcile path: on (re)connect, foreground, a detected

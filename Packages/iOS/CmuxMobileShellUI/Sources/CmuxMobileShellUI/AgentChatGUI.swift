@@ -79,6 +79,21 @@ private final class AgentChatSessionListStore {
         isLoading = false
     }
 
+    func startNewChat(agent: ChatAgentKind) async {
+        do {
+            try await source.startNewChat(agent: agent)
+            errorMessage = nil
+            // The agent hook arrives asynchronously. Refresh once now for the
+            // workspace row, then the existing chat.message stream reconciles
+            // the session as soon as the CLI emits its first event.
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription.isEmpty
+                ? "Couldn’t start a new agent conversation."
+                : error.localizedDescription
+        }
+    }
+
     func start() async {
         streamTask?.cancel()
         let stream = await source.sessionEvents()
@@ -199,7 +214,10 @@ private struct AgentChatSessionListView: View {
             }
             .onDisappear { model.stop() }
             .sheet(isPresented: $showingNewChat) {
-                AgentChatNewConversationView(sessions: model.visibleSessions) { showingNewChat = false }
+                AgentChatNewConversationView(sessions: model.visibleSessions) { provider in
+                    await model.startNewChat(agent: provider)
+                    showingNewChat = false
+                }
             }
             .navigationDestination(isPresented: Binding(
                 get: { selectedSession != nil },
@@ -270,15 +288,17 @@ private struct AgentChatSessionListView: View {
 /// existing terminal workflow.
 private struct AgentChatNewConversationView: View {
     let sessions: [ChatSessionDescriptor]
-    let dismiss: () -> Void
+    let start: (ChatAgentKind) async -> Void
     @State private var provider: ChatAgentKind = .codex
+    @State private var isStarting = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Choose an agent")
                     .font(.title2.weight(.semibold))
-                Text("Start the selected CLI in a cmux terminal on your Mac. Once it is running, the new conversation appears here automatically.")
+                Text("Create a fresh cmux terminal and start the selected CLI on your Mac. The conversation appears here as soon as the agent connects.")
                     .foregroundStyle(.secondary)
                 Picker("Agent", selection: $provider) {
                     ForEach([ChatAgentKind.claude, .codex, .opencode], id: \.sourceName) { kind in
@@ -291,13 +311,28 @@ private struct AgentChatNewConversationView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                Button {
+                    isStarting = true
+                    Task {
+                        await start(provider)
+                        await MainActor.run { isStarting = false }
+                    }
+                } label: {
+                    HStack {
+                        if isStarting { ProgressView().controlSize(.small) }
+                        Text(isStarting ? "Starting…" : "Start conversation")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isStarting)
                 Spacer()
             }
             .padding(24)
             .navigationTitle("New chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done", action: dismiss) }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
         .presentationDetents([.medium])
