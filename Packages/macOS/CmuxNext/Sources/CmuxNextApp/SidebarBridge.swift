@@ -219,6 +219,10 @@ final class SidebarBridge {
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
+        // Keep the existing attention setting as the opt-in for the dynamic
+        // projection; unlike notification-only reordering this also follows
+        // agent state transitions delivered in the sidebar snapshot.
+        model.priorityOrdering = DesignSettings.shared.attention.movesToTop
         if model.layout != layout { model.layout = layout }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()

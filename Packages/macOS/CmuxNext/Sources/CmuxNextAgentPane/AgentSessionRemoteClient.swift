@@ -5,6 +5,8 @@ public import Foundation
 /// pins the acpmux session from its own record, so nothing here names a session, a folder or a
 /// command. JSON values travel as `Data` (the daemon's own JSON).
 public nonisolated protocol AgentSessionRemoteClient: Sendable {
+    /// True when this wire observes a session without permission to prompt, cancel or answer it.
+    var isReadOnly: Bool { get }
     /// Subscribes and returns acpmux's attach page `{session, events, hasMore, lastSeq}`.
     /// Events then go to `handler` until ``detach()``, ``close()`` or a `.closed` event.
     func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data

@@ -3,7 +3,7 @@
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -72,6 +72,11 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
 /// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
 /// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
+export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[], items: readonly AcpmuxActivity[]): boolean {
+  // Coordination cards stay visible beside tool calls so a settled run never hides the
+  // agent-to-agent receipt inside the generic tool summary.
+  return row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items);
+}
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
@@ -85,11 +90,7 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
   return (
     <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
       <div className="cv-tools">
-        {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
-          <ToolRun items={items ?? []}>{nodes}</ToolRun>
-        ) : (
-          nodes
-        )}
+        {shouldFoldToolRun(row, groups, items ?? []) ? <ToolRun items={items ?? []}>{nodes}</ToolRun> : nodes}
       </div>
     </FindReveal.Provider>
   );

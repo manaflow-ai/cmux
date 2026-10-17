@@ -113,3 +113,13 @@ test("a New Tab that inherited a project folder names the folder its host starts
 test("before the host names a start folder, the chip asks for a project", async () => {
   expect(await mount("/Users/you/src/app")).toBe("Choose folder");
 });
+
+test("the new tab exposes its project and machine context above the prompt", async () => {
+  await mount("/Users/you", "/Users/you/src/app");
+  const location = host.querySelector<HTMLElement>(".nt-location")!;
+  expect(location.querySelector('button[aria-label="Folder"]')?.textContent?.trim()).toBe("app");
+  expect(location.querySelector('button[aria-label^="Computer"]')?.textContent?.trim()).toBe("This Mac");
+  expect(location.compareDocumentPosition(host.querySelector(".nt-input")!) ?? 0).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+});
