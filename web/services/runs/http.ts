@@ -12,6 +12,15 @@ import {
   RunAttachTicketReplayError,
   RunAttachTargetUnavailableError,
 } from "./repository";
+import {
+  PromotionAlreadyExistsError,
+  PromotionIdempotencyConflictError,
+  PromotionInProgressError,
+  PromotionNotFoundError,
+  PromotionNotReadyError,
+  PromotionProviderHandlesMissingError,
+  PromotionRuntimeUnavailableError,
+} from "./promotion";
 import { encodeRunCursor, type RunCursor } from "./model";
 
 export function runJson(data: unknown, status = 200): Response {
@@ -48,6 +57,27 @@ export function runError(error: unknown): Response {
   }
   if (error instanceof RunAttachTargetUnavailableError) {
     return vmErrorResponse({ error: "run_attach_target_unavailable", status: 409, message: "This attempt no longer has a retained terminal to attach.", action: "Refresh the run and retry with another attempt." });
+  }
+  if (error instanceof PromotionNotFoundError) {
+    return vmErrorResponse({ error: "run_promotion_not_found", status: 404, message: "The requested run attempt was not found.", action: "Refresh the run list and retry." });
+  }
+  if (error instanceof PromotionNotReadyError) {
+    return vmErrorResponse({ error: "run_promotion_not_ready", status: 409, message: error.message, action: "Wait for a successful attempt with verified evidence, then retry." });
+  }
+  if (error instanceof PromotionProviderHandlesMissingError) {
+    return vmErrorResponse({ error: "run_promotion_provider_handles_missing", status: 409, message: "The winning attempt no longer has the provider handles needed for promotion.", action: "Refresh the run and retry with another attempt." });
+  }
+  if (error instanceof PromotionAlreadyExistsError) {
+    return vmErrorResponse({ error: "run_promotion_duplicate", status: 409, message: "This run attempt has already been promoted.", action: "Use the existing promoted runtime from the original request." });
+  }
+  if (error instanceof PromotionInProgressError) {
+    return vmErrorResponse({ error: "run_promotion_in_progress", status: 409, message: "A promotion for this attempt is already in progress.", action: "Retry with the original Idempotency-Key after the current promotion settles." });
+  }
+  if (error instanceof PromotionIdempotencyConflictError) {
+    return vmErrorResponse({ error: "run_promotion_idempotency_conflict", status: 409, message: error.message, action: "Retry with the original request or choose a new idempotency key." });
+  }
+  if (error instanceof PromotionRuntimeUnavailableError) {
+    return vmErrorResponse({ error: "run_promotion_unavailable", status: 503, message: "The persistent runtime service is temporarily unavailable.", action: "Retry in a moment.", retryable: true, retryAfterSeconds: 5 });
   }
   console.error("[runs] route failed", error);
   return vmErrorResponse({ error: "run_unavailable", status: 503, message: "The run service is temporarily unavailable.", action: "Retry in a moment.", retryable: true, retryAfterSeconds: 5 });
