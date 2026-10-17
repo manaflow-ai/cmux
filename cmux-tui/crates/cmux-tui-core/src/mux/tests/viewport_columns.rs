@@ -168,7 +168,7 @@ fn projected_viewport_split_ratio_resizes_the_authoritative_column() {
 
     let events = mux.subscribe();
     assert!(mux.set_split_ratio_checked(split, 0.5).is_ok());
-    assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(..)));
     let after_change = mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
         (screen.layout_revision, screen.layout_undo.len())
@@ -248,7 +248,7 @@ fn maximum_projected_split_ratio_still_resizes_authoritative_column() {
     assert!(mux.set_split_ratio_checked(split, 0.95).is_ok());
 
     assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
-    assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
+    assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(..))));
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn maximum_pane_addressed_ratio_still_resizes_authoritative_column() {
 
     assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
     assert!(matches!(events.try_recv(), Ok(MuxEvent::TreeChanged)));
-    assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
+    assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(..))));
 }
 
 #[test]

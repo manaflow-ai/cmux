@@ -1507,8 +1507,8 @@
     },
     {
       "path": "LayoutChangedEvent.java",
-      "sha256": "73cad6c52efe673777c1cc8ee7247a300e7bf5df59d4c5fb8e83f8712015079e",
-      "size": 2285
+      "sha256": "860553e8272d47999220571d5c7a9793b5be28f696b7b5178dd552368cf41d1e",
+      "size": 5584
     },
     {
       "path": "LayoutLeaf.java",
@@ -2007,7 +2007,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "a533073f4e8f97d91086f92d3532b99498d6620c47e6f791a40142d1a9eb0254",
+      "sha256": "78059bde6225aa64412cdf4a0964f49a19b57c0f18322bb68ee085468f819137",
       "size": 7112
     },
     {
@@ -3267,7 +3267,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8",
+  "ir_sha256": "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

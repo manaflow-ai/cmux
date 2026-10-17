@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
+pub const ir_sha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9996,8 +9996,20 @@ pub const KeybindingsChangedEvent = struct {
 };
 
 pub const LayoutChangedEvent = struct {
+    active_pane: ?Id = null,
     event: []const u8,
+    layout: ?Layout = null,
     screen: Id,
+    transaction: ?[]const u8 = null,
+    workspace: ?Id = null,
+    zoomed_pane: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "active_pane",
+        "layout",
+        "transaction",
+        "workspace",
+    };
 };
 
 pub const MachineUsageChangedEvent = struct {

@@ -69,7 +69,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-changed` | subscribe (`deltas`) | `surface` | protocol 12 additive extension; capability `tab-metadata-v1`; parents `workspace`, `screen`, `pane` |
 | `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
-| `layout-changed` | subscribe | `screen` | protocol 6 |
+| `layout-changed` | subscribe | `screen` | protocol 6; `workspace`, the screen layout fields and `transaction` are a protocol 12 additive extension, capability `layout-delta-v1` |
 | `surface-output` | subscribe | `surface` | protocol 5 |
 | `surface-resized` | subscribe | `surface` | protocol 5 |
 | `surface-exited` | subscribe | `surface` | protocol 5 |
@@ -894,15 +894,17 @@ Example:
 Payload:
 
 ```text
-object{event:"layout-changed",screen:Id}
+object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pane?:Id|null,layout?:Layout,viewport_splits?:array,viewport_base_width?:number,columns?:array,transaction?:string}
 ```
 
-Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, apply-layout, swap, or zoom. The event is emitted once per settled command and does not include the new layout. Clients should re-fetch `export-layout` or `list-workspaces`.
+Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
+
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
 ```json
-{"event":"layout-changed","screen":3}
+{"event":"layout-changed","screen":3,"workspace":1,"active_pane":7,"zoomed_pane":null,"layout":{"type":"split","split":4,"dir":"right","ratio":0.42,"a":{"type":"leaf","pane":7},"b":{"type":"leaf","pane":8}},"transaction":"1729150000000256"}
 ```
 
 ### surface-output

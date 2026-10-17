@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
+/* cmux-tui mux protocol 12, IR 8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8" as const;
+export const SDK_IR_SHA256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -28138,6 +28138,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "layout-changed": {
     "additional_properties": false,
     "fields": {
+      "active_pane": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -28146,9 +28156,49 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "layout-changed"
         }
       },
+      "layout": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Layout"
+        }
+      },
       "screen": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "transaction": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "zoomed_pane": {
+        "capability": "layout-delta-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "ref",
           "name": "Id"

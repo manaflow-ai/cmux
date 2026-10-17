@@ -108,6 +108,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
+    /// This app's own live divider and column drags and their held echoes (DaemonStore+LayoutEchoes.swift).
+    @ObservationIgnored var layoutEchoes = LayoutEchoes()
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false
