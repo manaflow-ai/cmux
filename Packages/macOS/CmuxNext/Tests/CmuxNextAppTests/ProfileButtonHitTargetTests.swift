@@ -25,7 +25,18 @@ import Testing
             Self.click(button, at: button.convert(point, from: button.avatarView), in: h.window)
             if opened == before { dead.append(point) }
         }
-        #expect(dead.isEmpty, "\(dead.count) drawn points did not open the profile menu")
+        let corners = [
+            NSPoint(x: 1, y: 1),
+            NSPoint(x: button.bounds.width - 1, y: 1),
+            NSPoint(x: 1, y: button.bounds.height - 1),
+            NSPoint(x: button.bounds.width - 1, y: button.bounds.height - 1),
+        ]
+        for corner in corners {
+            let before = opened
+            Self.click(button, at: corner, in: h.window)
+            if opened == before { dead.append(corner) }
+        }
+        #expect(dead.isEmpty, "\(dead.count) avatar or corner points did not open the profile menu")
     }
 
     /// The points of `view` it paints (alpha over half), one per 2 pt.
