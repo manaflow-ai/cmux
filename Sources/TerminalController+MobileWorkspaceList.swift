@@ -231,7 +231,7 @@ extension TerminalController {
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
             let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
-            return [
+            var terminalPayload: [String: Any] = [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
@@ -240,6 +240,15 @@ extension TerminalController {
                 "agent_source": v2OrNull(agent?.source),
                 "agent_state": v2OrNull(agent?.state)
             ]
+            // Cloud referral (`cloud.surface.referral.v1`): present only when
+            // the panel's surface projection is a `.cloud` machine's terminal,
+            // so a phone can dial the Cloud machine directly. Additive; old
+            // phones ignore the keys.
+            if let cloudReferral = workspace.mobileCloudTerminalReferral(forPanel: terminal.id) {
+                terminalPayload["cloud_vm_id"] = cloudReferral.vmID
+                terminalPayload["cloud_terminal_id"] = cloudReferral.terminalID
+            }
+            return terminalPayload
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()
         let simulators: [[String: Any]]
@@ -274,7 +283,7 @@ extension TerminalController {
             MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription),
             constrainedToJSONEscapedUTF8Budget: &descriptionBudget
         )
-        return [
+        var workspacePayload: [String: Any] = [
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
@@ -312,6 +321,17 @@ extension TerminalController {
             "surfaces": surfaces,
             "simulators": simulators
         ]
+        // Cloud referral (`cloud.surface.referral.v1`): present only when the
+        // workspace is bound to a `.cloud` machine (never `ssh:`/device), with
+        // the daemon workspace id when the binding recorded one. Additive;
+        // old phones ignore the keys.
+        if let cloudReferral = workspace.mobileCloudWorkspaceReferral {
+            workspacePayload["cloud_vm_id"] = cloudReferral.vmID
+            if let remoteWorkspaceID = cloudReferral.workspaceID {
+                workspacePayload["cloud_workspace_id"] = remoteWorkspaceID
+            }
+        }
+        return workspacePayload
     }
 
     /// Mobile-gated close of one explicit workspace. The Mac remains

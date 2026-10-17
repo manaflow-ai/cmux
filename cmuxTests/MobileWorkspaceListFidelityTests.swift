@@ -5,6 +5,7 @@ import Bonsplit
 import CMUXMobileCore
 import CmuxCore
 import CmuxNotifications
+import CmuxSurfaceCatalogModel
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -246,6 +247,151 @@ struct MobileWorkspaceListFidelityTests {
         let description = try #require(payload["description"] as? String)
         #expect(description.utf8.count == MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes)
         #expect(payload["description_truncated"] as? Bool == true)
+    }
+
+    /// A workspace bound to a `.cloud` machine, with a projected Cloud
+    /// terminal, must publish the Cloud referral identifiers on the mobile
+    /// list payload so a paired phone can connect to the Cloud machine
+    /// directly instead of streaming through the Mac.
+    @Test func cloudBoundWorkspacePublishesReferralIdentifiers() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 1)
+        let panelId = try #require(ordered.first)
+
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "vivid-newt",
+            isBase: false,
+            remoteWorkspaceID: "ws_01hreferral"
+        )
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [
+                panelId: SurfaceResourceID(
+                    machine: .cloud("vivid-newt"),
+                    kind: .terminal,
+                    key: "term_01hreferral"
+                )
+            ],
+            machineNames: ["vivid-newt": "vivid-newt"]
+        )
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(payload["cloud_vm_id"] as? String == "vivid-newt")
+        #expect(payload["cloud_workspace_id"] as? String == "ws_01hreferral")
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first)
+        #expect(terminal["cloud_vm_id"] as? String == "vivid-newt")
+        #expect(terminal["cloud_terminal_id"] as? String == "term_01hreferral")
+    }
+
+    /// `ssh:`-keyed bindings and non-terminal or non-cloud projections must
+    /// never produce referral identifiers: the phone can only dial cmux Cloud
+    /// machines, so an SSH-bound workspace advertises nothing.
+    @Test func sshBoundWorkspacePublishesNoReferralIdentifiers() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 1)
+        let panelId = try #require(ordered.first)
+        let sshMachineKey = "ssh:" + String(repeating: "ab", count: 32)
+
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: sshMachineKey,
+            isBase: false,
+            remoteWorkspaceID: "ws_01hssh"
+        )
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [
+                panelId: SurfaceResourceID(
+                    machine: SurfaceMachineID(rawValue: sshMachineKey),
+                    kind: .terminal,
+                    key: "term_01hssh"
+                )
+            ],
+            machineNames: [:]
+        )
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(payload["cloud_vm_id"] == nil)
+        #expect(payload["cloud_workspace_id"] == nil)
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first)
+        #expect(terminal["cloud_vm_id"] == nil)
+        #expect(terminal["cloud_terminal_id"] == nil)
+    }
+
+    /// Binding a workspace to a Cloud machine, and a Cloud terminal projection
+    /// landing after the panel appeared, each change only cloud-binding state,
+    /// so both must change the mobile summary hash for the observer to re-emit
+    /// and the phone to learn the referral identifiers.
+    @Test func cloudBindingAndLateProjectionChangeObserverHash() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 1)
+        let panelId = try #require(ordered.first)
+
+        let unbound = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "vivid-newt",
+            isBase: false,
+            remoteWorkspaceID: "ws_01hreferral"
+        )
+        let bound = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(unbound != bound, "binding to a Cloud machine must change the mobile summary hash")
+
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [
+                panelId: SurfaceResourceID(
+                    machine: .cloud("vivid-newt"),
+                    kind: .terminal,
+                    key: "term_01hreferral"
+                )
+            ],
+            machineNames: [:]
+        )
+        let projected = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(bound != projected, "a late Cloud terminal projection must change the mobile summary hash")
+    }
+
+    /// The Cloud binding lives in an @Observable model (no Combine publisher),
+    /// so the observer subscribes to its change stream: setting the binding
+    /// must wake the observer and re-emit `workspace.updated` without any
+    /// other observed field changing.
+    @Test func cloudBindingChangeWakesObserverAndReEmits() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        var emissionCount = 0
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            workspaceUpdateEmitter: { emissionCount += 1 }
+        )
+        #expect(emissionCount == 1, "attachment publishes the initial snapshot")
+
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "vivid-newt",
+            isBase: false,
+            remoteWorkspaceID: "ws_01hreferral"
+        )
+        let didReEmit = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            emissionCount >= 2
+        }
+        #expect(didReEmit, "a Cloud binding change must re-emit workspace.updated")
+        _ = observer
     }
 
     /// A pure group-membership move (a workspace's `groupId` changes while the tab

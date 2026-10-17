@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Mac-side owner of mobile state sync v2 (`docs/mobile-state-sync-v2.md`).
@@ -198,6 +199,7 @@ final class MobileStateSyncHost {
                     ?? controller.mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
             let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
+            let cloudReferral = workspace.mobileCloudTerminalReferral(forPanel: terminal.id)
             return WorkspaceSyncRecord.Terminal(
                 id: terminal.id.uuidString,
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
@@ -205,7 +207,9 @@ final class MobileStateSyncHost {
                 isReady: terminal.surface.surface != nil,
                 isFocused: workspace.isFocusedTerminalInputSurface(terminal.id),
                 agentSource: agent?.source,
-                agentState: agent?.state
+                agentState: agent?.state,
+                cloudVMID: cloudReferral?.vmID,
+                cloudTerminalID: cloudReferral?.terminalID
             )
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()
@@ -226,6 +230,7 @@ final class MobileStateSyncHost {
             cachedDescriptionProjection(for: workspace),
             constrainedToJSONEscapedUTF8Budget: &descriptionBudget
         )
+        let cloudReferral = workspace.mobileCloudWorkspaceReferral
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
@@ -242,6 +247,8 @@ final class MobileStateSyncHost {
             lastActivityAt: (latestNotification?.createdAt ?? workspace.createdAt).timeIntervalSince1970,
             hasUnread: unreadCount > 0,
             unreadCount: unreadCount,
+            cloudVMID: cloudReferral?.vmID,
+            cloudWorkspaceID: cloudReferral?.workspaceID,
             sortIndex: sortIndex,
             terminals: terminals,
             surfaces: controller.mobileSurfaceDescriptors(in: workspace),
@@ -298,5 +305,41 @@ extension TerminalController {
     /// `mobile.sync.fetch`: cursor-based fetch for mobile state sync v2.
     func v2MobileSyncFetch(params: [String: Any]) -> V2CallResult {
         MobileStateSyncHost.shared.fetch(params: params)
+    }
+}
+
+// MARK: - Cloud referral identifiers (`cloud.surface.referral.v1`)
+//
+// Published additively on both mobile sync payloads (the state-sync v2 records
+// above and the legacy `mobile.workspace.list` rows) so a paired phone can
+// recognize which workspaces/terminals are Cloud-VM-backed and connect to the
+// Cloud machine directly instead of streaming through this Mac. Only `.cloud`
+// machines refer; `ssh:`-keyed and `.device` machines never do. Old phones
+// ignore the extra keys.
+extension Workspace {
+    /// The workspace-level referral: the bound Cloud machine id plus the
+    /// daemon workspace id (`ws_…`) when the binding recorded one.
+    @MainActor var mobileCloudWorkspaceReferral: (vmID: String, workspaceID: String?)? {
+        guard let vmID = cloudVMID else { return nil }
+        // The daemon workspace id must belong to the advertised machine: the
+        // managed-VM transport can name one machine while a (stale) cmux-tui
+        // binding names another.
+        let workspaceID = cloudVMBinding?.vmID == vmID ? cloudVMBinding?.remoteWorkspaceID : nil
+        return (vmID, workspaceID)
+    }
+
+    /// The terminal-level referral for one panel: the Cloud machine id and
+    /// daemon terminal id (`term_…`) of the panel's surface projection, when
+    /// that projection is a `.cloud` machine's terminal.
+    @MainActor func mobileCloudTerminalReferral(forPanel panelID: UUID) -> (vmID: String, terminalID: String)? {
+        let live = SurfaceCatalog.shared.projection(forPanel: panelID)?.resource
+        // A restored Cloud pane can be catalogued by its local placeholder
+        // while the binding state retains the projected Cloud resource, so a
+        // local catalog row falls through to the cached projection.
+        let resource = (live?.machine.isLocal == false ? live : nil)
+            ?? cloudBindingState.projectedResources[panelID]
+        guard let resource, resource.kind == .terminal,
+              let vmID = resource.machine.cloudMachineID else { return nil }
+        return (vmID, resource.key)
     }
 }

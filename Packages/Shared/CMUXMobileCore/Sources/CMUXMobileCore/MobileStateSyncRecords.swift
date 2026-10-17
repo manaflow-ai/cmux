@@ -104,6 +104,13 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let agentSource: String?
         /// That agent's current status text, when one is attached.
         public let agentState: String?
+        /// The Cloud machine whose daemon owns this terminal, when the panel's
+        /// surface projection is on a `.cloud` machine. `nil` for local, SSH,
+        /// and device terminals, and from older Macs.
+        public let cloudVMID: String?
+        /// The daemon terminal id (`term_…`) behind ``cloudVMID``, so a phone
+        /// can address the terminal on the Cloud machine directly.
+        public let cloudTerminalID: String?
 
         /// Creates a terminal row from its wire fields.
         public init(
@@ -113,7 +120,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             isReady: Bool,
             isFocused: Bool,
             agentSource: String? = nil,
-            agentState: String? = nil
+            agentState: String? = nil,
+            cloudVMID: String? = nil,
+            cloudTerminalID: String? = nil
         ) {
             self.id = id
             self.title = title
@@ -122,6 +131,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             self.isFocused = isFocused
             self.agentSource = agentSource
             self.agentState = agentState
+            self.cloudVMID = cloudVMID
+            self.cloudTerminalID = cloudTerminalID
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -132,6 +143,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             case isFocused = "is_focused"
             case agentSource = "agent_source"
             case agentState = "agent_state"
+            case cloudVMID = "cloud_vm_id"
+            case cloudTerminalID = "cloud_terminal_id"
         }
     }
 
@@ -167,6 +180,14 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     /// badge shows). `nil` when decoded from a Mac old enough not to emit it;
     /// the phone then falls back to the boolean dot.
     public let unreadCount: Int?
+    /// The Cloud machine this workspace is bound to, when it hosts a `.cloud`
+    /// machine (never `ssh:`-keyed or device bindings), so a phone can dial
+    /// the Cloud machine directly instead of streaming through the Mac. `nil`
+    /// for non-Cloud workspaces and from older Macs.
+    public let cloudVMID: String?
+    /// The daemon workspace id (`ws_…`) on ``cloudVMID``, when the binding
+    /// recorded one.
+    public let cloudWorkspaceID: String?
     /// Position in the Mac's presented cross-window order.
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
@@ -199,6 +220,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         unreadCount: Int? = nil,
+        cloudVMID: String? = nil,
+        cloudWorkspaceID: String? = nil,
         sortIndex: Int,
         terminals: [Terminal],
         surfaces: [Surface]? = nil,
@@ -219,6 +242,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.unreadCount = unreadCount
+        self.cloudVMID = cloudVMID
+        self.cloudWorkspaceID = cloudWorkspaceID
         self.sortIndex = sortIndex
         self.terminals = terminals
         self.surfaces = surfaces
@@ -246,6 +271,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt = try container.decode(Double.self, forKey: .lastActivityAt)
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
+        cloudVMID = try container.decodeIfPresent(String.self, forKey: .cloudVMID)
+        cloudWorkspaceID = try container.decodeIfPresent(String.self, forKey: .cloudWorkspaceID)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
         surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
@@ -271,6 +298,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case lastActivityAt = "last_activity_at"
         case hasUnread = "has_unread"
         case unreadCount = "unread_count"
+        case cloudVMID = "cloud_vm_id"
+        case cloudWorkspaceID = "cloud_workspace_id"
         case sortIndex = "sort_index"
         case terminals
         case surfaces
