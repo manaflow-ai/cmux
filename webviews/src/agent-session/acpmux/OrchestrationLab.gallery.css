@@ -93,8 +93,7 @@
 
 .orchestration-work-view {
   display: grid;
-  grid-template-columns: minmax(250px, 0.85fr) minmax(0, 1.45fr);
-  min-height: 410px;
+  grid-template-columns: 300px minmax(0, 1fr);
   border: 1px solid var(--agent-border);
   border-radius: var(--ui-row-radius);
   overflow: hidden;
@@ -193,6 +192,7 @@
 }
 
 .orchestration-state {
+  margin-inline-start: auto;
   flex: none;
   padding: 2px 6px;
   border-radius: var(--ui-row-radius);
@@ -235,7 +235,7 @@
 .orchestration-work-detail {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: 8px;
   min-width: 0;
   padding: 16px;
 }
