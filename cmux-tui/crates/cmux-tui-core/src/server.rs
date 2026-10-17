@@ -123,6 +123,8 @@ mod admission;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
+pub use agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY;
+#[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
