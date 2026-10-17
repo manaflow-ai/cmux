@@ -53,6 +53,10 @@ public final class ConversationModel {
     private var snapshotTask: Task<Void, Never>?
     private var commandTasks: [String: Task<Void, Never>] = [:]
     private var generation = 0
+    /// Token for the currently selected task. This is separate from the
+    /// client generation: a late stream from A must stay stale after a quick
+    /// A -> B -> A navigation even though the selected id is A again.
+    private var selectionGeneration = 0
     private var currentCursor: ConversationCursor = 0
     private var currentProviderGeneration: ConversationGeneration?
     private var snapshotLoading = false
@@ -80,12 +84,19 @@ public final class ConversationModel {
         connectionState = client == nil ? .disconnected : .connecting
     }
 
+    deinit {
+        streamTask?.cancel()
+        snapshotTask?.cancel()
+        commandTasks.values.forEach { $0.cancel() }
+    }
+
     /// Replaces the transport when pairing or the selected host changes.
     /// Replacing within the same scope preserves task selection and drafts;
     /// crossing scopes clears selection and transcript before any new snapshot.
     public func replaceClient(_ client: (any ConversationClient)?, scopeID: String) {
         let scopeChanged = self.scopeID != scopeID
         generation &+= 1
+        selectionGeneration &+= 1
         streamTask?.cancel()
         snapshotTask?.cancel()
         commandTasks.values.forEach { $0.cancel() }
@@ -130,7 +141,7 @@ public final class ConversationModel {
         Task { [weak self] in
             do {
                 let sessions = try await client.listSessions()
-                guard let self, self.generation == expectedGeneration else { return }
+                guard !Task.isCancelled, let self, self.generation == expectedGeneration else { return }
                 self.sessions = sessions.filter { !$0.isArchived }.sorted { lhs, rhs in
                     if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
                     return lhs.updatedAt > rhs.updatedAt
@@ -178,7 +189,7 @@ public final class ConversationModel {
         Task { [weak self] in
             do {
                 let session = try await client.createSession(request)
-                guard let self, self.generation == expectedGeneration else { return }
+                guard !Task.isCancelled, let self, self.generation == expectedGeneration else { return }
                 self.pendingCreateRequestID = nil
                 self.pendingCreateFingerprint = nil
                 self.isSubmitting = false
@@ -197,6 +208,7 @@ public final class ConversationModel {
     public func selectSession(id: ConversationID?) {
         guard selectedSessionID != id else { return }
         if let previousSessionID = selectedSessionID { draftBySession[previousSessionID] = draft }
+        selectionGeneration &+= 1
         streamTask?.cancel()
         snapshotTask?.cancel()
         selectedSessionID = id
@@ -206,6 +218,8 @@ public final class ConversationModel {
         isRunning = false
         activeTurnID = nil
         capabilities = nil
+        lastReceipt = nil
+        errorMessage = nil
         currentCursor = id.flatMap { cursorBySession[$0] } ?? 0
         draft = id.flatMap { draftBySession[$0] } ?? ""
         bufferedEvents.removeAll()
@@ -419,6 +433,7 @@ public final class ConversationModel {
             return
         }
         let expectedGeneration = generation
+        let expectedSelectionGeneration = selectionGeneration
         connectionState = .connecting
         snapshotLoading = true
         bufferedEvents.removeAll()
@@ -427,22 +442,48 @@ public final class ConversationModel {
         // host registers its live stream before we request the projection.
         streamTask = Task { [weak self] in
             let stream = await client.events(sessionID: id, after: cursor)
-            guard self?.generation == expectedGeneration, self?.selectedSessionID == id else { return }
-            self?.beginSnapshot(client: client, id: id, cursor: cursor, expectedGeneration: expectedGeneration)
+            guard !Task.isCancelled,
+                  self?.generation == expectedGeneration,
+                  self?.selectionGeneration == expectedSelectionGeneration,
+                  self?.selectedSessionID == id else { return }
+            self?.beginSnapshot(
+                client: client,
+                id: id,
+                cursor: cursor,
+                expectedGeneration: expectedGeneration,
+                expectedSelectionGeneration: expectedSelectionGeneration
+            )
             do {
                 for try await event in stream {
                     // Keep the model weak across the stream's suspension points. A discarded
                     // task screen must be reclaimable even when its transport remains connected.
-                    guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                    guard !Task.isCancelled,
+                          let self,
+                          self.generation == expectedGeneration,
+                          self.selectionGeneration == expectedSelectionGeneration,
+                          self.selectedSessionID == id else { return }
                     self.receive(event)
                 }
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.connectionState = .disconnected
             } catch {
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.connectionState = .failed(message: Self.userMessage(for: error))
                 self.errorMessage = Self.userMessage(for: error)
-                self.recoverSnapshotAfterStreamFailure(client: client, id: id, expectedGeneration: expectedGeneration)
+                self.recoverSnapshotAfterStreamFailure(
+                    client: client,
+                    id: id,
+                    expectedGeneration: expectedGeneration,
+                    expectedSelectionGeneration: expectedSelectionGeneration
+                )
             }
         }
     }
@@ -453,31 +494,54 @@ public final class ConversationModel {
     private func recoverSnapshotAfterStreamFailure(
         client: any ConversationClient,
         id: ConversationID,
-        expectedGeneration: Int
+        expectedGeneration: Int,
+        expectedSelectionGeneration: Int
     ) {
         snapshotTask?.cancel()
         snapshotTask = Task { [weak self] in
             do {
                 let snapshot = try await client.snapshot(sessionID: id)
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.apply(snapshot: snapshot)
                 self.connectionState = .disconnected
             } catch {
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.errorMessage = Self.userMessage(for: error)
             }
         }
     }
 
-    private func beginSnapshot(client: any ConversationClient, id: ConversationID, cursor: ConversationCursor, expectedGeneration: Int) {
+    private func beginSnapshot(
+        client: any ConversationClient,
+        id: ConversationID,
+        cursor: ConversationCursor,
+        expectedGeneration: Int,
+        expectedSelectionGeneration: Int
+    ) {
         snapshotTask?.cancel()
         snapshotTask = Task { [weak self] in
             do {
                 let snapshot = try await client.snapshot(sessionID: id)
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.apply(snapshot: snapshot)
             } catch {
-                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard !Task.isCancelled,
+                      let self,
+                      self.generation == expectedGeneration,
+                      self.selectionGeneration == expectedSelectionGeneration,
+                      self.selectedSessionID == id else { return }
                 self.snapshotLoading = false
                 self.connectionState = .failed(message: Self.userMessage(for: error))
                 self.errorMessage = Self.userMessage(for: error)
@@ -589,26 +653,33 @@ public final class ConversationModel {
             command: command
         )
         let task = Task { [weak self] in
-            var draftToRestore = restoreDraft
             do {
                 let receipt = try await client.execute(envelope)
-                guard let self, self.generation == expectedGeneration else { return }
+                guard !Task.isCancelled, let self, self.generation == expectedGeneration else { return }
+                let isApplied = receipt.state == .applied
+                let isRejectedOrUncertain = receipt.state == .rejected || receipt.state == .uncertain
                 if self.selectedSessionID == sessionID {
                     self.apply(receipt: receipt)
-                    draftToRestore = receipt.draftText ?? restoreDraft
-                    if receipt.state == .rejected || receipt.state == .uncertain,
+                    if isRejectedOrUncertain,
                        let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
-                } else if receipt.state == .rejected || receipt.state == .uncertain {
+                    if isApplied,
+                       let restored = receipt.draftText ?? restoreDraft,
+                       !restored.isEmpty,
+                       self.draft.isEmpty {
+                        self.updateDraft(restored)
+                    }
+                } else if isRejectedOrUncertain {
                     if let draftToClear, self.draftBySession[sessionID]?.isEmpty != false {
                         self.draftBySession[sessionID] = draftToClear
                     }
-                } else if receipt.state == .applied,
+                } else if isApplied,
                           let restored = receipt.draftText ?? restoreDraft,
+                          !restored.isEmpty,
                           self.draftBySession[sessionID]?.isEmpty != false {
                     self.draftBySession[sessionID] = restored
                 }
             } catch {
-                guard let self, self.generation == expectedGeneration else { return }
+                guard !Task.isCancelled, let self, self.generation == expectedGeneration else { return }
                 if self.selectedSessionID == sessionID {
                     if let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
                     self.errorMessage = Self.userMessage(for: error)
@@ -616,10 +687,7 @@ public final class ConversationModel {
                     self.draftBySession[sessionID] = draftToClear
                 }
             }
-            if let self, self.generation == expectedGeneration {
-                if self.selectedSessionID == sessionID, self.draft.isEmpty, let draftToRestore {
-                    self.updateDraft(draftToRestore)
-                }
+            if !Task.isCancelled, let self, self.generation == expectedGeneration {
                 self.isSubmitting = false
                 self.commandTasks.removeValue(forKey: commandID.rawValue)
             }
@@ -637,21 +705,36 @@ public final class ConversationModel {
         let task = Task { [weak self] in
             do {
                 let receipt = try await client.execute(envelope)
-                guard let self, self.generation == expectedGeneration else { return }
+                guard !Task.isCancelled, let self, self.generation == expectedGeneration else { return }
+                let isApplied = receipt.state == .applied
                 if self.selectedSessionID == sessionID {
                     self.apply(receipt: receipt)
-                    if receipt.state == .applied, case .setArchived(true) = command {
-                        self.sessions.removeAll { $0.id == sessionID }
-                        self.selectSession(id: nil)
+                }
+                if !isApplied {
+                    if self.selectedSessionID == sessionID,
+                       receipt.state == .rejected || receipt.state == .uncertain {
+                        self.errorMessage = receipt.reason ?? ConversationL10n.value("conversation.error.command_rejected", "The command was rejected.")
                     }
-                    if receipt.state == .applied { self.refreshSessions() }
+                } else {
+                    switch command {
+                    case .rename(let title):
+                        if let index = self.sessions.firstIndex(where: { $0.id == sessionID }) { self.sessions[index].title = title }
+                    case .setPinned(let pinned):
+                        if let index = self.sessions.firstIndex(where: { $0.id == sessionID }) { self.sessions[index].isPinned = pinned }
+                    case .setArchived(true):
+                        self.sessions.removeAll { $0.id == sessionID }
+                        if self.selectedSessionID == sessionID { self.selectSession(id: nil) }
+                    default:
+                        break
+                    }
+                    self.refreshSessions()
                 }
             } catch {
-                if let self, self.generation == expectedGeneration, self.selectedSessionID == sessionID {
+                if !Task.isCancelled, let self, self.generation == expectedGeneration, self.selectedSessionID == sessionID {
                     self.errorMessage = Self.userMessage(for: error)
                 }
             }
-            if let self, self.generation == expectedGeneration {
+            if !Task.isCancelled, let self, self.generation == expectedGeneration {
                 self.isSubmitting = false
                 self.commandTasks.removeValue(forKey: commandID.rawValue)
             }
