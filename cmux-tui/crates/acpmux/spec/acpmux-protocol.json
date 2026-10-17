@@ -726,6 +726,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/complete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/registry",
       "params": true,
       "result": true

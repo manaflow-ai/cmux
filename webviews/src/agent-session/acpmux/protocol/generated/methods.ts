@@ -109,6 +109,7 @@ export interface AcpmuxRequests {
   "_acpmux/harness/health": { params: unknown; result: unknown };
   "_acpmux/harness/update": { params: unknown; result: unknown };
   "_acpmux/sessions/restart_harness": { params: unknown; result: unknown };
+  "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/registry": { params: unknown; result: unknown };
   "_acpmux/defaults": { params: unknown; result: unknown };
   "_acpmux/presets": { params: unknown; result: unknown };
@@ -283,6 +284,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions/restart_harness", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/registry", kind: "request", acp: false, typed: false },
   { name: "_acpmux/defaults", kind: "request", acp: false, typed: false },
   { name: "_acpmux/presets", kind: "request", acp: false, typed: false },

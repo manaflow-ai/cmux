@@ -233,6 +233,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_HEALTH, Request),
         untyped(method::MUX_HARNESS_UPDATE, Request),
         untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
+        untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_REGISTRY, Request),
         untyped(method::MUX_DEFAULTS, Request),
         untyped(method::MUX_PRESETS, Request),
