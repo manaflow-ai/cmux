@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import CmuxTerminal
@@ -375,10 +376,36 @@ extension TerminalController {
     /// (agent TUIs accept the option's number key).
     func v2MobileChatAnswer(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id"),
-              let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
+              let optionIndex = v2Int(params, "option_index"), optionIndex >= 0 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
         let requestID = v2RawString(params, "request_id")
+        let service = agentChatTranscriptService
+        let record = service?.sessionRecord(sessionID: sessionID)
+        if let service,
+           let requestID,
+           (record?.agentKind == .claude || record?.agentKind == .other("opencode")),
+           let answer = service.feedAnswer(
+               sessionID: sessionID,
+               messageID: requestID,
+               optionIndex: optionIndex
+           ) {
+            // Claude and OpenCode wait inside feed.push. Waking that waiter is
+            // the authoritative answer path; these agents do not need a
+            // terminal digit injection to accept the decision. The service
+            // also resolves the exact synthetic card before returning.
+            FeedCoordinator.shared.deliverReply(
+                requestId: answer.requestID,
+                decision: answer.decision
+            )
+            return .ok(["answered": true, "option_index": optionIndex])
+        }
+        // Native terminal pickers accept single-digit option keys. Feed cards
+        // are handled above and may expose more options, but never turn a
+        // two-digit mobile index into ambiguous terminal input.
+        guard optionIndex < 9 else {
+            return .err(code: "invalid_params", message: "option_index is outside the terminal picker range", data: nil)
+        }
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
@@ -388,17 +415,13 @@ extension TerminalController {
         // picker highlights on the digit and needs Enter to submit ("enter to
         // submit answer"), so append a carriage return for codex.
         let digit = String(optionIndex + 1)
-        let isCodex = agentChatTranscriptService?.sessionRecord(sessionID: sessionID)?.agentKind == .codex
+        let isCodex = record?.agentKind == .codex
         let answerKeys = isCodex ? "\(digit)\r" : digit
         let sendResult = terminalTarget.sendInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
             terminalTarget.forceRefresh(reason: "mobileHost.chatAnswer")
-            _ = agentChatTranscriptService?.resolvePermission(
-                sessionID: sessionID,
-                requestID: requestID,
-                optionIndex: optionIndex
-            )
+            _ = service?.resolvePermission(sessionID: sessionID, requestID: requestID, optionIndex: optionIndex)
             return .ok(["answered": true, "option_index": optionIndex])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             return .err(code: "surface_unavailable", message: String(

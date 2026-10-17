@@ -126,6 +126,92 @@ struct AgentChatPermissionCardsTests {
         #expect(updated.count == 1)
     }
 
+    @MainActor
+    @Test("OpenCode question cards resolve through the blocking feed decision")
+    func openCodeQuestionAnswer() async throws {
+        let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        var payloads: [[String: Any]] = []
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { true },
+            emitEventPayload: { payloads.append($0) }
+        )
+        defer { service.shutdown() }
+        let sessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .askUserQuestion,
+            source: "opencode",
+            toolName: "question",
+            toolInputJSON: #"{"questions":[{"id":"q1","question":"Which file?","options":[{"id":"a","label":"README"},{"id":"b","label":"Source"}]}]}"#,
+            requestId: "opencode-question-1",
+            receivedAt: Date(timeIntervalSince1970: 200)
+        ))
+
+        let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let message = try #require(page.messages.first)
+        guard case .question(let question) = message.kind else {
+            Issue.record("Expected an OpenCode question card")
+            return
+        }
+        #expect(question.prompt == "Which file?")
+        #expect(question.options.map(\.label) == ["README", "Source"])
+
+        let answer = try #require(service.feedAnswer(
+            sessionID: sessionID,
+            messageID: message.id,
+            optionIndex: 1
+        ))
+        #expect(answer.requestID == "opencode-question-1")
+        guard case .question(let selections) = answer.decision else {
+            Issue.record("Expected a question decision")
+            return
+        }
+        #expect(selections == ["Source"])
+        let resolvedPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        guard case .question(let resolved) = try #require(resolvedPage.messages.first?.kind) else {
+            Issue.record("Expected resolved question card")
+            return
+        }
+        #expect(resolved.selectedOptionLabel == "Source")
+    }
+
+    @MainActor
+    @Test("OpenCode plan cards route approve and deny decisions")
+    func openCodePlanAnswer() async throws {
+        let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        defer { service.shutdown() }
+        let sessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .exitPlanMode,
+            source: "opencode",
+            toolName: "plan",
+            toolInputJSON: #"{"plan":"Run the focused tests"}"#,
+            requestId: "opencode-plan-1"
+        ))
+        let page = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let message = try #require(page.messages.first)
+        let answer = try #require(service.feedAnswer(sessionID: sessionID, messageID: message.id, optionIndex: 0))
+        guard case .exitPlan(let mode, let feedback) = answer.decision else {
+            Issue.record("Expected an exit-plan decision")
+            return
+        }
+        #expect(mode == .autoAccept)
+        #expect(feedback == nil)
+    }
+
     private func decodeFrames(_ payloads: [[String: Any]]) -> [ChatSessionEventFrame] {
         let coding = ChatWireCoding()
         return payloads.compactMap { payload in

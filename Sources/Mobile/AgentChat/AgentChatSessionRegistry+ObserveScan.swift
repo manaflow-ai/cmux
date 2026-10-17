@@ -468,21 +468,25 @@ extension AgentChatSessionRegistry {
             return nil
         }
         defer { sqlite3_close(database) }
-        let query = "SELECT id FROM session WHERE directory = ? ORDER BY time_updated DESC LIMIT 1"
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            sqlite3_finalize(statement)
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
+        let queries = [
+            "SELECT id FROM session_v2 WHERE directory = ? ORDER BY time_updated DESC LIMIT 1",
+            "SELECT id FROM session WHERE directory = ? ORDER BY time_updated DESC LIMIT 1",
+        ]
         let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        guard sqlite3_bind_text(statement, 1, cwd, -1, transient) == SQLITE_OK,
-              sqlite3_step(statement) == SQLITE_ROW,
-              let value = sqlite3_column_text(statement, 0) else {
-            return nil
+        for query in queries {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                sqlite3_finalize(statement)
+                continue
+            }
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_bind_text(statement, 1, cwd, -1, transient) == SQLITE_OK else { continue }
+            if sqlite3_step(statement) == SQLITE_ROW, let value = sqlite3_column_text(statement, 0) {
+                return String(cString: value)
+            }
         }
-        return String(cString: value)
+        return nil
     }
 
     nonisolated static func openCodeDatabasePath(environment: [String: String]) -> String {

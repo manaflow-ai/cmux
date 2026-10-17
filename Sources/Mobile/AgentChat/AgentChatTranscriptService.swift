@@ -31,7 +31,11 @@ final class AgentChatTranscriptService {
     /// transcripts do not carry the interactive approval prompt. They remain
     /// in memory for the session lifetime and are republished as updated cards
     /// when the answer path accepts a decision.
-    fileprivate struct PermissionRecord {
+    // These records are shared with the focused extension in
+    // `AgentChatTranscriptService+Permissions.swift`. Keep them module
+    // internal: `fileprivate` is scoped to this source file and makes the
+    // extension fail to compile.
+    struct PermissionRecord {
         let identity: String
         let rawRequestID: String?
         let messageID: String
@@ -55,8 +59,39 @@ final class AgentChatTranscriptService {
             )
         }
     }
-    fileprivate var permissionRecordsBySessionID: [String: [String: PermissionRecord]] = [:]
-    fileprivate var nextPermissionOrdinalBySessionID: [String: Int] = [:]
+    enum FeedAnswerKind: Equatable {
+        case permission
+        case question
+        case exitPlan
+    }
+    struct QuestionRecord {
+        let identity: String
+        let rawRequestID: String?
+        let messageID: String
+        let seq: Int
+        let timestamp: Date
+        let prompt: String
+        let options: [ChatQuestion.Option]
+        let answerKind: FeedAnswerKind
+        var selectedOptionLabel: String?
+
+        var message: ChatMessage {
+            ChatMessage(
+                id: messageID,
+                seq: seq,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .question(ChatQuestion(
+                    prompt: prompt,
+                    options: options,
+                    selectedOptionLabel: selectedOptionLabel
+                ))
+            )
+        }
+    }
+    var permissionRecordsBySessionID: [String: [String: PermissionRecord]] = [:]
+    var questionRecordsBySessionID: [String: [String: QuestionRecord]] = [:]
+    var nextPermissionOrdinalBySessionID: [String: Int] = [:]
     private var didShutdown = false
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
@@ -193,6 +228,7 @@ final class AgentChatTranscriptService {
         registry.onRecordRemoved = nil
         proseTurnStates.removeAll()
         permissionRecordsBySessionID.removeAll()
+        questionRecordsBySessionID.removeAll()
         nextPermissionOrdinalBySessionID.removeAll()
         let activeTailers = Array(tailers.values)
         tailers.removeAll()
@@ -319,13 +355,18 @@ final class AgentChatTranscriptService {
         switch event.hookEventName {
         case .permissionRequest:
             notePermissionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
+        case .askUserQuestion where record.agentKind == .other("opencode"),
+             .exitPlanMode where record.agentKind == .other("opencode"):
+            noteQuestionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
         case .stop:
             expirePermissionRequests(sessionID: record.sessionID)
+            expireQuestionRequests(sessionID: record.sessionID)
         case .sessionEnd:
             // The lifecycle callback also handles this transition, but doing
             // it here covers records that were already ended and therefore do
             // not produce a second state transition callback.
             expirePermissionRequests(sessionID: record.sessionID)
+            expireQuestionRequests(sessionID: record.sessionID)
         default:
             break
         }
@@ -612,6 +653,7 @@ final class AgentChatTranscriptService {
         if batch.didReset {
             latestTranscriptSeqBySessionID[sessionID] = nil
             permissionRecordsBySessionID[sessionID] = nil
+            questionRecordsBySessionID[sessionID] = nil
             nextPermissionOrdinalBySessionID[sessionID] = nil
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
         }
@@ -691,6 +733,7 @@ final class AgentChatTranscriptService {
         }
         if stateChanged, record.state == .ended {
             expirePermissionRequests(sessionID: record.sessionID)
+            expireQuestionRequests(sessionID: record.sessionID)
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
@@ -730,6 +773,7 @@ final class AgentChatTranscriptService {
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
         permissionRecordsBySessionID[record.sessionID] = nil
+        questionRecordsBySessionID[record.sessionID] = nil
         nextPermissionOrdinalBySessionID[record.sessionID] = nil
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
@@ -747,9 +791,9 @@ final class AgentChatTranscriptService {
 
     /// Internal seam for hook-synthesized chat messages kept in the focused
     /// permission extension. The transport and shutdown guards remain here.
-    fileprivate var chatEventsAreSubscribed: Bool { hasEventSubscribers() }
+    var chatEventsAreSubscribed: Bool { hasEventSubscribers() }
 
-    fileprivate func emitChatFrame(_ frame: ChatSessionEventFrame) {
+    func emitChatFrame(_ frame: ChatSessionEventFrame) {
         emit(frame: frame)
     }
 

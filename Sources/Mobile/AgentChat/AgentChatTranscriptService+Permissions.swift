@@ -13,7 +13,7 @@ extension AgentChatTranscriptService {
     /// request. A provider without a request id gets a stable fingerprint while
     /// it is pending; once that request resolves a later identical command is a
     /// fresh card.
-    fileprivate func notePermissionRequest(
+    func notePermissionRequest(
         _ event: WorkstreamEvent,
         sessionID: String,
         agentKind: ChatAgentKind
@@ -59,6 +59,86 @@ extension AgentChatTranscriptService {
         emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .appended([record.message])))
     }
 
+    /// OpenCode forms are delivered as blocking hook events rather than
+    /// transcript rows. Preserve the first question as a native chat card so
+    /// the phone can answer the same `feed.push` request the desktop UI uses.
+    func noteQuestionRequest(
+        _ event: WorkstreamEvent,
+        sessionID: String,
+        agentKind: ChatAgentKind
+    ) {
+        let rawRequestID = permissionRequestID(from: event)
+        let input = event.toolInputJSON.flatMap { raw -> [String: Any]? in
+            guard let data = raw.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        } ?? [:]
+        let answerKind: FeedAnswerKind = event.hookEventName == .exitPlanMode ? .exitPlan : .question
+        let parsed = questionPayload(input: input, answerKind: answerKind)
+        let fingerprint = rawRequestID.map { "request:\($0)" }
+            ?? "fingerprint:\(event.toolName ?? "question"):" + (event.toolInputJSON ?? "")
+        var records = questionRecordsBySessionID[sessionID, default: [:]]
+        guard !records.values.contains(where: {
+            $0.selectedOptionLabel == nil
+                && ($0.identity == fingerprint
+                    || (rawRequestID != nil && $0.rawRequestID == rawRequestID))
+        }) else { return }
+        let ordinal = nextPermissionOrdinalBySessionID[sessionID, default: 0]
+        nextPermissionOrdinalBySessionID[sessionID] = ordinal + 1
+        let identity = records[fingerprint] == nil ? fingerprint : "\(fingerprint):\(ordinal)"
+        let record = QuestionRecord(
+            identity: identity,
+            rawRequestID: rawRequestID,
+            messageID: "question:\(sessionID):\(identity)",
+            seq: 1_000_000_000 + ordinal,
+            timestamp: event.receivedAt,
+            prompt: parsed.prompt,
+            options: parsed.options,
+            answerKind: answerKind,
+            selectedOptionLabel: nil
+        )
+        records[identity] = record
+        questionRecordsBySessionID[sessionID] = records
+        guard chatEventsAreSubscribed else { return }
+        emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .appended([record.message])))
+        _ = agentKind
+    }
+
+    private func questionPayload(
+        input: [String: Any],
+        answerKind: FeedAnswerKind
+    ) -> (prompt: String, options: [ChatQuestion.Option]) {
+        if case .exitPlan = answerKind {
+            let prompt = (input["question"] as? String)
+                ?? (input["plan"] as? String)
+                ?? "Review the plan before continuing"
+            return (
+                prompt,
+                [ChatQuestion.Option(label: "Approve plan"), ChatQuestion.Option(label: "Reject plan")]
+            )
+        }
+        let questions = input["questions"] as? [[String: Any]] ?? []
+        let question = questions.first ?? input
+        let prompt = (question["question"] as? String)
+            ?? (question["prompt"] as? String)
+            ?? (question["label"] as? String)
+            ?? "The agent is waiting for an answer"
+        let options = (question["options"] as? [Any] ?? []).enumerated().compactMap { index, raw -> ChatQuestion.Option? in
+            if let label = raw as? String, !label.isEmpty {
+                return ChatQuestion.Option(label: label)
+            }
+            guard let option = raw as? [String: Any] else { return nil }
+            let label = (option["label"] as? String)
+                ?? (option["title"] as? String)
+                ?? (option["value"] as? String)
+                ?? "Option \(index + 1)"
+            return ChatQuestion.Option(
+                label: label,
+                detail: (option["description"] as? String) ?? (option["detail"] as? String)
+            )
+        }
+        return (prompt, options.isEmpty ? [ChatQuestion.Option(label: "Continue")] : options)
+    }
+
     /// Marks a card resolved after the terminal answer was accepted. The
     /// updated event freezes the card on all phones; retries are idempotent.
     @discardableResult
@@ -87,9 +167,138 @@ extension AgentChatTranscriptService {
         return true
     }
 
+    @discardableResult
+    func resolveQuestion(sessionID: String, messageID: String?, optionIndex: Int) -> Bool {
+        guard let messageID,
+              var records = questionRecordsBySessionID[sessionID],
+              let key = records.first(where: { $0.value.messageID == messageID })?.key,
+              var record = records[key],
+              record.selectedOptionLabel == nil,
+              record.options.indices.contains(optionIndex) else { return false }
+        record.selectedOptionLabel = record.options[optionIndex].label
+        records[key] = record
+        questionRecordsBySessionID[sessionID] = records
+        if chatEventsAreSubscribed {
+            emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .updated([record.message])))
+        }
+        return true
+    }
+
+    @discardableResult
+    func expireQuestionRequests(sessionID: String) -> Bool {
+        guard var records = questionRecordsBySessionID[sessionID], !records.isEmpty else { return false }
+        var updates: [ChatMessage] = []
+        var didChange = false
+        for (key, value) in records {
+            guard value.selectedOptionLabel == nil else { continue }
+            var next = value
+            next.selectedOptionLabel = "Expired"
+            records[key] = next
+            updates.append(next.message)
+            didChange = true
+        }
+        guard didChange else { return false }
+        questionRecordsBySessionID[sessionID] = records
+        if chatEventsAreSubscribed {
+            emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .updated(updates)))
+        }
+        return true
+    }
+
+    /// The producer request and decision shape for a synthesized card. The
+    /// mobile message id is deliberately host-local; blocking hook producers
+    /// need their original id to wake the `feed.push` waiter.
+    struct FeedAnswerRequest {
+        let requestID: String
+        let kind: FeedAnswerKind
+        let optionLabels: [String]
+    }
+
+    func feedAnswerRequest(sessionID: String, messageID: String) -> FeedAnswerRequest? {
+        if let record = permissionRecordsBySessionID[sessionID]?.values.first(where: {
+            $0.messageID == messageID
+        }), let requestID = record.rawRequestID, !requestID.isEmpty {
+            return FeedAnswerRequest(
+                requestID: requestID,
+                kind: .permission,
+                optionLabels: ["Approve", "Deny"]
+            )
+        }
+        if let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
+            $0.messageID == messageID
+        }), let requestID = record.rawRequestID, !requestID.isEmpty,
+           record.selectedOptionLabel == nil {
+            return FeedAnswerRequest(
+                requestID: requestID,
+                kind: record.answerKind,
+                optionLabels: record.options.map(\.label)
+            )
+        }
+        return nil
+    }
+
+    /// Builds the provider-native decision for a mobile card and marks the
+    /// card resolved. The caller must deliver the returned decision to
+    /// `FeedCoordinator`; keeping the lookup and local state transition here
+    /// prevents the answer path from guessing which pending card was tapped.
+    @discardableResult
+    func feedAnswer(
+        sessionID: String,
+        messageID: String,
+        optionIndex: Int
+    ) -> (requestID: String, decision: WorkstreamDecision)? {
+        guard optionIndex >= 0,
+              let request = feedAnswerRequest(sessionID: sessionID, messageID: messageID) else {
+            return nil
+        }
+        switch request.kind {
+        case .permission:
+            guard optionIndex < 2 else { return nil }
+            let decision: WorkstreamDecision = .permission(optionIndex == 0 ? .once : .deny)
+            guard resolvePermission(
+                sessionID: sessionID,
+                requestID: messageID,
+                optionIndex: optionIndex
+            ) else { return nil }
+            return (request.requestID, decision)
+        case .question:
+            guard request.optionLabels.indices.contains(optionIndex) else { return nil }
+            let decision: WorkstreamDecision = .question(
+                selections: [request.optionLabels[optionIndex]]
+            )
+            guard resolveQuestion(
+                sessionID: sessionID,
+                messageID: messageID,
+                optionIndex: optionIndex
+            ) else { return nil }
+            return (request.requestID, decision)
+        case .exitPlan:
+            guard request.optionLabels.indices.contains(optionIndex) else { return nil }
+            let decision: WorkstreamDecision = .exitPlan(
+                optionIndex == 0 ? .autoAccept : .deny,
+                feedback: nil
+            )
+            guard resolveQuestion(
+                sessionID: sessionID,
+                messageID: messageID,
+                optionIndex: optionIndex
+            ) else { return nil }
+            return (request.requestID, decision)
+        }
+    }
+
+    /// Returns the producer request id for a synthesized permission card.
+    /// Kept as a small compatibility helper for callers that only need the
+    /// request identity.
+    func feedRequestID(sessionID: String, messageID: String) -> String? {
+        guard let request = feedAnswerRequest(sessionID: sessionID, messageID: messageID),
+              request.kind == .permission else { return nil }
+        return request.requestID
+    }
+
     /// Expires cards when a turn/session stops without a mobile answer.
     @discardableResult
-    fileprivate func expirePermissionRequests(sessionID: String) -> Bool {
+    func expirePermissionRequests(sessionID: String) -> Bool {
         guard var records = permissionRecordsBySessionID[sessionID], !records.isEmpty else {
             return false
         }
@@ -113,7 +322,7 @@ extension AgentChatTranscriptService {
         return true
     }
 
-    fileprivate func historyPageWithPermissions(
+    func historyPageWithPermissions(
         _ page: ChatHistoryPage,
         sessionID: String,
         beforeSeq: Int?,
@@ -122,9 +331,12 @@ extension AgentChatTranscriptService {
         let permissions = permissionRecordsBySessionID[sessionID, default: [:]]
             .values
             .map(\.message)
+        let questions = questionRecordsBySessionID[sessionID, default: [:]]
+            .values
+            .map(\.message)
         let merged = mergePermissionMessages(
             transcript: page.messages,
-            permissions: Array(permissions),
+            permissions: Array(permissions) + questions,
             beforeSeq: beforeSeq,
             limit: limit
         )
@@ -135,17 +347,17 @@ extension AgentChatTranscriptService {
         )
     }
 
-    fileprivate func permissionOnlyHistory(
+    func permissionOnlyHistory(
         sessionID: String,
         beforeSeq: Int?,
         limit: Int
     ) -> ChatHistoryPage? {
-        guard permissionRecordsBySessionID[sessionID] != nil else { return nil }
+        guard permissionRecordsBySessionID[sessionID] != nil
+            || questionRecordsBySessionID[sessionID] != nil else { return nil }
         let merged = mergePermissionMessages(
             transcript: [],
-            permissions: permissionRecordsBySessionID[sessionID, default: [:]]
-                .values
-                .map(\.message),
+            permissions: permissionRecordsBySessionID[sessionID, default: [:]].values.map(\.message)
+                + questionRecordsBySessionID[sessionID, default: [:]].values.map(\.message),
             beforeSeq: beforeSeq,
             limit: limit
         )

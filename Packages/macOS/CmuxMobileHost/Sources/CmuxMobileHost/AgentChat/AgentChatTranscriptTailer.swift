@@ -338,9 +338,17 @@ public actor AgentChatTranscriptTailer {
             // invalidation. OpenCode appends parts in transcript order, so
             // the last cached seq is the high-water mark for new rows; in-place
             // updates still reconcile by their stable id below.
-            let previousMaxSeq = previous.values.map(\.seq).max() ?? -1
+            let previousSeqs = previous.values.map(\.seq)
+            let previousMaxSeq = previousSeqs.max() ?? -1
+            let previousMinSeq = previousSeqs.min() ?? Int.max
             appended = result.messages.filter {
-                $0.seq > previousMaxSeq && previous[$0.id] == nil
+                guard previous[$0.id] == nil else { return false }
+                // A part can be materialized in place after its message was
+                // first observed with empty content. Such a draft may have a
+                // sequence below the high-water mark; include it when it is
+                // still inside the bounded cache window. Rows below the
+                // window were evicted and must not be replayed as appends.
+                return $0.seq > previousMaxSeq || $0.seq >= previousMinSeq
             }
             updated = result.messages.filter {
                 guard let old = previous[$0.id] else { return false }
@@ -409,61 +417,67 @@ public actor AgentChatTranscriptTailer {
             hasTimestamps = false
             prepared = sqlite3_prepare_v2(database, queries[1], -1, &statement, nil)
         }
-        guard prepared == SQLITE_OK, let statement else {
-            sqlite3_finalize(statement)
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-
-        let transient = unsafeBitCast(
-            OpaquePointer(bitPattern: -1),
-            to: sqlite3_destructor_type.self
-        )
-        guard sqlite3_bind_text(statement, 1, querySessionID, -1, transient) == SQLITE_OK else {
-            return nil
-        }
-
         var drafts: [OpenCodeDraft] = []
-        var partOrdinalByMessageID: [String: Int] = [:]
-        var stepResult = sqlite3_step(statement)
-        while stepResult == SQLITE_ROW {
-            if let messageID = sqliteText(statement, 0) {
-                let messageObject = jsonObject(sqliteText(statement, 1))
-                let messageRole = openCodeRole(messageObject?["role"] as? String)
-                let messageTimestamp = openCodeTimestamp(
-                    object: messageObject,
-                    sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 4) : nil
-                ) ?? Date(timeIntervalSince1970: 0)
-                let partID = sqliteText(statement, 2)
-                let partObject = jsonObject(sqliteText(statement, 3))
-                let ordinal = partOrdinalByMessageID[messageID, default: 0]
-                partOrdinalByMessageID[messageID] = ordinal + 1
-                let baseID = "opencode:\(partID ?? "\(messageID)#part-\(ordinal)")"
-                if let partObject {
-                    drafts.append(contentsOf: openCodeDrafts(
-                        partObject,
-                        baseID: baseID,
-                        role: messageRole,
-                        timestamp: openCodeTimestamp(
-                            object: partObject,
-                            sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 5) : nil
-                        ) ?? messageTimestamp
-                    ))
-                } else {
-                    // A message without a `part` row is unusual, but retaining it
-                    // keeps the transcript inspectable during schema migrations.
-                    drafts.append(OpenCodeDraft(
-                        id: "opencode:\(messageID)",
-                        role: messageRole,
-                        timestamp: messageTimestamp,
-                        kind: .unsupported(ChatUnsupportedPayload(rawType: "opencode.message"))
-                    ))
+        if prepared == SQLITE_OK, let statement {
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(
+                OpaquePointer(bitPattern: -1),
+                to: sqlite3_destructor_type.self
+            )
+            if sqlite3_bind_text(statement, 1, querySessionID, -1, transient) == SQLITE_OK {
+                var partOrdinalByMessageID: [String: Int] = [:]
+                var stepResult = sqlite3_step(statement)
+                while stepResult == SQLITE_ROW {
+                    if let messageID = sqliteText(statement, 0) {
+                        let messageObject = jsonObject(sqliteText(statement, 1))
+                        let messageRole = openCodeRole(messageObject?["role"] as? String)
+                        let messageTimestamp = openCodeTimestamp(
+                            object: messageObject,
+                            sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 4) : nil
+                        ) ?? Date(timeIntervalSince1970: 0)
+                        let partID = sqliteText(statement, 2)
+                        let partObject = jsonObject(sqliteText(statement, 3))
+                        let ordinal = partOrdinalByMessageID[messageID, default: 0]
+                        partOrdinalByMessageID[messageID] = ordinal + 1
+                        let baseID = "opencode:\(partID ?? "\(messageID)#part-\(ordinal)")"
+                        if let partObject {
+                            drafts.append(contentsOf: openCodeDrafts(
+                                partObject,
+                                baseID: baseID,
+                                role: messageRole,
+                                timestamp: openCodeTimestamp(
+                                    object: partObject,
+                                    sqliteMilliseconds: hasTimestamps ? sqliteDateValue(statement, 5) : nil
+                                ) ?? messageTimestamp
+                            ))
+                        } else {
+                            // A message without a `part` row is unusual, but retaining it
+                            // keeps the transcript inspectable during schema migrations.
+                            drafts.append(OpenCodeDraft(
+                                id: "opencode:\(messageID)",
+                                role: messageRole,
+                                timestamp: messageTimestamp,
+                                kind: .unsupported(ChatUnsupportedPayload(rawType: "opencode.message"))
+                            ))
+                        }
+                    }
+                    stepResult = sqlite3_step(statement)
+                }
+                if stepResult != SQLITE_DONE {
+                    drafts.removeAll()
                 }
             }
-            stepResult = sqlite3_step(statement)
         }
-        guard stepResult == SQLITE_DONE else {
-            return nil
+
+        // Current OpenCode releases retain the canonical transcript in
+        // `session_message` (with the parent session still in `session`).
+        // Prefer it whenever it has rows: migrated databases can retain a
+        // legacy `message`/`part` projection alongside the canonical table,
+        // while an empty canonical result for an older session should still
+        // fall back to those legacy rows.
+        if let sessionMessages = readOpenCodeSessionMessages(database: database, sessionID: querySessionID),
+           !sessionMessages.isEmpty {
+            drafts = sessionMessages
         }
 
         let messages = drafts.enumerated().map { index, draft in
@@ -486,6 +500,45 @@ public actor AgentChatTranscriptTailer {
     ) -> [OpenCodeDraft] {
         let type = ((part["type"] as? String) ?? "unknown").lowercased()
         switch type {
+        case "user", "assistant", "message":
+            var drafts: [OpenCodeDraft] = []
+            if let text = openCodeText(part["text"] ?? part["content"] ?? part["message"]), !text.isEmpty {
+                drafts.append(OpenCodeDraft(
+                    id: baseID,
+                    role: type == "user" ? .user : role,
+                    timestamp: timestamp,
+                    kind: .prose(ChatProse(text: boundedBody(text)))
+                ))
+            }
+            if let files = part["files"] as? [[String: Any]] {
+                drafts.append(contentsOf: files.enumerated().map { index, file in
+                    OpenCodeDraft(
+                        id: "\(baseID)#file-\(index)",
+                        role: .user,
+                        timestamp: timestamp,
+                        kind: .attachment(openCodeAttachment(file))
+                    )
+                })
+            }
+            return drafts
+        case "system", "skill":
+            guard let text = openCodeText(part["text"] ?? part["content"] ?? part["message"]), !text.isEmpty else {
+                return []
+            }
+            return [OpenCodeDraft(
+                id: baseID,
+                role: .system,
+                timestamp: timestamp,
+                kind: .prose(ChatProse(text: boundedBody(text)))
+            )]
+        case "compaction":
+            let detail = openCodeText(part["text"] ?? part["content"] ?? part["summary"])
+            return [OpenCodeDraft(
+                id: baseID,
+                role: .system,
+                timestamp: timestamp,
+                kind: .status(ChatStatusTransition(event: .contextCompacted, detail: detail))
+            )]
         case "text":
             guard let text = openCodeText(part["text"] ?? part["content"]), !text.isEmpty else {
                 return []
@@ -513,6 +566,21 @@ public actor AgentChatTranscriptTailer {
                 timestamp: timestamp,
                 kind: openCodeToolKind(part)
             )]
+        case "shell":
+            let command = openCodeString(part, keys: ["command", "cmd", "script"]) ?? "shell"
+            let output = openCodeText(part["output"] ?? part["result"] ?? part["content"]).map(boundedBody)
+            let shellStatus = (part["status"] as? String)?.lowercased()
+            return [OpenCodeDraft(
+                id: baseID,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .terminal(ChatTerminalCapture(
+                    command: boundedBody(command),
+                    output: output,
+                    exitCode: openCodeInt(part["exit"] ?? part["exitCode"] ?? part["exit_code"]),
+                    isRunning: shellStatus == "running" || shellStatus == "pending" || shellStatus == "started"
+                ))
+            )]
         case "patch":
             return openCodePatchDrafts(part, baseID: baseID, timestamp: timestamp)
         case "file":
@@ -535,13 +603,82 @@ public actor AgentChatTranscriptTailer {
         }
     }
 
+    private func readOpenCodeSessionMessages(
+        database: OpaquePointer,
+        sessionID: String
+    ) -> [OpenCodeDraft]? {
+        let query = """
+            SELECT id, type, data, time_created
+            FROM session_message
+            WHERE session_id = ?
+            ORDER BY seq, time_created, id
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(
+            OpaquePointer(bitPattern: -1),
+            to: sqlite3_destructor_type.self
+        )
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK else { return nil }
+        var drafts: [OpenCodeDraft] = []
+        var stepResult = sqlite3_step(statement)
+        while stepResult == SQLITE_ROW {
+            guard let messageID = sqliteText(statement, 0) else {
+                stepResult = sqlite3_step(statement)
+                continue
+            }
+            let type = sqliteText(statement, 1) ?? "message"
+            let object = jsonObject(sqliteText(statement, 2)) ?? [:]
+            let timestamp = openCodeTimestamp(
+                object: object,
+                sqliteMilliseconds: sqliteDateValue(statement, 3)
+            ) ?? Date(timeIntervalSince1970: 0)
+            // V2 calls this array `content`; a few development builds used
+            // `parts`, so accept both while keeping each element's stable
+            // message-id/part-index identity for live updates.
+            let parts = (object["content"] as? [[String: Any]])
+                ?? (object["parts"] as? [[String: Any]])
+            if let parts, !parts.isEmpty {
+                for (partIndex, part) in parts.enumerated() {
+                    let baseID = "opencode:\(messageID)#part-\(partIndex)"
+                    drafts.append(contentsOf: openCodeDrafts(
+                        part,
+                        baseID: baseID,
+                        role: openCodeRole(object["role"] as? String ?? type),
+                        timestamp: openCodeTimestamp(object: part, sqliteMilliseconds: nil) ?? timestamp
+                    ))
+                }
+            } else {
+                var payload = object
+                if payload["type"] == nil { payload["type"] = type }
+                drafts.append(contentsOf: openCodeDrafts(
+                    payload,
+                    baseID: "opencode:\(messageID)",
+                    role: openCodeRole(object["role"] as? String ?? type),
+                    timestamp: timestamp
+                ))
+            }
+            stepResult = sqlite3_step(statement)
+        }
+        guard stepResult == SQLITE_DONE else { return nil }
+        return drafts
+    }
+
     private func openCodeToolKind(_ part: [String: Any]) -> ChatMessageKind {
         let state = part["state"] as? [String: Any] ?? [:]
         let name = (part["tool"] as? String)
             ?? (part["name"] as? String)
             ?? "tool"
         let input = state["input"] ?? part["input"]
-        let output = state["output"] ?? state["error"] ?? part["output"]
+        // V2 stores successful tool output in state.content (an array of
+        // `{type:text|file,...}` records) and failures in state.error. Older
+        // projections used state.output/part.output, so retain all shapes.
+        let output = state["output"] ?? state["content"] ?? state["error"] ?? part["output"]
         let status = openCodeToolStatus(state["status"] as? String)
         let outputText = openCodeText(output).map(boundedBody)
         let inputJSON = input.flatMap(compactJSON).map(boundedInput)
@@ -577,6 +714,20 @@ public actor AgentChatTranscriptTailer {
             ?? (part["changes"] as? [Any])
             ?? []
         let files: [[String: Any]] = rawFiles.compactMap { $0 as? [String: Any] }
+        // V1 patch parts encode `files` as plain path strings. Preserve those
+        // paths instead of collapsing the whole patch to the synthetic
+        // "(patch)" file.
+        let filePaths: [String] = rawFiles.compactMap { $0 as? String }
+        if !filePaths.isEmpty, files.isEmpty {
+            return filePaths.enumerated().map { index, path in
+                OpenCodeDraft(
+                    id: index == 0 ? baseID : "\(baseID)#\(index)",
+                    role: .agent,
+                    timestamp: timestamp,
+                    kind: .fileEdit(openCodeFileEdit(path: path, diff: nil, source: ["path": path]))
+                )
+            }
+        }
         if files.isEmpty {
             let path = openCodeString(part, keys: ["filePath", "file_path", "path", "file"])
                 ?? "(patch)"
