@@ -51,3 +51,16 @@ fixture result remains the verification gate. A live probe only acquires and
 releases a host lease; workspace lifecycle and promotion continue to use the
 fixture lane until a provider workspace SDK is explicitly composed into the
 runtime.
+
+## Independently deployed worker slice
+
+`workers/agent-broker` packages the durable job consumer as a separate Bun
+process. It shares the PlanetScale PostgreSQL ledger and migration owner with
+the web runtime, but provider credentials and SDKs enter only through the
+versioned adapter module contract in
+`web/services/agent-broker/adapterBoundary.ts`.
+
+Run it with `bun web/scripts/agent-broker-worker.ts`, or build
+`workers/agent-broker/Dockerfile` from the repository root. Set
+`CMUX_BROKER_ADAPTER_MODULE` to a deployment-provided module exporting
+`createAgentBrokerAdapters`; missing or duplicate host adapters fail closed.
