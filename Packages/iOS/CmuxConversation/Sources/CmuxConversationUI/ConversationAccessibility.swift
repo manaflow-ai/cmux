@@ -153,7 +153,7 @@ extension ConversationViewController {
         }
         ax.reactions.onActivate = { [weak self] in
             guard self?.options.supportsReactions == true else { return false }
-            self?.presentAccessibleActions(rowID: rowID, mode: .reactionDetail) ?? false
+            return self?.presentAccessibleActions(rowID: rowID, mode: .reactionDetail) ?? false
         }
         ax.replies.onActivate = { [weak self] in
             self?.openThread(rootID: message.id)
