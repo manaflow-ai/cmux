@@ -40,6 +40,30 @@ struct SurfaceInternalReceiverWorkspaceTests {
         #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(in: Array(workspaces.prefix(2)), deliveriesInFlight: 0).isEmpty)
     }
 
+    @Test("a client-scoped sweep closes only receivers this Mac created")
+    func clientScopedSweep() {
+        let ours = SurfaceRemoteWorkspace.internalReceiverWorkspaceName(
+            title: SurfaceRemoteWorkspace.environmentReceiverTitle, clientID: "mac-ours"
+        )
+        let theirs = SurfaceRemoteWorkspace.internalReceiverWorkspaceName(
+            title: SurfaceRemoteWorkspace.fileReceiverTitle, clientID: "mac-theirs"
+        )
+        let workspaces = [
+            SurfaceRemoteWorkspace(id: "ws-ours", name: ours, index: 0, focused: false),
+            SurfaceRemoteWorkspace(id: "ws-theirs", name: theirs, index: 1, focused: false),
+            SurfaceRemoteWorkspace(id: "ws-legacy", name: receiverName, index: 2, focused: false),
+        ]
+        #expect(workspaces.allSatisfy(\.isInternalReceiver))
+        #expect(workspaces.map(\.internalReceiverClientID) == ["mac-ours", "mac-theirs", nil])
+        #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(
+            in: workspaces, deliveriesInFlight: 0, clientID: "mac-ours"
+        ) == ["ws-ours"])
+        #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(
+            in: workspaces, deliveriesInFlight: 0
+        ) == ["ws-legacy", "ws-ours", "ws-theirs"])
+        #expect(!SurfaceRemoteWorkspace.isInternalReceiverWorkspaceName("cmux env a b \(UUID().uuidString)"))
+    }
+
     @Test("the receiver workspace, its terminal and projections into it are hidden; the real workspace stays")
     func snapshotHidesReceiver() {
         let real = SurfaceRemoteWorkspace(id: "ws-real", name: "workspace-1", index: 0, focused: false)

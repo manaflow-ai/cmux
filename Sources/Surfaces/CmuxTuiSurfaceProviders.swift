@@ -46,6 +46,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
+    /// Stable identity for receiver workspaces created by this installation.
+    /// It prevents a sweep from reclaiming a receiver owned by another Mac.
+    let receiverClientID: String
     let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
@@ -199,6 +202,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.receiverClientID = CloudTuiClientPaths().notificationClientID()
         self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()

@@ -19,6 +19,7 @@ final class CloudSecretsSheetPresenter {
     private var loadTask: Task<Void, Never>?
     private var changeObserver: NSObjectProtocol?
     private var syncingSubscription: AnyCancellable?
+    private var onDismiss: (() -> Void)?
 
     private init() {}
 
@@ -33,13 +34,22 @@ final class CloudSecretsSheetPresenter {
     /// Opens the sheet. With a machine it is that machine's view: per-name
     /// delivery state and Sync Now. Opening for a different machine replaces
     /// the open sheet; the same one is brought forward.
-    func present(machineID: String? = nil, machineLabel: String? = nil, preferredWindow: NSWindow?) {
+    func present(
+        machineID: String? = nil,
+        machineLabel: String? = nil,
+        preferredWindow: NSWindow?,
+        onDismiss: (() -> Void)? = nil
+    ) {
         if sheetWindow != nil {
             if presentedMachineID == machineID {
                 (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
                 return
             }
+            // A replacement sheet keeps the caller waiting on the first one.
+            let pendingDismiss = self.onDismiss
+            self.onDismiss = nil
             dismiss()
+            self.onDismiss = pendingDismiss
         }
         let service = CloudSecretsService.shared
         let cloudContext = machineID == nil ? Self.contextCloudWorkspace(preferredWindow: preferredWindow) : nil
@@ -63,6 +73,7 @@ final class CloudSecretsSheetPresenter {
         window.title = String(localized: "cloudSecrets.sheet.title", defaultValue: "Cloud Secrets")
         window.isReleasedWhenClosed = false
         self.model = model
+        self.onDismiss = onDismiss ?? self.onDismiss
         presentedMachineID = machineID
         sheetController = sheet
         sheetWindow = window
@@ -191,6 +202,9 @@ final class CloudSecretsSheetPresenter {
         hostWindow = nil
         model = nil
         presentedMachineID = nil
+        let onDismiss = self.onDismiss
+        self.onDismiss = nil
+        onDismiss?()
     }
 }
 

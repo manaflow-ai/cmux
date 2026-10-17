@@ -81,6 +81,7 @@ final class CloudAgentReadinessModel {
         guard generation == self.generation else { return }
         task = nil
         checkedAt = result.checkedAt
+        probed = false
         guard result.report != nil else {
             assessments = []
             phase = .unavailable

@@ -48,7 +48,13 @@ final class CloudFirstRunPresenter {
             addSubscription: { [weak self] agent in self?.addSubscription(agent, preferredWindow: preferredWindow) },
             openSecrets: { [weak self] in
                 self?.leave(for: .secrets, preferredWindow: preferredWindow)
-                CloudSecretsSheetPresenter.shared.present(preferredWindow: preferredWindow)
+                CloudSecretsSheetPresenter.shared.present(
+                    preferredWindow: preferredWindow,
+                    onDismiss: {
+                        // Let the secrets sheet finish closing before attaching again.
+                        DispatchQueue.main.async { CloudFirstRunPresenter.shared.resumeAfterDetour() }
+                    }
+                )
             }
         )
         let sheet = CloudSheetWindow(rootView: CloudFirstRunSheet(model: model, actions: actions))
@@ -92,7 +98,7 @@ final class CloudFirstRunPresenter {
     /// Where the person went from the sheet before Go, so the tour comes
     /// back by itself once that errand is done.
     enum Detour {
-        /// Cloud Secrets: back on the next vault change.
+        /// Cloud Secrets: back when the sheet is dismissed.
         case secrets
         /// A subscription sign-in in a terminal: back once the key step is ready.
         case subscription
@@ -100,7 +106,6 @@ final class CloudFirstRunPresenter {
 
     private var detour: Detour?
     private var detourWindow: NSWindow?
-    private var detourObserver: NSObjectProtocol?
 
     /// Leaving the sheet for an errand counts as leaving before Go: a machine
     /// the tour started is cleaned up rather than left running unattended,
@@ -110,31 +115,17 @@ final class CloudFirstRunPresenter {
         hide()
         self.detour = detour
         detourWindow = preferredWindow
-        if detourObserver == nil {
-            detourObserver = NotificationCenter.default.addObserver(
-                forName: CloudSecretsService.didChangeNotification, object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.resumeAfterDetour(vaultChanged: true) }
-            }
-        }
     }
 
-    fileprivate func resumeAfterDetour(vaultChanged: Bool) {
+    fileprivate func resumeAfterDetour() {
         guard let detour, sheetWindow == nil, let model else { return }
-        let done: Bool
         switch detour {
-        case .secrets: done = vaultChanged
-        case .subscription: done = model.keySource.isReady
+        case .secrets: break
+        case .subscription:
+            guard model.keySource.isReady else { return }
         }
-        guard done else { return }
         self.detour = nil
-        if let detourObserver { NotificationCenter.default.removeObserver(detourObserver) }
-        detourObserver = nil
-        // Let the secrets sheet finish closing before attaching again.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.sheetWindow == nil else { return }
-            self.present(preferredWindow: self.detourWindow)
-        }
+        present(preferredWindow: detourWindow)
     }
 
     /// Takes the sheet down and keeps the model (and its in-flight work).
@@ -190,7 +181,7 @@ final class CloudFirstRunPresenter {
             Task { @MainActor in
                 guard let store, let model else { return }
                 model.refreshKeys()
-                CloudFirstRunPresenter.shared.resumeAfterDetour(vaultChanged: false)
+                CloudFirstRunPresenter.shared.resumeAfterDetour()
                 followAccounts(store: store, model: model)
             }
         }

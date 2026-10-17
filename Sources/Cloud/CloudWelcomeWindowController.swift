@@ -382,7 +382,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             Task { @MainActor in await Self.resume(next, after: activation) }
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
-            CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow)
+            let next = onEnabled ?? { CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow) }
+            next()
         }
     }
 
