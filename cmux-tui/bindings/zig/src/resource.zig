@@ -3780,6 +3780,11 @@ pub const Client = struct {
         );
     }
 
+    pub fn listMachinesWith(self: *Client, options: MachineReadOptions) !MachineList {
+        _ = options;
+        return self.listMachines();
+    }
+
     pub fn machines(self: *Client) !MachineList {
         return self.listMachines();
     }
@@ -7042,6 +7047,7 @@ fn encodeMoveDestination(
     }
 }
 
+pub const MachineReadOptions = @import("resource/machine.zig").MachineReadOptions;
 const MachineModels = @import("resource/machine.zig").Models(MachineId);
 pub const MachineOrigin = MachineModels.MachineOrigin;
 pub const MachineStatus = MachineModels.MachineStatus;
@@ -13446,6 +13452,11 @@ pub const Machine = struct {
 
     pub fn refresh(self: Self) !OwnedMachineSnapshot {
         return self.impl().refresh();
+    }
+
+    pub fn refreshWith(self: Self, options: MachineReadOptions) !OwnedMachineSnapshot {
+        _ = options;
+        return self.refresh();
     }
 
     pub fn listSessions(self: Self) !SessionList {

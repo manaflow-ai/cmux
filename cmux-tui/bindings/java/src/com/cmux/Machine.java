@@ -46,6 +46,11 @@ public final class Machine {
         return snapshot;
     }
 
+    public Snapshots.MachineSnapshot refresh(Options.MachineRead options) {
+        Objects.requireNonNull(options, "options");
+        return refresh();
+    }
+
     public Session session(Selector<Ids.SessionId> session) {
         return new Session(client, route.session(session));
     }

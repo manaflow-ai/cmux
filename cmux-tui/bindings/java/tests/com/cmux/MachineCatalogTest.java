@@ -23,5 +23,6 @@ public final class MachineCatalogTest {
         record.put("platform", Map.of("path", "/private"));
         try { Client.decodeMachine(record); throw new AssertionError("unknown metadata accepted"); }
         catch (ProtocolError expected) { /* Refusal is the expected result. */ }
+        MachineCatalogWireTest.run();
     }
 }

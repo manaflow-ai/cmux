@@ -48,3 +48,37 @@ test("machine catalog metadata stays typed and unknown siblings are refused", as
     await assert.rejects(decode(snapshot(patch)));
   }
 });
+
+
+test("cmux_next_machine_sdk_catalog_opt_in keeps defaults and the captured owner", async () => {
+  const seen: Array<Record<string, any>> = [];
+  let receive: (json: string) => void = () => {};
+  const transport: Transport = {
+    send(json) {
+      const request = JSON.parse(json);
+      seen.push(request);
+      const value = snapshot(request.params.catalog === true ? { platform: { os: "linux" }, capabilities: ["terminal"] } : {});
+      queueMicrotask(() => receive(JSON.stringify({ protocol: "cmux.protocol/2", type: "response", id: request.id,
+        ok: true, result: request.operation === "machine.list" ? [value] : value })));
+    },
+    onMessage(handler) { receive = handler; return () => {}; },
+    onClose() { return () => {}; }, onError() { return () => {}; }, close() {},
+  };
+  const client = new Client({ transport });
+  try {
+    const owner = (await client.listMachines())[0]!;
+    await client.listMachines({ catalog: true });
+    await client.listMachines({ catalog: false });
+    await owner.refresh();
+    const rich = await owner.refresh({ catalog: true });
+    await owner.refresh({ catalog: false });
+    assert.equal(seen.length, 6);
+    seen.forEach((request, index) => {
+      const expected: Record<string, unknown> = index < 3 ? {} : { machine: snapshot().id };
+      if (index === 1 || index === 4) expected.catalog = true;
+      assert.deepEqual(request.params, expected, `wire request ${index}`);
+      assert.equal(request.idempotency_key, undefined);
+    });
+    assert.equal(rich.platform?.os, "linux");
+  } finally { client.close(); }
+});

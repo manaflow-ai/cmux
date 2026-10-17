@@ -2774,7 +2774,7 @@ class Client:
         }
         return Session(self, _selector(selector, SessionId), scope)
 
-    def list_machines(self) -> List["Machine"]:
+    def list_machines(self, *, catalog: bool = False) -> List["Machine"]:
         values = _list_payload(
             self._read(Operations.MACHINE_LIST, {}),
             "machines",
@@ -2788,7 +2788,7 @@ class Client:
             for snapshot in map(_machine_snapshot, values)
         ]
 
-    def find_machines_by_name(self, name: str) -> List["Machine"]:
+    def find_machines_by_name(self, name: str, *, catalog: bool = False) -> List["Machine"]:
         return [
             item
             for item in self.list_machines()
@@ -3206,6 +3206,9 @@ class Machine(_Handle[MachineId, MachineSnapshot]):
     _selector_key = "machine"
     _get_operation = Operations.MACHINE_GET
     _decode_snapshot = staticmethod(_machine_snapshot)
+
+    def refresh(self, *, catalog: bool = False) -> MachineSnapshot:
+        return super().refresh()
 
     def session(self, selector: SelectorInput[SessionId]) -> "Session":
         return Session(

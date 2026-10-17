@@ -149,6 +149,7 @@ import type {
   MutationOptions,
   NotificationOptions,
   ProjectionPutOptions,
+  MachineReadOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -2756,7 +2757,7 @@ export class Client {
     );
   }
 
-  async listMachines(options: RequestOptions = {}): Promise<Machine[]> {
+  async listMachines(options: MachineReadOptions = {}): Promise<Machine[]> {
     const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
     return values.map((value) => {
       const snapshot = machineSnapshot(value);
@@ -2764,7 +2765,7 @@ export class Client {
     });
   }
 
-  async findMachinesByName(name: string, options: RequestOptions = {}): Promise<Machine[]> {
+  async findMachinesByName(name: string, options: MachineReadOptions = {}): Promise<Machine[]> {
     return (await this.listMachines(options)).filter((item) => item.snapshot?.name === name);
   }
 
@@ -3114,7 +3115,7 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
     return new Session(this.client, selector, { machine: encodeSelector(this.selector) });
   }
 
-  refresh(options: RequestOptions = {}): Promise<MachineSnapshot> {
+  refresh(options: MachineReadOptions = {}): Promise<MachineSnapshot> {
     return this.refreshWith(operations.machineGet, machineSnapshot, options);
   }
 

@@ -114,6 +114,7 @@ pub const MachineOrigin = resource.MachineOrigin;
 pub const MachinePlatform = resource.MachinePlatform;
 pub const MachineCapabilityList = resource.MachineCapabilityList;
 pub const MachineStatus = resource.MachineStatus;
+pub const MachineReadOptions = resource.MachineReadOptions;
 pub const MachineSnapshot = resource.MachineSnapshot;
 pub const SessionSnapshot = resource.SessionSnapshot;
 pub const WorkspaceSnapshot = resource.WorkspaceSnapshot;
@@ -342,6 +343,7 @@ pub const TerminalDefaultsMutationResult =
     resource.TerminalDefaultsMutationResult;
 
 test {
+    _ = @import("resource/machine_read_tests.zig");
     std.testing.refAllDecls(resource);
     std.testing.refAllDecls(raw);
 }

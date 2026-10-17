@@ -336,6 +336,18 @@ public final class Client implements AutoCloseable {
         return List.copyOf(machines);
     }
 
+    public List<Machine> listMachinesWith(Options.MachineRead options) {
+        Objects.requireNonNull(options, "options");
+        return listMachines(Options.Read.defaults());
+    }
+
+    public List<Machine> findMachinesByNameWith(String name, Options.MachineRead options) {
+        Objects.requireNonNull(name, "name");
+        return listMachinesWith(options).stream()
+            .filter(machine -> machine.cached().map(Snapshots.MachineSnapshot::name).map(name::equals).orElse(false))
+            .toList();
+    }
+
     public List<Machine> findMachinesByName(String name) {
         Objects.requireNonNull(name, "name");
         return listMachines(Options.Read.defaults()).stream()

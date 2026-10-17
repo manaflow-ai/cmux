@@ -3,6 +3,9 @@
 const std = @import("std");
 const raw = @import("../raw.zig");
 
+/// Explicit response format; catalog metadata grants no execution rights.
+pub const MachineReadOptions = struct { catalog: bool = false };
+
 pub fn Models(comptime MachineId: type) type {
     return struct {
         pub const MachineOrigin = union(enum) {
