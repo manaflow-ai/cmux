@@ -242,6 +242,7 @@
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
