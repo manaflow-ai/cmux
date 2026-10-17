@@ -23,8 +23,8 @@ extension UpdaterService {
     }
 
     /// One click installs (footer pill, palette, `cmux update install`): at
-    /// once, or when the download finishes. Running agents never hold it:
-    /// the relaunch keeps them (`willRelaunch` records keep sessions).
+    /// once, or when the download finishes. The relaunch passes through the
+    /// live-session and quiet-input gate; `willRelaunch` records keep sessions.
     public func installClicked() {
         #if DEBUG
         UpdateHarness.mark("install_clicked")

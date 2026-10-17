@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -15,6 +16,7 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        relaunchBlockers = { [weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers()) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff()

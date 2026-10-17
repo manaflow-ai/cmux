@@ -49,6 +49,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
+    /// NIGHTLY hosts may install a staged update automatically once it is ready. The relaunch
+    /// still passes through the quiet-input and live-session gate below.
+    var installsWhenIdle = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -202,9 +205,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Restart Now on the install-on-quit prompt, and a resumed install after Later. Returns
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
-        guard !currentRelaunchBlockers().isEmpty else { return false }
         var isAutoUpdate = false
         if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
+        let blockers = currentRelaunchBlockers()
+        guard isAutoUpdate || !blockers.isEmpty else { return false }
         holdRelaunch(isAutoUpdate: isAutoUpdate, install: installHandler)
         return true
     }

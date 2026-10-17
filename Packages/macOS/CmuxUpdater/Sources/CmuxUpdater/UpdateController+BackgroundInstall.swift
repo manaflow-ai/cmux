@@ -10,6 +10,13 @@ extension UpdateController {
         set { driver.installsInBackground = newValue }
     }
 
+    /// Whether a staged background update should enter the safe idle relaunch gate automatically.
+    /// The gate waits for active agent turns, running commands and recent user input.
+    public var installsUpdatesWhenIdle: Bool {
+        get { driver.installsWhenIdle }
+        set { driver.installsWhenIdle = newValue }
+    }
+
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
     public var stagedUpdate: SUAppcastItem? {
         driver.stagedItem

@@ -136,9 +136,10 @@ public final class UpdaterService {
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
-    /// Sparkle is about to relaunch into the update (set by the App: the quit
-    /// keeps every terminal).
+    /// Sparkle is about to relaunch into the update; the App records keep-sessions and blockers.
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Reads the executable's live session and input state before Sparkle relaunches.
+    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
@@ -421,10 +422,9 @@ extension UpdaterService: UpdateActionDelegate {
         willRelaunch?()
     }
 
-    /// A relaunch interrupts nothing (the daemon keeps every terminal and
-    /// agent running), so a ready update is never held.
+    /// Reads the executable's live blocker provider before Sparkle relaunches.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        .empty
+        relaunchBlockers()
     }
 }
 

@@ -2,10 +2,10 @@ import Foundation
 
 /// The install gate over Sparkle's flow (R114, SIDEBAR-FOOTER-MINIMAL):
 /// downloads stay invisible, a staged update is the footer's "Update Ready"
-/// pill, one click installs and relaunches at once (the relaunch keeps every
-/// terminal and agent, so nothing waits for agents and nothing asks), and a
-/// quit installs a staged update unless `updates.installOnQuit` is off. A
-/// pure value: the App feeds events and performs the effects.
+/// pill, and a click or approved idle install passes through the relaunch gate
+/// before Sparkle relaunches. A quit installs a staged update unless
+/// `updates.installOnQuit` is off. A pure value: the App feeds events and
+/// performs the effects.
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
     /// The user asked to install; held until the update is staged.

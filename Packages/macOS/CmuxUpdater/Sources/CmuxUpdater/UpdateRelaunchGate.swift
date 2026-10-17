@@ -5,35 +5,51 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
     /// Other foreground commands in local terminals (a dev server, a build). They may never
     /// exit, so the gate holds the relaunch until the user chooses Install Now.
     public var runningCommandCount: Int
+    /// Hardware input happened during the quiet window. Automatic installs wait until it clears.
+    public var userInputActive: Bool
+    /// The host cannot confirm the daemon/session mirror yet. Automatic installs wait until it
+    /// is connected and loaded instead of risking a relaunch with unseen work.
+    public var daemonStateUnavailable: Bool
+
+    /// How long hardware input must be quiet before an automatic relaunch.
+    public static let quietInputPeriod: Duration = .seconds(60)
 
     /// Nothing would be interrupted.
     public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
+    /// A conservative hold used before the host has a trustworthy daemon mirror.
+    public static let daemonUnavailable = UpdateRelaunchBlockers(
+        busyAgentCount: 0, runningCommandCount: 0, daemonStateUnavailable: true)
 
     /// Creates a blocker report.
-    public init(busyAgentCount: Int, runningCommandCount: Int) {
+    public init(busyAgentCount: Int, runningCommandCount: Int, userInputActive: Bool = false,
+                daemonStateUnavailable: Bool = false) {
         self.busyAgentCount = busyAgentCount
         self.runningCommandCount = runningCommandCount
+        self.userInputActive = userInputActive
+        self.daemonStateUnavailable = daemonStateUnavailable
     }
 
     /// Whether the relaunch would interrupt nothing.
     public var isEmpty: Bool {
-        busyAgentCount == 0 && runningCommandCount == 0
+        busyAgentCount == 0 && runningCommandCount == 0 && !userInputActive && !daemonStateUnavailable
     }
 }
 
 /// Holds a ready update's relaunch until nothing would be interrupted by it.
 ///
-/// Busy agents are waited out, bounded by ``agentTimeout`` so a lifecycle state that never
-/// settles cannot hold an update forever; agents interrupted then are resumed by session
-/// restore. Other running commands are shown as a warning and only the user's Install Now
-/// stops them. While waiting, the gate publishes ``UpdateState/installing(_:)`` carrying the
-/// current ``UpdateRelaunchBlockers``; Install Now and Later are that state's existing
-/// `retryTerminatingApplication` and `dismiss` actions.
+/// Automatic updates wait for busy agents to finish instead of interrupting a turn. Explicit
+/// installs retain the bounded agent wait for a lifecycle state that never settles; agents
+/// interrupted then are resumed by session restore. Other running commands are shown as a
+/// warning and only the user's Install Now stops them. A focused typing or pointer session also
+/// keeps the relaunch behind a short quiet window. If the host cannot confirm the daemon mirror,
+/// the gate waits rather than guessing that no work exists. While waiting, the gate publishes
+/// ``UpdateState/installing(_:)`` carrying the current ``UpdateRelaunchBlockers``; Install Now
+/// and Later are that state's existing `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
 final class UpdateRelaunchGate {
     /// How often a waiting gate re-reads the host's blockers.
     static let recheckInterval: Duration = .seconds(2)
-    /// How long the gate waits for busy agents before relaunching anyway.
+    /// How long an explicit install waits for busy agents before relaunching anyway.
     static let agentTimeout: Duration = .seconds(30 * 60)
 
     private let clock: any UpdateClock
@@ -79,11 +95,14 @@ final class UpdateRelaunchGate {
     /// Whether the relaunch may proceed given `blockers` after waiting `waited`.
     nonisolated static func shouldRelaunch(
         _ blockers: UpdateRelaunchBlockers,
+        isAutoUpdate: Bool,
         waited: Duration,
         agentTimeout: Duration
     ) -> Bool {
+        if blockers.daemonStateUnavailable { return false }
         if blockers.runningCommandCount > 0 { return false }
-        if blockers.busyAgentCount > 0 { return waited >= agentTimeout }
+        if blockers.userInputActive { return false }
+        if blockers.busyAgentCount > 0 { return !isAutoUpdate && waited >= agentTimeout }
         return true
     }
 
@@ -134,7 +153,8 @@ final class UpdateRelaunchGate {
         blockers current: UpdateRelaunchBlockers,
         publish: @MainActor (UpdateState) -> Void
     ) -> Bool {
-        if Self.shouldRelaunch(current, waited: request.waited, agentTimeout: agentTimeout) {
+        if Self.shouldRelaunch(current, isAutoUpdate: request.isAutoUpdate,
+                               waited: request.waited, agentTimeout: agentTimeout) {
             if current.busyAgentCount > 0 {
                 log.append("update relaunch gate timed out with \(current.busyAgentCount) busy agent(s)")
             }
@@ -144,7 +164,7 @@ final class UpdateRelaunchGate {
         guard request.published != current else { return false }
         if request.published == nil {
             log.append(
-                "update relaunch held (agents=\(current.busyAgentCount), commands=\(current.runningCommandCount))"
+                "update relaunch held (agents=\(current.busyAgentCount), commands=\(current.runningCommandCount), input=\(current.userInputActive), daemon=\(!current.daemonStateUnavailable)"
             )
         }
         request.published = current
