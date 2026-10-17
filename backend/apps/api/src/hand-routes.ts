@@ -1,3 +1,4 @@
+import { stackServer } from "./stack-server.ts"
 import type { Env } from "./env.ts"
 import { apiOrigin, handStub, indexStub, listHands, mintPairCode } from "./hand-api.ts"
 import { handInstallScript } from "./hand-install.ts"
@@ -47,6 +48,12 @@ const person = async (request: Request, env: Env): Promise<{ caller: HandCaller;
   if ("status" in c) return fail(c.status, c.code, c.message)
   if (c.principal.kind !== "session" || c.principal.agent !== undefined) return fail(403, "auth.forbidden", "hands are managed with a person's session")
   return { caller: { kind: "owner", user: c.user }, principal: c.principal }
+}
+
+/** When the caller's Stack session was signed in (its refresh_token_id's created_at), or null when not known. */
+const sessionSignedInAt = async (env: Env, principal: { kind?: string; stack_user_id?: string; stack_session?: string }): Promise<number | null> => {
+  if (principal.kind !== "session" || !principal.stack_user_id || !principal.stack_session) return null
+  return (await stackServer(env)?.sessionCreatedAt(principal.stack_user_id, principal.stack_session).catch(() => null)) ?? null
 }
 
 const body = async (request: Request): Promise<Record<string, unknown> | null> => {
@@ -108,8 +115,17 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
   if (path === "/v1/hands/presence-key") {
     if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
     const b = await body(request)
-    if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature}")
-    return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, b.install, b.public_jwk, b.signature))
+    if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature, current_signature?, attestation?, key_id?}")
+    // A replacement without the current key's signature may pass on a fresh sign-in: when this session was signed in.
+    const signedInAt = typeof b.current_signature === "string" ? null : await sessionSignedInAt(env, principal)
+    return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, {
+      install: b.install,
+      jwk: b.public_jwk,
+      signature: b.signature,
+      ...(typeof b.current_signature === "string" ? { current_signature: b.current_signature } : {}),
+      ...(typeof b.attestation === "string" ? { attestation: b.attestation, ...(typeof b.key_id === "string" ? { key_id: b.key_id } : {}) } : {}),
+      signed_in_at: signedInAt
+    }))
   }
   // The owner's default level for new hands of a profile (hand-levels.ts).
   const defaults = path.match(/^\/v1\/hands\/defaults\/(sandbox|mac)(\/challenge)?$/)

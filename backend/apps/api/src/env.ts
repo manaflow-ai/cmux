@@ -67,6 +67,8 @@ export interface Env {
   readonly HAND_CLASSIFIER_MODEL?: string
   /** The classifier's time limit in ms (at most and by default 8000); a test sets it low to prove the timeout path. */
   readonly HAND_CLASSIFIER_TIMEOUT_MS?: string
+  /** Minutes a sign-in counts as fresh for replacing a hand presence key (hand-presence.ts; default 10). */
+  readonly HAND_PRESENCE_FRESH_MINUTES?: string
   /** Most live sandbox hands one owner may have (default 3). */
   readonly HAND_SANDBOX_MAX?: string
   /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */

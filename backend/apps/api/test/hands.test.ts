@@ -319,4 +319,45 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect(appFrames.map((f) => [f.t, f.outcome ?? null])).toEqual([["hand-approval-pending", null], ["hand-approval-settled", "expired"]])
   })
 
+  it("replaces an install's presence key only with the current key's signature (or a fresh sign-in) and tells the owner's devices", async () => {
+    const { token } = await owner("hands-presence")
+    const ec = async () => (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const pubOf = async (k: CryptoKeyPair) => { const j = (await crypto.subtle.exportKey("jwk", k.publicKey)) as JsonWebKey; return { kty: "EC", crv: "P-256", x: j.x!, y: j.y! } }
+    const signWith = async (k: CryptoKey, m: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, k, new TextEncoder().encode(m))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const installKey = await ec()
+    const install = (await op(token, "install.register", { public_jwk: await pubOf(installKey), kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).value.id as string
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const frames: Array<any> = []
+    wire.webSocket!.addEventListener("message", (e) => {
+      const f = JSON.parse(e.data as string)
+      if (f.t === "hand-presence-key") frames.push(f)
+    })
+    wire.webSocket!.accept()
+    wire.webSocket!.send(JSON.stringify({ t: "subscribe" }))
+    await new Promise((r) => setTimeout(r, 100))
+    const put = async (k: CryptoKeyPair, extra: Record<string, unknown> = {}) => {
+      const pub = await pubOf(k)
+      return (await http("PUT", "/v1/hands/presence-key", token, { install, public_jwk: pub, signature: await signWith(installKey.privateKey, presenceRegistration(testEnv, install, pub)), ...extra })).json
+    }
+    // The first key needs only the install key's signature.
+    const first = await ec()
+    expect(await put(first)).toMatchObject({ ok: true, value: { by: "first", attested: false } })
+    // A new key for the same install, signed only by the install key (a session with no fresh sign-in here): refused.
+    const second = await ec()
+    const refused = await put(second)
+    expect(refused.error.code).toBe("hand.presence_refused")
+    expect(refused.error.message).toContain("replacing it needs a signature by the current key")
+    // Signed also by a key that is not the current one: refused.
+    const stranger = await ec()
+    const pub2 = await pubOf(second)
+    expect((await put(second, { current_signature: await signWith(stranger.privateKey, presenceRegistration(testEnv, install, pub2)) })).error.code).toBe("hand.presence_refused")
+    // Signed by the current presence key over the new key's text: replaced.
+    expect(await put(second, { current_signature: await signWith(first.privateKey, presenceRegistration(testEnv, install, pub2)) })).toMatchObject({ ok: true, value: { by: "current_key" } })
+    // An attestation the server cannot verify is refused, never ignored.
+    const third = await ec()
+    expect((await put(third, { current_signature: await signWith(second.privateKey, presenceRegistration(testEnv, install, await pubOf(third))), attestation: "bm90LWFuLWF0dGVzdGF0aW9u", key_id: "a2V5" })).error.code).toBe("hand.presence_refused")
+    for (let i = 0; i < 50 && frames.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(frames.map((f) => [f.install, f.by, f.replaced])).toEqual([[install, "first", false], [install, "current_key", true]])
+  })
+
 })
