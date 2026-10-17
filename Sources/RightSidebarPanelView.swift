@@ -47,12 +47,10 @@ extension RightSidebarMode {
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
         for mode in RightSidebarMode.allCases {
-            guard let action = mode.shortcutAction,
-                  allowingAction(action),
-                  mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+            guard mode.isAvailable(), mode.effectiveShortcut.matches(event: event) else {
                 continue
             }
+            if let action = mode.shortcutAction, !allowingAction(action) { continue }
             return mode
         }
         return nil
@@ -227,7 +225,7 @@ struct RightSidebarPanelView: View {
                 let displayedModes = availableModes
                 RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing, widthReport: modeBarWidthReport) {
                     ForEach(modeBarItems) { item in
-                        let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                        let shortcut = item.mode.effectiveShortcut
                         ModeBarButton(
                             item: item,
                             isSelected: item.isSelected(
