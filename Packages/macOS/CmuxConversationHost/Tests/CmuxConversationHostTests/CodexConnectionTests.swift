@@ -85,11 +85,13 @@ import CmuxConversation
         await connection.close()
     }
 
-    @Test func deltasAccumulateAndAuthoritativeCompletionReplacesThem() {
+    @Test func deltasStayCompactAndCompletionRemainsAuthoritative() {
         var projection = CodexEventProjection()
         let params: [String: ConversationJSONValue] = ["threadId": .string("thread"), "turnId": .string("turn"), "itemId": .string("item"), "delta": .string("part")]
         #expect(projection.events(method: "item/agentMessage/delta", params: params, raw: .null).first?.text == "part")
-        #expect(projection.events(method: "item/agentMessage/delta", params: params, raw: .null).first?.text == "partpart")
+        let second = projection.events(method: "item/agentMessage/delta", params: params, raw: .null).first
+        #expect(second?.text == "part")
+        #expect(second?.itemUpdate == .appendText)
         let completed: [String: ConversationJSONValue] = ["turnId": .string("turn"), "item": .object(["id": .string("item"), "type": .string("agentMessage"), "text": .string("final")])]
         #expect(projection.events(method: "item/completed", params: completed, raw: .null).first?.text == "final")
     }

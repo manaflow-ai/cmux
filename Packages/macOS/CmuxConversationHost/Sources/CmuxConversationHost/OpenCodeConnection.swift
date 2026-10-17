@@ -161,7 +161,7 @@ actor OpenCodeConnection: ConversationProviderConnection {
             let accumulated = (part["text"]?.stringValue ?? "") + delta
             guard accumulated.utf8.count <= 1_048_576 else { throw ConversationProviderError.malformed("OpenCode text exceeds the event limit") }
             part["text"] = .string(accumulated); parts[id] = part
-            try emitPart(part, turn: turn, raw: raw)
+            try emitPart(part, turn: turn, raw: raw, textDelta: delta)
         case "message.updated":
             if let info = value["info"]?.objectValue, let id = info["id"]?.stringValue, let role = info["role"]?.stringValue {
                 messageRoles[id] = role
@@ -204,12 +204,12 @@ actor OpenCodeConnection: ConversationProviderConnection {
         activeMessageID = nil; terminalState = nil; parts.removeAll(); messageRoles.removeAll()
     }
 
-    private func emitPart(_ part: [String: ConversationJSONValue], turn: ConversationTurnID?, raw: ConversationJSONValue) throws {
+    private func emitPart(_ part: [String: ConversationJSONValue], turn: ConversationTurnID?, raw: ConversationJSONValue, textDelta: String? = nil) throws {
         guard let rawID = part["id"]?.stringValue, let type = part["type"]?.stringValue else { return }
         let id = ConversationItemID(rawValue: rawID)
         switch type {
         case "text", "reasoning":
-            try emit(.init(kind: .item, itemID: id, turnID: turn, itemKind: type == "text" ? .message : .reasoning, role: part["messageID"]?.stringValue.flatMap { messageRoles[$0] }, text: part["text"]?.stringValue, rawPayload: raw))
+            try emit(.init(kind: .item, itemID: id, turnID: turn, itemKind: type == "text" ? .message : .reasoning, itemUpdate: textDelta == nil ? nil : .appendText, role: part["messageID"]?.stringValue.flatMap { messageRoles[$0] }, text: textDelta ?? part["text"]?.stringValue, rawPayload: raw))
         case "tool":
             let state = part["state"]?.objectValue ?? [:]
             let status: ConversationToolStatus

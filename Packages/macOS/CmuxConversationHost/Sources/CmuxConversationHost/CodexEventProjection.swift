@@ -34,14 +34,15 @@ struct CodexEventProjection: Sendable {
             // A malformed runaway delta is explicit; never silently truncate text.
             guard accumulated.utf8.count <= 4 * 1_024 * 1_024 else { return [.init(kind: .item, itemID: item, turnID: turn, itemKind: .error, text: "Provider text exceeds the display limit", rawPayload: raw)] }
             text[item.rawValue] = accumulated
-            return [.init(kind: .item, itemID: item, turnID: turn, itemKind: kind, role: "assistant", text: accumulated, plan: kind == .plan ? .init(text: accumulated) : nil, rawPayload: raw)]
+            return [.init(kind: .item, itemID: item, turnID: turn, itemKind: kind, itemUpdate: .appendText, role: "assistant", text: delta, plan: kind == .plan ? .init(text: delta) : nil, rawPayload: raw)]
         case "item/commandExecution/outputDelta":
             guard let item, let delta = params["delta"]?.stringValue else { return [unknown(method, raw)] }
             var tool = tools[item.rawValue] ?? .init(toolID: item.rawValue, name: "Command", status: .running)
             let output = (tool.output?.stringValue ?? "") + delta
             guard output.utf8.count <= 4 * 1_024 * 1_024 else { return [.init(kind: .item, itemID: item, turnID: turn, itemKind: .error, text: "Tool output exceeds the display limit", rawPayload: raw)] }
             tool.output = .string(output); tools[item.rawValue] = tool
-            return [.init(kind: .item, itemID: item, turnID: turn, itemKind: .tool, tool: tool, rawPayload: raw)]
+            tool.output = .string(delta)
+            return [.init(kind: .item, itemID: item, turnID: turn, itemKind: .tool, itemUpdate: .appendToolOutput, tool: tool, rawPayload: raw)]
         case "item/started", "item/completed":
             guard let value = params["item"]?.objectValue else { return [unknown(method, raw)] }
             return itemEvents(value, turn: turn, raw: raw)

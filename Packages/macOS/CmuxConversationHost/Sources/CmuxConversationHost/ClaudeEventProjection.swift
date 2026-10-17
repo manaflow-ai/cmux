@@ -43,6 +43,10 @@ struct ClaudeEventProjection: Sendable {
                 default: return []
                 }
                 blocks[messageID]?[index] = block
+                if delta["type"]?.stringValue == "text_delta" || delta["type"]?.stringValue == "thinking_delta" {
+                    let thinking = delta["type"]?.stringValue == "thinking_delta"
+                    return [.init(kind: .item, itemID: .init(rawValue: messageID + ":" + String(index)), turnID: turnID, itemKind: thinking ? .reasoning : (parent == nil ? .message : .child), itemUpdate: .appendText, role: thinking ? nil : "assistant", text: delta[thinking ? "thinking" : "text"]?.stringValue ?? "", rawPayload: raw)]
+                }
             } else if eventType != "content_block_stop" { return [] }
             guard let block = blocks[messageID]?[index] else { return [] }
             return project(block.value, id: messageID + ":" + String(index), turn: turnID, parent: parent, raw: raw)
