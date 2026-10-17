@@ -37,10 +37,12 @@ enum FileExplorerRootSyncPolicy {
 }
 
 extension RightSidebarMode {
+    @MainActor
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
     }
 
+    @MainActor
     static func modeShortcut(
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
