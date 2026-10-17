@@ -1933,6 +1933,9 @@ struct BrowserPanelView: View {
                 },
                 shouldSuppressWebViewFocus: {
                     panel.shouldSuppressWebViewFocus()
+                },
+                onPasteAndGo: { text in
+                    handleOmnibarPasteAndGo(text)
                 }
             )
                 .frame(height: chromeMetrics.omnibarFieldHeight)
@@ -2711,20 +2714,29 @@ struct BrowserPanelView: View {
         case .commitSelectedSuggestion:
             commitSelectedSuggestion()
         case .navigate(let text):
-            if text != omnibarState.buffer {
-                // Reconcile the reducer with the live field before navigating so
-                // blur and URL-change handling see the text that was submitted.
-                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
-                applyOmnibarEffects(effects)
-            }
-            // chrome://settings opens cmux Settings instead of loading: the
-            // address bar goes back to the page's URL (design review #21050).
-            let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
-            panel.navigateSmart(text)
-            hideSuggestions()
-            suppressNextFocusLostRevert = !opensCmuxPage
-            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+            navigateOmnibar(to: text)
         }
+    }
+
+    /// "Paste and Go" / "Paste and Search": the pasted text is submitted as typed text is.
+    private func handleOmnibarPasteAndGo(_ text: String) {
+        navigateOmnibar(to: text)
+    }
+
+    private func navigateOmnibar(to text: String) {
+        if text != omnibarState.buffer {
+            // Reconcile the reducer with the live field before navigating so
+            // blur and URL-change handling see the text that was submitted.
+            let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+            applyOmnibarEffects(effects)
+        }
+        // chrome://settings opens cmux Settings instead of loading: the
+        // address bar goes back to the page's URL (design review #21050).
+        let opensCmuxPage = panel.opensCmuxPage(forTyped: text)
+        panel.navigateSmart(text)
+        hideSuggestions()
+        suppressNextFocusLostRevert = !opensCmuxPage
+        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
     }
 
     private func commitSelectedSuggestion() {
@@ -4341,10 +4353,11 @@ func browserOmnibarFocusGainingClickShouldSelectAll(
 // Swift 6 SDK inherits MainActor isolation from NSResponder, so these
 // framework overrides are explicitly nonisolated; the field is still owned by
 // its main-thread SwiftUI representable.
-final class OmnibarNativeTextField: NSTextField {
+final class OmnibarNativeTextField: NSTextField, BrowserOmnibarPasteAndGoHandling {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    var onPasteAndGo: ((String) -> Void)?
     var suppressNextFocusReacquireOnEndEditing = false
     /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
     private var shiftClickAnchor: Int?
@@ -4377,6 +4390,12 @@ final class OmnibarNativeTextField: NSTextField {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    /// The field editor's "Paste and Go" row (the field is its delegate while editing).
+    func omnibarPasteAndGo(_ text: String) {
+        onPasteAndGo?(text)
+    }
+
     nonisolated override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
@@ -4573,6 +4592,8 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let onDeleteWordBackwardWithInlineSelection: () -> Void
     let onSelectionChanged: (NSRange, Bool) -> Void
     let shouldSuppressWebViewFocus: () -> Bool
+    /// The right-click "Paste and Go" / "Paste and Search" row with the pasted text.
+    var onPasteAndGo: (String) -> Void = { _ in }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -5162,6 +5183,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
         field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
+        }
+        field.onPasteAndGo = { [weak coordinator = context.coordinator] text in
+            coordinator?.parent.onPasteAndGo(text)
         }
         context.coordinator.parentField = field
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)

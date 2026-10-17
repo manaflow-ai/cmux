@@ -12,6 +12,11 @@ public protocol BrowserContextMenuHosting: AnyObject {
     /// - Returns: The link.
     func contextMenuDefaultBrowserLink(for target: BrowserContextMenuTarget) -> URL?
 
+    /// The search that replaces the engine's selection search row: the omnibar's search engine.
+    /// - Parameter target: What was right-clicked.
+    /// - Returns: The search, or `nil` to keep the engine's row.
+    func contextMenuWebSearch(for target: BrowserContextMenuTarget) -> BrowserContextMenuWebSearch?
+
     /// The cmux rows after the engine's, one group per separator-delimited section.
     /// - Parameter target: What was right-clicked.
     /// - Returns: The groups, in order.

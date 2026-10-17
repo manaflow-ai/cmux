@@ -5,6 +5,8 @@ public import Foundation
 /// places the WebKit menu has them.
 ///
 /// - "Open Link in Default Browser" follows "Open Link in New Tab".
+/// - Chromium's "Search Google for …" row becomes a row that searches with cmux's configured
+///   search engine, as the omnibar does.
 /// - Chromium rows Classic cannot honor (new Chromium windows, incognito) are removed.
 /// - Host groups (screenshots, Move Tab to New Workspace, Browser Focus Mode) follow, each after
 ///   a separator, as on WebKit.
@@ -35,16 +37,22 @@ public struct BrowserChromiumContextMenuComposer: Sendable {
     ///   - target: What was right-clicked (kept for host rows that depend on it).
     ///   - defaultBrowserLink: The link to offer in the default browser, or `nil` when the host
     ///     cannot open the target's link there.
+    ///   - webSearch: The cmux search that replaces Chromium's selection search rows, or `nil`
+    ///     to keep Chromium's.
     ///   - hostGroups: cmux rows after the engine's, one group per separator-delimited section.
     /// - Returns: The menu's rows in order.
     public func compose(
         items: [BrowserContextMenuItem],
         target: BrowserContextMenuTarget,
         defaultBrowserLink: URL?,
+        webSearch: BrowserContextMenuWebSearch? = nil,
         hostGroups: [[BrowserContextMenuHostAction]]
     ) -> [BrowserContextMenuEntry] {
         var entries: [BrowserContextMenuEntry] = filtered(items).map { item in
             item.kind == .separator ? .separator : .engine(item)
+        }
+        if let webSearch {
+            entries = Self.replacingWebSearch(in: entries, with: webSearch)
         }
         if let link = defaultBrowserLink, target.linkURL != nil {
             let openInNewTab = entries.firstIndex { entry in
@@ -64,6 +72,20 @@ public struct BrowserChromiumContextMenuComposer: Sendable {
             entries.append(contentsOf: group.map(BrowserContextMenuEntry.host))
         }
         return Self.normalizingSeparators(entries)
+    }
+
+    /// Puts `search` where Chromium's first selection search row was and drops the others.
+    private static func replacingWebSearch(
+        in entries: [BrowserContextMenuEntry],
+        with search: BrowserContextMenuWebSearch
+    ) -> [BrowserContextMenuEntry] {
+        var placed = false
+        return entries.compactMap { entry in
+            guard case .engine(let item) = entry,
+                  BrowserChromiumContextMenuCommand.webSearch.contains(item.id) else { return entry }
+            defer { placed = true }
+            return placed ? nil : .host(.searchWeb(search))
+        }
     }
 
     private func filtered(_ items: [BrowserContextMenuItem]) -> [BrowserContextMenuItem] {
