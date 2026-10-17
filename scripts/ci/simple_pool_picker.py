@@ -30,6 +30,8 @@ import urllib.request
 from typing import Any, Mapping, Sequence
 
 BLACKSMITH = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15")
+# A Blacksmith macOS label, to its macOS 27 image for a pin bump's shards.
+BLACKSMITH_MACOS_27 = re.compile(r"^(blacksmith-(?:6|12)vcpu)-macos-(?:15|26|latest)$")
 CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
@@ -457,6 +459,12 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                   admission_runner=json.dumps([root]) if root and "admission" in owned_jobs
                   else json.dumps([choice.admission_label])
                   if choice.admission_label and not choice.owned and env.get("RUN_MACOS") == "true" else "")
+    if env.get("RUN_MACOS27") == "true":
+        # A vendored pin bump (choose_ci_suite.py): the owned minis run macOS 27,
+        # and a shard that falls back to Blacksmith takes its macOS 27 image.
+        # Compile admission stays where it was placed.
+        for key in ("shard_runner", "retry_runner"):
+            values[key] = BLACKSMITH_MACOS_27.sub(r"\1-macos-27", values[key])
     if path:
         with open(path, "a", encoding="utf-8") as handle:
             for key, value in values.items():

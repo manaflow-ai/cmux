@@ -56,6 +56,14 @@ on:
         required: false
         default: ""
         type: string
+      # "true" for a vendored pin bump (choose_ci_suite.py): every app-host
+      # shard must run on macOS 27, where #19672 crashed after passing on
+      # macos-26. Owned minis run macOS 27; the pool choice moves a Blacksmith
+      # fallback to blacksmith-*-macos-27.
+      macos27:
+        required: false
+        default: ""
+        type: string
       # "layered" also uploads the product as four layer artifacts plus an
       # index, and consumers try those before the aggregate. Off by default:
       # measured 2026-09-27 on the owned minis, the layer uploads added 100 to
@@ -1965,6 +1973,17 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
+      # A vendored pin bump must not pass on an older macOS by runner luck.
+      - name: Require macOS 27 for a vendored pin bump
+        if: ${{ inputs.macos27 == 'true' }}
+        run: |
+          version="$(sw_vers -productVersion)"
+          if [ "${version%%.*}" -lt 27 ]; then
+            echo "::error::a vendored pin bump runs its app-host shards on macOS 27; this runner has macOS $version. Re-run this shard on an owned mini or Blacksmith's macOS 27 image."
+            exit 1
+          fi
+          echo "macOS $version"
+
       # Runs before checkout so a misrouted shard never checks out the PR.
       # The self-hosted fleet also carries a macos-26 label, so a macos-*
       # request must prove it landed on GitHub-hosted capacity.
@@ -2063,8 +2082,22 @@ jobs:
           exit 1
 
       - name: Select Xcode
+        env:
+          MACOS27: ${{ inputs.macos27 }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           set -euo pipefail
+          # A pin bump's shard on Blacksmith's macOS 27 image: the image has
+          # only Xcode 27, not the pool pin (26.6). The shard runs the product
+          # compile admission built with the pinned Xcode, so it takes the
+          # image's Xcode to run it; an app-host product refuses only an Xcode
+          # older than its producer's.
+          if [ "$MACOS27" = true ] && [ "$RUNNER_ENVIRONMENT" = github-hosted ] \
+            && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 27 ] && [ ! -d /Applications/Xcode_26.6.app ]; then
+            CMUX_CI_XCODE_APP="$(dirname "$(dirname "$(xcode-select -p)")")"
+            export CMUX_CI_XCODE_APP
+            echo "macOS 27 image without Xcode 26.6: running the product with $CMUX_CI_XCODE_APP"
+          fi
           ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData

@@ -88,6 +88,8 @@ jobs:
       unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
       unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
+      # A vendored pin bump (choose_ci_suite.py): the shards run on macOS 27.
+      macos27: ${{ steps.suite.outputs.macos27 }}
       # Only ever true for a changed-suites run the diff selected, which never
       # takes the canary drop above.
       # On an owned Mac, compile admission takes the mini's gui token for the
@@ -790,6 +792,7 @@ jobs:
           RUN_UNIT_SUITE: ${{ steps.suite.outputs.unit_suite }}
           RUN_UNIT_IN_ADMISSION: ${{ steps.suite.outputs.unit_in_admission }}
           RUN_UNIT_SELECTORS: ${{ steps.suite.outputs.unit_selectors }}
+          RUN_MACOS27: ${{ steps.suite.outputs.macos27 }}
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
@@ -1401,6 +1404,7 @@ jobs:
       unit_selectors: ${{ needs.changes.outputs.unit_selectors }}
       unit_strict_steps: ${{ needs.changes.outputs.unit_strict_steps }}
       unit_in_admission: ${{ needs.changes.outputs.unit_in_admission }}
+      macos27: ${{ needs.changes.outputs.macos27 }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}

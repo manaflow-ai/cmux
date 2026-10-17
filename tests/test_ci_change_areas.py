@@ -4529,6 +4529,71 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
 
 
+def test_a_vendored_pin_bump_runs_every_suite_on_macos_27() -> None:
+    # A bonsplit or ghostty pin bump, or new GhosttyKit checksums, changes code
+    # no app diff shows. #19606 skipped the app-host shards and ui-tests, #19672
+    # ran no ui-tests and passed on macos-26 only to crash on the macOS 27
+    # minis, #19443 ran only the changed suites. A pin-only diff runs the full
+    # suite (all seven shards), the fuzz regression replays and macOS 27,
+    # whatever the policy or labels say.
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import vendored_pin_changed
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert vendored_pin_changed(["vendor/bonsplit"])
+    assert vendored_pin_changed(["ghostty", "README.md"])
+    assert vendored_pin_changed(["scripts/ghosttykit-checksums.txt"])
+    assert not vendored_pin_changed(["Sources/Workspace.swift", "vendor/bonsplit-notes.md", "ghostty.md"])
+    assert not vendored_pin_changed(None)
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        for pin in ("vendor/bonsplit\n", "ghostty\n", "scripts/ghosttykit-checksums.txt\n"):
+            for labels in ((), ("no-full-ci",)):
+                values = outputs(pin, labels)
+                assert values["full_suite"] == "true", (pin, labels)
+                assert values["unit_suite"] == "true", (pin, labels)
+                assert values["unit_selectors"] == "", (pin, labels)  # every suite, all seven shards
+                assert FUZZ_REGRESSIONS_SELECTOR in values["ui_selectors"].split(), (pin, labels)
+                assert values["macos27"] == "true", (pin, labels)
+        values = outputs("Sources/Workspace.swift\n")
+        assert values["full_suite"] == "false"
+        assert values["macos27"] == "false"
+
+    # The workflows carry it: the suite step's output reaches ci-macos.yml, the
+    # pool choice maps the shards' Blacksmith fallback to macOS 27, and a shard
+    # of a pin bump that still lands below macOS 27 fails instead of passing.
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    macos = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+    assert "macos27: ${{ steps.suite.outputs.macos27 }}" in ci
+    assert "RUN_MACOS27: ${{ steps.suite.outputs.macos27 }}" in ci
+    assert "macos27: ${{ needs.changes.outputs.macos27 }}" in ci
+    assert re.search(r"^      macos27:\n", macos, re.M)
+    shards = macos[macos.index("\n  app-host-unit-tests:\n"):macos.index("\n  cli-product-tests:\n")]
+    assert "inputs.macos27 == 'true'" in shards and "sw_vers -productVersion" in shards
+    # Blacksmith's macOS 27 image has Xcode 27 alone: the shard runs the
+    # admission-built product with it rather than failing on the 26.6 pin.
+    assert "MACOS27: ${{ inputs.macos27 }}" in shards and "Xcode_26.6.app" in shards
+
+
 def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
