@@ -31,6 +31,8 @@ it; the variable is ignored when malformed or unset. Non-owned runners do not
 apply an implicit target.
 
 The command opens only a fully initialized cache layout. Missing mounts,
-symlinked roots or required directories, and malformed entries fail closed and
-leave the filesystem unchanged. Unknown top-level files are preserved for
-forensic receipts and future schema versions.
+symlinked roots or required directories fail closed and leave the filesystem
+unchanged. Malformed object entries are skipped; other eligible cache data may
+still be reclaimed. Unknown top-level files are preserved for forensic receipts
+and future schema versions. Strict maintenance reports abandoned staging as
+pending rather than claiming those bytes were reclaimed.

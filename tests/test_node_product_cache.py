@@ -569,7 +569,8 @@ class NodeProductCacheTests(unittest.TestCase):
         staging.mkdir()
         (staging / cache.OBJECT_NAME).write_bytes(b"leftover")
         result = cache.reclaim(self.store, 10**9, strict_state=True)
-        self.assertEqual(result["staging_reclaims"], 1)
+        self.assertEqual(result["staging_reclaims"], 0)
+        self.assertEqual(result["staging_pending"], 1)
         self.assertTrue(staging.exists())
 
     def test_open_existing_does_not_create_a_missing_store(self):

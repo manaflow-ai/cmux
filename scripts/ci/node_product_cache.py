@@ -319,6 +319,7 @@ def budget_bytes(env=os.environ) -> int:
 
 
 def _parse_bytes(value: str) -> int:
+    """Parse a positive decimal byte count with an optional binary suffix."""
     match = re.fullmatch(r"([0-9]+)\s*(b|kib|mib|gib|tib)?", value.strip(), re.IGNORECASE)
     if not match:
         raise ValueError("invalid byte count")
@@ -411,7 +412,7 @@ def _active_leases_readonly(store: Store, key: str, now: float | None = None) ->
 
 
 def _strict_lease_scan(store: Store, key: str, *, remove_expired: bool, now: float | None = None) -> tuple[int, bool]:
-    """Return (active, invalid) without trusting malformed lease state."""
+    """Return active and invalid lease counts without trusting malformed state."""
     now = time.time() if now is None else now
     active = 0
     invalid = False
@@ -1114,6 +1115,7 @@ def seed(
 
 
 def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
+    """Remove abandoned staging only under a nonblocking per-key owner lock."""
     reclaimed = 0
     reclaimed_bytes = 0
     staging_root = store.root / "staging"
@@ -1130,7 +1132,7 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
                 size = 0
                 for child in path.rglob("*"):
                     try:
-                        if child.is_file():
+                        if not child.is_symlink() and child.is_file():
                             size += child.stat().st_size
                     except OSError:
                         pass
@@ -1140,7 +1142,8 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
                     pass
                 for child in path.rglob("*"):
                     try:
-                        child.chmod(0o660 if child.is_file() else 0o770)
+                        if not child.is_symlink():
+                            child.chmod(0o660 if child.is_file() else 0o770)
                     except OSError:
                         pass
                 shutil.rmtree(path, ignore_errors=True)
@@ -1153,6 +1156,7 @@ def _reclaim_abandoned_staging(store: Store) -> tuple[int, int]:
 
 
 def _staging_snapshot(store: Store) -> tuple[int, int]:
+    """Measure abandoned staging without creating locks or following symlinks."""
     count = 0
     total = 0
     for path in (store.root / "staging").iterdir():
@@ -1183,8 +1187,12 @@ def reclaim(
     retains the existing per-key nonblocking owner locks and lease checks.
     """
     budget = max(0, int(budget))
-    if dry_run or strict_state:
+    staging_pending = staging_pending_bytes = 0
+    if dry_run:
         staging_reclaims, staging_reclaimed_bytes = _staging_snapshot(store)
+    elif strict_state:
+        staging_reclaims = staging_reclaimed_bytes = 0
+        staging_pending, staging_pending_bytes = _staging_snapshot(store)
     else:
         staging_reclaims, staging_reclaimed_bytes = _reclaim_abandoned_staging(store)
     candidates = []
@@ -1310,6 +1318,8 @@ def reclaim(
         "evicted_bytes": evicted_bytes,
         "staging_reclaims": staging_reclaims,
         "staging_reclaimed_bytes": staging_reclaimed_bytes,
+        "staging_pending": staging_pending,
+        "staging_pending_bytes": staging_pending_bytes,
         "dry_run": dry_run,
         "locked_objects": locked,
         "leased_objects": leased,
@@ -1355,6 +1365,7 @@ def _report(event: str, result: dict) -> None:
 
 
 def _maintenance_reclaim(argv: list[str]) -> int:
+    """Run the explicit owner maintenance command and return a retry-aware status."""
     parser = argparse.ArgumentParser(
         prog="node-product-cache.py reclaim",
         description="Reclaim the existing node-local product cache under owner locks.",
