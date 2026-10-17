@@ -98,7 +98,7 @@ enum ThemeRepaint {
     /// `layer`'s colors as shown now, and those of the sublayers it owns (not the layers of
     /// subviews: those views are in the pass themselves or draw in another scope).
     private static func collect(_ layer: CALayer, into shown: inout [(layer: CALayer, colors: [(LayerColor, CGColor?)])]) {
-        if layer.value(forKey: ownsBlendKey) as? Bool != true {
+        if !ownBlends.contains(layer) {
             shown.append((layer, LayerColor.properties(of: layer).map { ($0, $0.shown(in: layer)) }))
         }
         for sublayer in layer.sublayers ?? [] where !(sublayer.delegate is NSView) {
@@ -106,12 +106,12 @@ enum ThemeRepaint {
         }
     }
 
-    /// A layer whose owner runs its own color transition (``ownsBlend(_:)``).
-    private static let ownsBlendKey = "cmux.ownsColorBlend"
+    /// Layers whose owner runs its own color transition (``ownsBlend(_:)``).
+    private static let ownBlends = NSHashTable<CALayer>.weakObjects()
 
     /// Leaves `layer`'s colors out of every repaint's blend: its owner animates them itself.
     static func ownsBlend(_ layer: CALayer?) {
-        layer?.setValue(true, forKey: ownsBlendKey)
+        if let layer { ownBlends.add(layer) }
     }
 
     private static func isOnScreen(_ window: NSWindow) -> Bool {
