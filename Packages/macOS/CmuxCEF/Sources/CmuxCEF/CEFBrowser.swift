@@ -477,9 +477,16 @@ public final class CEFBrowser {
     /// promises awaited) and returns the value as Foundation JSON objects:
     /// nil for undefined, NSNull for null.
     public func evaluateJavaScript(_ script: String) async throws -> Any? {
-        let params = Self.json(["expression": script, "returnByValue": true, "awaitPromise": true])
-        let result = try await devTools(method: "Runtime.evaluate", paramsJSON: params)
+        let result = try await devTools(method: "Runtime.evaluate", paramsJSON: Self.evaluateParams(script))
         return try Self.evaluationValue(result)
+    }
+
+    /// `Runtime.evaluate` parameters for an app script. It runs as a user
+    /// gesture, as WebKit runs the app's `evaluateJavaScript`: an
+    /// automation click's `window.open` or `target=_blank` link opens a tab
+    /// instead of being refused by Chromium's popup blocker.
+    nonisolated static func evaluateParams(_ script: String) -> String {
+        json(["expression": script, "returnByValue": true, "awaitPromise": true, "userGesture": true])
     }
 
     nonisolated static func evaluationValue(_ json: String) throws -> Any? {
