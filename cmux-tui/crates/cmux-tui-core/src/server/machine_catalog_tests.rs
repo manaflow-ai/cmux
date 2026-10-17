@@ -2,7 +2,7 @@
 //! remote routes, and its publication expires with that exact connection.
 
 use super::super::*;
-use crate::{Actor, ResourceMachineRequest, ResourceMachineService, ResourceSelectors};
+use crate::{Actor, ResourceMachineRequest, ResourceSelectors};
 use serde_json::{Value, json};
 
 struct Publisher {
@@ -65,7 +65,7 @@ fn dispatch(
     mux: &Arc<Mux>,
     operation: ResourceOperation,
     machine: Option<&str>,
-) -> Result<Value, crate::ResourceError> {
+) -> Result<Value, crate::resource::ResourceError> {
     mux.resource_machine_service().dispatch(&ResourceMachineRequest {
         operation,
         selectors: ResourceSelectors { machine: machine.map(str::to_owned), ..Default::default() },
