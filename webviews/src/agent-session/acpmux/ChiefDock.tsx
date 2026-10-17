@@ -174,7 +174,6 @@ export function ChiefDock({
                       type="button"
                       className="acpmux-chief-card-action"
                       aria-label={t("floating.moveToTab")}
-                      title={t("floating.moveToTab")}
                       onClick={() => onMoveToTab(session.sessionId)}
                     >
                       <Icon name="action.go" size={18} />
@@ -184,7 +183,6 @@ export function ChiefDock({
                     type="button"
                     className="acpmux-chief-card-dismiss"
                     aria-label={t("header.agentChat")}
-                    title={t("header.agentChat")}
                     onClick={() => setExpanded(false)}
                   >
                     <span aria-hidden="true">×</span>
@@ -201,7 +199,6 @@ export function ChiefDock({
           className="acpmux-chief-dock-mascot"
           aria-label={t("header.agentChat")}
           aria-expanded={expanded}
-          title={t("header.agentChat")}
           onClick={() => setExpanded((value) => !value)}
         >
           <img src={CHIEF_MASCOTS[mascot]} alt="" aria-hidden="true" />
@@ -216,7 +213,6 @@ export function ChiefDock({
             type="button"
             className="acpmux-chief-dock-tool"
             aria-label={t("sidebar.newChat")}
-            title={t("sidebar.newChat")}
             onClick={onNewChat}
           >
             <Icon name="action.edit" size={20} />
@@ -225,7 +221,6 @@ export function ChiefDock({
             type="button"
             className="acpmux-chief-dock-tool"
             aria-label={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
-            title={attached ? t("floating.moveToTab") : t("floating.keepOnTop")}
             aria-pressed={attached}
             onClick={() => setAttached((value) => !value)}
           >
@@ -241,7 +236,6 @@ export function ChiefDock({
             type="button"
             className="acpmux-chief-dock-tool"
             aria-label={expanded ? t("header.agentChat") : t("sidebar.newChat")}
-            title={expanded ? t("header.agentChat") : t("sidebar.newChat")}
             onClick={() => setExpanded((value) => !value)}
           >
             <Icon name="disclosure.collapsed" size={18} className="acpmux-chief-dock-collapse-mark" />
