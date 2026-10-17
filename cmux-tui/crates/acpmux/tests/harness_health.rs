@@ -150,6 +150,105 @@ fn row<'a>(reply: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no {id} row in {reply}"))
 }
 
+/// Inventory consumers must never receive the diagnostic command/path fields,
+/// and reading an empty cache must not run the first health check.
+#[tokio::test]
+async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
+    let root = scratch("inventory-cache");
+    let home = root.join("home");
+    let user = root.join("profiles");
+    let hub = hub_for(&root, &user, &home);
+    let cache = root.join("inventory-health.json");
+    let private = "private@example.test secret-token";
+    let mut cached = json!([{
+        "id": "codex", "program": private, "path": private, "channel": "npm",
+        "package": private, "version": "1.2.3", "latest": "1.2.4",
+        "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn",
+        "authDetail": private, "login": private,
+        "update": {"argv": [private], "command": private, "elevated": false},
+        "problem": private, "checkedAt": 1235,
+        "lastAutoUpdate": {"at": 1235, "ok": false, "detail": private}
+    }]);
+    let mut invalid_id = cached[0].clone();
+    invalid_id["id"] = json!(private);
+    let mut invalid_version = cached[0].clone();
+    invalid_version["id"] = json!("broken");
+    invalid_version["version"] = json!(format!("1.2.3 {private}"));
+    invalid_version["latest"] = json!(private);
+    cached.as_array_mut().unwrap().extend([invalid_id, invalid_version]);
+    std::fs::write(&cache, cached.to_string()).unwrap();
+    hub.health.attach(Settings { cache: Some(cache), home: home.clone(), ..Settings::default() });
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
+        let mut client = Client::open(&hub, origin);
+        let hello = client.call(method::INITIALIZE, json!({})).await.unwrap();
+        assert!(
+            hello
+                .pointer("/_meta/acpmux/features")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .contains(&json!("harnessInventory"))
+        );
+        let reply =
+            client.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.unwrap();
+        assert_eq!(
+            reply,
+            json!({"view": "inventory", "cached": true, "harnesses": [{
+                "id": "codex", "family": null, "channel": "npm", "version": "1.2.3", "latest": "1.2.4",
+                "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn", "checkedAt": 1235
+            }, {
+                "id": "broken", "family": null, "channel": "npm", "version": null, "latest": null,
+                "latestCheckedAt": 1234, "outdated": false, "auth": "signedIn", "checkedAt": 1235
+            }]})
+        );
+        assert!(!reply.to_string().contains(private));
+    }
+    let mut peer = Client::open(&hub, Origin::Peer);
+    assert!(peer.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.is_err());
+
+    let empty_root = scratch("inventory-empty");
+    let marker = empty_root.join("version-ran");
+    let binary = empty_root.join("bin/agent");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(&binary, format!("#!/bin/sh\ntouch '{}'\necho 1.2.3\n", marker.display()))
+        .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let profiles = empty_root.join("profiles");
+    profile(&profiles, "test", &format!("command = \"{}\"\n", binary.display()));
+    let empty = hub_for(&empty_root, &profiles, &empty_root.join("home"));
+    let mut local = Client::open(&empty, Origin::Local);
+    let reply = local.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.unwrap();
+    assert_eq!(reply, json!({"view": "inventory", "cached": true, "harnesses": []}));
+    assert!(!marker.exists(), "an inventory read ran the CLI");
+    assert!(empty.health.rows().is_empty());
+}
+
+#[tokio::test]
+async fn cmux_next_harness_inventory_refuses_controls_and_unknown_views() {
+    let root = scratch("inventory-controls");
+    let hub = hub_for(&root, &root.join("profiles"), &root.join("home"));
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
+        let mut client = Client::open(&hub, origin);
+        for params in [
+            json!({"view": "inventory", "refresh": true}),
+            json!({"view": "inventory", "rescan": true}),
+            json!({"view": "inventory", "checkLatest": true}),
+            json!({"view": "inventory", "autoUpdate": {"id": "codex", "on": true}}),
+            json!({"view": "inventory", "machine": "other-host"}),
+            json!({"view": "inventory", "command": "echo bad"}),
+            json!({"view": "inventroy"}),
+            json!({"view": null}),
+        ] {
+            let error = client
+                .call(method::MUX_HARNESS_HEALTH, params)
+                .await
+                .expect_err("inventory accepted a control");
+            assert_eq!(error["code"], -32602);
+        }
+    }
+    assert!(hub.health.rows().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     let root = scratch("installs");
