@@ -458,6 +458,10 @@ final class MobileHostService {
         guard enabled != chiefEnabledSnapshot else { return }
         chiefEnabledSnapshot = enabled
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        // A connected phone otherwise keeps the capability snapshot it got at
+        // connect time. Invalidate that snapshot over the existing event
+        // stream so it can re-read `mobile.host.status` immediately.
+        Self.emitEvent(topic: "mobile.host.capabilities.changed", payload: [:])
     }
 
     /// Inject the auth dependency. Call once at the composition root.
