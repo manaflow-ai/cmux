@@ -669,6 +669,8 @@ public actor ConversationBroker: ConversationClient {
             if let last = events.last {
                 guard last.sequence >= after else { throw ConversationJournalError.snapshotAhead(after, last.sequence) }
                 state.cursor = last.sequence
+            } else if after > 0 {
+                throw ConversationJournalError.snapshotAhead(after, 0)
             }
             // A process restart invalidates any in-flight native turn/request. Keep queued items
             // marked `isDelivering` so an uncertain provider dispatch is never replayed automatically.
@@ -687,6 +689,11 @@ public actor ConversationBroker: ConversationClient {
                     let updatedData = try JSONEncoder().encode(updatedRecord)
                     try updatedData.write(to: url, options: [.atomic])
                     try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: url.path)
+                    let restartSnapshot = ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: Array(state.receipts.suffix(64)), activeTurnID: nil, isTurnRunning: false, capabilities: state.capabilities)
+                    let snapshotData = try JSONEncoder().encode(restartSnapshot)
+                    let snapshotURL = child.appendingPathComponent("snapshot.json")
+                    try snapshotData.write(to: snapshotURL, options: [.atomic])
+                    try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: snapshotURL.path)
                 } catch {
                     throw ConversationJournalError.corruptSession(url.path)
                 }
