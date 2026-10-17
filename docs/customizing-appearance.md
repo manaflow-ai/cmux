@@ -215,6 +215,10 @@ has ready-to-copy ones.
   mode so they stay readable on a dark sidebar. `false` shows them exactly as
   chosen, so a dark `solidFill` row looks dark. The `leftRail` rail is always
   lightened.
+- `workspaceColors.unselectedFillOpacity`: opacity of the workspace color on
+  `solidFill` rows that are not selected, from `0` to `1`. The default `0.7`
+  lets the sidebar show through; `1` shows the full color. Multi-selected rows
+  use half of this value.
 - `workspaceColors.colors` is the named palette shown in the workspace color
   picker. It replaces the built-in palette, so copy the default entries from the
   schema that you want to keep.

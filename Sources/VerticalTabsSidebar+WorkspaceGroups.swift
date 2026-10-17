@@ -40,6 +40,7 @@ extension VerticalTabsSidebar {
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
@@ -226,6 +227,7 @@ extension VerticalTabsSidebar {
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
             accent: settings.accentColor
         )
