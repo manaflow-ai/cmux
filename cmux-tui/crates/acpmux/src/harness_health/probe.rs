@@ -148,13 +148,19 @@ pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
 /// Whether `latest` is newer than `installed`, by their numeric parts. A
 /// version that does not parse is never called outdated.
 pub fn is_newer(latest: &str, installed: &str) -> bool {
+    compare_versions(latest, installed) == Some(std::cmp::Ordering::Greater)
+}
+
+/// Numeric version ordering, retaining the difference between equality and
+/// a version that cannot be compared. Missing evidence is not equality.
+pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
         core.split('.').map(|p| p.parse().ok()).collect()
     }
-    let (Some(mut a), Some(mut b)) = (parts(latest), parts(installed)) else { return false };
+    let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
-    a > b
+    Some(a.cmp(&b))
 }
