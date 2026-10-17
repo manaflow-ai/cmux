@@ -473,6 +473,9 @@
         "free": "Kostenlos",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max umfasst bis zu 5 Cloud-VMs mit gemeinsam genutzten 80 vCPUs und 160 GB RAM für 200 $/Monat oder 1.920 $/Jahr (160 $/Monat)."
+      },
       "teamPanel": {
         "notFound": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
         "unavailable": "Die Team-Abrechnung konnte nicht geladen werden. Versuche es gleich noch einmal.",
@@ -5286,7 +5289,64 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "billingPeriod": "Abrechnungszeitraum",
+    "monthly": "Monatlich",
+    "annual": "Jährlich",
+    "perMonthBilledYearly": "/Monat, jährlich abgerechnet",
+    "perUserMonthBilledYearly": "/Benutzer/Monat, jährlich abgerechnet",
+    "saveAnnual": "{discount}% sparen",
+    "annualComparePrice": "${monthly}/Monat",
+    "teamMonthlyComparePrice": "${monthly}/Benutzer/Monat",
+    "teamAnnualComparePrice": "${monthly}/Benutzer/Monat",
+    "pro": {
+      "annual": {
+        "yearly": "Jährlich"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Jährlich"
+      }
+    },
+    "billingAnnualUnavailable": "Die jährliche Abrechnung ist für diesen Tarif nicht verfügbar. Wählen Sie unten einen monatlichen Tarif.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Was bietet Max zusätzlich?",
+          "a": "Max kostet 200 $/Monat oder 1.920 $/Jahr (160 $/Monat). Es umfasst alles aus Pro und bis zu 5 Cloud-VMs mit gemeinsam genutzten 80 vCPUs und 160 GB RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Wie funktioniert die Abrechnung?",
+          "a": "Bezahlte Tarife werden monatlich oder jährlich abgerechnet. Pro kostet 50 $/Monat oder 550 $/Jahr, Max 200 $/Monat oder 1.920 $/Jahr (160 $/Monat) und Team 60 $/Benutzer/Monat oder 660 $/Benutzer/Jahr."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Gibt es einen Team-Tarif?",
+          "a": "Ja. Team kostet 60 $/Benutzer/Monat oder 660 $/Benutzer/Jahr und bietet zentrale Abrechnung sowie priorisierten Support."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

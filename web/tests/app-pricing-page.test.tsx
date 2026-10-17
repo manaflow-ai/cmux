@@ -115,7 +115,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).toMatch(/plan=max[^"]*interval=year/);
+    expect(html).not.toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
@@ -219,7 +219,7 @@ describe("app pricing page", () => {
     );
   });
 
-  test("renders monthly pricing and preserves native checkout context", async () => {
+  test("renders annual pricing and preserves native checkout context", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -233,21 +233,22 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).toContain("$50");
+    expect(html).toContain("$45.83");
+    expect(html).toContain("$1,920");
+    const annualProPrice = html.indexOf("$45.83");
+    expect(html.slice(annualProPrice, annualProPrice + 240)).toContain("/mo, billed annually");
     expect(html).toContain("$60");
-    expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
+    expect(html).toContain("/mo, billed annually");
+    expect(html).toContain("/user/mo, billed annually");
+    expect(html).toContain('name="pricing-interval-app_pricing"');
+    expect(html).toContain('value="year"');
+    expect(html).toContain('role="tablist"');
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("$55");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    // Max follows the annual selector just like Pro.
-    expect(html).toContain("$200");
     expect(html).toContain("$160");
-    expect(html).toContain("Yearly");
     expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -262,7 +263,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("defaults the Pro card to yearly billing", async () => {
+  test("defaults the pricing selector to monthly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -271,10 +272,14 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toMatch(/billed yearly, save/);
-    expect(html).toContain("$40");
-    expect(html).toMatch(/interval(=|%3D|%253D)year/);
-    expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
+    expect(html).not.toMatch(/billed annually/);
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
+    expect(html).toMatch(/interval(=|%3D|%253D)month/);
+    expect(html).toContain('name="pricing-interval-app_pricing"');
+    expect(html).toContain('value="month"');
+    expect(html).toContain('value="year"');
+    expect(html).not.toMatch(/plan%253Dgo[^"]*interval%253Dyear/);
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

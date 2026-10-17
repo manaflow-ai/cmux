@@ -655198,6 +655198,131 @@
           }
         }
       }
+    },
+    "cli.billing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month; annual Max checkout is unavailable through CLI checkout; Go is monthly-only. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nإنشاء عملية دفع لحساب cmux المسجّل دخوله. سعر Max هو 200 دولار شهريًا؛ الدفع السنوي لـ Max غير متاح عبر Checkout في CLI؛ Go متاح شهريًا فقط. يتطلب الدفع تأكيدًا في المتصفح. يعرض --no-open أو --json الرابط من دون فتح المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCheckout für das angemeldete cmux-Konto erstellen. Max kostet 200 $/Monat; die jährliche Max-Zahlung ist über den CLI-Checkout nicht verfügbar; Go ist nur monatlich verfügbar. Die Zahlung erfordert eine Bestätigung im Browser. --no-open oder --json gibt die URL zurück, ohne einen Browser zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCrea el checkout para la cuenta de cmux con sesión iniciada. Max cuesta 200 $/mes; el checkout anual de Max no está disponible mediante el checkout de la CLI; Go solo está disponible con facturación mensual. El pago requiere confirmación en el navegador. --no-open o --json devuelve la URL sin abrir un navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCréer un checkout pour le compte cmux connecté. Max coûte 200 $/mois ; le checkout annuel de Max n’est pas disponible via le checkout de la CLI ; Go est uniquement mensuel. Le paiement nécessite une confirmation dans le navigateur. --no-open ou --json renvoie l’URL sans ouvrir de navigateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nサインイン済みの cmux アカウントのチェックアウトを作成します。Max は月額 200 ドルで、CLI のチェックアウトでは Max の年払いを利用できません。Go は月額プランのみです。支払いにはブラウザでの確認が必要です。--no-open または --json を指定するとブラウザを開かずに URL を返します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux billing checkout --plan <go|pro|max> [--no-open]\n\n로그인한 cmux 계정의 결제를 생성합니다. Max는 월 $200이며 CLI 결제에서는 Max 연간 결제를 사용할 수 없습니다. Go는 월간 요금제만 제공합니다. 결제하려면 브라우저에서 확인해야 합니다. --no-open 또는 --json은 브라우저를 열지 않고 URL을 반환합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux billing checkout --plan <go|pro|max> [--no-open]\n\n为已登录的 cmux 帐户创建结账。Max 为每月 200 美元；CLI 结账不提供 Max 年付方案；Go 仅提供月付方案。付款需要在浏览器中确认。--no-open 或 --json 返回网址而不打开浏览器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux billing checkout --plan <go|pro|max> [--no-open]\n\n為已登入的 cmux 帳戶建立結帳。Max 為每月 200 美元；CLI 結帳不提供 Max 年繳方案；Go 僅提供月繳方案。付款需要在瀏覽器中確認。--no-open 或 --json 會回傳網址而不開啟瀏覽器。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nKreirajte naplatu za prijavljeni cmux nalog. Max košta 200 $ mjesečno; godišnja naplata za Max nije dostupna kroz CLI checkout; Go je dostupan samo uz mjesečnu naplatu. Plaćanje zahtijeva potvrdu u pregledniku. --no-open ili --json vraća URL bez otvaranja preglednika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nOpret betaling for den loggede cmux-konto. Max koster $200 om måneden; årlig betaling for Max er ikke tilgængelig via CLI-checkout; Go kan kun betales månedligt. Betaling kræver bekræftelse i browseren. --no-open eller --json returnerer URL’en uden at åbne en browser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCrea il checkout per l’account cmux connesso. Max costa 200 $ al mese; il checkout annuale di Max non è disponibile tramite il checkout CLI; Go è disponibile solo con fatturazione mensile. Il pagamento richiede la conferma nel browser. --no-open o --json restituisce l’URL senza aprire un browser."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nOpprett betaling for den innloggede cmux-kontoen. Max koster 200 $ per måned; årlig Max-betaling er ikke tilgjengelig via CLI-betaling; Go kan bare betales månedlig. Betaling krever bekreftelse i nettleseren. --no-open eller --json returnerer URL-en uten å åpne en nettleser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nUtwórz płatność dla zalogowanego konta cmux. Max kosztuje 200 USD miesięcznie; roczna płatność za Max nie jest dostępna przez checkout CLI; Go jest dostępny tylko w rozliczeniu miesięcznym. Płatność wymaga potwierdzenia w przeglądarce. --no-open lub --json zwraca adres URL bez otwierania przeglądarki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCrie o checkout para a conta cmux conectada. Max custa US$ 200/mês; o checkout anual do Max não está disponível pelo checkout da CLI; Go está disponível somente com cobrança mensal. O pagamento exige confirmação no navegador. --no-open ou --json retorna a URL sem abrir um navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nСоздайте оплату для авторизованного аккаунта cmux. Max стоит $200 в месяц; ежегодная оплата Max недоступна через CLI checkout; Go доступен только с ежемесячной оплатой. Для оплаты требуется подтверждение в браузере. --no-open или --json возвращает URL, не открывая браузер."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nสร้างการชำระเงินสำหรับบัญชี cmux ที่เข้าสู่ระบบ Max ราคา $200 ต่อเดือน การชำระเงินรายปีของ Max ไม่พร้อมใช้งานผ่าน CLI checkout ส่วน Go มีเฉพาะการเรียกเก็บเงินรายเดือน การชำระเงินต้องยืนยันในเบราว์เซอร์ --no-open หรือ --json จะแสดง URL โดยไม่เปิดเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nOturum açmış cmux hesabı için ödeme oluşturun. Max aylık 200 $ tutar; Max için yıllık ödeme CLI checkout üzerinden kullanılamaz; Go yalnızca aylık faturalandırmayla kullanılabilir. Ödeme tarayıcıda onay gerektirir. --no-open veya --json tarayıcı açmadan URL’yi döndürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nСтворіть оплату для облікового запису cmux, у якому виконано вхід. Max коштує $200 на місяць; щорічна оплата Max недоступна через CLI checkout; Go доступний лише з щомісячною оплатою. Для оплати потрібне підтвердження в браузері. --no-open або --json повертає URL, не відкриваючи браузер."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux billing checkout --plan <go|pro|max> [--no-open]\n\nបង្កើតការទូទាត់សម្រាប់គណនី cmux ដែលបានចូល។ Max មានតម្លៃ $200 ក្នុងមួយខែ។ ការទូទាត់ Max ប្រចាំឆ្នាំមិនអាចប្រើបានតាមរយៈ CLI checkout ទេ។ Go មានតែការគិតថ្លៃប្រចាំខែប៉ុណ្ណោះ។ ការទូទាត់ត្រូវការការបញ្ជាក់ក្នុងកម្មវិធីរុករក។ --no-open ឬ --json បង្ហាញ URL ដោយមិនបើកកម្មវិធីរុករក។"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

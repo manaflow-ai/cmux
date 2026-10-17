@@ -473,6 +473,9 @@
         "free": "مجاني",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "يتضمن Max ما يصل إلى 5 أجهزة Cloud VM تشترك في 80 vCPU و160 GB RAM، بسعر 200 دولار شهريًا أو 1,920 دولارًا سنويًا (160 دولارًا شهريًا)."
+      },
       "teamPanel": {
         "notFound": "هذا الفريق غير متاح. ربما غادرته، أو تم حذفه.",
         "unavailable": "تعذّر تحميل فوترة الفريق. حاول مرة أخرى بعد قليل.",
@@ -5283,7 +5286,64 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "billingPeriod": "فترة الفوترة",
+    "monthly": "شهريًا",
+    "annual": "سنويًا",
+    "perMonthBilledYearly": "/شهريًا، تُدفع سنويًا",
+    "perUserMonthBilledYearly": "/مستخدم/شهريًا، تُدفع سنويًا",
+    "saveAnnual": "وفّر {discount}%",
+    "annualComparePrice": "${monthly}/شهريًا",
+    "teamMonthlyComparePrice": "${monthly}/مستخدم/شهريًا",
+    "teamAnnualComparePrice": "${monthly}/مستخدم/شهريًا",
+    "pro": {
+      "annual": {
+        "yearly": "سنويًا"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "سنويًا"
+      }
+    },
+    "billingAnnualUnavailable": "الفوترة السنوية غير متاحة لهذه الخطة. اختر خطة شهرية أدناه.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "ما الذي يضيفه Max؟",
+          "a": "سعر Max هو 200 دولار شهريًا أو 1,920 دولارًا سنويًا (ما يعادل 160 دولارًا شهريًا). ويشمل كل ما في Pro وما يصل إلى 5 أجهزة Cloud VM تشترك في 80 vCPU و160 GB من الذاكرة، بما في ذلك أحجام 24 GB / 12 vCPU و32 GB / 16 vCPU وما يصل إلى 64 GB RAM / 32 vCPU لجهاز واحد."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "كيف تعمل الفوترة؟",
+          "a": "تُحاسب الخطط المدفوعة شهريًا أو سنويًا. Pro بسعر 50 دولارًا شهريًا أو 550 دولارًا سنويًا، وMax بسعر 200 دولار شهريًا أو 1,920 دولارًا سنويًا (160 دولارًا شهريًا)، وTeam بسعر 60 دولارًا للمستخدم شهريًا أو 660 دولارًا للمستخدم سنويًا. يبقى الطرفية والوكلاء المحليون مجانيين."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "هل لديكم خطة للفرق؟",
+          "a": "نعم. Team بسعر 60 دولارًا للمستخدم شهريًا أو 660 دولارًا للمستخدم سنويًا، مع فوترة مركزية لفريقك ودعم ذي أولوية."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

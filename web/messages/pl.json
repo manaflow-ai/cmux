@@ -473,6 +473,9 @@
         "free": "Darmowy",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max obejmuje do 5 Cloud VM współdzielących 80 vCPU i 160 GB RAM za 200 USD miesięcznie lub 1920 USD rocznie (160 USD miesięcznie)."
+      },
       "teamPanel": {
         "notFound": "Ten zespół jest niedostępny. Być może go opuszczono lub został usunięty.",
         "unavailable": "Nie udało się wczytać rozliczeń zespołu. Spróbuj ponownie za chwilę.",
@@ -5286,7 +5289,64 @@
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store"
+    "manageInAppStore": "Zarządzaj w App Store",
+    "billingPeriod": "Okres rozliczeniowy",
+    "monthly": "Miesięcznie",
+    "annual": "Rocznie",
+    "perMonthBilledYearly": "/mies., rozliczane rocznie",
+    "perUserMonthBilledYearly": "/użytkownika/mies., rozliczane rocznie",
+    "saveAnnual": "Oszczędź {discount}%",
+    "annualComparePrice": "${monthly}/mies.",
+    "teamMonthlyComparePrice": "${monthly}/użytkownika/mies.",
+    "teamAnnualComparePrice": "${monthly}/użytkownika/mies.",
+    "pro": {
+      "annual": {
+        "yearly": "Rocznie"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Rocznie"
+      }
+    },
+    "billingAnnualUnavailable": "Roczne rozliczenie nie jest dostępne dla tego planu. Wybierz poniżej plan rozliczany miesięcznie.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Co oferuje Max?",
+          "a": "Max kosztuje 200 USD miesięcznie lub 1920 USD rocznie (160 USD miesięcznie). Obejmuje wszystko z Pro oraz do 5 Cloud VM współdzielących 80 vCPU i 160 GB RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Jak działa rozliczanie?",
+          "a": "Płatne plany są rozliczane miesięcznie lub rocznie. Pro kosztuje 50 USD miesięcznie lub 550 USD rocznie, Max 200 USD miesięcznie lub 1920 USD rocznie (160 USD miesięcznie), a Team 60 USD za użytkownika miesięcznie lub 660 USD za użytkownika rocznie."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Czy macie plan zespołowy?",
+          "a": "Tak. Team kosztuje 60 USD za użytkownika miesięcznie lub 660 USD za użytkownika rocznie i obejmuje centralne rozliczenia oraz priorytetowe wsparcie."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

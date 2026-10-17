@@ -409,6 +409,8 @@ ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Month
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
 ensure_price "$max_product_id" "cmux-max-yearly-1920" "192000" "year" "cmux Max Yearly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
+ensure_price "$pro_product_id" "cmux-pro-yearly-550" "55000" "year" "cmux Pro Annual (11 months)"
+ensure_price "$team_product_id" "cmux-team-yearly-660" "66000" "year" "cmux Team Annual (11 months)"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
 ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy \$30)"
@@ -417,8 +419,8 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
-# Pro and Max are sold yearly at 20% off their monthly prices.
-ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
+# The previous annual Pro offer remains active for existing subscribers only.
+ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly (Legacy \$480)"
 
 # Retired annual offer; valid for existing subscribers only, never advertised
 # as a checkout or portal switch target.

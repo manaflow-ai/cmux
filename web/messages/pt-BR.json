@@ -473,6 +473,9 @@
         "free": "Grátis",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "O Max inclui até 5 Cloud VMs compartilhando 80 vCPUs e 160 GB de RAM por US$ 200/mês ou US$ 1.920/ano (US$ 160/mês)."
+      },
       "teamPanel": {
         "notFound": "Esta equipe não está disponível. Talvez você tenha saído dela ou ela tenha sido excluída.",
         "unavailable": "Não foi possível carregar a cobrança da equipe. Tente novamente em breve.",
@@ -5286,7 +5289,64 @@
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
     "signedOutSignIn": "Entrar",
-    "manageInAppStore": "Gerenciar na App Store"
+    "manageInAppStore": "Gerenciar na App Store",
+    "billingPeriod": "Período de cobrança",
+    "monthly": "Mensal",
+    "annual": "Anual",
+    "perMonthBilledYearly": "/mês, cobrado anualmente",
+    "perUserMonthBilledYearly": "/usuário/mês, cobrado anualmente",
+    "saveAnnual": "Economize {discount}%",
+    "annualComparePrice": "${monthly}/mês",
+    "teamMonthlyComparePrice": "${monthly}/usuário/mês",
+    "teamAnnualComparePrice": "${monthly}/usuário/mês",
+    "pro": {
+      "annual": {
+        "yearly": "Anual"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Anual"
+      }
+    },
+    "billingAnnualUnavailable": "A cobrança anual não está disponível para este plano. Escolha um plano mensal abaixo.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "O que o Max adiciona?",
+          "a": "O Max custa US$ 200/mês ou US$ 1.920/ano (US$ 160/mês). Inclui tudo do Pro e até 5 Cloud VMs compartilhando 80 vCPUs e 160 GB de RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Como funciona a cobrança?",
+          "a": "Os planos pagos são cobrados mensal ou anualmente. O Pro custa US$ 50/mês ou US$ 550/ano, o Max US$ 200/mês ou US$ 1.920/ano (US$ 160/mês), e o Team US$ 60/usuário/mês ou US$ 660/usuário/ano."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Vocês têm um plano para equipes?",
+          "a": "Sim. O Team custa US$ 60/usuário/mês ou US$ 660/usuário/ano, com cobrança centralizada e suporte prioritário."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

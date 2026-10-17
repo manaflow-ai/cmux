@@ -473,6 +473,9 @@
         "free": "Gratuit",
         "pro": "Pro"
       },
+      "max": {
+        "upsell": "Max inclut jusqu’à 5 Cloud VM partageant 80 vCPU et 160 Go de RAM, pour 200 $/mois ou 1 920 $/an (160 $/mois)."
+      },
       "teamPanel": {
         "notFound": "Cette équipe n’est pas disponible. Vous l’avez peut-être quittée, ou elle a été supprimée.",
         "unavailable": "Impossible de charger la facturation de l’équipe. Réessayez dans un instant.",
@@ -5288,7 +5291,64 @@
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store"
+    "manageInAppStore": "Gérer dans l’App Store",
+    "billingPeriod": "Période de facturation",
+    "monthly": "Mensuel",
+    "annual": "Annuel",
+    "perMonthBilledYearly": "/mois, facturé annuellement",
+    "perUserMonthBilledYearly": "/utilisateur/mois, facturé annuellement",
+    "saveAnnual": "Économisez {discount} %",
+    "annualComparePrice": "${monthly}/mois",
+    "teamMonthlyComparePrice": "${monthly}/utilisateur/mois",
+    "teamAnnualComparePrice": "${monthly}/utilisateur/mois",
+    "pro": {
+      "annual": {
+        "yearly": "Annuel"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Annuel"
+      }
+    },
+    "billingAnnualUnavailable": "La facturation annuelle n’est pas disponible pour ce forfait. Choisissez un forfait mensuel ci-dessous.",
+    "faq": {
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. Cloud VMs are part of the paid plans."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+        },
+        {
+          "q": "Que comprend Max ?",
+          "a": "Max coûte 200 $/mois ou 1 920 $/an (160 $/mois). Il inclut tout ce qui est compris dans Pro et jusqu’à 5 Cloud VM partageant 80 vCPU et 160 Go de RAM."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "No. The iOS app pairs with your Mac over the built-in cmux iroh network. You can also bring your own networking, like Tailscale. Enterprise can self-host."
+        },
+        {
+          "q": "Comment fonctionne la facturation ?",
+          "a": "Les forfaits payants sont facturés mensuellement ou annuellement. Pro coûte 50 $/mois ou 550 $/an, Max 200 $/mois ou 1 920 $/an (160 $/mois), et Team 60 $/utilisateur/mois ou 660 $/utilisateur/an."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Proposez-vous un forfait équipe ?",
+          "a": "Oui. Team coûte 60 $/utilisateur/mois ou 660 $/utilisateur/an, avec facturation centralisée et support prioritaire."
+        }
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

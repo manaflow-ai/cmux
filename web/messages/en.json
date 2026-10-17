@@ -794,7 +794,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly."
+        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo)."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -1786,10 +1786,16 @@
     },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
+    "perMonthBilledYearly": "/mo, billed annually",
     "perUserMonth": "/user/mo",
+    "perUserMonthBilledYearly": "/user/mo, billed annually",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
+    "annual": "Annual",
+    "saveAnnual": "Save {discount}%",
+    "annualComparePrice": "${monthly}/mo",
     "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -2068,7 +2074,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo or $1,920/yr ($160/mo). It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -2081,7 +2087,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. Team is $60/user/mo. The terminal and local agents stay free."
+          "a": "Paid plans are billed monthly or annually. Pro is $50/mo or $550/year, Max is $200/mo or $1,920/year ($160/mo), and Team is $60/user/mo or $660/user/year. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2089,7 +2095,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo or $660/user/year, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -2100,7 +2106,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is available for Pro and Max. Choose a plan below.",
+    "billingAnnualUnavailable": "Annual billing is not available for this plan. Choose a monthly plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
