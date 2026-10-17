@@ -41,8 +41,8 @@ extension CEFTabContentView: BrowserPageViewportProviding {
     }
     /// A fit's presented rect (as `layoutContent` places the host), else the page frame.
     var presentedPageFrame: CGRect {
-        guard tab?.sidePanel.state == nil, let rect = tab?.deviceEmulation?.presentedRect(in: pageViewportFrame) else { return pageViewportFrame }
+        guard tab?.sidePanel.state == nil, tab?.devToolsController.deviceModeOn != true, let rect = tab?.deviceEmulation?.presentedRect(in: pageViewportFrame) else { return pageViewportFrame }
         return rect
     }
-    var presentedPageScale: CGFloat { tab?.deviceEmulationViewport?.scale ?? 1 }
+    var presentedPageScale: CGFloat { tab?.devToolsController.deviceModeOn == true ? 1 : tab?.deviceEmulationViewport?.scale ?? 1 }
 }

@@ -7,7 +7,9 @@ status says whether the JSON equals what the Swift gives (the cmux-next checks j
 
 Read from Packages/macOS/CmuxNext/Sources/CmuxNextDesign:
 - BackdropArt.swift: each work's id (its raw value) in catalog order, and its English title;
-- BackdropArt+Entries.swift: artist, year, museum, collection, source, license, sha256, bundled;
+- BackdropArt+Entries.swift: artist, year, museum, collection, source, license, sha256, bundled, and
+  the framing and color hints the app's tint and crop use: focal (the crop's focal anchor, x and y
+  in 0...1), tint (the preferred tint opacity), darkest and lightest (the image's range, #RRGGBB);
 - BackdropArt+Library.swift: the collections in picker order with their titles, and retired ids;
 - BackdropArt+DailyRotation.swift: the Shuffle Daily list (BackdropArt.dailyRotation);
 - BackdropArtDownloads.swift: the download base (remoteBase), for the full image URL;
@@ -68,10 +70,15 @@ def works() -> list[dict]:
     titles = dict(re.findall(r'^        case \.(\w+): String\(localized: "backdrop\.[a-z0-9-]+\.title", defaultValue: ' + STRING + r', bundle: \.module\)$', art, re.M))
     entries = {}
     entry_re = re.compile(r'^        case \.(\w+): BackdropArtEntry\(artist: ' + STRING + r', year: ' + STRING + r', museum: ' + STRING
-                          + r', collection: \.(\w+), source: ' + STRING + r', license: ' + STRING + r', sha256: "([0-9a-f]{64})", bundled: (true|false),', re.M)
-    for case, artist, year, museum, collection, source, license, sha, bundled in entry_re.findall(read("BackdropArt+Entries.swift")):
+                          + r', collection: \.(\w+), source: ' + STRING + r', license: ' + STRING + r', sha256: "([0-9a-f]{64})", bundled: (true|false), focal: \(([0-9.]+), ([0-9.]+)\), '
+                          + r'tone: \.\w+, palette: \[[^\]]*\], quietLeft: (?:true|false), tint: ([0-9.]+), '
+                          + r'darkest: 0x([0-9A-F]{6}), lightest: 0x([0-9A-F]{6})\)$', re.M)
+    for (case, artist, year, museum, collection, source, license, sha, bundled,
+         focal_x, focal_y, tint, darkest, lightest) in entry_re.findall(read("BackdropArt+Entries.swift")):
         entries[case] = dict(artist=unescape(artist), year=unescape(year), museum=unescape(museum), collection=collection,
-                             source=unescape(source), license=unescape(license), sha256=sha, bundled=bundled == "true")
+                             source=unescape(source), license=unescape(license), sha256=sha, bundled=bundled == "true",
+                             focal={"x": float(focal_x), "y": float(focal_y)}, tint=float(tint),
+                             darkest=f"#{darkest}", lightest=f"#{lightest}")
     remote = re.search(r'static let remoteBase = URL\(string: ' + STRING + r'\)', read("BackdropArtDownloads.swift"))
     if not remote:
         fail("BackdropArtDownloads.swift: no remoteBase")
@@ -86,6 +93,7 @@ def works() -> list[dict]:
             fail(f"{slug}: no {thumb.relative_to(ROOT)}")
         work = {"id": slug, "title": unescape(titles[case]), **{k: entry[k] for k in ("artist", "year", "museum", "collection")},
                 "bundled": entry["bundled"],
+                **{k: entry[k] for k in ("focal", "tint", "darkest", "lightest")},
                 "thumbnail": {"url": f"{base}{hashlib.sha256(thumb.read_bytes()).hexdigest()}.avif",
                               "resource": str(thumb.relative_to(ROOT))},
                 "full": {"url": f"{base}{entry['sha256']}.avif", "sha256": entry["sha256"]},

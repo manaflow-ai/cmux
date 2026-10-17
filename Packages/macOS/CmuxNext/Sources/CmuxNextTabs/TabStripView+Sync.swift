@@ -142,7 +142,7 @@ extension TabStripView {
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
-        tabsClip.layer?.addSublayer(cell.layer)
+        tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
         cells[id] = cell
         // Placed by `relayout` (Chrome: an opening tab never fades).
         motion[id] = TabMotion(x: 0, width: 0, alpha: 1)

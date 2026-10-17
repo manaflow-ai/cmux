@@ -207,7 +207,7 @@ class WebValidationTests(unittest.TestCase):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
         (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
-        start = workflow.index("  react-apps-check:")
+        start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)

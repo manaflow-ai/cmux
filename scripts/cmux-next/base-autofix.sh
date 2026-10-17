@@ -2,8 +2,11 @@
 # Repairs the mechanical reds of a feat-cmux-next checkout in place, without
 # committing or pushing (cmux-next-base-autofix.yml does that):
 #   - generated files: copies DIR's files (the cmux-next generated files job's
-#     cmux-next-generated-patch artifact: the action contracts and the CI target
-#     graph regenerated on a Mac, at their repository paths) over the checkout;
+#     cmux-next-generated-patch artifact, or the base autofix's action-exports
+#     artifact: the action contracts, the CI target graph and the settings
+#     exports with their source stamp, regenerated on a Mac by
+#     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
+#     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
@@ -19,7 +22,8 @@
 #     action catalog export and the first-party apps' fragments
 #     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
 #   - the defaults snapshot: schemas/defaults/cmux-next.json from the action
-#     and settings exports (scripts/ci/defaults_guard.py snapshot);
+#     and settings exports (scripts/ci/defaults_guard.py snapshot), after
+#     --generated copied the regenerated exports in;
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
 #     whose type is fixed or gone (shrink only; with --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
@@ -40,15 +44,18 @@
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
 # Mac job did not regenerate them on this tree) both are left and reported,
-# never rewritten from a possibly stale export.
+# never rewritten from a possibly stale export. --unverified-exports and
+# --unverified-settings-exports (the settings exports' inputs changed but the
+# Mac job did not regenerate them) also leave the defaults snapshot, which
+# reads both exports.
 # A path matching base-autofix-frozen.txt is never written; it is reported.
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -58,14 +65,15 @@ while (( $# > 1 )); do
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
+    --unverified-settings-exports) unverified_settings=1; shift ;;
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -84,6 +92,7 @@ frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a pat
 if [[ -n "$generated" && -d "$generated" ]]; then
   while IFS= read -r -d '' file; do
     rel="${file#"$generated"/}"
+    [[ "$rel" == .paths ]] && continue  # the generated-files job's path list, not a repository file
     if cmp -s "$file" "$repo/$rel"; then continue; fi
     if frozen "$rel"; then echo "skipped (frozen): $rel"; continue; fi
     mkdir -p "$(dirname "$repo/$rel")"
@@ -180,7 +189,12 @@ fi
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
 # a changed default still needs a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
-if (( ! unverified_exports )) && [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
+if (( unverified_exports || unverified_settings )); then
+  waits=()
+  (( unverified_exports )) && waits+=("action")
+  (( unverified_settings )) && waits+=("settings")
+  echo "left: $defaults_snapshot (waits for the ${waits[*]} exports; their Mac job did not regenerate them)"
+elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
   before="$(cksum < "$repo/$defaults_snapshot" 2>/dev/null || true)"
   (cd "$repo" && python3 scripts/ci/defaults_guard.py snapshot >/dev/null)
   if [[ "$before" != "$(cksum < "$repo/$defaults_snapshot")" ]]; then

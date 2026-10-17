@@ -45,6 +45,9 @@ public final class SidebarDocStore {
     /// `origin`: `undoOrigin` when the change was sent (the undo step an undo
     /// or redo put for this inverse), so the App fills that step.
     @ObservationIgnored public var onUndoable: @MainActor (String, AnyObject?, @escaping @MainActor () -> Void) -> Void = { _, _, _ in }
+    /// A user's undoable change was sent: the App puts its undo step (and toast) now and returns it; the reply fills it
+    /// through `onUndoable` (its `origin`), or `onUndoRefused` takes it away. Nil: the step comes with the reply.
+    @ObservationIgnored public var onUndoPending: @MainActor (String) -> AnyObject? = { _ in nil }
     /// The change sent for `origin` gave no undoable inverse (refused, or a no-op): its step stays empty.
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
@@ -249,9 +252,11 @@ public final class SidebarDocStore {
         }
         bump()
         let key = intent.idempotencyKey
-        let origin = Self.undoOrigin
+        // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
+        let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
+            // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
             for asked in 1...Self.unsettledAsks {
                 do {

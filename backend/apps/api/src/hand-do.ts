@@ -4,7 +4,8 @@ import { PROVIDERS } from "./hand-providers.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
-import { approvalMessage, checkApproval, checkRaise, createLevelTables, createPresenceTable, presenceKey, registerPresenceKey, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
+import { createPresenceEventTable, presenceState, registerPresence, type PresenceInput } from "./hand-presence.ts"
+import { approvalMessage, checkApproval, checkRaise, createLevelTables, createPresenceTable, presenceKey, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
 import { createIndexTables, indexDefaultLevel, indexSetDefaultLevel, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
@@ -88,6 +89,7 @@ export class HandDO extends DurableObject<Env> {
     createIndexTables(sql)
     createLevelTables(sql)
     createPresenceTable(sql)
+    createPresenceEventTable(sql)
     // The level column came after the first hands: add it to an existing table once.
     if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand)`).toArray().some((c) => c.name === "level")) sql.exec(`ALTER TABLE hand ADD COLUMN level TEXT`)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
@@ -386,11 +388,23 @@ export class HandDO extends DurableObject<Env> {
     return presenceKey(this.ctx.storage.sql, install)
   }
 
-  async registerPresence(caller: HandCaller, owner: string, install: string, jwk: unknown, signature: string): Promise<HandReply<{ install: string }>> {
-    const why = await registerPresenceKey(this.env, this.ctx.storage.sql, caller, owner, install, jwk, signature)
-    if (why) return refuse("hand.presence_refused", why)
-    this.audit(crypto.randomUUID(), "presence_key", callerLabel(caller), install, null)
-    return { ok: true, value: { install } }
+  /** The count and current thumbprint a replacement signature covers (hand-presence.ts presenceReplacement). */
+  async presenceOf(caller: HandCaller, owner: string, install: string): Promise<HandReply<{ install: string; gen: number; thumbprint: string | null }>> {
+    if (caller.kind !== "owner" || caller.user !== owner) return refuse("hand.not_found", "no such hand owner")
+    return { ok: true, value: { install, ...presenceState(this.ctx.storage.sql, install) } }
+  }
+
+  /** A presence key for one of the owner's installs (hand-presence.ts: the first, or a replacement with the current key's signature or a fresh sign-in). */
+  async registerPresence(caller: HandCaller, owner: string, input: PresenceInput): Promise<HandReply<{ install: string; by: string; attested: boolean }>> {
+    const r = await registerPresence(this.env, this.ctx.storage.sql, caller, owner, input)
+    if (!r.ok) {
+      this.audit(crypto.randomUUID(), "presence_key", callerLabel(caller), `refused:${input.install}`, null)
+      return refuse("hand.presence_refused", r.why)
+    }
+    this.audit(crypto.randomUUID(), "presence_key", callerLabel(caller), `${r.by}:${input.install}${r.attested ? ":attested" : ""}`, null)
+    // The owner's other devices are told of every new key ("a new Touch ID key was registered on <install>").
+    if (r.by !== "unchanged") this.ownerFrame(owner, { t: "hand-presence-key", install: input.install, by: r.by, replaced: r.replaced, attested: r.attested, at: Date.now() })
+    return { ok: true, value: { install: input.install, by: r.by, attested: r.attested } }
   }
 
   async ownerDefaultLevel(profile: Profile): Promise<Level | undefined> {
@@ -537,7 +551,7 @@ export class HandDO extends DurableObject<Env> {
   }
 
   /** An ephemeral frame to the owner's own sockets (UserDO.handFrame); best effort. */
-  private ownerFrame(owner: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>) {
+  private ownerFrame(owner: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" | "hand-presence-key" } & Record<string, unknown>) {
     const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner)) as unknown as { handFrame(entity: string, f: typeof frame): Promise<void> }
     this.ctx.waitUntil(user.handFrame(owner, frame).catch(() => undefined))
   }

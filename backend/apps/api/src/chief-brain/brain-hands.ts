@@ -277,7 +277,7 @@ const callerOf = (who: Who) => (): HandCaller | null => {
  * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
  * brain continues the run once with the full tools (the tools list never changes inside a pi turn: thinking is signed for it).
  */
-export const handsEntryTool = (env: Env, who: Who, onHand: (action: string) => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
+export const handsEntryTool = (env: Env, who: Who, onHand: (action: string, result: string) => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
   name: "hands",
   description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). When a hand is ready, the full hands and agent tools come right after this step; then continue.",
   parameters: HandsEntryArgs,
@@ -285,7 +285,7 @@ export const handsEntryTool = (env: Env, who: Who, onHand: (action: string) => P
   execute: async (args) => {
     const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
     // Records a hand found now; the full tools come at the next turn boundary.
-    if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand(args.action).catch(() => undefined)
+    if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand(args.action, text).catch(() => undefined)
     return { content: [{ type: "text", text }] }
   }
 })

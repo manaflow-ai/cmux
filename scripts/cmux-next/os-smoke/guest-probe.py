@@ -133,6 +133,29 @@ def wait(predicate, seconds, alive=None, step_s=0.5):
 DEBUG_ROUTER = None
 
 
+def crash_frames(since, count=16):
+    """The crashed thread's top frames of the app's newest crash report since `since`, or None."""
+    reports = [r for r in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/cmux*.ips"))
+               if os.path.getmtime(r) >= since - 1]
+    if not reports:
+        return None
+    try:
+        header, body = open(max(reports, key=os.path.getmtime), errors="replace").read().split("\n", 1)
+        body = json.loads(body)
+        images = body.get("usedImages") or []
+        thread = next((t for t in body.get("threads") or [] if t.get("triggered")), {})
+        frames = []
+        for frame in (thread.get("frames") or [])[:count]:
+            index = frame.get("imageIndex", -1)
+            image = images[index] if 0 <= index < len(images) else {}
+            frames.append("%s %s" % (image.get("name", "?"), frame.get("symbol") or hex(frame.get("imageOffset", 0))))
+        return {"exception": body.get("exception"), "thread": thread.get("id"), "frames": frames}
+    except ValueError:
+        return None  # still being written: the caller's wait reads it again
+    except (OSError, KeyError, IndexError) as error:
+        return {"error": str(error)}
+
+
 def debug_router():
     global DEBUG_ROUTER
     if DEBUG_ROUTER is None:
@@ -291,6 +314,23 @@ try:
         result["browser_engine_frame"] = {k: v for k, v in (page_shot or {}).items() if k != "png_base64"}
         wait(lambda: False, 5, alive)
         snap("browser_5s", "window-5s.png")
+        # Cmd-T again while the last opening still holds its keys: the new opening releases the
+        # old hold inside the key's action scope, so its objects deinit inline there. With
+        # Chromium loaded (its allocator checks every free), macOS 15.4 to 15.x trapped here when
+        # that scope's task local lived in the thread's fallback storage (NEXT 3889579838401,
+        # macOS 15.8.1, 2026-10-16). Each debug.key runs from a run-loop block, as a real key does.
+        if debug_router():
+            burst = [rpc("debug.key", {"key": "t", "modifiers": ["cmd"]}) for _ in range(6)]
+            wait(lambda: not alive(), 3, step_s=0.5)
+            # Each key must reach the router as the New Tab action, or the step proves nothing.
+            burst_errors = [b for b in burst if not isinstance(b, dict) or "error" in b
+                            or b.get("handled_by") != "app" or not str(b.get("action") or "").startswith("newTab")]
+            # A crash's report names the trap (the run's artifacts are deleted with the VM).
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("newtab_burst", alive() and not burst_errors,
+                 {"keys": len(burst), "alive": alive(), "errors": burst_errors[:3],
+                  "exit": None if alive() else app.returncode, "routed": [(b or {}).get("action") for b in burst],
+                  "crash": crash})
         # Settings is a page tab of the main window; focus true selects it (no app activation).
         webkit_page = page + "webkit"
         opened = rpc("action.run", {"action": "openBrowser", "args": {"url": webkit_page, "engine": "webkit"}, "focus": True})

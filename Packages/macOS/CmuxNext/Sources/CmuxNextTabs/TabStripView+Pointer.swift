@@ -8,7 +8,9 @@ extension TabStripView {
     func tabID(at point: CGPoint) -> TabID? {
         let local = convert(point, to: tabsClip)
         guard local.x >= 0, local.x <= tabsClip.bounds.width else { return nil }
-        for item in displayed {
+        // An unpinned tab scrolled under the fixed pinned band is hidden there: only pinned tabs hit.
+        let showsUnpinned = scrollMapping.showsUnpinned(at: local.x)
+        for item in displayed where item.isPinned || showsUnpinned {
             guard let cell = cells[item.id], cell.frame.width > 0.5 else { continue }
             let frame = cell.frame
             // The full strip height is the hit area, not just the tab body.

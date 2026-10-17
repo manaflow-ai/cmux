@@ -208,6 +208,7 @@ export default componentEntry<Props>({
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
     "pages/home-channels/RunSheet.tsx",
+    "pages/home-channels/GoalStrip.tsx#GoalStrip",
     "pages/home-channels/LiveTyping.tsx#LiveTyping",
     "pages/home-channels/AttachmentViews.tsx",
   ],

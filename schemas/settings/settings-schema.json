@@ -2250,7 +2250,7 @@
       "range" : {
         "max" : 200,
         "min" : 32,
-        "placeholder" : 96,
+        "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
@@ -2314,7 +2314,7 @@
       "range" : {
         "max" : 120,
         "min" : 16,
-        "placeholder" : 76,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -10240,7 +10240,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
@@ -10303,7 +10303,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -10400,7 +10400,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "7f1e65dbec8eddce6851f98d5372e2d002e69846dc5ab408ac78935796260379",
+  "schema_hash" : "fd4f8f37b75939fc97aaa9a07d4afd9a289b89297f8f27023db93b9e1a04ee26",
   "sections" : [
     {
       "id" : "general",
