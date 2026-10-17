@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { isAgentMotionOff } from "../shared/motion";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -105,7 +106,8 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useSummaryCard } from "./summary/cardState";
+import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
+import { chatGallery } from "./summary/chatGallery";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -190,6 +192,7 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
+import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -294,6 +297,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// The native Debug Settings baseline for the sidebar latest-reply preview.
+      applySidebarPreviewVariant?(variant: unknown): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -800,7 +805,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (!node || typeof node.animate !== "function") return;
+  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -829,122 +834,158 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
-  row,
-  kind,
-  joinsPrevious,
-  joinsNext,
-  index,
-  setSize,
-  top,
-  rowWidth,
-  expanded,
-  observer,
-  report,
-  enter,
-  onEntered,
-  active,
-  selected,
-  tabStop,
-  onFocus,
-  onRowKeyDown,
-  onCopy,
-  copyable,
-  children,
-}: {
-  row: AcpmuxRow;
-  kind: string;
-  /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
-  joinsPrevious: boolean;
-  /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
-  joinsNext: boolean;
-  index: number;
-  setSize: number;
-  top: number;
-  rowWidth: number;
-  expanded: boolean;
-  observer: ResizeObserver | undefined;
-  report: ReportDrawn;
-  /// The row arrived live: it enters with the shared motion on this, its first mount.
-  enter: boolean;
-  onEntered: (id: string) => void;
-  active: boolean;
-  selected: boolean;
-  tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
-  copyable: boolean;
-  children: React.ReactNode;
-}) {
-  acpmuxPerf.span("row.renders", 1);
-  const t = useT();
-  const ref = useRef<HTMLElement>(null);
-  const [entering] = useState(enter);
-  const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
-  useLayoutEffect(() => {
-    if (entering) onEntered(row.id);
-    // Only the first mount enters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node || !observer) return;
-    observer.observe(node);
-    return () => observer.unobserve(node);
-  }, [observer]);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (node)
-      report(
-        row.id,
-        row.version,
-        acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
-      );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
-  return (
-    <article
-      ref={ref}
-      id={rowDomId(row.id)}
-      data-row-id={row.id}
-      data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
-      data-transcript-active={active ? "true" : undefined}
-      data-transcript-selected={selected ? "true" : undefined}
-      aria-current={active ? "true" : undefined}
-      {...rowTabStop}
-      aria-label={speaker(kind, t)}
-      aria-posinset={index + 1}
-      aria-setsize={setSize}
-      style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
-    >
-      {copyable && (
-        <button
-          type="button"
-          className="acpmux-row__copy cv-iconbtn"
-          {...copyTabStop}
-          aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
-          onClick={async () => {
-            try {
-              await onCopy?.();
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1200);
-            } catch {
-              setCopied(false);
-            }
-          }}
-        >
-          <Copy />
-        </button>
-      )}
-      {children}
-    </article>
-  );
-}
+const RowFrame = React.memo(
+  function RowFrame({
+    row,
+    kind,
+    joinsPrevious,
+    joinsNext,
+    index,
+    setSize,
+    top,
+    rowWidth,
+    expanded,
+    observer,
+    report,
+    enter,
+    onEntered,
+    active,
+    selected,
+    tabStop,
+    onFocus,
+    onRowKeyDown,
+    onCopyRow,
+    copyable,
+    children,
+  }: {
+    row: AcpmuxRow;
+    kind: string;
+    /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
+    joinsPrevious: boolean;
+    /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
+    joinsNext: boolean;
+    index: number;
+    setSize: number;
+    top: number;
+    rowWidth: number;
+    expanded: boolean;
+    observer: ResizeObserver | undefined;
+    report: ReportDrawn;
+    /// The row arrived live: it enters with the shared motion on this, its first mount.
+    enter: boolean;
+    onEntered: (id: string) => void;
+    active: boolean;
+    selected: boolean;
+    tabStop: boolean;
+    onFocus: (id: string) => void;
+    onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+    onCopyRow?: (id: string) => Promise<void>;
+    copyable: boolean;
+    contentType: unknown;
+    controls?: string;
+    onToggleActivity: (id: string) => void;
+    onOpenDiff?: OpenDiff;
+    githubRepository?: string;
+    children: React.ReactNode;
+  }) {
+    acpmuxPerf.span("row.renders", 1);
+    const t = useT();
+    const ref = useRef<HTMLElement>(null);
+    const [entering] = useState(enter);
+    const [copied, setCopied] = useState(false);
+    const handleKeyDown = useCallback(
+      (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
+      [index, onRowKeyDown],
+    );
+    const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+    const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
+    useLayoutEffect(() => {
+      if (entering) onEntered(row.id);
+      // Only the first mount enters.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    useLayoutEffect(() => {
+      const node = ref.current;
+      if (!node || !observer) return;
+      observer.observe(node);
+      return () => observer.unobserve(node);
+    }, [observer]);
+    useLayoutEffect(() => {
+      const node = ref.current;
+      if (node)
+        report(
+          row.id,
+          row.version,
+          acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
+        );
+    }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+    return (
+      <article
+        ref={ref}
+        id={rowDomId(row.id)}
+        data-row-id={row.id}
+        data-row-card={row.ended ? "true" : undefined}
+        className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
+        data-transcript-active={active ? "true" : undefined}
+        data-transcript-selected={selected ? "true" : undefined}
+        aria-current={active ? "true" : undefined}
+        {...rowTabStop}
+        aria-label={speaker(kind, t)}
+        aria-posinset={index + 1}
+        aria-setsize={setSize}
+        style={{ transform: `translateY(${top}px)` }}
+        onFocus={() => onFocus(row.id)}
+      >
+        {copyable && (
+          <button
+            type="button"
+            className="acpmux-row__copy cv-iconbtn"
+            {...copyTabStop}
+            aria-label={copied ? t("turn.copied") : t("turn.copy")}
+            title={copied ? t("turn.copied") : t("turn.copy")}
+            onClick={async () => {
+              try {
+                await onCopyRow?.(row.id);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1200);
+              } catch {
+                setCopied(false);
+              }
+            }}
+          >
+            <Copy />
+          </button>
+        )}
+        {children}
+      </article>
+    );
+  },
+  (previous, next) =>
+    previous.row === next.row &&
+    previous.kind === next.kind &&
+    previous.joinsPrevious === next.joinsPrevious &&
+    previous.joinsNext === next.joinsNext &&
+    previous.index === next.index &&
+    previous.setSize === next.setSize &&
+    previous.top === next.top &&
+    previous.rowWidth === next.rowWidth &&
+    previous.expanded === next.expanded &&
+    previous.observer === next.observer &&
+    previous.report === next.report &&
+    previous.enter === next.enter &&
+    previous.onEntered === next.onEntered &&
+    previous.active === next.active &&
+    previous.selected === next.selected &&
+    previous.tabStop === next.tabStop &&
+    previous.onRowKeyDown === next.onRowKeyDown &&
+    previous.onCopyRow === next.onCopyRow &&
+    previous.copyable === next.copyable &&
+    previous.contentType === next.contentType &&
+    previous.controls === next.controls &&
+    previous.onToggleActivity === next.onToggleActivity &&
+    previous.onOpenDiff === next.onOpenDiff &&
+    previous.githubRepository === next.githubRepository,
+);
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -1314,6 +1355,34 @@ export function VirtualTranscript({
   const [seeking, setSeeking] = useState(false);
   const [seekExpired, setSeekExpired] = useState(false);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Older pages can be requested from several render paths: the open-at seek and the top
+  // prefetch both run while the transcript is settling. Keep one request per loaded first row so
+  // streaming renders cannot repeatedly enqueue the same page. A new first row is the host's
+  // pagination/version signal and permits the next page.
+  const olderLoad = useRef<{ key: string; promise?: Promise<void> } | undefined>(undefined);
+  const requestOlder = useCallback(
+    (key: string) => {
+      if (!canLoadOlder || !onLoadOlder) return;
+      const current = olderLoad.current;
+      if (current?.promise || current?.key === key) return;
+      const promise = Promise.resolve().then(() => onLoadOlder());
+      olderLoad.current = { key, promise };
+      void promise
+        .catch(() => {
+          // A transient transport failure should remain retryable for this page.
+          if (olderLoad.current?.promise === promise) olderLoad.current = undefined;
+        })
+        .finally(() => {
+          if (olderLoad.current?.promise === promise) olderLoad.current = { key };
+        });
+    },
+    [canLoadOlder, onLoadOlder],
+  );
+  useLayoutEffect(() => {
+    // A pending page belongs to the previous chat. Do not let it block the new chat's first page;
+    // its completion also cannot overwrite this ref because the promise identity changed.
+    olderLoad.current = undefined;
+  }, [sessionId]);
   /// When the walk began, and the first row it had then: a new first row is a page landed.
   const seekStart = useRef<number | undefined>(undefined);
   const seekFirstRow = useRef<string | undefined>(undefined);
@@ -1362,6 +1431,9 @@ export function VirtualTranscript({
   }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
+  /// Pointerover bubbles for every markdown descendant. Avoid rescanning a row's preceding turns
+  /// while the pointer moves between spans inside the same row.
+  const pointedRow = useRef<string | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1477,6 +1549,10 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // Markers live on the mounted DOM rows, so a scroll that swaps a virtualized range must repaint
+  // them without bringing back the old every-render effect. The compact key changes only when the
+  // mounted ranges change; registry updates can replace a row renderer while preserving the range.
+  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -1545,6 +1621,14 @@ export function VirtualTranscript({
     },
     [rows],
   );
+  const copyRowsRef = useRef(copyRows);
+  copyRowsRef.current = copyRows;
+  const selectedRowIdsRef = useRef(selectedRowIds);
+  selectedRowIdsRef.current = selectedRowIds;
+  const copyRow = useCallback(async (rowId: string) => {
+    const selected = selectedRowIdsRef.current;
+    await copyRowsRef.current(selected.includes(rowId) && selected.length > 0 ? selected : [rowId]);
+  }, []);
   const rowKeyDown = useCallback(
     (index: number, event: React.KeyboardEvent<HTMLElement>) => {
       // Buttons and links own their keyboard behavior. A focused row itself owns only the
@@ -1580,6 +1664,12 @@ export function VirtualTranscript({
       }
     },
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
+  );
+  const rowKeyDownRef = useRef(rowKeyDown);
+  rowKeyDownRef.current = rowKeyDown;
+  const handleRowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
+    [],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
@@ -1704,7 +1794,7 @@ export function VirtualTranscript({
           seekTimer.current = setTimeout(() => setSeekExpired(true), Math.max(0, left));
         }
         setSeeking(true);
-        onLoadOlder().catch(() => {});
+        requestOlder(`${sessionId ?? ""}:${rows[0]?.id ?? ""}`);
       } else if (layout.totalHeight <= node.clientHeight) {
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
@@ -1729,7 +1819,7 @@ export function VirtualTranscript({
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder, requestOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -1963,17 +2053,20 @@ export function VirtualTranscript({
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
   };
-  useLayoutEffect(markTurns);
+  useLayoutEffect(markTurns, [lastTurnId, rows, mountedRangeKey, registry]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
   useEffect(() => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
-    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
-  });
+    if (node.scrollTop < node.clientHeight * 2) requestOlder(`${sessionId ?? ""}:${rows[0]?.id ?? ""}`);
+  }, [canLoadOlder, onLoadOlder, requestOlder, rows, sessionId, scroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const rowId = row?.dataset.rowId;
+    if (rowId === pointedRow.current) return;
+    pointedRow.current = rowId;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
@@ -2046,14 +2139,15 @@ export function VirtualTranscript({
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      onFocus={rowFocus}
+                      onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
-                      }
+                      onCopyRow={copyRow}
+                      contentType={Component}
+                      controls={controls}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      githubRepository={githubRepository}
                     >
                       <Component
                         row={row}
@@ -2670,14 +2764,30 @@ function AcpmuxPane() {
     chatShellRuns,
     panelAsks,
   ]);
-  // Another chat never opens on a subagent of this one.
+  // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
+  // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
-  const summaryCard = useSummaryCard(
-    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
-    hasSubagents && !subagentPane.current,
-  );
+  const summaryHasContent = useMemo(() => {
+    if (chatGallery(snapshot.rows).length > 0) return true;
+    return snapshot.rows.some(
+      (row) =>
+        row.subagents?.length ||
+        row.backgroundTask ||
+        (row.kind === "activity" &&
+          row.items?.some((item) => {
+            const tool = item.tool;
+            if (!tool) return false;
+            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            if (tool.kind !== "execute") return false;
+            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
+            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
+              command,
+            );
+          })),
+    );
+  }, [snapshot.rows]);
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -3483,6 +3593,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applySidebarPreviewVariant(variant) {
+        configureNativeSidebarPreviewVariant(variant);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -3525,8 +3638,9 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
+          configureSidebarPreviewVariant(customization.layout.sidebarPreviewVariant);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
-        }
+        } else configureSidebarPreviewVariant(undefined);
       },
       dictation(update) {
         deliverDictation(update);
@@ -4689,13 +4803,16 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -5240,10 +5357,30 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  const summaryPanel = (
+    <SummaryCard
+      key={snapshot.sessionId}
+      card={summaryCard}
+      rows={snapshot.rows}
+      changes={quick ? undefined : lastChanges}
+      onOpenChanges={toggleLastChanges}
+      onOpenOutput={quick ? undefined : openOutput}
+      onOpenImage={quick ? undefined : openImage}
+      subagents={cardSubagents}
+    />
+  );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
-        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
+      <section
+        ref={setShell}
+        className="acpmux-shell"
+        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+      >
+        <div
+          className="acpmux-main"
+          data-new-chat={freshView && !showNewTab ? "" : undefined}
+          data-summary={summaryCard.column ? "inline" : "popover"}
+        >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5466,17 +5603,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                <SummaryCard
-                  // Another chat closes this one's gallery, as it does the image viewer.
-                  key={snapshot.sessionId}
-                  card={summaryCard}
-                  rows={snapshot.rows}
-                  changes={quick ? undefined : lastChanges}
-                  onOpenChanges={toggleLastChanges}
-                  onOpenOutput={quick ? undefined : openOutput}
-                  onOpenImage={quick ? undefined : openImage}
-                  subagents={cardSubagents}
-                />
+                {!summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -5563,6 +5690,13 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {!harnessesOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          !inspectorOpen &&
+          !diffView &&
+          summaryCard.column &&
+          summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (
