@@ -158,6 +158,13 @@ mock.module("../services/analytics/stripeBilling", () => ({
   captureBillingCheckoutStarted,
 }));
 
+const actualServerEventsModule = await import("../services/analytics/serverEvents");
+const captureServerEvent = mock(async (): Promise<void> => undefined);
+mock.module("../services/analytics/serverEvents", () => ({
+  ...actualServerEventsModule,
+  captureServerEvent,
+}));
+
 const realVmAuth = await import("../services/vms/auth");
 const verifyCheckoutUser = mock(async () => ({ id: SIGNED_IN_USER_ID, isAnonymous: false }));
 mock.module("../services/vms/auth", () => ({ ...realVmAuth, verifyRequest: verifyCheckoutUser }));
@@ -247,6 +254,7 @@ describe("billing checkout route", () => {
     resolveGoPrice.mockClear();
     resolveTeamPrice.mockClear();
     captureBillingCheckoutStarted.mockClear();
+    captureServerEvent.mockClear();
     stripeLimit.mockClear();
     stripeLimit.mockResolvedValue([]);
   });
@@ -961,6 +969,38 @@ describe("billing checkout route", () => {
       subscription_data: { metadata: expect.objectContaining({ billingInterval: "year" }) },
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
+  });
+
+  test("records the selected annual interval when an existing Team goes to the portal", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    stripeCustomerRows = [{ id: "cus_team" }];
+    stripeActiveSubscriptionRows = [{
+      id: "sub_team",
+      status: "active",
+      cancelAtPeriodEnd: false,
+      plan: "team",
+      scope: "team",
+      stackTeamId: TEAM_ID,
+    }];
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team&interval=year"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/api/billing/portal?scope=team",
+    );
+    expect(captureServerEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: "cmux_billing_checkout_routed",
+      properties: expect.objectContaining({
+        requested_plan: "team",
+        decision: "manage_billing",
+        billing_interval: "year",
+      }),
+    }));
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("records monthly Team checkout metadata", async () => {
