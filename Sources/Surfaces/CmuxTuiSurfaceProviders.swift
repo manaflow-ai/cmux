@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudTui
@@ -45,6 +46,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
@@ -181,6 +183,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ownerTeamID: String? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
@@ -196,6 +199,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
