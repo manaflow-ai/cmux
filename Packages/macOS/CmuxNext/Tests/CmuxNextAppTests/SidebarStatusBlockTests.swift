@@ -2,6 +2,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import AppKit
 import Testing
 
 /// Classic's status block in workspace rows (#16431): with default settings, a workspace whose
@@ -58,5 +59,33 @@ struct SidebarStatusBlockTests {
         let (_, reported, _) = layout(["agentStatus": .bool(false), "log": .bool(false), "progress": .bool(false)])
         #expect(reported.height == SidebarLayoutMetrics.standard.rowHeight)
         #expect(reported.content?.detail == nil)
+    }
+
+    @Test func reportedEntriesUseTintedOneLinePillsAndKeepTheVisibleCap() {
+        let status = SidebarWorkspaceStatus(entries: [
+            .init(key: "build", text: "Building", tint: .palette(.orange)),
+            .init(key: "tests", text: "412 passed", tint: .palette(.green)),
+            .init(key: "deploy", text: "Deploying", tint: .palette(.purple)),
+            .init(key: "extra", text: "Hidden")
+        ])
+        let view = WorkspaceStatusView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
+        view.configure(status, reservesBar: false)
+        view.layoutSubtreeIfNeeded()
+        view.updateLayer()
+        view.layoutSubtreeIfNeeded()
+
+        let labels = view.subviews.compactMap { $0 as? NSTextField }
+        let pills = view.subviews.filter { type(of: $0) == NSView.self }
+        #expect(labels.count == 4) // three entries plus the folded "1 more" line
+        #expect(pills.count == 4)
+        #expect(labels[0].stringValue == "Building")
+        #expect(labels[1].stringValue == "412 passed")
+        #expect(labels[0].maximumNumberOfLines == 1)
+        #expect(labels[1].maximumNumberOfLines == 1)
+        #expect(pills[0].layer?.cornerRadius ?? 0 > 0)
+        #expect(pills[0].layer?.backgroundColor != nil)
+        #expect(pills[1].layer?.backgroundColor != nil)
+        #expect(labels[0].frame.width < view.bounds.width)
+        #expect(labels[0].frame.height <= SidebarLayoutMetrics.standard.statusLineHeight)
     }
 }
