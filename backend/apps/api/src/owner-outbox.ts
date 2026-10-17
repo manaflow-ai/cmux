@@ -85,8 +85,9 @@ export const drainOutboxChannels = async <S>(
           if (!ns) throw new Error(`no binding for ${batch.class}`)
           const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
           // The commit-time wake path also starts each woken Chief's brain beside MuxDO's commit (mux-wake-delivery.ts).
-          const warms = only && isWakeChannel(channel) ? batch.items.map((i) => warmBrain(env, batch.name, (i.params as { conversation?: unknown } | null)?.conversation)) : []
-          const [res] = await Promise.all([stub.systemDeliver(batch.name, engine.stream, batch.items), ...warms])
+          // Not awaited: the wake's delivery never waits on a brain's cold start; one warm per conversation.
+          if (only && isWakeChannel(channel)) for (const c of new Set(batch.items.filter((i) => i.op === "mux.wake").map((i) => (i.params as { conversation?: unknown } | null)?.conversation))) void warmBrain(env, batch.name, c)
+          const res = await stub.systemDeliver(batch.name, engine.stream, batch.items)
           outbox.markSent(res.done, Date.now())
           if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
         }

@@ -203,7 +203,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
    */
   async warm(): Promise<true> {
     const cfg = this.config()
-    if (!cfg.agent || !cfg.owner || this.childOf()) return true
+    // Only an enabled pi Chief's conversation brain (an opencode, local or disabled Chief's old object stays asleep).
+    if (!cfg.agent || !cfg.owner || !cfg.enabled || cfg.brain_impl !== "pi" || this.childOf()) return true
     await this.lifecycle.start()
     const [agent, owner] = [cfg.agent, cfg.owner]
     this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
