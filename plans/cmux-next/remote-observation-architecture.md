@@ -107,8 +107,11 @@ source_path          repository/worktree or app artifact identity
 hosted_url           canonical hosted preview or review URL, if any
 browser_matrix       browser/engine, viewport, DPR, theme, and feature flags
 state_transition_ids observation receipt IDs that produced the visible state
-screenshot_artifact  PNG/WebP path or artifact URL plus sha256 and dimensions
-dom_artifact         serialized DOM/accessibility snapshot path plus sha256
+visual_proof         before/after PNG/WebP pair or screencap MP4 path/URL
+capture_dimensions   width x height; MP4 also records duration and frame rate
+artifact_sha256      hash for every visual artifact
+dom_artifact         optional serialized DOM/accessibility snapshot plus sha256
+host_tag             machine, runner, and app/build tag used for capture
 identity             the envelope above (machine/session/generation/sequence)
 verdict              pass | fail | blocked | unverified
 failure_class        product | runner | environment | missing-evidence
@@ -122,13 +125,18 @@ The required handoff is deliberately small and reproducible:
 3. Apply one named state transition at a time. The transition ID is the
    observation receipt ID (or a deterministic child ID) and must be present in
    the screenshot and DOM artifact manifest.
-4. Capture both pixels and structure: one screenshot artifact and one DOM or
-   accessibility snapshot per required state. Hash both artifacts.
-5. Classify failures before proposing a fix. `product` means source/runtime
+4. Capture visual proof as either a verified before/after screenshot pair or a
+   screencap MP4. Record dimensions for both; MP4 also records duration and
+   frame rate. Hash every artifact. DOM/accessibility snapshots are optional
+   diagnostic evidence, not a hard gate.
+5. Prefer a clickable hosted build for dogfood. If no clickable build exists,
+   retain the visual artifact and classify the gap explicitly as
+   `missing-clickable-build`; do not silently call the run fully dogfooded.
+6. Classify failures before proposing a fix. `product` means source/runtime
    behavior; `runner` means browser/host/CI harness; `environment` means auth,
    network, or unavailable backend; `missing-evidence` means the path was not
    actually exercised.
-6. Publish the receipt through the existing mailbox/observation path. A retry
+7. Publish the receipt through the existing mailbox/observation path. A retry
    reuses the same transition and message IDs, so a reconnect cannot create a
    second visual result.
 
