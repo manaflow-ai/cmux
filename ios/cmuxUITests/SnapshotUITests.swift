@@ -189,7 +189,11 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Message your agent"].waitForExistence(timeout: 8))
 
         allowOnce.tap()
-        XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
+        let permissionResolved = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: allowOnce
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [permissionResolved], timeout: 5), .completed)
 
         let sessionsButton = app.buttons["Agent sessions"]
         XCTAssertTrue(sessionsButton.waitForExistence(timeout: 8))
