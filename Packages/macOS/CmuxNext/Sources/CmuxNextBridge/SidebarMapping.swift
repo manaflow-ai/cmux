@@ -11,21 +11,13 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-    /// The daemon's allocation name is useful as an identity, but it is not
-    /// useful content for a sidebar row. Keep it hidden until a page title,
-    /// agent title, or user title replaces it so a new workspace reads as a
-    /// stable loading state instead of flashing `workspace-7`.
+    /// The front page's title, else the workspace's name. A daemon default
+    /// name (`workspace-7`) is shown: a terminal workspace gets no page or
+    /// agent title, so hiding it left the row blank until a rename (#21357).
+    /// The creating row sends the same name, so the reply changes nothing.
     private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
-        let title = workspace.displayName
-        guard !isDefaultWorkspaceName(title) else { return "" }
-        return title
-    }
-
-    static func isDefaultWorkspaceName(_ name: String) -> Bool {
-        guard name.hasPrefix("workspace-") else { return false }
-        let suffix = name.dropFirst("workspace-".count)
-        return !suffix.isEmpty && suffix.allSatisfy { $0.isASCII && $0.isNumber }
+        return workspace.displayName
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
