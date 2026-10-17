@@ -129,14 +129,14 @@ extension AgentTabStore {
         }
         tabs.runAttach = { [weak services] key, request in
             guard let services, let (_, pane) = services.locateTab(key),
-                  let home = services.machines.daemon(forPane: pane),
-                  let homeConnection = home.connection,
+                  let homeConnection = services.machines.daemon(forPane: pane).connection,
                   let worker = services.machines.daemon(machine: request.providerVMID),
                   worker.connection != nil,
                   let identity = worker.identity,
                   let sessionID = identity.sessionID else {
                 throw DaemonError.notConnected
             }
+            let home = services.machines.daemon(forPane: pane)
             guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
                 throw DaemonError.missingCapabilities([DaemonCapabilities.shared.remoteTerminalTabs])
             }
