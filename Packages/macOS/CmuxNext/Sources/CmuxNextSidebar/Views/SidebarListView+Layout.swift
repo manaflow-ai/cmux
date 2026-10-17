@@ -262,6 +262,9 @@ extension SidebarListViewComponents {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        let followed = hoverFollowsScroll
+        hoverFollowsScroll = true
+        defer { hoverFollowsScroll = followed }
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]
@@ -277,9 +280,6 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
-        let followed = hoverFollowsScroll
-        hoverFollowsScroll = true
-        defer { hoverFollowsScroll = followed }
         updateHover()
     }
     func pruneOffscreen() {
