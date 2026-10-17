@@ -346,6 +346,6 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        needsLayout = true
+        if !suppressesHoverEffects { needsLayout = true }
     }
 }

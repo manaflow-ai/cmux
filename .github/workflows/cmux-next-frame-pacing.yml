@@ -45,6 +45,11 @@ on:
         required: false
         default: fling,golden
         type: string
+      workspace_runs:
+        description: Workspace switches per cache state
+        required: false
+        default: "3"
+        type: string
 
 permissions:
   contents: read
@@ -185,7 +190,7 @@ jobs:
       backend_mode: local
 
   bench:
-    needs: [gate, build]
+    needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     # The gui token wait (15 min) and the bench step (15 min) both fit, so a
@@ -232,6 +237,9 @@ jobs:
             scripts/ci/frame-pacing
             scripts/lib/stop-cmux-tui-owners.sh
             scripts/cmux-next/bench_workspace_switch.py
+            scripts/cmux-next/bench_tab_switch.py
+            scripts/cmux-next/bench_idle.py
+            scripts/cmux-next/daemon_teardown.py
             scripts/cmux-next/workspace_switch_receipt.py
           sparse-checkout-cone-mode: false
           persist-credentials: false

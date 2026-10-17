@@ -217,7 +217,7 @@ final class SectionHeaderRowView: SidebarRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        needsLayout = true
+        if !suppressesHoverEffects { needsLayout = true }
     }
 
     /// Whether the fold chevron shows (tests).
