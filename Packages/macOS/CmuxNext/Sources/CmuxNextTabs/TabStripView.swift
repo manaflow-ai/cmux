@@ -196,7 +196,7 @@ public final class TabStripView: NSView {
     /// click in the strip still takes the keyboard, which ends (commits) the rename.
     public override var acceptsFirstResponder: Bool {
         if inlineRename.field != nil { return true }
-        switch NSApp.currentEvent?.type {
+        return switch NSApp.currentEvent?.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: false
         default: true
         }
