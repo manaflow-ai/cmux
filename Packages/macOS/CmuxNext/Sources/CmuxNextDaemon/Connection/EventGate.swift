@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
