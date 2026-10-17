@@ -40,6 +40,10 @@
     {
       "if": { "properties": { "type": { "const": "event" } } },
       "then": { "required": ["method", "session_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": { "required": ["error"] }
     }
   ]
 }
