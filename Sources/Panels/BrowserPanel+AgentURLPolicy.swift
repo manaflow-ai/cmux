@@ -32,5 +32,7 @@ extension BrowserPanel {
     /// cancelled in the engine while an agent drives it.
     func syncAgentNavigationGuard() {
         enginePage?.setAgentNavigationGuard(browserDialogOwner == .automation)
+        // A page automation drives records its protocol events from now on.
+        if browserDialogOwner == .automation { startAutomationProtocolTelemetry() }
     }
 }

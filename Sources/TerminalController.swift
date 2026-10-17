@@ -11973,6 +11973,9 @@ class TerminalController {
     private nonisolated func v2BrowserConsoleList(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             v2BrowserEnsureTelemetryHooks(browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, webView: ctx.webView)
+            // Chromium: the page's protocol console events, read before the
+            // bootstrap's log so a clear below drops neither source's entries.
+            let telemetry = v2EngineProtocolTelemetry(ctx.browserPanel)
             let clear = v2Bool(params, "clear") ?? false
             let clearLiteral = clear ? "true" : "false"
             let script = """
@@ -11997,7 +12000,15 @@ class TerminalController {
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
-                let items = (dict?["items"] as? [Any]) ?? []
+                var items = (dict?["items"] as? [Any]) ?? []
+                if let telemetry {
+                    if clear { v2EngineClearProtocolTelemetry(ctx.browserPanel, console: true) }
+                    items = BrowserProtocolTelemetryMerge.consoleItems(
+                        protocolEntries: telemetry.consoleEntries,
+                        scriptItems: items.compactMap { $0 as? [String: Any] },
+                        recordingStartedAtMS: telemetry.recordingStartedAtMS
+                    )
+                }
                 return .ok(v2BrowserPanelFields(ctx, adding: [
                     "entries": items.map(v2NormalizeJSValue),
                     "count": items.count
@@ -12015,6 +12026,8 @@ class TerminalController {
     private nonisolated func v2BrowserErrorsList(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             v2BrowserEnsureTelemetryHooks(browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, webView: ctx.webView)
+            // Chromium: the page's protocol exception events (see console list).
+            let telemetry = v2EngineProtocolTelemetry(ctx.browserPanel)
             let clear = v2Bool(params, "clear") ?? false
             let clearLiteral = clear ? "true" : "false"
             let script = """
@@ -12039,7 +12052,15 @@ class TerminalController {
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
-                let items = (dict?["items"] as? [Any]) ?? []
+                var items = (dict?["items"] as? [Any]) ?? []
+                if let telemetry {
+                    if clear { v2EngineClearProtocolTelemetry(ctx.browserPanel, errors: true) }
+                    items = BrowserProtocolTelemetryMerge.errorItems(
+                        protocolErrors: telemetry.pageErrors,
+                        scriptItems: items.compactMap { $0 as? [String: Any] },
+                        recordingStartedAtMS: telemetry.recordingStartedAtMS
+                    )
+                }
                 return .ok(v2BrowserPanelFields(ctx, adding: [
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
@@ -12332,6 +12353,9 @@ class TerminalController {
     }
 
     private func v2BrowserNetworkRequests(params: [String: Any]) -> V2CallResult {
+        if let engineResult = v2EngineNetworkRequests(params: params) {
+            return engineResult
+        }
         if let surfaceId = v2UUID(params, "surface_id") {
             let items = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
             return .err(code: "not_supported", message: "browser.network.requests is not supported by cmux browser automation yet", data: [
