@@ -1,6 +1,8 @@
 //! Machine inventory stays on the trusted native owner connection. A fake
 //! acpmux records every call, including the handshake before any health view.
 
+#[path = "agent_inventory_watch_admission_tests.rs"]
+mod admission;
 #[path = "agent_inventory_watch_tests.rs"]
 mod watch;
 

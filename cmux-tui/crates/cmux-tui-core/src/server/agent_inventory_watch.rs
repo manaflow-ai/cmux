@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 pub(in crate::server) const CAPABILITY: &str = "agent-inventory-watch-v1";
 pub(in crate::server) const FENCED_CAPABILITY: &str = "agent-inventory-watch-fence-v1";
+pub(in crate::server) const ADMISSION_CAPABILITY: &str = "agent-inventory-watch-admission-v1";
 const FEATURE: &str = "harnessInventoryWatch";
 const WATCH: &str = "_acpmux/harness/inventory/watch";
 
@@ -39,6 +40,7 @@ pub(in crate::server) fn try_handle(
         return None;
     }
     let id = fields.remove("id");
+    let mut admission_receipt = false;
     let result = (|| {
         if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
             return Err(Failure::NotTrusted);
@@ -58,9 +60,15 @@ pub(in crate::server) fn try_handle(
             Some(Value::String(value)) if !enabled && valid_watch_id(&value) => Some(value),
             _ => return Err(Failure::BadRequest),
         };
+        let receipt = match fields.remove("admission_receipt") {
+            None => false,
+            Some(Value::Bool(value)) if enabled => value,
+            _ => return Err(Failure::BadRequest),
+        };
         if !fields.is_empty() || message.len() > 4096 {
             return Err(Failure::BadRequest);
         }
+        admission_receipt = receipt;
         let watches = &mux.control_clients.agent_sessions.inventory_watches;
         if !enabled {
             watches.disconnect_matching(client, expected_watch.as_deref());
@@ -76,6 +84,7 @@ pub(in crate::server) fn try_handle(
         watches.insert(watch.clone())?;
         let failure_watch = watch.clone();
         let worker_id = id.clone();
+        let mux_for_refusal = Arc::downgrade(mux);
         let spawned = std::thread::Builder::new()
             .name("mux-inventory-watch".into())
             .stack_size(256 * 1024)
@@ -87,7 +96,14 @@ pub(in crate::server) fn try_handle(
                     Ok(false) => watch.stop(Failure::Unavailable, false),
                     Err(error) => {
                         watch.stop(error, false);
-                        agent_inventory::reply(&watch.writer, worker_id, Err(error));
+                        refuse(
+                            mux_for_refusal.upgrade().as_deref(),
+                            client,
+                            &watch.writer,
+                            worker_id,
+                            error,
+                            receipt,
+                        );
                     }
                 }
             });
@@ -101,8 +117,31 @@ pub(in crate::server) fn try_handle(
         Ok(Dispatch::Deferred) => true,
         Ok(Dispatch::Sent(keep_open)) => keep_open,
         Ok(Dispatch::Value(value)) => agent_inventory::reply(writer, id, Ok(value)),
-        Err(error) => agent_inventory::reply(writer, id, Err(error)),
+        Err(error) => refuse(Some(mux), client, writer, id, error, admission_receipt),
     })
+}
+
+/// A capability-negotiated refusal proves absence only while holding the lease registry lock.
+fn refuse(
+    mux: Option<&Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    id: Option<Value>,
+    error: Failure,
+    opted_in: bool,
+) -> bool {
+    if opted_in && matches!(error, Failure::Unavailable | Failure::Unsupported | Failure::Busy) {
+        if let Some(mux) = mux {
+            return mux.control_clients.agent_sessions.inventory_watches.refuse(
+                client,
+                &mux.machine_public_id,
+                writer,
+                id,
+                error,
+            );
+        }
+    }
+    agent_inventory::reply(writer, id, Err(error))
 }
 
 fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> {

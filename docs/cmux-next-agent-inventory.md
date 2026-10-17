@@ -119,6 +119,29 @@ An uncertain admission or failed cleanup stays failed on this manager. It
 neither reconnects nor redirects a delayed disable to a newer control session.
 The app provider must still own route admission, callbacks and subscription demand.
 
+### Explicit refusal recovery
+
+`agent-inventory-watch-admission-v1` negotiates `admission_receipt:true` on
+enable only. Success retains the existing owner/watch/revision receipt. An
+eligible temporary refusal may include error `data` exactly
+`{machine, admission:"not_admitted"}`. Native code observes no lease for that
+control client and queues the refusal while holding the watch registry lock.
+Worker failure stops and removes its lease before checking absence. If another
+lease is present, including a pending enable, no absence proof is returned.
+
+`agent_inventory.busy` alone is ambiguous: it can mean reservation pressure or
+an already pending lease. Legacy requests keep their existing refusal shape.
+Malformed opt-in, disable, trust/owner refusal and invalid cache responses do
+not provide a recovery receipt. A proof names only the expected owner; it is
+neither a selector nor permission to start an owner or run a job.
+
+The shared Swift manager clears a failed admission only after negotiating this
+capability and matching the owner, proof and eligible refusal code. A later
+explicit demand/route admission can then enable on that same captured transport.
+Cancellation recovers the proof without an unfenced disable. Legacy or uncertain
+failures, transport timeouts, malformed receipts and failed cleanup remain fenced.
+There is no automatic timer retry, alternate-owner fallback or reconnect.
+
 ## Verified app subscription boundary
 
 `agent-cli-app-invalidation-v1` adds a fixed local provider carrier. A verified

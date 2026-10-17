@@ -4,20 +4,22 @@ import Foundation
 ///
 /// Obtain this manager from ``DaemonConnection/agentInventoryWatch(expectedMachineID:)``.
 /// Cancellation retires a pending admission only after recovering its receipt.
-/// Retirement precedes readmission; a failed admission or cleanup remains failed
-/// on this manager, so uncertainty cannot create a second lease. The route owner
+/// Retirement precedes readmission. Only a negotiated, owner-matched refusal
+/// proving no lease permits a later explicit admission; uncertainty stays failed. The route owner
 /// must invalidate callbacks before retirement and match receipts to its epoch.
 public actor AgentInventoryWatch {
     private let transport: LineTransport
     private let machine: ResourceID
+    private let supportsReceipts: Bool
     private var generation: UInt64 = 0
-    private var pending: Task<AgentInventoryWatchReceipt, any Error>?
+    private var pending: Task<AgentInventoryWatchAdmission, any Error>?
     private var active: AgentInventoryWatchReceipt?
     private var retirement: Task<Void, any Error>?
 
-    init(transport: LineTransport, machine: ResourceID) {
+    init(transport: LineTransport, machine: ResourceID, supportsReceipts: Bool) {
         self.transport = transport
         self.machine = machine
+        self.supportsReceipts = supportsReceipts
     }
 
     /// Enables this transport's watch, sharing an existing admission or live receipt.
@@ -34,19 +36,24 @@ public actor AgentInventoryWatch {
         if let active { return active }
         if pending == nil {
             generation += 1
-            let transport = transport, machine = machine
+            let transport = transport, machine = machine, supportsReceipts = supportsReceipts
             // task-owner: retained until receipt/retirement, bounded by the owner-read deadline
             pending = Task {
-                let receipt = try await DaemonConnection.perform(MachineAgentInventoryWatchRequest(expectedMachineID: machine),
-                                                               on: transport, timeout: .seconds(15))
-                guard receipt.machine == machine else { throw DaemonError.malformedResponse("Inventory watch receipt owner mismatch") }
-                return receipt
+                try await AgentInventoryWatchAdmission.perform(transport: transport, machine: machine, supportsReceipts: supportsReceipts)
             }
         }
         guard let admission = pending else { throw DaemonError.notConnected }
         let admittedGeneration = generation
         return try await withTaskCancellationHandler {
-            let receipt = try await admission.value
+            let result = try await admission.value
+            let receipt: AgentInventoryWatchReceipt
+            switch result {
+            case .accepted(let value): receipt = value
+            case .refused(let error):
+                if generation == admittedGeneration { pending = nil }
+                try Task.checkCancellation()
+                throw error
+            }
             if Task.isCancelled {
                 try? await retire(expectedGeneration: admittedGeneration)
                 throw CancellationError()
@@ -83,7 +90,10 @@ public actor AgentInventoryWatch {
         retirement = Task {
             let accepted: AgentInventoryWatchReceipt
             if let receipt { accepted = receipt }
-            else if let admission { accepted = try await admission.value }
+            else if let admission {
+                guard case .accepted(let receipt) = try await admission.value else { return }
+                accepted = receipt
+            }
             else { throw DaemonError.notConnected }
             _ = try await DaemonConnection.perform(MachineAgentInventoryUnwatchRequest(expectedMachineID: machine, expectedWatchID: accepted.watchID),
                                                   on: transport, timeout: .seconds(15))

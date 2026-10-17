@@ -124,6 +124,7 @@ final class InventoryProviderBridgeFixture {
             caps=['apps-v1','agent-inventory-watch-fence-v1']
             if mode != 'legacy': caps.append('agent-cli-app-provider-v1')
             if mode not in ['legacy','provider']: caps.append('agent-cli-app-invalidation-v1')
+            if mode == 'retry-first': caps.append('agent-inventory-watch-admission-v1')
             reply(f, {'app':'cmux-tui','protocol':12,'generation':boot, 'machine_id':machine,'capabilities':caps})
         elif cmd == 'apps-provider-register':
             calls.append({'kind':'register','opted_in':f.get('inventory_watch') is True,'families':f['families']})
@@ -131,7 +132,10 @@ final class InventoryProviderBridgeFixture {
             reply(f, {'families':f['families'],'inventory_demand':{'sequence':1,'enabled':False}})
         elif cmd == 'agent-inventory-watch':
             calls.append({'kind':'enable' if f['enabled'] else 'disable', **f})
-            if f['enabled'] and mode == 'hold': pending=f
+            if f['enabled'] and mode == 'retry-first' and count('enable') == 1:
+                print(json.dumps({'id':f['id'],'ok':False,'error':'agent_inventory.unavailable','error_code':'agent_inventory.unavailable',
+                    'data':{'machine':machine,'admission':'not_admitted'}}), flush=True)
+            elif f['enabled'] and mode == 'hold': pending=f
             else: reply(f, receipt() if f['enabled'] else {})
             release_waiters()
         elif cmd == 'apps-agent-inventory-changed':

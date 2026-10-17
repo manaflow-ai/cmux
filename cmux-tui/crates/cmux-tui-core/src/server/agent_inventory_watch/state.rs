@@ -1,5 +1,6 @@
 //! Per-client watch leases and their cancellation/acknowledgement fence.
 use super::*;
+use crate::server::{Response, send_response};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, Weak};
@@ -10,6 +11,32 @@ const MAX_WATCHES: usize = 8;
 pub(in crate::server) struct Watches(Mutex<HashMap<u64, Arc<Watch>>>);
 
 impl Watches {
+    /// Emits absence proof atomically with observing no lease for this exact control client.
+    pub(super) fn refuse(
+        &self,
+        client: u64,
+        owner: &MachinePublicId,
+        writer: &MessageWriter,
+        id: Option<Value>,
+        error: Failure,
+    ) -> bool {
+        let live = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if live.contains_key(&client) {
+            return agent_inventory::reply(writer, id, Err(error));
+        }
+        send_response(
+            writer,
+            Response {
+                id,
+                ok: false,
+                data: Some(json!({"machine":owner,"admission":"not_admitted"})),
+                error: Some(error.code().into()),
+                error_code: Some(error.code().into()),
+                error_delivery: None,
+            },
+        )
+    }
+
     pub(super) fn get(&self, client: u64) -> Option<Arc<Watch>> {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).get(&client).cloned()
     }

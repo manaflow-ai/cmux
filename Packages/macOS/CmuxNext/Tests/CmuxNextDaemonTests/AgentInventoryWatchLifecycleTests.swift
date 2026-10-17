@@ -39,6 +39,38 @@ struct AgentInventoryWatchLifecycleTests {
                 #expect(receipt.machine == machine)
                 try await watch.disable()
             } catch { Issue.record("new explicit admission retained old refusal: \(error)") }
+            let calls = try await connection.request(Inspect()).arrayValue
+            #expect(calls?.map { $0["enabled"] } == [.bool(true), .bool(true), .bool(false)])
+            #expect(calls?.filter { $0["enabled"] == .bool(true) }.allSatisfy { $0["admission_receipt"] == .bool(true) } == true)
+        }
+    }
+
+    @Test(arguments: ["ambiguous-busy", "foreign-proof", "legacy-proof", "invalid-proof", "unknown-proof"])
+    func uncertainOrUnnegotiatedRefusalCannotReadmit(mode: String) async throws {
+        try await withConnection(mode: mode) { connection in
+            let watch = try await connection.agentInventoryWatch(expectedMachineID: machine)
+            for _ in 0..<2 {
+                do { _ = try await watch.enable(); Issue.record("unproven refusal admitted another watch") }
+                catch DaemonError.command { }
+            }
+            do { try await watch.disable(); Issue.record("uncertain admission acknowledged cleanup") }
+            catch DaemonError.command { }
+            #expect(try await connection.request(Inspect()).arrayValue?.count == 1)
+        }
+    }
+
+    @Test func cancellationRecoversNoLeaseRefusalWithoutSendingUnfencedCleanup() async throws {
+        try await withConnection(mode: "hold-refusal") { connection in
+            let watch = try await connection.agentInventoryWatch(expectedMachineID: machine)
+            let admission = Task { try await watch.enable() }
+            _ = try await connection.request(WaitPending())
+            admission.cancel()
+            _ = try await connection.request(Release())
+            do { _ = try await admission.value; Issue.record("cancelled admission returned") }
+            catch is CancellationError { }
+            try await watch.disable()
+            _ = try await watch.enable()
+            try await watch.disable()
             #expect(try await connection.request(Inspect()).arrayValue?.map { $0["enabled"] } == [.bool(true), .bool(true), .bool(false)])
         }
     }
@@ -168,6 +200,14 @@ struct AgentInventoryWatchLifecycleTests {
     def receipt():
         return {'machine': 'machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' if mode == 'foreign-receipt' else machine,
             'watch_id':'inventory_watch_0123456789abcdef0123456789abcdef', 'revision':18446744073709551615}
+    def refusal(frame):
+        code = 'agent_inventory.' + mode.removeprefix('refused-first-') if mode.startswith('refused-first-') else 'agent_inventory.busy'
+        details = {'machine':machine,'admission':'not_admitted'}
+        if mode == 'ambiguous-busy': details = {}
+        if mode == 'foreign-proof': details['machine'] = 'machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        if mode == 'invalid-proof': details['admission'] = True
+        if mode == 'unknown-proof': code = 'agent_inventory.invalid_response'
+        print(json.dumps({'id':frame['id'],'ok':False,'error':code,'error_code':code,'data':details}), flush=True)
     print('{"ok":true}', file=sys.stderr, flush=True)
     for line in sys.stdin:
         frame = json.loads(line)
@@ -175,14 +215,12 @@ struct AgentInventoryWatchLifecycleTests {
         if cmd == 'identify':
             reply(frame, {'app':'cmux-tui','protocol':12,'generation':boot,
                 'machine_id':'' if mode == 'anonymous' else machine,
-                'capabilities':['agent-inventory-watch-v1'] if mode == 'legacy' else ['agent-inventory-watch-fence-v1'] + (['agent-inventory-watch-admission-v1'] if mode.startswith('refused-first-') else [])})
+                'capabilities':['agent-inventory-watch-v1'] if mode == 'legacy' else ['agent-inventory-watch-fence-v1'] + (['agent-inventory-watch-admission-v1'] if mode.startswith('refused-first-') or mode in ['ambiguous-busy','foreign-proof','invalid-proof','unknown-proof','hold-refusal'] else [])})
         elif cmd == 'agent-inventory-watch':
             calls.append(frame)
-            if frame['enabled'] and mode.startswith('refused-first-') and len(calls) == 1:
-                code = 'agent_inventory.' + mode.removeprefix('refused-first-')
-                print(json.dumps({'id':frame['id'],'ok':False,'error':code,'error_code':code,
-                    'data':{'machine':machine,'admission':'not_admitted'}}), flush=True)
-            elif frame['enabled'] and mode == 'hold':
+            if frame['enabled'] and len(calls) == 1 and (mode.startswith('refused-first-') or mode in ['ambiguous-busy','foreign-proof','legacy-proof','invalid-proof','unknown-proof']):
+                refusal(frame)
+            elif frame['enabled'] and (mode == 'hold' or mode == 'hold-refusal' and len(calls) == 1):
                 pending = frame
                 if waiting is not None: reply(waiting); waiting = None
             elif frame['enabled']: reply(frame, receipt())
@@ -191,7 +229,10 @@ struct AgentInventoryWatchLifecycleTests {
             if pending is not None: reply(frame)
             else: waiting = frame
         elif cmd == 'test-release':
-            if pending is not None: reply(pending, receipt()); pending = None
+            if pending is not None:
+                if mode == 'hold-refusal': refusal(pending)
+                else: reply(pending, receipt())
+                pending = None
             reply(frame)
         elif cmd == 'test-state': reply(frame, calls)
         elif cmd == 'test-drop': reply(frame); break
