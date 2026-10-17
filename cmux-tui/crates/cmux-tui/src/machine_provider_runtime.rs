@@ -2935,8 +2935,8 @@ mod tests {
                 status,
                 connectable: false,
                 workspace_create: protocol::WorkspaceCreatePolicy::Session,
-            platform: None,
-            capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
