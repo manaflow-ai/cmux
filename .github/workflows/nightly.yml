@@ -4118,6 +4118,7 @@ jobs:
       # this pipeline is not the nightly-next writer (NIGHTLY_NEXT_WRITER read
       # live is not mac, or is unreadable; or NIGHTLY_NEXT_HOLD is 1).
       refused: ${{ steps.gate.outputs.refused }}
+      refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # A literal ephemeral label: this job holds the release App key (guard rule 7).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -4434,8 +4435,19 @@ jobs:
         run: |
           set -euo pipefail
           refuse() {
-            echo "::warning title=Publication refused::$SOURCE build $NIGHTLY_BUILD ($BUILD_SHA): $1; nothing published"
+            # Not silent: the error annotation shows on the run, and
+            # report-nightly-failure opens or updates the failure issue.
+            echo "::error title=Publication refused::$SOURCE build $NIGHTLY_BUILD ($BUILD_SHA): $1; nothing published"
             echo "- refused: $1" >> "$GITHUB_STEP_SUMMARY"
+            { echo "refused=true"; echo "refusal_reason=${1//[$'\r\n']/ }"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          # A deliberate stop (an operator made linux or none the writer, or set
+          # the hold, while this run built): publish nothing, and open no
+          # failure issue, since the next Mac publication may never come.
+          stand_down() {
+            echo "::notice title=Publication stood down::$SOURCE build $NIGHTLY_BUILD ($BUILD_SHA): $1; nothing published"
+            echo "- stood down: $1" >> "$GITHUB_STEP_SUMMARY"
             echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 0
           }
@@ -4452,18 +4464,22 @@ jobs:
           if [ "$TRACK" = nightly-next ]; then
             [ -n "$WRITER_TOKEN" ] || refuse "the release App token could not be minted, so NIGHTLY_NEXT_WRITER is unreadable"
             writer="$(var NIGHTLY_NEXT_WRITER)" || refuse "NIGHTLY_NEXT_WRITER read live is unreadable: $writer"
-            [ "$writer" = mac ] || refuse "NIGHTLY_NEXT_WRITER read live is '${writer:-<empty>}', not mac"
+            case "$writer" in
+              mac) ;;
+              linux|none) stand_down "NIGHTLY_NEXT_WRITER read live is '$writer', not mac" ;;
+              *) refuse "NIGHTLY_NEXT_WRITER read live is '${writer:-<empty>}', not mac" ;;
+            esac
             # Transition week only (until 2026-10-23): remove with NIGHTLY_NEXT_HOLD.
             hold="$(var NIGHTLY_NEXT_HOLD)" || refuse "NIGHTLY_NEXT_HOLD read live is unreadable: $hold"
-            [ "$hold" != 1 ] || refuse "NIGHTLY_NEXT_HOLD read live is 1"
+            [ "$hold" != 1 ] || stand_down "NIGHTLY_NEXT_HOLD read live is 1"
             echo "NIGHTLY_NEXT_WRITER read live: mac (NIGHTLY_NEXT_HOLD: $hold); this pipeline publishes nightly-next"
           fi
           if [ "$SOURCE" = recovered ]; then
             status=0
             verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)" || status=$?
             if [ "$status" = 3 ]; then
-              echo "::warning title=Publication refused::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict"
-              echo "refused=true" >> "$GITHUB_OUTPUT"
+              echo "::error title=Publication refused::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict"
+              { echo "refused=true"; echo "refusal_reason=recovered build ${verdict//[$'\r\n']/ }"; } >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$status" != 0 ]; then
               # The check could not run: publish nothing, and say so in red.
@@ -6234,7 +6250,7 @@ jobs:
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -6250,6 +6266,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
           PUBLISH_SOURCE: ${{ needs.publish-nightly.outputs.source }}
+          REFUSAL_REASON: ${{ needs.publish-nightly.outputs.refusal_reason }}
           TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
@@ -6264,6 +6281,8 @@ jobs:
             const failed = Object.entries(results)
               .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
               .map(([k, v]) => `${k} (${v.result})`);
+            // A refused publication succeeds as a job but published nothing.
+            if (process.env.REFUSAL_REASON) failed.push(`publish-nightly (refused: ${process.env.REFUSAL_REASON})`);
             // nightly-next: notes jobs that were skipped after a publication
             // (a recovered one skips them on purpose).
             if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success' && process.env.PUBLISH_SOURCE !== 'recovered') {
@@ -6301,7 +6320,7 @@ jobs:
     # conditions below decide. nightly-next closes only with its notes published,
     # unless it published a recovered build, which has none (cx-urd.69). A
     # recovered build can follow this run's own failed build, which reports.
-    if: always() && needs.decide.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || needs.publish-nightly.outputs.source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
+    if: always() && needs.decide.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || needs.publish-nightly.outputs.source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
