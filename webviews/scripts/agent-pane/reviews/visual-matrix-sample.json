@@ -1,0 +1,416 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-14T02:48:58.662Z",
+  "transport": "mock-daemon",
+  "fastClock": true,
+  "cases": [
+    {
+      "id": "streaming-dark-narrow",
+      "state": "streaming",
+      "theme": "dark",
+      "width": 420,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": []
+      },
+      "galleryPath": "/live/agent-pane-visual/streaming-dark-narrow"
+    },
+    {
+      "id": "streaming-dark-normal",
+      "state": "streaming",
+      "theme": "dark",
+      "width": 760,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": []
+      },
+      "galleryPath": "/live/agent-pane-visual/streaming-dark-normal"
+    },
+    {
+      "id": "streaming-dark-wide",
+      "state": "streaming",
+      "theme": "dark",
+      "width": 1200,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": []
+      },
+      "galleryPath": "/live/agent-pane-visual/streaming-dark-wide"
+    },
+    {
+      "id": "queue-steer-light-normal",
+      "state": "queue-steer",
+      "theme": "light",
+      "width": 760,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0.00363,
+        "maxFrameJumpPx": 3,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 3,
+            "score": 0.00363
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "queue",
+            "width": 707,
+            "height": 38
+          }
+        ]
+      },
+      "galleryPath": "/live/agent-pane-visual/queue-steer-light-normal"
+    },
+    {
+      "id": "pr-chip-dark-normal",
+      "state": "pr-chip",
+      "theme": "dark",
+      "width": 760,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-78",
+            "width": 707,
+            "height": 15.5
+          }
+        ]
+      },
+      "galleryPath": "/live/agent-pane-visual/pr-chip-dark-normal"
+    },
+    {
+      "id": "permission-dark-narrow",
+      "state": "permission",
+      "theme": "dark",
+      "width": 420,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": []
+      },
+      "galleryPath": "/live/agent-pane-visual/permission-dark-narrow"
+    },
+    {
+      "id": "permission-light-wide",
+      "state": "permission",
+      "theme": "light",
+      "width": 1200,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": []
+      },
+      "galleryPath": "/live/agent-pane-visual/permission-light-wide"
+    },
+    {
+      "id": "images-light-normal",
+      "state": "images",
+      "theme": "light",
+      "width": 760,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-78",
+            "width": 707,
+            "height": 15.5
+          }
+        ]
+      },
+      "galleryPath": "/live/agent-pane-visual/images-light-normal"
+    },
+    {
+      "id": "wallpaper-dark-wide",
+      "state": "wallpaper",
+      "theme": "dark",
+      "width": 1200,
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
+      "video": "fast-clock.webm",
+      "metrics": {
+        "frames": 6,
+        "cls": 0,
+        "maxFrameJumpPx": 0,
+        "perFrameJumps": [
+          {
+            "frame": 1,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 2,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 3,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 4,
+            "maxPx": 0,
+            "score": 0
+          },
+          {
+            "frame": 5,
+            "maxPx": 0,
+            "score": 0
+          }
+        ],
+        "composerOverlaps": [
+          {
+            "left": "composer",
+            "right": "summary-78",
+            "width": 1147,
+            "height": 15.5
+          }
+        ]
+      },
+      "galleryPath": "/live/agent-pane-visual/wallpaper-dark-wide"
+    }
+  ],
+  "contactSheet": "contact-sheet.png",
+  "verdict": "review"
+}

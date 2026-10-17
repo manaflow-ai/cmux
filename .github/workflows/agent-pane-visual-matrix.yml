@@ -1,0 +1,48 @@
+name: Agent pane visual matrix
+
+on:
+  pull_request:
+    paths:
+      - 'webviews/src/agent-session/**'
+      - 'webviews/scripts/agent-pane/**'
+      - '.github/workflows/agent-pane-visual-matrix.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        case_group: [streaming-dark-normal, queue-steer-light-normal, pr-chip-dark-normal, permission-dark-narrow, images-light-normal, wallpaper-dark-wide]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: webviews
+      - run: bunx playwright install --with-deps chromium
+        working-directory: webviews
+      - name: Run bounded visual capture
+        run: |
+          if command -v heavy >/dev/null 2>&1; then
+            heavy --mem 4G bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+          else
+            # Blacksmith's job is already a dedicated 4 GB Linux worker. The local command
+            # remains `heavy --mem 4G ...`; hosted runners do not ship that wrapper.
+            bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+          fi
+        working-directory: webviews
+        env:
+          CASE_GROUP: ${{ matrix.case_group }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-pane-visual-${{ matrix.case_group }}
+          path: artifacts/agent-pane-visual/${{ matrix.case_group }}
+          if-no-files-found: error
