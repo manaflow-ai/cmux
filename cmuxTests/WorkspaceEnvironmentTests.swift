@@ -147,7 +147,10 @@ struct WorkspaceEnvironmentTests {
             focus: false,
             startupEnvironment: ["ONLY": "surface"]
         ))
-        #expect(second.surface.respawnAdditionalEnvironment == ["ONLY": "surface"])
+        let userEnvironment = second.surface.respawnAdditionalEnvironment.filter {
+            $0.key != "CMUX_STABLE_SURFACE_ID"
+        }
+        #expect(userEnvironment == ["ONLY": "surface"])
     }
 
     // MARK: - Acceptance: persistence across session restore
