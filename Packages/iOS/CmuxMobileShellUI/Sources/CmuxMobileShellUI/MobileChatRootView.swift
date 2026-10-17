@@ -262,9 +262,6 @@ private struct MobileChatTranscriptView: View {
                 Button("Refresh transcript", systemImage: "arrow.clockwise") {
                     store.selectSession(descriptor.id)
                 }
-                if descriptor.state == .working(since: Date(timeIntervalSince1970: 0)) {
-                    EmptyView()
-                }
                 Button("Stop agent", systemImage: "stop.fill", role: .destructive) {
                     store.interrupt()
                 }
