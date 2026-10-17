@@ -127,17 +127,17 @@
   background: none;
   box-shadow: none;
 }
-/* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
-   browser tab and New chat read as buttons, not as text (Lucas #21133). */
+/* The create actions are one compact ghost row. They are controls, but separate pill outlines add
+   a second rhythm under the composer and make the row look detached from Chats. */
 .nt-screen .nt-create {
   gap: 0;
   margin: 4px 0 0;
 }
 .nt-screen .nt-create .nt-tool {
   height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  padding: 0 8px;
+  border-radius: 6px;
+  box-shadow: none;
   color: var(--agent-soft);
   font-weight: 400;
 }
