@@ -250,7 +250,7 @@ import Testing
         #expect(!model.canRegenerateLatestResponse)
 
         await model.regenerateLatestResponse()
-        #expect(await source.sent == [])
+        #expect((await source.sent).isEmpty)
     }
 
     @Test func regenerateIgnoresDuplicateTapsWhileTheSendIsInFlight() async {
