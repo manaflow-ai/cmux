@@ -412,7 +412,9 @@ def tick_phase(pid):
     after = counters()
     if base is not None and after is not None:
         result["counters"] = after
-        result["main_us_per_tick"] = round(after.get("main_ns", 0) / 1e3 / max(ticks, 1), 1)
+        main_ns = after.get("main_ns")
+        if isinstance(main_ns, (int, float)) and not isinstance(main_ns, bool) and ticks > 0:
+            result["main_us_per_tick"] = round(main_ns / 1e3 / ticks, 1)
         visible = summary["visible_ticking_rows"]
         check(after.get("rebuilds", 0) == 0, f"ticks: no structural rebuild (rebuilds {after.get('rebuilds')})")
         check(after.get("list_reloads", 0) == 0, f"ticks: no list reload (list_reloads {after.get('list_reloads')})")
