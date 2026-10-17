@@ -39,6 +39,36 @@ struct CloudActivationCoordinatorTests {
         #expect(coordinator.state == .enabled)
     }
 
+    @Test("A stale rollout cache cannot block first-use Cloud activation")
+    func staleRolloutCacheDoesNotBlockActivation() async throws {
+        let suite = "cmux.cloud.activation.staleRollout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            false,
+            forKey: "cmux.flags.remote.\(CmuxFeatureFlags.cloudMachinesFlag.key)"
+        )
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: { _, _ in nil }
+        )
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { CloudMachinesFeature.isAvailable(policy: policy) },
+            prepare: {}
+        )
+
+        #expect(coordinator.state == .disabled)
+        coordinator.enable()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+
+        #expect(coordinator.state == .enabled)
+        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+    }
+
     @Test("An availability change during setup cannot commit activation")
     func availabilityFlipDuringActivation() async throws {
         let suite = "cmux.cloud.activation.availabilityFence.\(UUID().uuidString)"
