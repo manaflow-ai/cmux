@@ -5,6 +5,20 @@ import CmuxTerminal
 import CmuxTerminalCore
 import Foundation
 
+private extension ChatAgentKind {
+    /// Hook interaction callbacks are authoritative for Claude/OpenCode.
+    /// Codex emits equivalent request cards in its transcript, so synthesizing
+    /// cards from its hooks duplicates the same prompt in mobile history.
+    var supportsHookInteractionCards: Bool {
+        switch self {
+        case .claude, .other("opencode"):
+            return true
+        case .codex, .other:
+            return false
+        }
+    }
+}
+
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
 /// events, tails their transcripts, serves history pages, and pushes
 /// `chat.message` events to subscribed mobile clients.
@@ -360,23 +374,23 @@ final class AgentChatTranscriptService {
         let record = registry.noteHookEvent(event)
         switch event.hookEventName {
         case .permissionRequest:
+            guard record.agentKind.supportsHookInteractionCards else { break }
             notePermissionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
-        // Claude and OpenCode both surface these hook-only interactions
-        // outside their JSONL transcript. Keep them in the same typed chat
-        // stream so a mobile answer wakes the exact blocking feed request;
-        // Codex generally carries request_user_input in its transcript and
-        // is handled by the parser, but accepting the hook form is harmless.
         case .askUserQuestion, .exitPlanMode:
+            guard record.agentKind.supportsHookInteractionCards else { break }
             noteQuestionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
         case .stop:
+            guard record.agentKind.supportsHookInteractionCards else { break }
             expirePermissionRequests(sessionID: record.sessionID)
             expireQuestionRequests(sessionID: record.sessionID)
         case .sessionEnd:
             // The lifecycle callback also handles this transition, but doing
             // it here covers records that were already ended and therefore do
             // not produce a second state transition callback.
-            expirePermissionRequests(sessionID: record.sessionID)
-            expireQuestionRequests(sessionID: record.sessionID)
+            if record.agentKind.supportsHookInteractionCards {
+                expirePermissionRequests(sessionID: record.sessionID)
+                expireQuestionRequests(sessionID: record.sessionID)
+            }
         default:
             break
         }

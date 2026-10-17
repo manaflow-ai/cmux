@@ -90,6 +90,34 @@ import Testing
         #expect(model.selectedSession?.title == "Reconnected")
     }
 
+    @Test func hostStreamEOFResubscribesAndAppliesLaterFrames() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel(reconnectDelay: { _ in })
+
+        model.updateSource(source)
+        await settle()
+        await source.finishHostEvents()
+        await settle()
+
+        #expect(await source.hostSubscriptionCount == 2)
+        let renamed = ChatSessionDescriptor(
+            id: "session",
+            agentKind: .codex,
+            title: "Reconnected",
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 2
+        )
+        await source.emitHost(sessionID: "session", event: .descriptorChanged(renamed))
+        await settle()
+
+        #expect(model.connectionState == .connected)
+        #expect(model.selectedSession?.title == "Reconnected")
+    }
+
     @Test func historyPaginationDeduplicatesAndPrependsOlderMessages() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -324,6 +352,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     private(set) var answers: [(Int, String)] = []
     private(set) var interrupts: [(Bool, String)] = []
     private var hostContinuation: AsyncStream<ChatSessionEventFrame>.Continuation?
+    private(set) var hostSubscriptionCount = 0
     private var pendingHostEvents: [ChatSessionEventFrame] = []
     private var eventContinuations: [String: AsyncStream<ChatSessionEvent>.Continuation] = [:]
     private var pendingEvents: [String: [ChatSessionEvent]] = [:]
@@ -348,6 +377,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     }
 
     func sessionEvents() async -> AsyncStream<ChatSessionEventFrame> {
+        hostSubscriptionCount += 1
         AsyncStream { continuation in
             Task { await self.setHostContinuation(continuation) }
         }

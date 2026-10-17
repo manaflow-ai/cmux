@@ -233,6 +233,48 @@ struct AgentChatPermissionCardsTests {
         #expect(feedback == nil)
     }
 
+    @MainActor
+    @Test("Codex hook interaction events do not duplicate transcript cards")
+    func codexHookInteractionsAreIgnored() async throws {
+        let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var payloads: [[String: Any]] = []
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { true },
+            emitEventPayload: { payloads.append($0) }
+        )
+        defer { service.shutdown() }
+        let sessionID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        for hook in [WorkstreamEvent.HookEventName.permissionRequest, .askUserQuestion, .exitPlanMode] {
+            service.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: hook,
+                source: "codex",
+                surfaceId: surfaceID,
+                toolName: "question",
+                toolInputJSON: #"{"questions":[{"question":"Continue?","options":[{"label":"Yes"}]}]}"#,
+                requestId: hook.rawValue,
+                receivedAt: Date(timeIntervalSince1970: 300)
+            ))
+        }
+
+        let interactionFrames = decodeFrames(payloads).filter { frame in
+            guard case .appended(let messages) = frame.event else { return false }
+            return messages.contains { message in
+                switch message.kind {
+                case .permissionRequest, .question: return true
+                default: return false
+                }
+            }
+        }
+        #expect(interactionFrames.isEmpty)
+        #expect(service.permissionRecordsBySessionID[sessionID] == nil)
+        #expect(service.questionRecordsBySessionID[sessionID] == nil)
+    }
+
     private func decodeFrames(_ payloads: [[String: Any]]) -> [ChatSessionEventFrame] {
         let coding = ChatWireCoding()
         return payloads.compactMap { payload in

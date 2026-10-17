@@ -80,6 +80,21 @@ final class AgentChatModeModel {
     private var answeredRequestKeysBySession: [String: Set<String>] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
+    private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
+
+    init(
+        reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = Self.defaultReconnectDelay
+    ) {
+        self.reconnectDelay = reconnectDelay
+    }
+
+    /// Keep a dead transport from turning an EOF into a busy resubscribe loop.
+    /// The delay is cancellable, so replacing the source or leaving the mode
+    /// stops recovery immediately. Tests can inject an immediate delay.
+    private nonisolated static func defaultReconnectDelay(attempt: Int) async {
+        let milliseconds = min(5_000, 250 * (1 << min(max(attempt - 1, 0), 4)))
+        try? await Task.sleep(for: .milliseconds(milliseconds))
+    }
 
     private struct QueuedSend: Sendable {
         let text: String
@@ -365,22 +380,27 @@ final class AgentChatModeModel {
     }
 
     private func observeHostEvents(source: any AgentChatSessionSource, generation: Int) async {
-        guard !Task.isCancelled, generation == sourceGeneration else { return }
-        let stream = await source.sessionEvents()
-        guard !Task.isCancelled, generation == sourceGeneration else { return }
-        connectionState = .connected
-        for await frame in stream {
+        var reconnectAttempt = 0
+        while !Task.isCancelled, generation == sourceGeneration {
+            let stream = await source.sessionEvents()
             guard !Task.isCancelled, generation == sourceGeneration else { return }
-            apply(frame.event, to: frame.sessionID)
-            if frame.event.eventIsDescriptorChange {
-                if let descriptor = try? await source.session(sessionID: frame.sessionID) {
-                    guard !Task.isCancelled, generation == sourceGeneration else { return }
-                    upsert(descriptor)
+            connectionState = .connected
+            reconnectAttempt = 0
+            for await frame in stream {
+                guard !Task.isCancelled, generation == sourceGeneration else { return }
+                apply(frame.event, to: frame.sessionID)
+                if frame.event.eventIsDescriptorChange {
+                    if let descriptor = try? await source.session(sessionID: frame.sessionID) {
+                        guard !Task.isCancelled, generation == sourceGeneration else { return }
+                        upsert(descriptor)
+                    }
                 }
             }
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            connectionState = .reconnecting
+            reconnectAttempt += 1
+            await reconnectDelay(reconnectAttempt)
         }
-        guard generation == sourceGeneration, !Task.isCancelled else { return }
-        connectionState = .reconnecting
     }
 
     private func loadSessions(source: any AgentChatSessionSource, generation: Int? = nil) async {
@@ -508,15 +528,26 @@ final class AgentChatModeModel {
         source: any AgentChatSessionSource,
         generation: Int
     ) async {
-        let stream = await source.events(sessionID: sessionID)
-        guard !Task.isCancelled,
+        var reconnectAttempt = 0
+        while !Task.isCancelled,
               generation == sourceGeneration,
-              selectedSessionID == sessionID else { return }
-        for await event in stream {
+              selectedSessionID == sessionID {
+            let stream = await source.events(sessionID: sessionID)
             guard !Task.isCancelled,
                   generation == sourceGeneration,
                   selectedSessionID == sessionID else { return }
-            apply(event, to: sessionID)
+            reconnectAttempt = 0
+            for await event in stream {
+                guard !Task.isCancelled,
+                      generation == sourceGeneration,
+                      selectedSessionID == sessionID else { return }
+                apply(event, to: sessionID)
+            }
+            guard !Task.isCancelled,
+                  generation == sourceGeneration,
+                  selectedSessionID == sessionID else { return }
+            reconnectAttempt += 1
+            await reconnectDelay(reconnectAttempt)
         }
     }
 
