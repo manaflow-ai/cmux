@@ -249,7 +249,8 @@ declare namespace Cmux {
   type LayoutViewport = { kind: "viewport"; base_width: number; columns: Array<Cmux.LayoutColumn> }
   type LocalMutationResult = { plugin?: Cmux.SidebarPluginSnapshot; plugins?: Array<Cmux.SidebarPluginSnapshot> }
   type MachineId = string
-  type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type MachinePlatform = { os?: string | null; arch?: string | null }
+  type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local" | "cloud" | "ssh" | "server"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue>; platform?: Cmux.MachinePlatform | null; capabilities?: Array<string> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type MessageId = string
   type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"

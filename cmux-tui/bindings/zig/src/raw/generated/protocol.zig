@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+pub const ir_sha256 = "c3c503563fb37a00cb594112a105eb6fa9b8d4ed98553efbfa15a62bf20e440c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1045,7 +1045,10 @@ pub const IdentifyResult = struct {
     ghostty_commit: wire.Field([]const u8) = .absent,
     launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
+    machine_capabilities: ?[]const []const u8 = null,
+    machine_id: ?[]const u8 = null,
     machine_name: ?[]const u8 = null,
+    machine_platform: ?MachinePlatform = null,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -1058,7 +1061,10 @@ pub const IdentifyResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "capabilities",
         "lifecycle_ready",
+        "machine_capabilities",
+        "machine_id",
         "machine_name",
+        "machine_platform",
         "session_id",
     };
 };
@@ -1205,6 +1211,11 @@ pub const LivePane = struct {
 
 pub const MachineListeningTcpResult = struct {
     stdout: []const u8,
+};
+
+pub const MachinePlatform = struct {
+    arch: []const u8,
+    os: []const u8,
 };
 
 pub const MachineUsage = struct {
