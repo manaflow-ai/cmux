@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudBannerCore
 import CmuxProductAnalytics
@@ -561,6 +562,8 @@ final class CmuxMainThreadTurnProfiler {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     let cloudBannerDismissalStore: CloudBannerDismissalStore
+    /// Composition-root owner for the persisted per-SSH-machine clipboard-write policy.
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -573,7 +576,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
-        catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
+        catalog: SurfaceCatalog.shared,
+        clientURL: { CloudTuiClientPaths.clientURL() },
+        paths: CloudTuiClientPaths(),
+        sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
     )
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
@@ -1493,6 +1499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     override init() {
         cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
+        sshClipboardWriteTrustStore = SSHClipboardWriteTrustStore(defaults: .standard)
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,
@@ -4309,6 +4316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        ChiefHomeNavigation.openOnTerminal(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -10681,7 +10689,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator,
-            cloudWorkspaceSelection: cloudWorkspaceCoordinator?.makeSelectionState()
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator?.makeSelectionState(),
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -10693,6 +10702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 deferBrowserPanels: true,
                 workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
+            ChiefHomeNavigation.openOnTerminal(in: tabManager)
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
             }
@@ -19680,8 +19690,10 @@ private extension NSApplication {
         // WebKit sends a key no page handled back through here, to the key
         // window. For a key browser automation typed into a tab that is the
         // user's window: its terminal would get the text and its menus the
-        // Command shortcuts. The page already received the key.
-        if event.isResentBrowserAutomationKeyEvent { return }
+        // Command shortcuts. The page already received the key. Dropping it
+        // also tells `cmux browser press` and the REPL that no page handled
+        // it, so they run its Edit menu command on the web view.
+        if event.dropResentBrowserAutomationKeyEvent() { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

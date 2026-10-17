@@ -140,6 +140,8 @@ final class ChiefService {
         engine = settings
         let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings, keyFile: deepInfraKeyFile), settings: settings)
         let builder = ChiefTurnContextBuilder(engine: { await switcher.settings })
+        // task-owner: reads the login shell's PATH before the first turn needs it; ends with the read
+        Task.detached(priority: .utility) { _ = await ChiefLoginShellPath.shared.value() }
         let brain = ChiefSwitchingBrain(switcher: switcher)
         // task-owner: one load of the Chief home; ends when the owner is ready or the load failed
         let loading = Task.detached(priority: .userInitiated) {

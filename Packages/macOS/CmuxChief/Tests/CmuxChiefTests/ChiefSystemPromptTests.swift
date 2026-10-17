@@ -54,6 +54,15 @@ import Testing
         #expect(prompt.contains("verify with\n`cmux tree --all --json`"))
     }
 
+    @Test func aMissingCommandIsNotReadAsSignedOut() {
+        let prompt = ChiefSystemPrompt(context: context()).build()
+        #expect(prompt.contains("`command not found`"))
+        #expect(prompt.contains("login-shell `PATH`"))
+        #expect(!prompt.contains("same `PATH` as the user's terminal"))
+        #expect(prompt.contains("`command -v <tool>`"))
+        #expect(prompt.contains("`gh auth status`"))
+    }
+
     @Test func emptyContextOmitsOptionalSections() {
         let prompt = ChiefSystemPrompt(context: ChiefPromptContext(date: Date(timeIntervalSince1970: 0),
                                                                         timeZone: TimeZone(identifier: "UTC") ?? .current)).build()

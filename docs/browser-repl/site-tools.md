@@ -10,7 +10,18 @@ rules neither reference enforces together:
    through the cookie-bearing REPL `fetch` (Google's export endpoints,
    YouTube, GitHub `.diff`/`/raw/`) or in a background tab of the same
    profile, where its code runs in the page's own world against the site's
-   own origin. A token a site keeps in the page (Slack's `xoxc-` token in
+   own origin. A tool that runs in a site's origin loads a bootstrap page
+   there (`/robots.txt`) and runs nothing when a redirect left that origin:
+   the call fails with `origin_changed` when the tab's URL is elsewhere, and
+   each evaluation first checks its document's own `location.origin`.
+   Every background tab a tool opens is bound to the origin of the site
+   URL it opened (`withTab`). Its read-backs and waits run only in a
+   document on that origin, and the commit protocol checks every bound
+   tab's URL and document origin before its first read-back, before each
+   click and before each batch of input or request. A tab that a redirect
+   or a later navigation took to another origin fails with
+   `target_mismatch`, and nothing is sent there.
+   A token a site keeps in the page (Slack's `xoxc-` token in
    `localStorage`, LinkedIn's CSRF cookie) is used inside that page and never
    returned. Reference A's `slack.getClient()` and `notion.getClient()` extract
    the token into the REPL; its `imagegen` object printed OAuth tokens in a
@@ -30,6 +41,93 @@ rules neither reference enforces together:
    afterwards changes nothing: the confirmed call performs the action the
    preview showed. The status and expiry the confirm step checks stay in the
    session; `sites.drafts.get(id)` reads the current status.
+   Every write goes through one draft and commit protocol in
+   `sites/loader.js`, so a change of shared browser state another session
+   (or the page) makes between the preview and the confirmation never
+   redirects it. The draft records a typed intent, which is its preview:
+   the **account** that acts, by stable ids (Google's account id from
+   ListAccounts and the email at the `/u/` index, the Slack workspace and
+   member ids, the LinkedIn member id, the Notion user id, the X account id
+   (`id_str`, immutable) and screen name (reusable) that X's
+   `verify_credentials` endpoint authenticates, never the page-writable
+   `twid` cookie); the **target**, by stable ids (Slack
+   channel id and name, the Gmail thread and its message ids and the To,
+   Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
+   title and sharing, a Slides object id with its title and position, the
+   Notion page, the WebMCP tool's descriptor, the author a LinkedIn post
+   goes out as, by URN and type (the member's profile, never a company
+   page, which can carry the member's very name) and by name, and its
+   audience); and every other field the
+   preview shows (**content**). The confirmation prepares the write (opens
+   the composer, fills it) and then, right before the click or request
+   that writes, reads every one of those fields back from the site and
+   compares it with the draft: a difference fails with
+   `account_mismatch`, `target_mismatch` or `content_mismatch`, a field it
+   cannot read with `account_unverified`, `target_unverified` or
+   `content_unverified`, and nothing is sent. Only content the write sends
+   from the draft itself (a Slack message's text in `chat.postMessage`, a
+   Sheets paste's values) is not read back; `sites.drafts.get(id).checked`
+   lists the fields a confirmation read back. A tool whose commit writes
+   without reading back fails with `commit_unverified`, and
+   `tests/browser-parity/sites/commit-protocol.test.mjs` enumerates every
+   site method so that each write is a declared one that uses the protocol.
+   Google's account is read from Google's account list (server state for
+   the page's `/u/` index), read last, and counts only when the page's
+   own chrome (its title suffix, its Google Account button outside the
+   page's content) names that same account: page labels never stand in
+   for it. Composer text (Gmail, LinkedIn, X) is read whole in the agent's
+   isolated world, whitespace collapsed, Gmail's own signature and quoted
+   text left out, so a composer that keeps the drafted opening and holds
+   more fails. Every read-back runs in the agent's isolated world
+   (`t.readBack`, or locators), never with `page.evaluate`, whose result
+   is whatever the page's own `JSON.stringify`, `toJSON` or getters make
+   of it, and the loader copies it once as plain data (strings, finite
+   numbers, booleans, null, arrays and plain objects of them, data
+   properties only) with built-ins captured when it loads: a bound field
+   that is anything else counts as unread (`*_unverified`). A write that
+   is a click (Gmail's Send, Calendar's Save, LinkedIn's and X's Post,
+   Docs' and Slides' Replace all) presses only the element the commit
+   pinned before its read-back: when the element can take the click and
+   the pointer is on it, every field is read back and compared again, and
+   the press is sent bound to that element (the driver's press check); a
+   pinned element that left the document fails with `target_mismatch`, a
+   change fails as at the first read-back, and nothing is pressed. A
+   control the press opens (Calendar's invitation dialog Send) is pressed
+   the same way (`press.next`): exactly one match, pinned, read back
+   again. Drafted content goes into the site only through the commit's
+   `{ fill }`, which runs after the account is read again (Gmail's
+   compose window opens with its fields, and a reply's text is typed,
+   only then), so another session's account switch while the page loads
+   never leaves the content as the other account's draft. Every commit gives the loader an account reader (`{ account }`;
+   a commit without one fails as `invalid` before it writes), and the
+   loader reads the account once more as the last step before each write:
+   before each press (Gmail's Send, Calendar's Save and invitation Send,
+   LinkedIn's and X's Post, Drive's File > Move to trash, Docs' and
+   Slides' Replace all), and before each batch of input or each request
+   that is not a click (`press.input`: the Google editors' paste, typed
+   cells, Delete, typed notes and typed append; Slack's
+   `chat.postMessage`; Notion's `saveTransactions`; a WebMCP tool call).
+   `press.input` can also take a reader of drafted fields that can move
+   under the write (Sheets' append position): they are read and compared
+   with the draft right before the batch, then the account, last. A check
+   that fails after an earlier batch says that batch may have landed.
+   A commit whose act writes without `press` or `press.input` fails as
+   `commit_unverified`. A switch after the read-back fails with
+   `account_mismatch` (`account_unverified` when the account cannot be
+   read) and that write, and every later batch, is not sent; batches sent
+   before it stay sent (Slides' Delete of the old notes before a typed
+   line). The remaining window is between that last account read and the
+   click or input reaching the page, which no site API closes: none binds
+   a click or keystroke to an account. The request writes also bind the
+   account in the request itself: Slack's `chat.postMessage` checks the
+   member again in the same page call (`account_changed`); Notion reads
+   and writes with `x-notion-active-user-header` set to the drafted user,
+   so Notion runs the write as that user or refuses it, and its
+   `saveTransactions` runs in the agent's isolated world under the
+   fixed-origin guard, so the page's own `fetch`, `XMLHttpRequest` or
+   `JSON` never see or change it; a WebMCP call runs only in the listed
+   document while the tool's descriptor is the previewed one
+   (`page_changed`, `tool_changed`).
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -45,7 +143,7 @@ files are in `manifest.json`'s `repl` list after `api.js`, which builds
 //   cmux browser repl --session mail
 const hits = await sites.gmail.search("from:bob has:attachment newer_than:7d");
 const thread = await sites.gmail.thread(hits[0].threadId);
-const draft = await sites.gmail.send({ threadId: hits[0].threadId, body: "Thanks, looks good." });
+const draft = await sites.gmail.send({ to: thread.messages[0].from.email, subject: "Re: " + thread.subject, body: "Thanks, looks good." });
 draft.preview; // show it to the user; on approval:
 await sites.gmail.send(draft.id, { confirm: true });
 ```
@@ -71,7 +169,7 @@ shortcuts for the agent to drive by hand.
 | YouTube | `youtube.search/getMetadata/listTranscriptLanguages/getTranscript/getComments` | `content.exportYouTubeTranscript()` (turns captions on in the player, reads the caption URL it requests) | `sites.youtube.search`, `.metadata`, `.captions`, `.transcript(v, { lang, timestamps, format })` (direct caption URL, else reference B's player method in a muted background tab), `.comments(v, { limit, continuation })`; also `page.exportContent({ transcript: true })` |
 | Slack | `slack.listWorkspaces`, `slack.getClient()` returns a full `@slack/web-api` client holding the token (every method, posts with no gate) | none | `sites.slack.workspaces`, `.channels`, `.history(team, "#name")`, `.replies`, `.search`, `.user`, `.call()` (read-only methods only), `.post()` draft; the token stays in the app.slack.com page |
 | Notion | `notion.getClient()` (extracts `token_v2`; full client with deletes and moves) | none | `sites.notion.accounts`, `.search`, `.read(url)` (Markdown), `.append(page, markdown)` draft; same-origin calls, the httpOnly cookie never leaves the page |
-| LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
+| LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post({ text, audience })` draft. Messages and invitations: decision 7 |
 | X (Twitter) | `twitter.getMe/getUser/getTweet/getTweetThread/getTimeline/search/getUserTweets/getBookmarks/tweet/reply/like/retweet/follow/DMs/block/mute` (no gate) | none | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
 | GitHub | guide | none | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
 | Linear | guide | none | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query(text, variables, { operationName })` (read-only GraphQL) |
@@ -100,41 +198,45 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
 `draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
-`compose_mismatch`, `write_requires_draft`, `unsupported`.
+`account_mismatch`, `account_unverified`, `target_mismatch`,
+`target_unverified`, `content_mismatch`, `content_unverified`,
+`commit_unverified`, `reply_unverified`, `account_changed`, `account_unknown`, `tool_changed`,
+`page_changed`, `origin_changed`, `write_requires_draft`, `unsupported`, `limit`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
-| `googleAccounts.list()` | POST accounts.google.com/ListAccounts (cookie) | read |
+| `googleAccounts.list()` | POST accounts.google.com/ListAccounts (cookie): `{ uid, id, name, email, signedOut }`, `id` Google's stable account id | read |
 | `googleDocs.read(url, { format, uid })`, `.export(url, { format, path, uid })` | docs.google.com `/export?format=` (cookie) | read |
 | `googleSheets.info(url)`, `.read(url, { gid, sheet, range })`, `.readAll(url)`, `.export(url, { format, gid })` | `/htmlview` for sheet names, `/export?format=csv&gid=` | read |
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: an empty Gmail compose window (`?view=cm`, no drafted field in any URL) whose recipients, subject and body are typed in only after the account check on it, or the thread's Reply (Gmail's own controls only: Expand all and Reply inside the one thread view, the thread's own Reply or else its latest message's, Send inside the one compose window, never an element of a message body or quoted text; a missing or repeated container or control fails `target_unverified`), the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`target_mismatch` or `content_mismatch` on any difference, `*_unverified` for a field it cannot read); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `target_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply; confirmed replies are off in source (`reply_unverified`, nothing sent; the draft still shows the recipients) until a live check, drafts only, shows that the previewed To, Cc and Bcc are the ones Gmail's own reply composer addresses (decision 12); the page's account (Google's account list for its `/u/` index, which its title and account button must name) checked against the drafted account id and email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
-| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, Save, Send invitations only when the draft has guests | write [9], [14] |
+| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked as for Gmail, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's (a named month, a year-first date, or a numeric date that reads only one way; a numeric date whose month and day could be either way round, such as `10/1/2026`, is not accepted); location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, its weekdays (`BYDAY`) or day of the month (`BYMONTHDAY`, or one ordinal weekday such as `3TH`), the start's when the rule names none, the exact `COUNT` and the `UNTIL` date; a rule with any other part (`BYMONTH`, `BYSETPOS`, `WKST`, ...) is refused at the draft as `invalid`; the guests, organizer aside), failing with `target_mismatch` or `content_mismatch` (`*_unverified` for a field it cannot read) and saving nothing on any difference or a field it cannot read; Save, then, only when the draft has guests, the invitation dialog's Send, pressed like Save (the one Send in the dialog, pinned, after the form and account are read back again); the account is read once more, last, right before each of the two clicks | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
-| `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
-| `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage` | read |
-| `slack.post({ team, channel, text, threadTs })` | draft; confirmed: `chat.postMessage` | write [9] |
+| `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com`, its path is `/api/timedtext` and its `v` is the requested video (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
+| `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage`; every page call runs under the fixed-origin guard (`withOrigin`) on `https://app.slack.com`, rechecks the document's origin before each request, and sends the token only to that fixed origin's `/api/` (the web client boots in a separate tab, which a redirect to sign-in or SSO cannot turn into a call target) | read |
+| `slack.post({ team, channel, text, threadTs })` | draft with the workspace, member and channel ids and names; confirmed: the member and channel read back, the member once more, then one page call that runs `auth.test` with that workspace's token and, when it is the drafted member, `chat.postMessage` to those ids with the same token | write [9] |
 | `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin, on `app.notion.com`, else `www.notion.so`; `{ origin }` pins one of those two exactly and refuses any other | read |
-| `notion.append(page, markdown)` | draft; confirmed: `saveTransactions` (`set` and `listAfter` per block, after the last block) | write [9] |
+| `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues`, `getSpaces` once more, and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user, every call in the agent's isolated world | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post(text)` | draft; confirmed: share composer (`/feed/?shareActive=true&text=`), text checked, Post | write [9] |
+| `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's profile URN (type `person`) and name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, with the author URN on its actor (exactly one `fsd_profile`/`fs_miniProfile`/`fs_profile` URN, compared by id with the member's profile URN from `/me`, type `person`; company URNs map to type `organization`), so a post as a company page (even one with the member's name) or another member, or to another audience, fails with `target_mismatch`, and a header it cannot read, or without exactly one author URN, with `target_unverified`, then Post (the button itself, never the header) | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates, by its immutable id (`id_str`) and its screen name, both from one `/i/api/1.1/account/verify_credentials.json` response (X's public web bearer token and the `ct0` CSRF value; no draft, `account_unknown`, without both); confirmed: Web Intent `/intent/post`, the whole text checked, the id and screen name asked again from that page and once more right before Post, so another account that took the screen name fails with `account_mismatch`, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
+| GitHub repository names | `owner/repo` components are single path segments (letters, digits, `_`, `-`, `.`), never `.` or `..`, nothing encoded; `.file` paths and refs refuse empty, `.` and `..` segments; every issue, pull, diff, list and raw URL must still start with `https://github.com/owner/repo/` once parsed, else `invalid` before any request | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
 | `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
-| `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request. When the domain policy blocks `home.atlassian.com` (`allowedDomains: ["*.atlassian.net"]`), the site is checked on its own origin instead: its `/rest/api/3/myself` must answer with an account (one cookie-bearing request to that site, which the policy allows), else the call fails naming `home.atlassian.com` to allow; `jira.sites()` then fails as `blocked` | read |
-| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the session's fetch, with cookies (`credentials: "same-origin"`) only for assets on the page's own origin while the current tab is on it, and none (`"omit"`) for every other asset, since the page chooses the URLs | read |
-| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
-| `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app | fills user-typed values |
+| `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request. When the domain policy blocks `home.atlassian.com` (`allowedDomains: ["*.atlassian.net"]`), the list cannot be read and every call fails closed as `blocked` before any request, naming `home.atlassian.com` to allow (a tenant's own `/myself` is not proof: anyone can create a tenant) | read |
+| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the tab the inventory was listed in (its cookies, whichever tab is current; a closed tab fails with `stale`), with cookies (`credentials: "same-origin"`) only for assets on the origin of that tab's URL as the browser reported it at `list()` (never the page's answer or the returned inventory's `pageUrl`, which agent code can change), and only when the document that named the assets is the one that URL belongs to: `list()` reads the assets through a handle of the document's root, then the tab's URL, then checks through the handle that the same document still shows, and a new document in between, or a document origin that differs from the URL's, fails with `stale` (an opaque document's inventory gets no cookies), none on a redirect hop that leaves that origin, and none (`"omit"`) for every other asset, since the page chooses the URLs, or for an inventory `list()` did not make in this session | read |
+| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation; a call runs only the tool whose descriptor (name, title, description, schema, annotations) the draft or the listing just before it saw | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
+| `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app; `submit` pins the checked element and presses it only when it, its form and their submission attributes are unchanged after the sheet (`submission_failed` otherwise) | fills user-typed values |
 | `sites.list()`, `sites.help(name)`, `sites.drafts.list()/get(id)/discard(id)` | | |
 
 ## Editing Google files
@@ -155,27 +257,54 @@ the file back to verify.
 | `googleSheets.read(url, { gid, sheet, range })` | CSV export: values | read |
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
-| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). Verified through the xlsx export | write |
-| `googleSheets.append(url, rows)` | the same after the last non-empty row | write |
-| `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
+| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, which is read back inside the input batch (after the account and append position), right before the keys (each typed row of the fallback reads back its first cell too); a selection an editor or another session moved fails with `target_mismatch` and sends nothing more; then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). A value with a tab, LF, CR, U+2028, U+2029 or U+0085 fails with `invalid` before any draft (Sheets' paste parser ends a cell at a tab and a row at LF, CR or CRLF; the three Unicode line terminators are refused the same way). Verified through the xlsx export of the range plus one more row and column: a cell outside the confirmed range that changed after the write fails with `commit_unverified` (naming the cells) and nothing more is typed | write |
+| `googleSheets.append(url, rows)` | the same after the last non-empty row. The draft binds the append position (`appendAt`, the first empty row after the data, a target field). The CSV export is read again at the confirmation and right before each input batch (the paste, and each typed row of the fallback, which allows the rows this write typed already); the write fails with `target_mismatch` and sends nothing more when the data no longer ends at the drafted row or a row other than this write's follows it, so rows added meanwhile are never overwritten. The web editor has no insert-at-end the session can call; the remaining windows are an edit made between that last read and the input reaching the page, and an edit that the export does not show yet when it is read | write |
+| `googleSheets.clear(url, range)` | name box selects the range, read back inside the input batch right before Delete (`target_mismatch` when it moved), Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
-| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export | write |
-| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once | write |
-| `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
+| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export. The draft states the match count and offsets in the text export (case ignored, as Find and replace matches by default); the draft also shows the text's hash; right before Replace all the export is read again and the write fails (`content_mismatch`) unless the count, offsets and hash are the same, so a match added since the preview is never edited | write |
+| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once, also with case ignored (as Find and replace matches). The draft shows the match count (1) and its offset in the text export; right before Replace all the export is read again and the write fails (`content_mismatch`) unless it is the same text (its hash), so a second match or another change is never edited (an edit not yet saved to the export when it is read is the remaining window) | write |
+| `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, all in the one input batch after the account's read-back (Docs shows no caret position to read back; the remaining window is a caret moved between those keys), verified | write |
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
-| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`), the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
-| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export | write |
-| `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
-| `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
+| `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`), clicked inside the first input batch; the selected slide (the URL's `#slide=id.<page>`) is read back right before the notes are cleared and before each later typed line, and a different slide fails with `target_mismatch` and sends nothing more; the draft names the slide by its object id (`<page>`), its title and its position, read from one consistent view of the deck (the filmstrip's object ids read before and after the pptx export must agree, else `target_unverified`), and the write reads all three again and fails with `target_mismatch` when the slide moved or was deleted; the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
+| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); the draft also shows the deck's hash; right before Replace all the pptx export is read again and the write fails (`content_mismatch`) unless the deck is unchanged | write |
+| `googleDrive.create(kind, title, { uid })` | `docs.google.com/<kind>/create?authuser=<email>`, with the email of the account at `/u/<uid>/` (default 0) read first, so a sign-in by another session that moves accounts to other indexes cannot put the file in another account; then the title field. Returns `account` | creates a private file |
+| `googleDrive.trash(url)` | the editor's File > Move to trash (the one item of that label in the one menu the File button opened; any other `target_unverified`), after the sharing check below | delete |
+
+The xlsx and pptx exports (`googleSheets.cells`, `googleSheets.find`,
+`googleSlides.slides`, and the reads before and after their writes) come
+from a file that another person can share, so the reader bounds the ZIP
+before it unzips it in a blank page. An export of more than 10,000
+entries fails with `limit`. Every header, name and data range must lie
+inside the archive, else the read fails with `unexpected` (also for an
+encrypted entry or a compression method other than stored or deflate).
+A wanted entry that declares more than 64 MiB uncompressed, or wanted
+entries that together declare more than 64 MiB (the size of one driver
+result, which carries the text back), fail with `limit` before anything
+is decompressed. Compressed data goes into `DecompressionStream` 16 KiB at
+a time, so one output burst is at most about 16.5 MiB, and the stream is
+cancelled with `limit` as soon as an entry's output passes its declared
+size. An entry whose output is shorter than its declared size fails with
+`unexpected`. So a high-ratio export or a header that lies about its size
+never decompresses more than 64 MiB.
 
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
-a write first opens the file's editor and reads its Share button. If it
-says "Private to only me", nobody else sees the edit and it runs at once.
-Otherwise, including when the sharing cannot be read, the write returns a
-draft with the file, its title, the sharing text and the change, and runs
-only on `method(draftId, { confirm: true })`. `googleDrive.trash` deletes
-data ([1]): it is a draft, except for a file `googleDrive.create` made in
-the same REPL session.
+every write is a draft, also on a file whose Share button says "Private
+to only me": the label is page text, so it never decides that an edit can
+skip the confirmation. The draft opens the file's editor and shows the
+file id, its title, the Share button's label, the account the editor acts
+as (Google's account id and email; see the draft protocol above) and the
+change. The label is read only from the editor's own Share button (the
+one element with its id, in the editor's header) and the labels inside
+it, which must agree; a sharing label anywhere else in the page counts for
+nothing, and a second, different one in the button makes the sharing
+unknown, which drafts nothing (`target_unverified`). The confirmed draft
+opens the editor again and reads the file, title, sharing and account back
+right before its first input, failing with `target_mismatch` or
+`account_mismatch` and changing nothing when one differs (a file shared
+since the preview, an account signed in at its `/u/` index). A sharing or
+account change during the input itself is the remaining window.
+`googleDrive.trash` deletes data ([1]) and is a draft the same way, also
+for a file `googleDrive.create` made in the same session.
 
 ## Confirmation taxonomy
 
@@ -202,6 +331,23 @@ The agent can skip the draft for one call with
 only when it declares `readOnlyHint`; any other tool still returns a draft.
 That option is the agent's statement that it accepts the page's claim for
 this call. A name the page does not list fails as `not_found` and is not run.
+The draft binds the tool's descriptor (name, title, description, input
+schema and annotations as sorted-key JSON): its preview shows the schema,
+the annotations and a hash of the descriptor, and the confirmed call passes
+the descriptor into the page call, which runs the tool only when the page
+lists it with that same descriptor, else fails with `tool_changed`. Every
+call, a confirmed draft or a `trustReadOnlyHint` one, runs only in the
+document and at the URL its tool was listed in: the listing takes an
+element handle of the document's root (handles live in cmux's agent world
+and resolve only in the document that issued them, so the page cannot copy
+or forge the binding) and notes the URL before it lists; the page call runs
+through that handle, so a new document fails it before anything runs, and
+it checks the root and URL first and again right before the tool runs, else
+fails with `page_changed` and calls nothing (a reload, a navigation, or a
+`pushState` since the listing). A page
+that keeps the descriptor and swaps the implementation behind it is not
+detected: the page owns its tools' code, so a WebMCP preview describes what
+the page declares, never what its code does.
 
 ## Secure sign-in
 
@@ -210,24 +356,89 @@ selector is one visible, enabled credential field (a password input, or a
 username or one-time-code input by type, `autocomplete` or name; a
 requested password only into a password input) in the tab's origin and that
 all are in one frame, marks them with a random attribute, and calls the
-driver's `auth.request`. The app shows a sheet on the browser pane's window
-naming the origin of the frame that holds the fields, from WebKit's record of
-it (and the page's origin when the frame is embedded from another), with one
-field per request (secure text for passwords). On Fill, the app runs
-`sites/auth-fill.js` in its own content world of that frame, which agent
-code cannot script: it checks the credential rule again, sets each value
+driver's `auth.request`. It asks only in a tab the session opened
+(`tabs.open`), under a domain policy that keeps the session's tabs on the
+page's exact host and port with https (`session.allowedDomains(["https://accounts.example.com:443"])`
+for a sign-in on `accounts.example.com`, `:8443` for one on that port; a
+loopback host also on http, `localhost:3000`). A policy without the port
+is not enough, since it lets the host's other ports load: a value typed
+for `:8443` would reach a service on `:9443` (decided 2026-10-06, r25). A
+wildcard over the site, such as `*.example.com`, is not enough: a sibling
+host of the same site could receive the values. On a two-label host the
+policy names it in the exact-host form, `session.allowedDomains(["=https://example.com:443"])`,
+since `https://example.com` also lets `www.example.com` load; the
+credential's domain takes that form too, so the native matcher, the
+content rules and the frame checks leave out the www host (decided
+2026-10-06). The session refuses the
+call otherwise (the error names the pattern to allow), sends that host to
+the driver as the credential's domains, and from then on refuses a policy
+that reaches past it, as for a typed secret; the driver refuses a frame
+outside it. The app shows a sheet on the browser
+pane's window naming the origin of the frame that holds the fields, from
+WebKit's record of it (and the page's origin when the frame is embedded from
+another), with one field per request (secure text for passwords), labeled
+by the credential kind the app found on the bound element (username or
+email, password, one-time code). Nothing on the sheet is text the page or
+the agent chose: not the tab title, not the agent's `label`. Before the sheet shows, the
+app runs `sites/auth-fill.js` in its own content world of that frame, which
+agent code cannot script, to bind the request: it keeps the one element
+that holds each marker, and the frame's document, there. On Fill the same
+script writes only into those elements, and only while the frame still
+shows that document, each element is still in it and still the only one
+with its marker (otherwise `page_changed`, nothing filled), so another
+session driving the tab, or the page, cannot move the fill to another
+element or another document of the same origin while the user types.
+Agent code can call `auth.request` itself, so the helper's checks are not
+the guard: the app's bind and fill take only a field the user can see
+(shown, with no `display: none`, `opacity: 0` on it or an ancestor,
+`visibility` other than visible or `inert`, and at least 4 CSS pixels each
+way), and at fill time one that takes focus and, scrolled into view by it,
+is on screen and is what the frame's hit test finds at the middle of its
+visible part (not covered); a field that fails is `locator_invalid` and
+gets nothing. It checks the credential rule again, sets each value
 with the native setter and dispatches `input` and `change`, so
-framework-controlled fields see it. The REPL receives only a status:
+framework-controlled fields see it. `submit` is pressed after the fill
+only when it is the submit control of the form that holds the fields (a
+submit button or input of that form with `action: "click"`, or one of the
+fields with `action: "press_enter"`), checked before the sheet opens
+(`locator_invalid` with `field_id: "submit"`, no sheet) and again right
+before the press (`submission_failed`); the agent cannot have cmux press
+another control in the user's name. The form must also submit to the
+page's own origin in the same tab: the effective action (the control's
+`formaction`, else the form's `action`, else the page URL) and target
+(`formtarget`, the form's `target`, `<base target>`), read through the
+DOM's own getters in the agent world; for `press_enter` the form and every
+submit control of it qualify. Otherwise the result is `locator_invalid`
+with reason `unsafe_destination` before the sheet, or `submission_failed`
+when the page changed it while the sheet was up. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
 `page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
 or `submission_failed`. The fill script is read from the signed app bundle,
 never from the REPL, so an agent cannot substitute code that receives the
-values. The sheet says what holds: the agent does not receive the values,
-but the page's scripts, and code the agent runs in the page, can read a
-filled field. Under a domain policy the driver refuses the request
+values. Right before the fill the app records each non-empty value as a
+typed secret of the tab with no typing session
+(`BrowserReplTypedSecrets.recordCredential`): every session that reads the
+tab, the asking one included, gets it masked as
+`<secret:browserAuth.<field id>>` in results, events, files and output,
+and capture masks hide it in screenshots and PDFs, until the tab closes.
+The masking matches values, so agent code that transforms a field's value
+in the page before returning it is the remaining limit, as for typed
+secrets. The sheet says what holds: cmux masks what the user types in what
+the agent reads back, and the page's scripts can read a filled field. Under a domain policy the driver refuses the request
 (`blocked`) when the tab's page, or the frame that holds the fields (by
 WebKit's record of it and by the document it shows when the request
-arrives), is on a domain the policy blocks.
+arrives), is on a domain the policy blocks. The sheet lasts only as long as
+the call that asked: when that call is cancelled (its cell is cancelled or
+times out, the session is reset, closes or idles out), the sheet goes away
+with what was typed in it and the request ends `cancelled`, and after Fill
+nothing is filled unless the session still runs and is the live creator of
+the tab, whose REPL state and web view are the ones the request was made
+for, and its domain policy is still the one the request was allowed under
+(a policy or directory change while the sheet is up, even before its rules
+reach the tab, ends the request) and still allows the tab's page. The app
+checks that in the same main-thread turn that hands WebKit the fill script,
+so a detach, reset or policy change before that turn fills nothing
+(`cancelled`).
 
 ## Decisions for the user
 
@@ -261,6 +472,13 @@ These are not implemented and need a decision:
 11. **Reference A's own platform.** `referenceA.settings`, `projects`, `routines` and
     `channels` manage reference A, not a browser; the cmux counterparts are app
     settings and workspaces.
+12. **Gmail replies.** A reply draft shows the To, Cc and Bcc read from
+    Gmail's reply composer, and the confirmation reads them back right
+    before Send, but the composer markup it reads has only mock coverage.
+    Confirmed replies stay off (`REPLIES_VERIFIED` in `sites/gmail.js`)
+    until a live check on a signed-in profile, drafts only, shows the
+    previewed recipients equal Gmail's for Reply, Reply all and a sender's
+    Reply-To.
 
 `tests/browser-parity/capabilities.json` (`sites`) maps every reference A site
 global and method and every reference B site capability
@@ -270,6 +488,14 @@ fails on an unmapped member.
 
 ## Tests
 
+Live-site status: the site tools are not yet tested against the real sites
+with signed-in accounts. Every write checks the page it acts on (signed-in
+account, author or account id, audience, origin and the confirmed fields)
+and fails closed with `target_unverified`, `target_mismatch` or
+`account_unverified` when the real page differs from what the tool expects.
+A tool that meets an unknown page layout therefore refuses the write; it
+does not guess.
+
 `tests/browser-parity/sites/` runs every tool on the Playwright WebKit dev
 driver against `mock-sites.mjs`: one handler per host that answers the
 endpoints and page structure each tool relies on, with shapes from each
@@ -278,7 +504,10 @@ are routed to the mock in the browser and in the REPL's `fetch`; any other
 https request is blocked. Each host checks the session the way the site does,
 so the tests prove the tools use the session, keep secrets in the page (the
 REPL scope is scanned for them), write only after a confirmed draft, and
-report sign-in pages.
+report sign-in pages. `commit-protocol.test.mjs` lists every site method:
+each must be a declared write (`register(name, factory, { writes })`) whose
+confirmed draft reads every bound field back, or a read or local action
+listed there.
 
 ```sh
 node --test tests/browser-parity/sites/*.test.mjs

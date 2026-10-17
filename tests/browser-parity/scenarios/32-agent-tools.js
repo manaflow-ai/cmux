@@ -64,27 +64,6 @@ const lines = fs.readFileSync(run.trace, "utf8").trim().split("\n").map((l) => J
 const png = fs.readFileSync(run.animation);
 emitCmux("record", { frames: run.frames, steps: lines.map((l) => l.method || l.event).filter((s) => !s.startsWith("input.")), apng: [png.toString("latin1", 1, 4), png.toString("latin1", 37, 41)] });
 // ---- cell session=bu
-secrets.set("key", "sk-live-4242", { domains: ["localhost"] });
-secrets.set("pw", "correct horse", { domains: ["localhost"] });
-await page.goto(`${PRIMARY}/agent-tools.html?peer=${PEER}`);
-await page.fill("#apikey", secret("key"));
-await page.locator("#pass").pressSequentially(secret("pw"));
-await page.fill("#user", "ada");
-await page.click("text=Sign in");
-emitCmux("secret-status", await page.locator("#status").textContent());
-emitCmux("secret-snapshot", (await snapshot()).tree.split("\n").filter((l) => /API key|Signed in|^url:|^title:/.test(l)).map((l) => l.replace(/ \[ref=e\d+\]/, "")));
-emitCmux("secret-evaluate", await page.evaluate(() => [document.getElementById("apikey").value, location.search]));
-emitCmux("secret-console", (await page.consoleMessages()).map(String).filter((t) => t.startsWith("signing in")));
-emitCmux("secret-value", [String(secret("key")), JSON.stringify({ k: secret("key") }), secrets.list()]);
-emitCmux("secret-frame-refused", await page.frameLocator("#peer-frame").locator("#frame-field").fill(secret("key")).catch((e) => e.message));
-emitCmux("secret-keyboard-refused", await page.keyboard.type(secret("key")).catch((e) => e.message));
-// ---- cell session=bu capture
-// Printing masks a value the agent writes itself; errors are checked in
-// unit/agent-tools.test.mjs (a recorded scenario may not throw).
-console.log("typed sk-live-4242 and correct horse");
-console.error(String(new Error("failed with sk-live-4242")));
-emitCmux("secret-fetch-text", await (await fetch(page.url())).text().then((t) => t.includes("sk-live-4242")));
-// ---- cell session=bu
 session.allowedDomains(["http://localhost"]);
 emitCmux("policy-goto", await page.goto(`${PEER}/aria.html`).then(() => "loaded", (e) => e.message));
 emitCmux("policy-fetch", await fetch(`${PEER}/api/data`).then(() => "fetched", (e) => e.message));
@@ -112,11 +91,40 @@ session.blockIPAddresses(false);
 session.allowedDomains(["http://localhost"], { lock: true });
 emitCmux("policy-locked", (() => { try { session.allowedDomains(null); } catch (e) { return e.message; } })());
 // ---- cell session=bu
+// A secret is typed only under a policy that keeps the tab on its domains
+// (the previous cell locked it to http://localhost), so the peer frame
+// does not load: the frame fill is refused either way.
+secrets.set("key", "sk-live-4242", { domains: ["localhost"] });
+secrets.set("pw", "correct horse", { domains: ["localhost"] });
+await page.goto(`${PRIMARY}/agent-tools.html?peer=${PEER}`);
+await page.fill("#apikey", secret("key"));
+await page.locator("#pass").pressSequentially(secret("pw"));
+await page.fill("#user", "ada");
+await page.click("text=Sign in");
+emitCmux("secret-status", await page.locator("#status").textContent());
+emitCmux("secret-snapshot", (await snapshot()).tree.split("\n").filter((l) => /API key|Signed in|^url:|^title:/.test(l)).map((l) => l.replace(/ \[ref=e\d+\]/, "")));
+emitCmux("secret-evaluate", await page.evaluate(() => [document.getElementById("apikey").value, location.search]));
+emitCmux("secret-console", (await page.consoleMessages()).map(String).filter((t) => t.startsWith("signing in")));
+emitCmux("secret-value", [String(secret("key")), JSON.stringify({ k: secret("key") }), secrets.list()]);
+emitCmux("secret-frame-refused", await page.frameLocator("#peer-frame").locator("#frame-field").fill(secret("key"), { timeout: 2000 }).then(() => "typed", () => "refused"));
+emitCmux("secret-keyboard-refused", await page.keyboard.type(secret("key")).catch((e) => e.message));
+// ---- cell session=bu capture
+// Printing masks a value the agent writes itself; errors are checked in
+// unit/agent-tools.test.mjs (a recorded scenario may not throw).
+console.log("typed sk-live-4242 and correct horse");
+console.error(String(new Error("failed with sk-live-4242")));
+emitCmux("secret-fetch-text", await (await fetch(page.url())).text().then((t) => t.includes("sk-live-4242")));
+// ---- cell session=bu
 // A secret typed into a plain text field never shows in a capture: the
 // field's pixels are the same for any secret of that length, and differ
 // from the same field showing that text unregistered.
 await page.goto(`${PRIMARY}/agent-tools.html`);
 const keyField = page.locator("#apikey");
+// The same field showing text that is never registered, for the check that
+// every capture removes its masks when it ends.
+await keyField.fill("yy-yyyy-yyyy");
+await keyField.evaluate((e) => e.blur());
+const shotPlain = (await keyField.screenshot()).toString("base64");
 await keyField.fill(secret("key"));
 await keyField.evaluate((e) => e.blur());
 const shotSecret = (await keyField.screenshot()).toString("base64");
@@ -129,8 +137,17 @@ const shotDecoy = (await keyField.screenshot()).toString("base64");
 // field, and the field is unmasked once both end.
 const [shotA, shotB] = await Promise.all([keyField.screenshot(), keyField.screenshot()]);
 const concurrentMasked = shotA.toString("base64") === shotDecoy && shotB.toString("base64") === shotDecoy;
+// A deleted secret stays masked in captures for the session's life
+// (driver-protocol.md, Guards: secrets.delete), so the field still shows
+// the mask. Until 2026-10-04 a deleted secret was unmasked again and this
+// key was `restored: shotAfter === shotText`.
 secrets.delete("decoy");
 const shotAfter = (await keyField.screenshot()).toString("base64");
-emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, restored: shotAfter === shotText });
-emitCmux("secret-screenshot-concurrent", { masked: concurrentMasked, restored: shotAfter === shotText });
+// Unregistered text again: no capture left a mask on the field.
+await keyField.fill("yy-yyyy-yyyy");
+await keyField.evaluate((e) => e.blur());
+const shotPlainAfter = (await keyField.screenshot()).toString("base64");
+const restored = shotPlainAfter === shotPlain;
+emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, deletedStaysMasked: shotAfter === shotDecoy, restored });
+emitCmux("secret-screenshot-concurrent", { masked: concurrentMasked, restored });
 emitCmux("secret-needs-domains", (() => { try { secrets.set("x", "y"); } catch (e) { return e.message; } })());

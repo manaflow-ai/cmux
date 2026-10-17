@@ -568,6 +568,11 @@ extension TerminalController: ControlPaneContext {
               let targetSurfaceId = workspace.panelIdFromSurfaceId(selectedTargetTab.id) else {
             return .bothPanesNeedSurface
         }
+        for surfaceId in [sourceSurfaceId, targetSurfaceId] {
+            if let message = browserReplTabRefusalMessage(surfaceId) {
+                return .denied(surfaceId, message: message)
+            }
+        }
 
         // Keep pane identities stable during swap when one side has a single surface.
         var sourcePlaceholder: UUID?
@@ -669,6 +674,9 @@ extension TerminalController: ControlPaneContext {
         }
         guard sourceWorkspace.panels[surfaceId] != nil else {
             return .surfaceNotFound(surfaceId)
+        }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
         }
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
         let sourcePaneForRollback = sourceWorkspace.paneId(forPanelId: surfaceId)

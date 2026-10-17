@@ -97,70 +97,9 @@ cmux_write_agent_configs() {
   # Parse logical TOML keys, including quoted and dotted forms. Invalid user
   # configuration is preserved so a shell startup cannot damage it further.
   if [ -n "${OPENAI_BASE_URL-}" ] && python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
-import pathlib, re, sys
-
+import pathlib, sys, tomllib
 config = pathlib.Path(sys.argv[1])
-if not config.exists():
-    sys.exit(0)
-
-text = config.read_text()
-try:
-    import tomllib
-except ImportError:
-    # Ubuntu 24.04 has tomllib in its system Python, but the macOS developer
-    # image used by the template tests still ships Python 3.9. The fallback
-    # only answers the narrow question this guard needs: whether an existing
-    # config already owns the model provider/history tables. It is conservative
-    # around malformed quoted lines so a shell startup never replaces a file
-    # that the full parser would reject.
-    for line in text.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            continue
-        quote_count = 0
-        escaped = False
-        for char in stripped:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char in ("'", '"'):
-                quote_count += 1
-        if quote_count % 2:
-            sys.exit(1)
-
-    current_table = ""
-    key_pattern = re.compile(r"^\s*(?P<key>(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+))*)\s*=")
-    table_pattern = re.compile(r"^\s*\[\s*(?P<table>.*?)\s*\]\s*$")
-
-    def unquote(part):
-        part = part.strip()
-        if len(part) >= 2 and part[0] == part[-1] and part[0] in ("'", '"'):
-            value = part[1:-1]
-            if part[0] == '"':
-                value = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), value)
-            return value
-        return part
-
-    def parts(value):
-        return [unquote(part) for part in re.split(r"\s*\.\s*", value)]
-
-    for line in text.splitlines():
-        table = table_pattern.match(line)
-        if table:
-            current_table = ".".join(parts(table.group("table")))
-            if current_table in ("history", "model_providers.cmux"):
-                sys.exit(1)
-            continue
-        key = key_pattern.match(line)
-        if not key:
-            continue
-        path = parts(key.group("key"))
-        if (not current_table and path[:1] in (["model_provider"], ["history"])) or path[:2] == ["model_providers", "cmux"]:
-            sys.exit(1)
-    sys.exit(0)
-
-data = tomllib.loads(text)
+data = tomllib.loads(config.read_text()) if config.exists() else {}
 providers = data.get("model_providers", {})
 managed = "model_provider" in data or "history" in data or not isinstance(providers, dict) or "cmux" in providers
 sys.exit(1 if managed else 0)
@@ -264,17 +203,8 @@ CMUX_TOML_CHECK
 # config: the opencode launcher layers it on (OPENCODE_CONFIG) only in team
 # mode, so an own-login launch sees none of them (agent-auth.sh).
 cmux_ensure_opencode_config() {
-  local cmux_opencode_return cmux_opencode_status cmux_opencode_team_config
-  cmux_opencode_team_config="$HOME/.config/cmux/opencode-team.json"
-  if [ -e "$cmux_opencode_team_config" ]; then
-    # The team provider file is the selected OpenCode config in team mode.
-    # Register CUA here as well as in the launcher so direct shell helpers
-    # and concurrent config discovery receive the same local MCP server.
-    OPENCODE_CONFIG="$cmux_opencode_team_config" cmux_write_cua_mcp_config allow-missing
-    unset cmux_opencode_team_config
-    return 0
-  fi
-  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || { unset cmux_opencode_team_config; return 0; }
+  [ -e "$HOME/.config/cmux/opencode-team.json" ] && return 0
+  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
   python3 - <<'CMUX_OPENCODE_CONFIG'
 import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
@@ -359,16 +289,6 @@ with (state / "opencode-config.lock").open("a") as lock:
         failure.write_text(str(time.time()))
         unavailable()
 CMUX_OPENCODE_CONFIG
-  cmux_opencode_status=$?
-  if [ "$cmux_opencode_status" -ne 0 ]; then
-    cmux_opencode_return=$cmux_opencode_status
-    unset cmux_opencode_team_config cmux_opencode_status
-    return "$cmux_opencode_return"
-  fi
-  # The config was written atomically above; add the local driver without
-  # changing the provider catalog or any user-owned keys.
-  OPENCODE_CONFIG="$cmux_opencode_team_config" cmux_write_cua_mcp_config allow-missing
-  unset cmux_opencode_team_config cmux_opencode_status
 }
 
 # Computer use is an MCP server local to the VM, not part of the model-plane
@@ -466,51 +386,17 @@ add_json_server(
     home / ".claude.json",
     "mcpServers",
     "cua-computer-use",
-    {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]},
+    {"command": driver, "args": ["mcp"]},
     "Claude Code",
 )
 
 
 def toml_document(raw):
     if tomllib is None:
-        # The image ships Python 3.12, but development hosts may expose the
-        # system Python 3.9. Accept the small, line-oriented TOML subset used
-        # by Codex MCP configuration there. Refuse anything that is not
-        # obviously a section or assignment so malformed user files remain
-        # untouched; the image path still gets full tomllib validation below.
-        if not raw.strip():
-            return {}
-        sections = {}
-        for line in raw.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            quote_count = 0
-            escaped = False
-            for char in stripped:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char in ("'", '"'):
-                    quote_count += 1
-            if quote_count % 2:
-                return None
-            if stripped.startswith("["):
-                if not stripped.endswith("]"):
-                    return None
-                section = stripped[1:-1].strip()
-                if not section:
-                    return None
-                sections[section] = {}
-            elif "=" not in stripped:
-                return None
-        servers = {}
-        for section in sections:
-            prefix = "mcp_servers."
-            if section.startswith(prefix) and section[len(prefix):]:
-                servers[section[len(prefix):]] = {}
-        return {"mcp_servers": servers} if servers else {}
+        # The image ships Python 3.11+, but older development images may not
+        # have a TOML parser. Refuse to modify a non-empty file there; a
+        # shell startup must never guess at the user's syntax.
+        return {} if not raw else None
     try:
         return tomllib.loads(raw)
     except (ValueError, TypeError):

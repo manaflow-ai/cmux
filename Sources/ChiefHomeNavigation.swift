@@ -127,6 +127,26 @@ struct ChiefHomeNavigation {
         }
     }
 
+    /// The workspace a window opens on: `candidate`, unless it is Home, then
+    /// the first other workspace (Home when it is the only one).
+    static func openingWorkspace(_ candidate: Workspace?, in tabs: [Workspace]) -> Workspace? {
+        guard let candidate, candidate.isChiefHome else { return candidate }
+        return tabs.first { !$0.isChiefHome } ?? candidate
+    }
+
+    /// Moves a window that shows Home onto a terminal, creating a terminal
+    /// workspace when Home is the only one. Runs right after a window's
+    /// session restore, never later: a `cmux chief open` sent at launch
+    /// selects Home on purpose and must not be undone.
+    static func openOnTerminal(in manager: TabManager) {
+        guard manager.selectedWorkspace?.isChiefHome == true else { return }
+        if let other = openingWorkspace(manager.selectedWorkspace, in: manager.tabs), !other.isChiefHome {
+            manager.selectWorkspace(other)
+        } else {
+            _ = manager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false)
+        }
+    }
+
     /// Ensures the canonical Home workspace exists. Conversations are loaded by
     /// the list inside that pane rather than materialized as sidebar workspaces.
     static func restoreConversations(in manager: TabManager) {

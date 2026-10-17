@@ -47,14 +47,21 @@ public final class BrowserReplPointerOwner {
     /// holds the pointer while `gesture` runs, and releases it when
     /// `gesture` returns or throws. Another session's mouse input waits
     /// meanwhile, so its events never interleave with the gesture's.
+    /// `ending` runs when `gesture` returns or throws, while the pointer is
+    /// still held: it clears what the gesture armed (a drag capture, a held
+    /// button), so no other session's input ever finds it.
     public func performGesture<T, C: Clock>(
         sessionID: String,
         clock: C = ContinuousClock(),
+        ending: () -> Void = {},
         _ gesture: () async throws -> T
     ) async throws -> T where C.Duration == Duration {
         try await waitForPointer(sessionID: sessionID, clock: clock)
         pressed(sessionID: sessionID)
-        defer { released(sessionID: sessionID) }
+        defer {
+            ending()
+            released(sessionID: sessionID)
+        }
         return try await gesture()
     }
 

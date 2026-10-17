@@ -10,6 +10,7 @@ private final class TeardownFakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId = UUID()
     let owningTabId = UUID()
     var runtimeSurfacePointer: ghostty_surface_t?
+    var requiresClipboardReadGesture = false
 }
 
 /// Records freed pointers behind an actor so the @Sendable free closures can
