@@ -110,7 +110,8 @@ const clean = (markdown: string) =>
 const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastChild?.textContent ?? "")?.[0] ?? "";
 
 /** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
-const looksLikeMarkupText = (text: string) => /(^|\n)\s*<\/?[A-Za-z][^>]*>/.test(text);
+const looksLikeMarkupText = (text: string) =>
+  /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {

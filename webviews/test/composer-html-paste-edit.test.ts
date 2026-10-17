@@ -84,4 +84,28 @@ await requireBrowserLane("composer-html-paste-edit.test.ts", async () => {
       expect(text).toContain("X");
       await page.close();
     });
+
+  for (const [engine] of engines)
+    test(`${engine}: inline JSX remains editable text`, async () => {
+      const page = await newChat(engine);
+      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      await prompt.click();
+      await page.evaluate(() => {
+        const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
+        const data = new DataTransfer();
+        data.setData("text/plain", "const el = <><span>Hello</span></>;");
+        field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction(() =>
+        document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes("Hello"),
+      );
+      expect(await prompt.locator("[contenteditable='false']").count()).toBe(0);
+      await prompt.click();
+      await page.keyboard.type("X");
+      const text = await prompt.innerText();
+      expect(text).toContain("const el =");
+      expect(text).toContain("<>");
+      expect(text).toContain("X");
+      await page.close();
+    });
 });
