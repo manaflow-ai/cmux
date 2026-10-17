@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 
 /// Events that are not part of the tree snapshot (bookmarks, local
 /// conversations, the app supervisor's `apps-*` events), fanned out in arrival order to the services that own their
