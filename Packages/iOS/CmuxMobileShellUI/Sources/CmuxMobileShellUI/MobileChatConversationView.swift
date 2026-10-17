@@ -261,7 +261,7 @@ private struct MobileChatComposer: View {
                         selection: $selectedPhotos,
                         maxSelectionCount: 4,
                         matching: .images,
-                        photoLibrary: .shared
+                        photoLibrary: .shared()
                     ) {
                         Label("Photo library", systemImage: "photo")
                     }
