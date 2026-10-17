@@ -103,6 +103,71 @@ import Testing
         #expect((await source.historyRequests).contains { $0.sessionID == "older" })
     }
 
+    @Test func selectedPendingActionableCountOnlyIncludesUnresolvedCards() async {
+        let session = ChatSessionDescriptor(
+            id: "needs-input",
+            agentKind: .codex,
+            title: "Review the change",
+            state: .needsInput(since: Date(timeIntervalSince1970: 10)),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 1
+        )
+        let permission = ChatMessage(
+            id: "permission",
+            seq: 1,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 1),
+            kind: .permissionRequest(ChatPermissionRequest(
+                title: "Allow command",
+                subject: "swift test"
+            ))
+        )
+        let answeredPermission = ChatMessage(
+            id: "answered-permission",
+            seq: 2,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 2),
+            kind: .permissionRequest(ChatPermissionRequest(
+                title: "Allow command",
+                subject: "git status",
+                resolution: .approved
+            ))
+        )
+        let question = ChatMessage(
+            id: "question",
+            seq: 3,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 3),
+            kind: .question(ChatQuestion(
+                prompt: "Which target?",
+                options: [.init(label: "iOS")]
+            ))
+        )
+        let answeredQuestion = ChatMessage(
+            id: "answered-question",
+            seq: 4,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 4),
+            kind: .question(ChatQuestion(
+                prompt: "Which target?",
+                options: [.init(label: "iOS")],
+                selectedOptionLabel: "iOS"
+            ))
+        )
+        let source = FakeAgentChatSource(
+            sessions: [session],
+            pages: ["needs-input": [ChatHistoryPage(
+                messages: [permission, answeredPermission, question, answeredQuestion],
+                hasMore: false
+            )]]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.selectedPendingActionableCount == 2)
+    }
+
     @Test func pinAndArchivePreferencesPersistAcrossModels() {
         let suiteName = "AgentChatModeModelTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

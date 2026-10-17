@@ -240,6 +240,24 @@ final class AgentChatModeModel {
         return messagesBySession[selectedSessionID] ?? []
     }
 
+    /// Number of approval and question cards that still need a response in
+    /// the selected transcript. The host's lifecycle state is authoritative
+    /// for whether the agent is blocked; this count is only the detail needed
+    /// to explain what the user should act on without guessing from the
+    /// provider-specific state machine.
+    var selectedPendingActionableCount: Int {
+        selectedMessages.reduce(into: 0) { count, message in
+            switch message.kind {
+            case .permissionRequest(let request) where request.resolution == nil:
+                count += 1
+            case .question(let question) where question.selectedOptionLabel == nil:
+                count += 1
+            default:
+                break
+            }
+        }
+    }
+
     var selectedStreamingMessage: ChatMessage? {
         guard let selectedSessionID else { return nil }
         return streamingBySession[selectedSessionID] ?? nil

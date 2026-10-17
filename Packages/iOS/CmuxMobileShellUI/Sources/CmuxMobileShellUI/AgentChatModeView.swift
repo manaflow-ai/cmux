@@ -616,6 +616,9 @@ private struct AgentChatTranscriptView: View {
         VStack(spacing: 0) {
             if let session = model.selectedSession {
                 AgentExecutionContextBar(session: session)
+                if case .needsInput = session.state {
+                    AgentNeedsInputNotice(actionableCount: model.selectedPendingActionableCount)
+                }
                 if case .failed = session.state {
                     AgentFailedTurnNotice(
                         reason: model.selectedFailureReason,
@@ -754,6 +757,41 @@ private struct AgentPendingPromptBubble: View {
     }
 }
 
+private struct AgentNeedsInputNotice: View {
+    let actionableCount: Int
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your input is needed")
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileAgentNeedsInputNotice")
+    }
+
+    private var detail: String {
+        switch actionableCount {
+        case 0: return "Answer the agent's question or approve its next action below."
+        case 1: return "Review the pending request below to keep the task moving."
+        default: return "Review the \(actionableCount) pending requests below to keep the task moving."
+        }
+    }
+}
+
 private struct AgentFailedTurnNotice: View {
     let reason: String?
     let isRetrying: Bool
@@ -824,12 +862,16 @@ private struct AgentExecutionContextBar: View {
                 Spacer()
                 AgentStatusIndicator(state: session.state)
             }
+            Text(session.title ?? "Untitled task")
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     AgentContextPill(
-                        title: session.title ?? "Untitled task",
-                        subtitle: "Project",
-                        systemImage: "folder"
+                        title: statusLabel,
+                        subtitle: "Status",
+                        systemImage: statusIcon
                     )
                     if let workspaceID = session.workspaceID {
                         AgentContextPill(
@@ -860,6 +902,26 @@ private struct AgentExecutionContextBar: View {
         .padding(.vertical, 10)
         .background(.thinMaterial)
         .accessibilityElement(children: .combine)
+    }
+
+    private var statusLabel: String {
+        switch session.state {
+        case .working: return "Working"
+        case .needsInput: return "Needs input"
+        case .failed: return "Failed"
+        case .idle: return "Idle"
+        case .ended: return "Ended"
+        }
+    }
+
+    private var statusIcon: String {
+        switch session.state {
+        case .working: return "arrow.triangle.2.circlepath"
+        case .needsInput: return "hand.raised.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .idle: return "pause.circle"
+        case .ended: return "checkmark.circle"
+        }
     }
 }
 
