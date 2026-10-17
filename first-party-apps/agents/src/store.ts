@@ -2,7 +2,7 @@
 // the CLIs on each, and host-run jobs. No polling: the agent_cli.watch stream
 // pushes changes; Refresh asks the owner to check latest versions again.
 
-import { applyWatch, type CliEntry, type Machine, type WatchEvent, withMissing } from "./model/entries.ts"
+import { applyWatch, sanitizeMachine, type CliEntry, type Machine, type WatchEvent, withMissing } from "./model/entries.ts"
 import { type Job, type JobEvent, jobKey, reduceJob } from "./model/jobs.ts"
 import { call, type OpError } from "./ops.ts"
 
@@ -38,7 +38,7 @@ export async function load(checkLatest: boolean): Promise<void> {
   const m = await call<Machine[]>("machine.list")
   if (m.ok) {
     // Only machines that can run CLIs: running or connectable ones.
-    setMachines(m.value.filter((x) => x.status !== "stopped"))
+    setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine))
     setMachinesError(null)
   } else {
     setMachines([LOCAL])

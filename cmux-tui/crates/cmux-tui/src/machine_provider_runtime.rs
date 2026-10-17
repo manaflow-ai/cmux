@@ -2935,6 +2935,8 @@ mod tests {
                 status,
                 connectable: false,
                 workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
@@ -4030,6 +4032,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -4112,6 +4116,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -5487,6 +5493,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {
@@ -5564,6 +5572,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {
