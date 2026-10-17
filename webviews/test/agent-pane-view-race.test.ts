@@ -126,6 +126,7 @@ class DeferredAcpmuxSocket {
   }
 
   private reply(message: Message): void {
+    if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
     const result =
       message.method === "initialize"
