@@ -304,6 +304,30 @@ public final class TabStripView: NSView {
         for band in groups.bands.values { band.themeScope = scope }
     }
 
+    func applyTokens(animated: Bool) {
+        metrics = customMetrics ?? TabStripMetrics()
+        hoverCard.tokensChanged()
+        geometryDidChange()
+        let font = Typography.body
+        for cell in cells.values {
+            cell.metrics = metrics
+            cell.titleFont = font
+        }
+        for chip in groups.chips.values {
+            chip.metrics = metrics
+            chip.font = Typography.caption
+        }
+        groupEditor.hide()
+        overflowHint?.applyTokens()
+        newTabButton.needsLayout = true
+        glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
+        invalidateIntrinsicContentSize()
+        lastViewportWidth = -1
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        relayout(animated: animated && !reduceMotion)
+    }
+
     public override func layout() {
         super.layout()
         glassView?.frame = bounds

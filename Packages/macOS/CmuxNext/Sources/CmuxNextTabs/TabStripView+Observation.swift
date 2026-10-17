@@ -42,28 +42,4 @@ extension TabStripView {
 
     /// Current tab title font size, for change detection.
     var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
-
-    func applyTokens(animated: Bool) {
-        metrics = customMetrics ?? TabStripMetrics()
-        hoverCard.tokensChanged()
-        geometryDidChange()
-        let font = Typography.body
-        for cell in cells.values {
-            cell.metrics = metrics
-            cell.titleFont = font
-        }
-        for chip in groups.chips.values {
-            chip.metrics = metrics
-            chip.font = Typography.caption
-        }
-        groupEditor.hide()
-        overflowHint?.applyTokens()
-        newTabButton.needsLayout = true
-        glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
-        invalidateIntrinsicContentSize()
-        lastViewportWidth = -1
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-        relayout(animated: animated && !reduceMotion)
-    }
 }
