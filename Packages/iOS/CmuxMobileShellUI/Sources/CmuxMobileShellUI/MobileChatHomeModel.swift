@@ -39,6 +39,8 @@ final class MobileChatHomeModel {
             messagesBySessionID.removeAll()
             streamingMessageBySessionID.removeAll()
             pendingLocalMessages.removeAll()
+            loadingSessionIDs.removeAll()
+            self.activeComputerID = targetComputerID
         }
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
