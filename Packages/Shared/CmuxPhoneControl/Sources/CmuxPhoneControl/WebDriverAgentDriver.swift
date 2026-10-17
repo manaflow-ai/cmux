@@ -54,22 +54,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
             throw PhoneDriverError.unavailable("WebDriverAgent is not ready")
         }
         _ = try await ensureSession()
-        if let sizeResponse = try? await sessionRequest(path: "/window/size", method: "GET") {
-            guard let widthValue = sizeResponse["value"]?["width"]?.doubleValue,
-                  let heightValue = sizeResponse["value"]?["height"]?.doubleValue,
-                  let width = Self.validatedDimension(widthValue),
-                  let height = Self.validatedDimension(heightValue)
-            else {
-                throw PhoneDriverError.malformedResponse("WDA window size was not a finite positive integer")
-            }
-            currentGeometry = PhoneDisplayGeometry(
-                width: width,
-                height: height,
-                scale: currentGeometry.scale,
-                orientation: currentGeometry.orientation,
-                safeInsets: currentGeometry.safeInsets
-            )
-        }
+        try await refreshGeometry()
         return PhoneDevice(
             id: configuration.deviceID,
             name: configuration.name,
@@ -97,7 +82,26 @@ public actor WebDriverAgentDriver: PhoneDriver {
         return Int(exactly: value)
     }
 
+    private func refreshGeometry() async throws {
+        let sizeResponse = try await sessionRequest(path: "/window/size", method: "GET")
+        guard let widthValue = sizeResponse["value"]?["width"]?.doubleValue,
+              let heightValue = sizeResponse["value"]?["height"]?.doubleValue,
+              let width = Self.validatedDimension(widthValue),
+              let height = Self.validatedDimension(heightValue)
+        else {
+            throw PhoneDriverError.malformedResponse("WDA window size was not a finite positive integer")
+        }
+        currentGeometry = PhoneDisplayGeometry(
+            width: width,
+            height: height,
+            scale: currentGeometry.scale,
+            orientation: currentGeometry.orientation,
+            safeInsets: currentGeometry.safeInsets
+        )
+    }
+
     public func snapshot() async throws -> PhoneScreenFrame {
+        try await refreshGeometry()
         let response = try await sessionRequest(path: "/screenshot", method: "GET")
         guard let base64 = response["value"]?.stringValue,
               let data = Data(base64Encoded: base64)
@@ -115,6 +119,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func accessibilityTree() async throws -> PhoneUIElement? {
+        try await refreshGeometry()
         let response = try await sessionRequest(path: "/source?format=json", method: "GET")
         guard let value = response["value"] else {
             throw PhoneDriverError.malformedResponse("WDA source did not contain a value")
@@ -123,6 +128,7 @@ public actor WebDriverAgentDriver: PhoneDriver {
     }
 
     public func perform(_ action: PhoneActionRequest) async throws -> PhoneActionReceipt {
+        try await refreshGeometry()
         let geometry = currentGeometry
         let response: PhoneJSONValue
         switch action.kind {

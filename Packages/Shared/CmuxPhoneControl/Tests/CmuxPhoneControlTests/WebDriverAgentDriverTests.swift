@@ -47,8 +47,11 @@ struct WebDriverAgentDriverTests {
             "/status",
             "/session",
             "/session/session-1/window/size",
+            "/session/session-1/window/size",
             "/session/session-1/screenshot",
+            "/session/session-1/window/size",
             "/session/session-1/source",
+            "/session/session-1/window/size",
             "/session/session-1/wda/tap",
         ])
         let tapBody = try #require(requests.last?.body)
