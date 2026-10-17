@@ -22,7 +22,7 @@ and durable receipt primitives. It does not create a second remote-control stack
 | Remote daemon socket | `cmux-tui remote connect ssh://...` and `DaemonConnection` | Continue using the normal remote cmux daemon path |
 | Session/activity identity | `AgentActivitySocketSource.swift` | Machine/session IDs, sequence cursors, `after_seq` replay |
 | Authenticated peer transport | `cmux-tui/crates/acpmux/src/peer.rs` | Bearer + peer token, `served_as`, generation, watch/delta stream |
-| Read-only agent observation | `server/agent_session_observe.rs` | `agent-session-observe-v1` and mutation refusal |
+| Read-only agent observation | PR #21258's `cmux-tui-core/src/server/agent_session_observe.rs` and attach wiring | `agent-session-observe-v1` and mutation refusal; land this capability before consuming it here |
 | Durable receipts | `acpmux/src/mailbox.rs`, `src/protocol/mailbox.rs` | Idempotency, cursors, recipient-scoped ack, delivery receipts |
 
 ## Identity envelope
@@ -70,9 +70,12 @@ as the app-server reports it; it is not proof of native remote-control access.
 
 ## ACPMUX bridge
 
-Add a Rust-only adapter over the existing authenticated `Peer::request` and
-mailbox primitives. The adapter should expose a typed observation receipt, not a
-new transport:
+Add a Rust-only adapter over the existing authenticated `Peer::request` path and
+the mailbox's storage/receipt primitives. The adapter should expose a typed
+observation receipt, not a new transport. The current `_acpmux/mail/*` handlers
+deny `Origin::Peer`/Web access by default, so this adapter must add an explicit,
+peer-authenticated allowlist and sender/session binding; it must not bypass the
+origin gate by forwarding ordinary mailbox RPCs:
 
 - `observation.snapshot`
 - `observation.delta`
@@ -86,9 +89,11 @@ metadata contains the identity envelope and source cursor; message bodies remain
 untrusted data.
 
 Only a peer-authenticated connection with `served_as == peer` may publish or
-read remote observation receipts. Page relays and ordinary bearer WebSockets
-remain denied. Acknowledgement proves transport acceptance, not that a model
-understood or acted on the receipt.
+read remote observation receipts through that adapter. Page relays, ordinary
+bearer WebSockets, and unbound mailbox callers remain denied. A receipt sender
+must map to the peer's machine/session identity and connection generation;
+caller-supplied metadata cannot grant that mapping. Acknowledgement proves
+transport acceptance, not that a model understood or acted on the receipt.
 
 ## Visual-inspection loop
 
