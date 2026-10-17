@@ -16,12 +16,14 @@ import {
   BrowserIcon,
   CloseIcon,
   HistoryIcon,
+  MoreIcon,
   PlusIcon,
   PromoteIcon,
   SlidersIcon,
   StackIcon,
   TerminalIcon,
 } from "./icons";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import {
   activeSpace,
   browserProfileById,
@@ -38,7 +40,6 @@ import {
   type Space,
   type Spaces,
 } from "./spaces";
-import { RowAge } from "./RowAge";
 import { RowAgents } from "./RowAgents";
 import { RowBranch } from "./RowBranch";
 import { RowDetailSettings } from "./RowDetailSettings";
@@ -237,6 +238,8 @@ export function WorkspaceShell() {
       detail={details.get(workspace.id)!}
       items={items}
       onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
+      onClose={() => close(workspace.id, workspaceLead(workspace).id)}
+      canClose={workspace.tabs.length > 1 || stack.workspaces.length > 1}
     />
   );
 
@@ -429,6 +432,8 @@ function WorkspaceRow({
   detail,
   items,
   onSelect,
+  onClose,
+  canClose,
 }: {
   workspace: Workspace;
   active: boolean;
@@ -436,6 +441,8 @@ function WorkspaceRow({
   detail: WorkspaceDetail;
   items: RowDetailItems;
   onSelect: (tabId: string) => void;
+  onClose: () => void;
+  canClose: boolean;
 }) {
   const lead = workspaceLead(workspace);
   const KindIcon = KIND_ICONS[lead.kind];
@@ -455,7 +462,7 @@ function WorkspaceRow({
       !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
     );
   return (
-    <li>
+    <li className="proto-workspace-row">
       <button
         type="button"
         className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}${preview || meta ? " is-detailed" : ""}`}
@@ -467,8 +474,7 @@ function WorkspaceRow({
           <span className="proto-workspace-body">
             <span className="proto-workspace-line">
               <span className="proto-workspace-title">{lead.title}</span>
-              {preview && <RowAge age={preview.age} />}
-              {trailing}
+              <span className="proto-workspace-status">{trailing}</span>
             </span>
             {preview && <RowPreview text={preview.text} />}
             {meta && (
@@ -482,10 +488,40 @@ function WorkspaceRow({
         ) : (
           <>
             <span className="proto-workspace-title">{lead.title}</span>
-            {trailing}
+            <span className="proto-workspace-status">{trailing}</span>
           </>
         )}
       </button>
+      <span className="proto-workspace-actions" aria-label={`Actions for ${lead.title}`}>
+        <Menu>
+          <MenuButton
+            className="proto-workspace-action"
+            label={`More actions for ${lead.title}`}
+            title="More actions"
+            aria-haspopup="menu"
+          >
+            <MoreIcon />
+          </MenuButton>
+          <MenuPopup align="end" label={`Actions for ${lead.title}`}>
+            <MenuItem disabled={!canClose} onSelect={onClose}>
+              Close workspace
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+        <button
+          type="button"
+          className="proto-workspace-action proto-workspace-close"
+          aria-label={`Close ${lead.title}`}
+          title="Close workspace"
+          disabled={!canClose}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
+        >
+          <CloseIcon />
+        </button>
+      </span>
       {active && workspace.tabs.length > 1 && (
         <ul className="proto-workspace-tabs">
           {/* The workspace row stands for its lead tab; the rest list under it. */}
