@@ -814,7 +814,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         taskComposerAction: {}
                     ) {
                         workspaceListStack
-                    } feed: {
+                    } chat: {
                         Text("Agent feed fixture")
                             .foregroundStyle(.secondary)
                     } notifications: {
@@ -830,7 +830,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                             searchCoordinator: primarySearchCoordinator
                         ) {
                             switch primarySearchCoordinator.scope {
-                            case .feed:
+                            case .chat:
                                 Text(verbatim: "Agent feed fixture")
                                     .foregroundStyle(.secondary)
                             case .workspaces:

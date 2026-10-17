@@ -5,8 +5,8 @@ import SwiftUI
 /// Isolated fixture that exercises the production row and reading sheet.
 public struct AgentFeedFullTextPreviewView: View {
     @State private var attempts = 0
-    @State private var selectedTab: MobilePrimaryTab = .feed
-    @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .feed)
+    @State private var selectedTab: MobilePrimaryTab = .chat
+    @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .chat)
     @State private var path: [String] = []
     private let failsOnce: Bool
     private let item: MobileAgentFeedItem
@@ -53,7 +53,7 @@ public struct AgentFeedFullTextPreviewView: View {
         MobilePrimaryTabScaffold(selection: $selectedTab, searchCoordinator: searchCoordinator,
                                  notificationUnreadCount: 0) {
             NavigationStack { Text(verbatim: "Workspaces").toolbar { rootToolbar } }
-        } feed: {
+        } chat: {
             NavigationStack(path: $path) {
                 feedContent
                     .toolbar { rootToolbar }
@@ -85,7 +85,7 @@ public struct AgentFeedFullTextPreviewView: View {
                     return fullText
                 }
             ),
-            searchText: searchCoordinator.searchDestinationText(for: .feed)
+            searchText: searchCoordinator.searchDestinationText(for: .chat)
         )
     }
 

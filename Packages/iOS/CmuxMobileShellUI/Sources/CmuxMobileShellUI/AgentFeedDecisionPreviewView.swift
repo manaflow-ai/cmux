@@ -8,8 +8,8 @@ import SwiftUI
 /// path. It uses the production Feed view so screenshots exercise row identity,
 /// filtering, paging, Markdown rendering, and action layout together.
 public struct AgentFeedDecisionPreviewView: View {
-    @State private var selectedTab: MobilePrimaryTab = .feed
-    @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .feed)
+    @State private var selectedTab: MobilePrimaryTab = .chat
+    @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .chat)
     @State private var path: [String] = []
     @State private var stressMonitor = AgentFeedScrollStressFrameMonitor()
     @State private var stressMetrics = "state=idle"
@@ -33,7 +33,7 @@ public struct AgentFeedDecisionPreviewView: View {
             notificationUnreadCount: 0
         ) {
             NavigationStack { Text(verbatim: "Workspaces").toolbar { rootToolbar } }
-        } feed: {
+        } chat: {
             NavigationStack(path: $path) {
                 AgentFeedView(
                     items: items,
@@ -43,7 +43,7 @@ public struct AgentFeedDecisionPreviewView: View {
                     pendingTerminalReplyItemIDs: [],
                     refreshesOnAppear: false,
                     actions: actions,
-                    searchText: searchCoordinator.searchDestinationText(for: .feed),
+                    searchText: searchCoordinator.searchDestinationText(for: .chat),
                     performanceObserver: UITestConfig.agentFeedDecisionPreviewScrollStressEnabled ? stressMonitor : nil
                 )
                 .toolbar { rootToolbar }
@@ -69,7 +69,7 @@ public struct AgentFeedDecisionPreviewView: View {
                     pendingTerminalReplyItemIDs: [],
                     refreshesOnAppear: false,
                     actions: actions,
-                    searchText: searchCoordinator.searchDestinationText(for: .feed)
+                    searchText: searchCoordinator.searchDestinationText(for: .chat)
                 )
             } destination: { _ in EmptyView() }
         }

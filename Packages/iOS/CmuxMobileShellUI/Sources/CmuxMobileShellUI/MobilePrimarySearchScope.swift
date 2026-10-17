@@ -4,7 +4,7 @@
 /// New primary tabs must explicitly choose whether they introduce a search
 /// scope; destinations without one hide the search control.
 enum MobilePrimarySearchScope: Equatable {
-    case feed
+    case chat
     case workspaces
     case notifications
 }

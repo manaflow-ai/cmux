@@ -3,6 +3,7 @@ import CmuxAgentChatUI
 import CmuxMobileShell
 import PhotosUI
 import SwiftUI
+import UIKit
 
 /// ChatGPT-style mobile conversation surface for Claude, Codex, and OpenCode.
 ///
@@ -13,13 +14,19 @@ import SwiftUI
 struct MobileChatRootView: View {
     @State private var store: MobileChatStore
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    private let searchText: String
+    private let connectionGeneration: UUID
     let showSettings: () -> Void
 
     init(
         sourceProvider: @escaping MobileChatStore.SourceProvider,
+        searchText: String = "",
+        connectionGeneration: UUID,
         showSettings: @escaping () -> Void = {}
     ) {
         _store = State(initialValue: MobileChatStore(sourceProvider: sourceProvider))
+        self.searchText = searchText
+        self.connectionGeneration = connectionGeneration
         self.showSettings = showSettings
     }
 
@@ -51,7 +58,7 @@ struct MobileChatRootView: View {
         } detail: {
             transcript
         }
-        .task { store.start() }
+        .task(id: connectionGeneration) { store.restart() }
         .onDisappear { store.stop() }
         .accessibilityIdentifier("MobileAgentChat")
     }
@@ -74,13 +81,16 @@ struct MobileChatRootView: View {
                     Button("Refresh", action: store.refresh)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredSessions.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: Binding(
                     get: { store.selectedSessionID },
                     set: { if let value = $0 { store.selectSession(value) } }
                 )) {
                     Section {
-                        ForEach(store.sessions) { session in
+                        ForEach(filteredSessions) { session in
                             Button {
                                 store.selectSession(session)
                             } label: {
@@ -103,6 +113,21 @@ struct MobileChatRootView: View {
                 }
                 .listStyle(.insetGrouped)
             }
+        }
+    }
+
+    private var filteredSessions: [ChatSessionDescriptor] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return store.sessions }
+        return store.sessions.filter { session in
+            [
+                session.title,
+                session.workingDirectory,
+                session.agentKind.displayName,
+                session.agentKind.sourceName,
+            ]
+            .compactMap { $0 }
+            .contains { $0.localizedCaseInsensitiveContains(query) }
         }
     }
 
@@ -260,7 +285,7 @@ private struct MobileChatTranscriptView: View {
             Spacer()
             Menu {
                 Button("Refresh transcript", systemImage: "arrow.clockwise") {
-                    store.selectSession(descriptor.id)
+                    store.refreshTranscript()
                 }
                 Button("Stop agent", systemImage: "stop.fill", role: .destructive) {
                     store.interrupt()

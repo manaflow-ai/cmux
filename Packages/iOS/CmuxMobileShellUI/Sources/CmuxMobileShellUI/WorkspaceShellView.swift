@@ -247,8 +247,8 @@ struct WorkspaceShellView: View {
     @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
-    /// Compact Feed-tab stack: workspaces opened from Feed rows push here.
-    @State private var feedNavigationPath: [MobileWorkspacePreview.ID] = []
+    /// Compact Chat-tab stack: workspace routes opened from Chat push here.
+    @State private var chatNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
@@ -336,7 +336,7 @@ struct WorkspaceShellView: View {
             notificationNavigationPath: notificationNavigationPath,
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
             notificationSearchNavigationPath: notificationSearchNavigationPath,
-            feedNavigationPath: feedNavigationPath
+            chatNavigationPath: chatNavigationPath
         )
         #if os(iOS)
         GeometryReader { geometry in
@@ -422,18 +422,20 @@ struct WorkspaceShellView: View {
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
-            feedNeedsInputCountProvider: { 0 },
+            chatNeedsInputCountProvider: { 0 },
             showsNotificationsTab: true,
             taskComposerAction: nil
         ) {
             workspaceTabContent(
                 presentation: presentation
             )
-        } feed: {
-            NavigationStack(path: $feedNavigationPath) {
-                agentChatView()
+        } chat: {
+            NavigationStack(path: $chatNavigationPath) {
+                agentChatView(
+                    searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
+                )
                     .toolbar {
-                        if feedNavigationPath.isEmpty {
+                        if chatNavigationPath.isEmpty {
                             rootToolbarContent
                         }
                     }
@@ -519,7 +521,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: $workspaceSearchNavigationPath
         case .notifications: $notificationSearchNavigationPath
-        case .feed: .constant([])
+        case .chat: .constant([])
         }
     }
 
@@ -549,8 +551,10 @@ struct WorkspaceShellView: View {
                                 createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
                             )
                         }
-                    case .feed:
-                        agentChatView()
+                    case .chat:
+                        agentChatView(
+                            searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
+                        )
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -963,8 +967,10 @@ struct WorkspaceShellView: View {
         let notificationItems = presentation.notificationFeedItems
         return Group {
             switch splitSidebarDestination {
-            case .feed:
-                agentChatView()
+            case .chat:
+                agentChatView(
+                    searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
+                )
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -989,7 +995,7 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             if splitSidebarDestination == .notifications
-                || splitSidebarDestination == .feed
+                || splitSidebarDestination == .chat
                 || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
@@ -1016,8 +1022,8 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
-            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
-                .tag(MobilePrimarySearchScope.feed)
+            Text(L10n.string("mobile.tabs.chat", defaultValue: "Chat"))
+                .tag(MobilePrimarySearchScope.chat)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
         }
@@ -1057,7 +1063,7 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                feedTitle: L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
+                chatTitle: L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
                 showsNotifications: true,
                 cloudTitle: cloudTabContent == nil
@@ -1073,7 +1079,7 @@ struct WorkspaceShellView: View {
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
-        let feedTitle: String
+        let chatTitle: String
         let notificationsTitle: String
         let showsNotifications: Bool
         /// Nil in a build without Cloud, which omits the destination.
@@ -1087,9 +1093,9 @@ struct WorkspaceShellView: View {
                     accessibilityID: "MobileSplitSidebarWorkspaces"
                 )
                 destinationButton(
-                    .feed,
-                    title: feedTitle,
-                    accessibilityID: "MobileSplitSidebarFeed"
+                    .chat,
+                    title: chatTitle,
+                    accessibilityID: "MobileSplitSidebarChat"
                 )
                 if showsNotifications {
                     destinationButton(
@@ -1221,8 +1227,8 @@ struct WorkspaceShellView: View {
 
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
-        case .feed:
-            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
+        case .chat:
+            Text(L10n.string("mobile.chat.search.placeholder", defaultValue: "Search chats"))
         case .workspaces:
             Text(
                 L10n.string(
@@ -1456,9 +1462,11 @@ struct WorkspaceShellView: View {
 
     /// First-class agent chat destination. The legacy Feed remains compiled
     /// for migration fixtures, but is no longer mounted by production routes.
-    private func agentChatView() -> MobileChatRootView {
+    private func agentChatView(searchText: String = "") -> MobileChatRootView {
         MobileChatRootView(
             sourceProvider: { store.makeChatEventSource() },
+            searchText: searchText,
+            connectionGeneration: store.connectionGeneration,
             showSettings: showSettings
         )
     }
@@ -1570,10 +1578,10 @@ struct WorkspaceShellView: View {
             return
         }
         if request.origin == .agentFeed,
-           selectedPrimaryTab == .feed,
+           selectedPrimaryTab == .chat,
            !primarySearchCoordinator.isPresented {
-            if feedNavigationPath.last != workspaceID {
-                feedNavigationPath = [workspaceID]
+            if chatNavigationPath.last != workspaceID {
+                chatNavigationPath = [workspaceID]
             }
             return
         }
@@ -1601,7 +1609,7 @@ struct WorkspaceShellView: View {
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
-        case .feed:
+        case .chat:
             // The Feed has no search-result navigation lane yet.
             break
         case .notifications:
@@ -1682,7 +1690,7 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
-        case .feed: .feed
+        case .chat: .feed
         case .notifications: .notifications
         case .cloud: .cloud
         case .search: .search
@@ -1693,7 +1701,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: .workspaces
         case .notifications: .notifications
-        case .feed: .feed
+        case .chat: .feed
         }
     }
 

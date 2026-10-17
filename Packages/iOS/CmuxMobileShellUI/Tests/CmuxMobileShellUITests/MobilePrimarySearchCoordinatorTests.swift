@@ -20,15 +20,15 @@ import Testing
         #expect(MobilePrimaryTab.cloud.searchScope == nil)
     }
 
-    @Test func feedSearchBelongsToFeedAndKeepsOtherQueriesSeparate() {
+    @Test func chatSearchBelongsToChatAndKeepsOtherQueriesSeparate() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
         coordinator.notifications = "alerts"
-        coordinator.synchronizeSelection(.feed)
-        #expect(coordinator.scope.primaryTab == .feed)
+        coordinator.synchronizeSelection(.chat)
+        #expect(coordinator.scope.primaryTab == .chat)
         coordinator.setPresentation(true)
         coordinator.updateNativeSearchText("agent response", for: coordinator.scope,
                                            activationGeneration: coordinator.activationGeneration)
-        #expect(coordinator.commitSubmit() == .feed)
+        #expect(coordinator.commitSubmit() == .chat)
         #expect(coordinator.notifications == "alerts")
         #expect(coordinator.searchDestinationText(for: coordinator.scope) == "agent response")
     }

@@ -70,7 +70,10 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
             let lp = selectionPriority(lhs.state)
             let rp = selectionPriority(rhs.state)
             if lp != rp { return lp < rp }
-            return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+            let lhsActivity = lhs.lastActivityAt ?? .distantPast
+            let rhsActivity = rhs.lastActivityAt ?? .distantPast
+            if lhsActivity != rhsActivity { return lhsActivity > rhsActivity }
+            return lhs.id < rhs.id
         }
     }
 

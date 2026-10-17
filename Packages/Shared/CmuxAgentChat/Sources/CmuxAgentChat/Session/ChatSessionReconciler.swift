@@ -53,7 +53,10 @@ public struct ChatSessionReconciler: Sendable, Equatable {
             descriptor = descriptor.withState(state)
             descriptor.version += 1
             return upsert(descriptor)
-        case .sessionRemoved:
+        case .sessionRemoved(let version):
+            guard let existing = descriptorsByID[sessionID], version >= existing.version else {
+                return false
+            }
             return descriptorsByID.removeValue(forKey: sessionID) != nil
         case .reset, .appended, .updated, .terminalBlocks, .streamingProse, .unknown:
             return false
