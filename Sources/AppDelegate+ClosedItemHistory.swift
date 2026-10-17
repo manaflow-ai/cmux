@@ -3,6 +3,7 @@ import AppKit
 extension AppDelegate {
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
         ClosedItemHistoryStore.shared.removeAll()
+        ClosedBrowserNavigationStates.shared.removeAll()
 
         for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager) {
             manager.clearRecentlyClosedBrowserPanelHistory()

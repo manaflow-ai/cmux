@@ -19,6 +19,14 @@ public struct ChromiumNetError: Equatable, Sendable {
     public static let abortedCode = -3
     /// ERR_CERT_* (`net_error_list.h`: -200 to -299).
     public static let certificateCodes = -299 ... -200
+    /// Certificate errors Chrome lets a person proceed past on any host
+    /// that HSTS does not cover: common name, date, authority.
+    public static let overridableCertificateCodes: Set<Int> = [-200, -201, -202]
+    /// Net errors whose Chromium error page is empty (seen live in cmux Next,
+    /// cx-zjcq): cmux's page shows for them, not a blank pane.
+    public static let emptyChromiumPageCodes: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     /// Chromium's error code.
     public let code: Int
@@ -68,6 +76,35 @@ public struct ChromiumNetError: Equatable, Sendable {
         case generic
     }
 
+    /// Whether Chromium draws its own page for this failure: its net error
+    /// page for most failures, its certificate interstitial only when the
+    /// shim left the decision to it (`interstitial`). The shim cancels a
+    /// certificate error in an agent-driven tab, so only a person can
+    /// proceed there, and a few errors leave Chromium's page empty.
+    /// Reference: cmux Next `CEFTab+Events.swift` `loadError(code:text:url:chromiumInterstitial:)`.
+    /// - Parameter interstitial: The shim's `chromiumInterstitial` flag of the load error.
+    public func chromiumShowsPage(interstitial: Bool) -> Bool {
+        interstitial || !(isCertificateError || Self.emptyChromiumPageCodes.contains(code))
+    }
+
+    /// How Proceed on cmux's certificate warning answers the browser's next
+    /// certificate error on `host` (`cmux_shim_certificate_proceed`): an
+    /// overridable error on an IP address, which HSTS never covers
+    /// (RFC 6797), continues; any other is left to Chromium's interstitial,
+    /// which knows the host's HSTS state.
+    /// Reference: cmux Next `ChromiumNetError.proceed(on:)`.
+    /// - Parameter host: The failed URL's host, without IPv6 brackets.
+    public func certificateProceed(host: String) -> ChromiumCertificateProceed {
+        var v4 = in_addr(), v6 = in6_addr()
+        let isAddress = inet_pton(AF_INET, host, &v4) == 1 || inet_pton(AF_INET6, host, &v6) == 1
+        // Chromium's host keeps an IPv6 address in brackets.
+        let chromiumHost = host.contains(":") ? "[\(host)]" : host
+        return ChromiumCertificateProceed(
+            host: chromiumHost,
+            chromiumDecides: !(isAddress && Self.overridableCertificateCodes.contains(code))
+        )
+    }
+
     /// The presentation, given whether Chromium rendered its own error page.
     public func presentation(chromiumShowsPage: Bool) -> Presentation {
         if code == Self.abortedCode { return .nothing }
@@ -101,5 +138,19 @@ public struct ChromiumNetError: Equatable, Sendable {
         case .certificate: .insecure
         case .generic: .cantOpen
         }
+    }
+}
+
+/// Proceed on cmux's certificate warning, as the Chromium shim takes it.
+public struct ChromiumCertificateProceed: Equatable, Sendable {
+    /// The host as Chromium names it (an IPv6 address in brackets).
+    public let host: String
+    /// `true` leaves the decision to Chromium's interstitial; `false`
+    /// continues past the error.
+    public let chromiumDecides: Bool
+
+    public init(host: String, chromiumDecides: Bool) {
+        self.host = host
+        self.chromiumDecides = chromiumDecides
     }
 }

@@ -2181,6 +2181,27 @@ final class BrowserPanel: Panel, ObservableObject {
             if newValue != chromiumPageFailure { objectWillChange.send() }
         }
     }
+    /// A Chromium load failure Chromium drew no page for, shown with cmux's
+    /// recovery view until the next load starts
+    /// (`BrowserPanel+ChromiumLoadFailure.swift`). Unused for WebKit panels.
+    var chromiumLoadFailure: ChromiumLoadFailure? {
+        willSet {
+            if newValue != chromiumLoadFailure { objectWillChange.send() }
+        }
+    }
+    /// The non-WebKit page's newest failed load: the address bar keeps the
+    /// failed address, as Chrome's omnibox does, while the page still
+    /// reports the address it had before (`stale`). Chromium sends no address
+    /// change for a load that never committed, and its error page can start
+    /// a load cycle of its own after the failure.
+    var engineFailedNavigation: (failed: URL, stale: URL?)?
+    /// History a reopened tab's new non-WebKit page restores in place of its
+    /// first load (Reopen Closed Tab).
+    var pendingEngineNavigationRestore: BrowserPageRestoreState?
+    /// The non-WebKit page's back/forward list for the history menus, kept
+    /// until the page's address, title or history availability changes:
+    /// SwiftUI builds the menus on every toolbar update.
+    var engineBackForwardListCache: (key: String, list: BrowserBackForwardList?)?
     /// Whether the non-WebKit page is on screen, as its host last reported.
     var isEnginePageVisible = false
     /// What to do once a hung Chromium renderer has been ended to recover it
@@ -4877,6 +4898,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
         if enginePage != nil {
+            // A reopened tab's page restores the closed page's history
+            // (Reopen Closed Tab) instead of loading its address fresh.
+            // The address must still pass the allowlist a fresh load checks.
+            if let state = pendingEngineNavigationRestore {
+                pendingEngineNavigationRestore = nil
+                if !usesRemoteWorkspaceProxy, BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+                   restoreEngineNavigation(state, displayURL: url) { return }
+            }
             // A Chromium page has no deferred-discard restore path: load it
             // now (it starts even while its pane is hidden).
             currentURL = url
@@ -6811,7 +6840,11 @@ extension BrowserPanel {
     /// Mirrors a non-WebKit page's state into the published properties the
     /// browser chrome reads. WebKit panels publish from their own observers.
     func applyEnginePageState(_ state: BrowserPageState) {
-        if currentURL != state.url, let url = state.url { currentURL = url }
+        // A load cycle ends cmux's recovery view; the failed address stays
+        // until the page reports an address other than the one it had before.
+        if state.isLoading, !isLoading { chromiumLoadFailure = nil }
+        if let failed = engineFailedNavigation, state.url != failed.stale { engineFailedNavigation = nil }
+        if engineFailedNavigation == nil, currentURL != state.url, let url = state.url { currentURL = url }
         let title = state.title ?? ""
         if pageTitle != title { pageTitle = title }
         if isLoading != state.isLoading { isLoading = state.isLoading }
@@ -6821,13 +6854,10 @@ extension BrowserPanel {
         applyEngineContentFullscreen(state.isContentFullscreen)
     }
 
-    /// A non-WebKit page's main-frame load failed. Chromium shows its own
-    /// error page; a new panel's first load has no committed URL, so the
-    /// address bar keeps the address that failed instead of going blank
-    /// (Next `chromium-error-page-new-tab`, design spec §8).
-    func applyEnginePageNavigationFailure(url: URL?) {
-        guard currentURL == nil, let url else { return }
-        currentURL = url
+    /// Shows `url` in the address bar for a non-WebKit page (a failed load,
+    /// a restored history) that sends no address change of its own.
+    func showEngineAddress(_ url: URL) {
+        if currentURL != url { currentURL = url }
     }
 
     /// Publishes a non-WebKit page's favicon.
@@ -6955,6 +6985,60 @@ extension BrowserPanel {
         markTrustedInternalNavigationIfNeeded(for: targetURL)
         webView.applyBrowserUserAgentPolicy(for: targetURL)
         webView.goForward()
+    }
+
+    /// Entries the Back and Forward buttons' history menus list, at most
+    /// (cmux Next `BrowserChromeView.backForwardMenuLimit`).
+    static let backForwardMenuLimit = 16
+
+    /// The Back (or Forward) button's history menu, nearest entry first:
+    /// Chromium's navigation entries, or WebKit's back/forward list. Empty
+    /// while a WebKit page steps through history restored by URL from a
+    /// session, which has no entries to jump to.
+    func backForwardMenuEntries(forward: Bool) -> [BrowserBackForwardEntry] {
+        let entries: [BrowserBackForwardEntry]
+        if let enginePage {
+            let key = "\(currentURL?.absoluteString ?? "")\n\(pageTitle)\n\(canGoBack)\n\(canGoForward)\n\(isLoading)"
+            let list: BrowserBackForwardList?
+            if let cache = engineBackForwardListCache, cache.key == key {
+                list = cache.list
+            } else {
+                list = (enginePage as? any BrowserPageBackForwardListing)?.backForwardList()
+                engineBackForwardListCache = (key, list)
+            }
+            guard let list else { return [] }
+            entries = forward ? list.forward : list.back
+        } else {
+            guard !usesRestoredSessionHistory else { return [] }
+            let list = webView.backForwardList
+            let entry = { (item: WKBackForwardListItem, offset: Int) in
+                BrowserBackForwardEntry(url: item.url, title: item.title.flatMap { $0.isEmpty ? nil : $0 }, offset: offset)
+            }
+            entries = forward
+                ? list.forwardList.enumerated().map { entry($0.element, $0.offset + 1) }
+                : list.backList.reversed().enumerated().map { entry($0.element, -($0.offset + 1)) }
+        }
+        return Array(entries.prefix(Self.backForwardMenuLimit))
+    }
+
+    /// Goes to the history menu entry `offset` steps from the current one
+    /// (negative is back), as Back or Forward pressed that many times would.
+    func goToBackForwardEntry(offset: Int, dialogOwner: BrowserDialogOwner = .user) {
+        guard offset != 0 else { return }
+        takeBrowserDialogOwnership(dialogOwner)
+        if let enginePage {
+            noteEngineLoadStarted()
+            (enginePage as? any BrowserPageBackForwardListing)?.goToBackForwardEntry(offset: offset)
+            return
+        }
+        guard !usesRestoredSessionHistory else { return }
+        cancelAppSessionBootstrap()
+        _ = reactivateDiscardedWebViewWithoutNavigation(reason: offset < 0 ? "goBack" : "goForward")
+        cancelInFlightNavigationBeforeHistoryTraversal()
+        guard let item = webView.backForwardList.item(at: offset) else { return }
+        markTrustedInternalNavigationIfNeeded(for: item.url)
+        webView.applyBrowserUserAgentPolicy(for: item.url)
+        webView.go(to: item)
     }
 
     /// Open a link in a new browser surface in the same pane

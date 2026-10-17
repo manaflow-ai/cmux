@@ -969,12 +969,27 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
+        // The snapshot keeps a WebKit page's history, not Chromium's.
+        if let state = browserPanel(for: panelId)?.enginePage?.exportRestoreState() {
+            ClosedBrowserNavigationStates.shared.save(state, for: entry.snapshot.id)
+        }
         ClosedItemHistoryStore.shared.push(.panel(entry))
         return true
     }
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         guard acceptsRestoredPanel(entry.snapshot, projection: entry.projection) else { return nil }
+        let navigation = entry.snapshot.type == .browser
+            ? ClosedBrowserNavigationStates.shared.state(for: entry.snapshot.id) : nil
+        pendingClosedBrowserNavigationRestore = navigation.map { (entry.snapshot.id, $0) }
+        defer { pendingClosedBrowserNavigationRestore = nil }
+        let restoredPanelId = restoreClosedPanelPlacingIt(entry)
+        if restoredPanelId != nil, navigation != nil {
+            ClosedBrowserNavigationStates.shared.remove(entry.snapshot.id)
+        }
+        return restoredPanelId
+    }
+    private func restoreClosedPanelPlacingIt(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         // Inert nested scaffolds must not enter the user-split terminal repair path.
         let wasProgrammaticSplit = isProgrammaticSplit
         isProgrammaticSplit = true
@@ -2292,11 +2307,20 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                // The engine the panel had (a snapshot omits WebKit), as a
+                // deferred restore does (`restoredEngineChoice`).
+                inheritedEngine: snapshot.browser?.engine ?? .webkit
             ) else {
                 return nil
             }
+            if let pending = pendingClosedBrowserNavigationRestore, pending.snapshotID == snapshot.id {
+                browserPanel.pendingEngineNavigationRestore = pending.state
+            }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+            // A restore that did not load a page (hidden, Cloud) must not
+            // apply this history to a later load.
+            browserPanel.pendingEngineNavigationRestore = nil
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
@@ -3070,6 +3094,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Callback used by TabManager to capture browser panels for closed-item restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
+    /// The engines this workspace's new browser panels resolve against;
+    /// `nil` is the app's shared runtime (tests inject a fake Chromium provider).
+    @MainActor var browserEngineRuntime: BrowserEngineRuntime?
+    /// History the browser panel a closed-tab reopen is recreating restores
+    /// in place of its first load, keyed by the closed panel's snapshot id.
+    var pendingClosedBrowserNavigationRestore: (snapshotID: UUID, state: BrowserPageRestoreState)?
     weak var owningTabManager: TabManager?
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
@@ -10138,10 +10168,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil,
-        engine: BrowserEngineKind? = nil
+        engine: BrowserEngineKind? = nil,
+        inheritedEngine: BrowserEngineKind? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
-        guard let engineChoice = BrowserPanel.resolvedEngineChoice(requested: engine) else { return nil }
+        guard let engineChoice = BrowserPanel.resolvedEngineChoice(
+            requested: engine, inherited: inheritedEngine, runtime: browserEngineRuntime
+        ) else { return nil }
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
@@ -10219,7 +10252,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore,
-            engineChoice: engineChoice
+            engineChoice: engineChoice,
+            engineRuntime: browserEngineRuntime
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -10311,7 +10345,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         inheritedEngine: BrowserEngineKind? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
-        guard let engineChoice = BrowserPanel.resolvedEngineChoice(requested: engine, inherited: inheritedEngine) else { return nil }
+        guard let engineChoice = BrowserPanel.resolvedEngineChoice(
+            requested: engine, inherited: inheritedEngine, runtime: browserEngineRuntime
+        ) else { return nil }
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
         // that the mirror's rebuild() never reconciles, breaking the 1:1
@@ -10364,7 +10400,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore,
-            engineChoice: engineChoice
+            engineChoice: engineChoice,
+            engineRuntime: browserEngineRuntime
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -11466,7 +11503,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
             fallbackSplitInsertFirst: fallbackPlan?.insertFirst ?? false,
-            fallbackAnchorPaneId: fallbackPlan?.anchorPaneId
+            fallbackAnchorPaneId: fallbackPlan?.anchorPaneId,
+            engine: browserPanel.sessionSnapshotEngine
         )
     }
 

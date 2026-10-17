@@ -31,6 +31,8 @@ struct BrowserPageRecoveryOverlay: View {
     var exitPageAction: () -> Void = {}
     /// The panel's page overlay coordinator, for prompts that cut their own holes.
     var overlays: BrowserPageOverlayCoordinator?
+    /// Proceed on a Chromium certificate warning, when the page can go past it.
+    var proceedAction: (() -> Void)?
     let action: () -> Void
 
     var body: some View {
@@ -89,7 +91,10 @@ struct BrowserPageRecoveryOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         case .chromiumLoadFailed(let error):
-            ChromiumLoadFailureView(error: error, backgroundColor: backgroundColor, metrics: metrics, reload: action)
+            ChromiumLoadFailureView(
+                error: error, backgroundColor: backgroundColor, metrics: metrics,
+                reload: action, proceed: proceedAction
+            )
         case .chromiumCrashed(let exit, let isRepeat):
             ChromiumPageFailureOverlay(
                 failure: .crashed(exit, isRepeat: isRepeat, restoresWhenShown: false),
@@ -109,7 +114,10 @@ struct BrowserPageRecoveryOverlay: View {
 /// cmux's page for a Chromium load failure whose Chromium page is empty:
 /// the title WebKit panels use for the same failure, a sentence a person can
 /// act on, Chromium's error name on its own line (as Chrome's page shows it),
-/// and Reload. Same frame as the crashed prompt so the engines share it.
+/// and Reload. A certificate error in an agent-driven tab (where Chromium
+/// shows no interstitial) also offers WebKit's error page's Proceed, which
+/// only a person can press. Same frame as the crashed prompt so the engines
+/// share it.
 ///
 /// References: design spec §8; Chrome `components/error_page_strings.grdp`;
 /// cmux Next `CmuxNextBrowser/UI/LoadErrorView.swift`;
@@ -120,6 +128,7 @@ struct ChromiumLoadFailureView: View {
     let backgroundColor: NSColor
     let metrics: BrowserChromeMetrics
     let reload: () -> Void
+    var proceed: (() -> Void)?
 
     var body: some View {
         ZStack {
@@ -153,6 +162,16 @@ struct ChromiumLoadFailureView: View {
                 .controlSize(.regular)
                 .padding(.top, metrics.recoverySpacing / 2)
                 .accessibilityIdentifier("BrowserChromiumLoadFailureReloadButton")
+                if let proceed {
+                    Button(action: proceed) {
+                        Text(String(localized: "browser.error.bypass", defaultValue: "Proceed Anyway (Unsafe)"))
+                            .cmuxFont(size: metrics.recoveryBodyFontSize)
+                            .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .accessibilityIdentifier("BrowserChromiumLoadFailureProceedButton")
+                }
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: metrics.recoveryMaxWidth)

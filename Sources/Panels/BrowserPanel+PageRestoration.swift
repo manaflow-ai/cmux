@@ -292,6 +292,9 @@ extension BrowserPanel {
         if let chromiumPrompt = chromiumPageFailurePrompt {
             return chromiumPrompt
         }
+        if enginePage != nil, let failure = chromiumLoadFailure {
+            return .chromiumLoadFailed(failure.error)
+        }
         if shouldRenderWebView, hasRecoverableWebContentTermination {
             return .crashed
         }
@@ -306,7 +309,7 @@ extension BrowserPanel {
         case .unloaded:
             restoreUnloadedPage()
         case .chromiumLoadFailed:
-            _ = reload()
+            retryChromiumLoadFailure()
         case .chromiumCrashed, .chromiumUnresponsive:
             performChromiumPageFailurePrimaryAction()
         }

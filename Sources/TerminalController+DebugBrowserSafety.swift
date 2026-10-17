@@ -70,7 +70,7 @@ extension TerminalController {
         case .crashed, .chromiumCrashed: "crashed"
         case .chromiumUnresponsive: "unresponsive"
         case .unloaded: "unloaded"
-        default: "other"
+        case .chromiumLoadFailed: "load_failed"
         }
     }
 
@@ -89,8 +89,25 @@ extension TerminalController {
                 case ("exit", "unresponsive"):
                     panel.exitUnresponsiveChromiumPage()
                     pressed = true
+                case ("reload", "load_failed"):
+                    panel.performPageRecovery(prompt)
+                    pressed = true
+                case ("proceed", "load_failed") where panel.canProceedPastChromiumLoadFailure:
+                    // The recovery view's Proceed button, for tests (DEBUG builds only).
+                    panel.proceedPastChromiumLoadFailure()
+                    pressed = true
                 default:
                     break
+                }
+            }
+            // The Back/Forward history menus' entries, and one chosen as the menu would.
+            if case .int(let offset)? = params["go_to_entry"] {
+                panel.goToBackForwardEntry(offset: Int(offset))
+                pressed = true
+            }
+            let historyMenu: (Bool) -> [Any] = { forward in
+                panel.backForwardMenuEntries(forward: forward).map { entry in
+                    ["offset": entry.offset, "title": self.v2OrNull(entry.title), "url": self.v2OrNull(entry.url?.absoluteString)] as [String: Any]
                 }
             }
             let promptName = panel.pageRecoveryPrompt.map(Self.debugPromptName)
@@ -108,6 +125,10 @@ extension TerminalController {
                 "prompt": v2OrNull(promptName),
                 "crashed": promptName == "crashed",
                 "pressed": pressed,
+                "load_error": v2OrNull(panel.chromiumLoadFailure?.error.name),
+                "can_proceed": panel.canProceedPastChromiumLoadFailure,
+                "back_menu": historyMenu(false),
+                "forward_menu": historyMenu(true),
                 "current_url": v2OrNull(panel.currentURL?.absoluteString),
             ])
         }

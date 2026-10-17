@@ -199,7 +199,7 @@ extension BrowserPanel {
             applyEngineContentFullscreen(fullscreen)
         case .externalAppRequested(let url, _):
             openEngineExternalAppURL(url)
-        case .navigationFailed(let url, let code, _, _):
+        case .navigationFailed(let url, let code, let message, let showsEngineErrorPage):
             // A Chromium runtime that failed to start reports it as a failed
             // load: the panel opens the page in WebKit instead of staying blank.
             if let enginePage, let reason = engineRuntime.availability(for: enginePage.engineKind).unavailableReason {
@@ -212,7 +212,7 @@ extension BrowserPanel {
                 finishEngineNavigation(failure: "navigation failed")
                 restoreFindStateAfterNavigation(replaySearch: false)
             }
-            applyEnginePageNavigationFailure(url: url)
+            applyEnginePageNavigationFailure(url: url, code: code, message: message, showsEngineErrorPage: showsEngineErrorPage)
         case .navigationStarted:
             // A question about the page being left goes with it (spec §4).
             enginePageDelegate.permissionQueue.cancelAll()
@@ -276,6 +276,9 @@ extension BrowserPanel {
         onNavigationStarted: ((WKNavigation?) -> Void)?
     ) {
         shouldRenderWebView = true
+        // A load the panel starts ends the failed one's recovery view and
+        // address, also while Chromium still reports the old load.
+        noteEngineLoadStarted()
         if let url = request.url {
             if recordTypedNavigation {
                 historyStore.recordTypedNavigation(url: url)
@@ -431,6 +434,7 @@ extension BrowserPanel {
     /// Automation steps exactly one entry, as `history.back()` does, so a
     /// script's own navigations are not skipped.
     func goEngineHistory(_ page: any BrowserPage, offset: Int, dialogOwner: BrowserDialogOwner) {
+        noteEngineLoadStarted()
         guard dialogOwner == .automation else {
             offset < 0 ? page.goBack() : page.goForward()
             return
@@ -531,9 +535,10 @@ extension BrowserPanel {
     /// unavailable inherited Chromium opens WebKit with the notice.
     static func resolvedEngineChoice(
         requested: BrowserEngineKind?,
-        inherited: BrowserEngineKind?
+        inherited: BrowserEngineKind?,
+        runtime: BrowserEngineRuntime? = nil
     ) -> BrowserEngineChoice? {
-        switch BrowserEngineRuntime.shared.resolve(requested: requested, inherited: inherited) {
+        switch (runtime ?? .shared).resolve(requested: requested, inherited: inherited) {
         case .open(let choice):
             return choice
         case .refuse:
