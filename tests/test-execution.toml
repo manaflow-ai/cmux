@@ -91,6 +91,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_coderouter_setup_token_custom_claude.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_browser_profile_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
