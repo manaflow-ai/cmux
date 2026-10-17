@@ -323,7 +323,7 @@ public final class CEFBrowser {
             hostView.postGeometryChange()
             opener?.reactivate()
         } else {
-            runtime.logger.error("CEF popup \(id) could not move into its own window; closing it")
+            runtime.logger.error("CEF popup \(id) in window \(shim.tabWindowID(id)) could not move into its own window; closing it")
             close()
         }
     }

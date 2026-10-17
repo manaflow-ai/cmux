@@ -77,6 +77,10 @@ public final class CEFRuntime {
     var pendingWindows: [Int32: CEFBrowser] = [:]
     /// Tabs pages asked Chromium to open, for tabs the shim did not match.
     var popupLedger = CEFPopupLedger()
+    /// Tabs Chromium created for a page before it put them in a window
+    /// (AFTER_CREATED window 0: a sized `window.open`), by browser id. They
+    /// are handed over once inserted (`adoptPlacedPopup`).
+    var unplacedPopups: [Int32: CEFCreatedBy] = [:]
     private var nextRequest: Int32 = 1
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
     private var observers: [UUID: @MainActor (CEFShimEvent) -> Void] = [:]
@@ -352,6 +356,9 @@ public final class CEFRuntime {
         case .devToolsResult(let browser, let messageID, let success, let json):
             devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
                                   with: success ? .success(json) : .failure(CEFError.devTools(json)))
+        case .tab(.inserted, let browser, let window, _) where window != 0 && unplacedPopups[browser] != nil:
+            // Inside Chromium's tab insertion, which forbids tab strip changes.
+            Task { @MainActor [weak self] in self?.adoptPlacedPopup(browser, window: window) }
         case .tab(.windowDestroyed, _, _, let value):
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
@@ -370,6 +377,24 @@ public final class CEFRuntime {
         // went into its opener's window (the window request handler), and
         // becomes a browser of its own that the opener's owner places.
         guard browsers[id] == nil else { return }
+        // A popup Chromium has not placed yet: the popup window request
+        // (with the page's size) and the insertion come next, and moving it
+        // into a window of its own fails until then.
+        if window == 0, reported.opener != 0, browsers[reported.opener] != nil {
+            unplacedPopups[id] = reported
+            return
+        }
+        adoptPopup(id, window: window, reported: reported)
+    }
+
+    private func adoptPlacedPopup(_ id: Int32, window: Int32) {
+        guard let reported = unplacedPopups.removeValue(forKey: id), browsers[id] == nil else { return }
+        adoptPopup(id, window: window, reported: reported)
+    }
+
+    /// A tab Chromium created for a page becomes a browser of its own that
+    /// the opener's owner places (`.newBrowser`).
+    private func adoptPopup(_ id: Int32, window: Int32, reported: CEFCreatedBy) {
         // Chromium reports no opener for a modified click's tab: it belongs
         // to the page whose window holds it. The shim's match may also miss
         // the request (CEFPopupLedger).
@@ -411,6 +436,7 @@ public final class CEFRuntime {
 
     private func browserClosed(_ id: Int32) {
         popupLedger.forget(opener: id)
+        unplacedPopups[id] = nil
         let browser = browsers.removeValue(forKey: id)
         browser?.browserDidClose()
         devToolsCalls.failAll(where: { $0.browser == id }, with: CEFError.browserClosed)
