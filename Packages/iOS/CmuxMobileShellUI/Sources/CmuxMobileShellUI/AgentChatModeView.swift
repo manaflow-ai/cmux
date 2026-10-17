@@ -11,9 +11,9 @@ import UniformTypeIdentifiers
 /// A dedicated ChatGPT/Codex-style mode for coding-agent sessions.
 ///
 /// The mode owns its own navigation shell so the agent history stays visible
-/// while a user moves between sessions. ``NavigationSplitView`` gives iPad a
-/// persistent history column and turns that column into a native push stack
-/// on iPhone.
+/// while a user moves between sessions. iPad keeps a persistent history column;
+/// compact iPhone uses an explicit push stack so a session selection remains
+/// deterministic across SwiftUI layout changes.
 struct AgentChatModeView: View {
     @Bindable var store: CMUXMobileShellStore
     private let injectedSource: (any AgentChatSessionSource)?
@@ -93,6 +93,21 @@ struct AgentChatModeView: View {
             // local avoids making the model expose transport bookkeeping just
             // for a progress indicator.
             isLoading = false
+        }
+        .onChange(of: model.selectedSessionID) { _, sessionID in
+            guard horizontalSizeClass == .compact else { return }
+            if let sessionID {
+                // Host reconciliation can replace or remove the selected
+                // session while a detail route is visible. Keep the route
+                // bound to the authoritative selection instead of showing a
+                // stale transcript under a different session title.
+                guard !compactNavigationPath.isEmpty else { return }
+                if compactNavigationPath.last != sessionID {
+                    compactNavigationPath = [sessionID]
+                }
+            } else if !compactNavigationPath.isEmpty {
+                compactNavigationPath.removeAll()
+            }
         }
         .alert("Agent mode error", isPresented: Binding(
             get: { model.errorMessage != nil },
