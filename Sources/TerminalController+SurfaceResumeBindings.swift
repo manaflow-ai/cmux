@@ -4,6 +4,21 @@ import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
+    /// Whether the terminal menu should offer Review Approval for the stored binding.
+    func surfaceResumeBindingAllowsUserReview(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID
+    ) -> Bool {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let binding = resolveSurfaceResumeTarget(
+                  routing: routing, explicitTargetID: explicitTargetID,
+                  hasResolvedWindowID: false, fallbackTabManager: tabManager
+              )?.binding else {
+            return false
+        }
+        return SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: binding)
+    }
+
     /// User-interface-only entry point. Re-resolve the target after modal event
     /// processing so an approval cannot overwrite a replacement owner/binding.
     func reviewSurfaceResumeBindingFromUserInterface(

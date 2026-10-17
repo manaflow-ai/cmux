@@ -73,15 +73,21 @@ extension GhosttyNSView {
             submenu.addItem(statusItem)
             submenu.addItem(.separator())
 
-            let reviewItem = submenu.addItem(
-                withTitle: String(
-                    localized: "surfaceResumeApproval.review",
-                    defaultValue: "Review Approval…"
-                ),
-                action: #selector(reviewCurrentSurfaceResumeApproval(_:)),
-                keyEquivalent: ""
-            )
-            reviewItem.target = self
+            if let surfaceID = terminalSurface?.id,
+               TerminalController.shared.surfaceResumeBindingAllowsUserReview(
+                   routing: currentSurfaceResumeRouting(surfaceID: surfaceID),
+                   explicitTargetID: surfaceID
+               ) {
+                let reviewItem = submenu.addItem(
+                    withTitle: String(
+                        localized: "surfaceResumeApproval.review",
+                        defaultValue: "Review Approval…"
+                    ),
+                    action: #selector(reviewCurrentSurfaceResumeApproval(_:)),
+                    keyEquivalent: ""
+                )
+                reviewItem.target = self
+            }
 
             let editItem = submenu.addItem(
                 withTitle: String(
