@@ -25,6 +25,7 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
+      - .github/workflows/cmux-next.yml
       - App/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
