@@ -14761,11 +14761,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               NSApp.modalWindow == nil,
               !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
-              !RecorderHostButton.isActivelyRecording,
-              let window = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow,
-              window.attachedSheet == nil,
-              !isCommandPaletteEffectivelyVisible(for: window),
-              !shortcutResponderHasMarkedText(window.firstResponder),
+              !RecorderHostButton.isActivelyRecording else { return false }
+        let window = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
+        guard window?.attachedSheet == nil,
+              !(window.map { isCommandPaletteEffectivelyVisible(for: $0) } ?? false),
+              !shortcutResponderHasMarkedText(window?.firstResponder),
               let panel = shortcutEventBrowserPanel(event) else { return false }
         return panel.runExtensionShortcut(for: event)
     }
@@ -17871,7 +17871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // logic as the local NSEvent monitor, without relying on AppKit event monitor behavior for
     // synthetic NSEvents.
     func debugHandleCustomShortcut(event: NSEvent) -> Bool {
-        handleCustomShortcut(event: event)
+        handleCustomShortcut(event: event) || runBrowserExtensionShortcut(event: event)
     }
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
