@@ -5,7 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
 type Places = Map<string, { x: number; y: number }>;
@@ -50,6 +50,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const keysRef = useRef(keys);
   keysRef.current = keys;
   const signature = JSON.stringify(keys);
+  const keyList = useMemo(() => keysRef.current, [signature]);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
   useLayoutEffect(
     () => () => {
@@ -98,13 +99,13 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [keyList[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const after = measure(root, elements, currentKeys);
+    const after = measure(root, elements, keyList);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = currentKeys;
+    shownKeys.current = keyList;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -117,7 +118,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = currentKeys[index];
+      const key = keyList[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
