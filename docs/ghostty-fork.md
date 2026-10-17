@@ -12,6 +12,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Manual-IO terminals keep their prompt across a resize
+
+- Branch: `cmux-keep-prompt-on-resize-21301`, based on the cmux pin
+  `cb1ef7091`. It carries the two Ghostty commits of
+  [manaflow-ai/cmux#16214](https://github.com/manaflow-ai/cmux/pull/16214)
+  (`89c6470cf`, `7404fd9dc`), cherry-picked as `6a1d34c95` (test) and
+  `c5eb7e386` (fix).
+- Summary: on resize Ghostty clears OSC 133 prompt rows so the shell can
+  repaint them. A manual-IO surface mirrors a remote terminal whose shell
+  never receives this resize, so the cleared prompt stayed blank until the
+  daemon's replay or the remote redraw arrived a round trip later: Cloud
+  terminals blinked while resizing
+  ([manaflow-ai/cmux#21301](https://github.com/manaflow-ai/cmux/issues/21301)).
+  zsh's integration sends `133;A` without `redraw=`, so the default `.true`
+  applied. `Terminal.resize_clears_prompt` gates the clear and the Manual
+  backend turns it off. It lives outside `flags`, so neither RIS (every
+  Cloud replay starts with one) nor an OSC 133 `redraw=` re-enables it.
+- Coverage: Ghostty's `Terminal: resize keeps a redrawable prompt when no
+  shell can redraw it` (run by `build-ghosttykit.yml`) and
+  `cmuxTests/GhosttyMirrorPromptResizeTests`.
+- Conflict note: keep the field outside the packed `flags`; `fullReset`
+  replaces `flags` wholesale.
+
 ### Minimum contrast uses the host-painted background
 
 - Branch: `cmux-min-contrast-host-bg`

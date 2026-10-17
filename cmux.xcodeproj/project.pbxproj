@@ -2266,6 +2266,7 @@
 		048A66B6400AB53182FA4304 /* GhosttyKeyModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */; };
 		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		2B5C4963D39B053DAD57D82E /* GhosttyMinimumContrastLayerBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826C6265890DC3A126404525 /* GhosttyMinimumContrastLayerBackgroundTests.swift */; };
+		5E1BD95A3E1DB8034F09785D /* GhosttyMirrorPromptResizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E77BD6FBB8E4D22B7DCA19 /* GhosttyMirrorPromptResizeTests.swift */; };
 		F0A110010000000000000001 /* GhosttyMouseSessionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */; };
 		F0A110050000000000000001 /* GhosttyMouseSessionLedgerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */; };
 		F0A110090000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */; };
@@ -6846,6 +6847,7 @@
 		77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyKeyModifiers.swift; sourceTree = "<group>"; };
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		826C6265890DC3A126404525 /* GhosttyMinimumContrastLayerBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyMinimumContrastLayerBackgroundTests.swift"; sourceTree = "<group>"; };
+		60E77BD6FBB8E4D22B7DCA19 /* GhosttyMirrorPromptResizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyMirrorPromptResizeTests.swift"; sourceTree = "<group>"; };
 		F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedger.swift; sourceTree = "<group>"; };
 		F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerButton.swift; sourceTree = "<group>"; };
 		F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerPointerState.swift; sourceTree = "<group>"; };
@@ -13937,6 +13939,7 @@
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				60E77BD6FBB8E4D22B7DCA19 /* GhosttyMirrorPromptResizeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18535,6 +18538,7 @@
 				2E49C97B8B82C61CDB89E238 /* GhosttyExternalDisplayScalingTests.swift in Sources */,
 				002B272099440F41EC5623C4 /* GhosttyHostKeybindDefaultsTests.swift in Sources */,
 				2B5C4963D39B053DAD57D82E /* GhosttyMinimumContrastLayerBackgroundTests.swift in Sources */,
+				5E1BD95A3E1DB8034F09785D /* GhosttyMirrorPromptResizeTests.swift in Sources */,
 				F0A110030000000000000001 /* GhosttyMouseSessionLedgerTests.swift in Sources */,
 				2070CCCF882C91E496C1FBC6 /* GhosttyNamedCtrlLetterTests.swift in Sources */,
 				A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */,
