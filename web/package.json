@@ -19,6 +19,7 @@
     "hexclave:backfill-mirror": "bun scripts/hexclave/backfill-mirror.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-planetscale.mjs",
+    "cloud-vm:ledger": "bun scripts/cloud-vm/check-migration-ledger.mjs",
     "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
     "cloud-vm:dogfood": "bun scripts/cloud-vm/dogfood-journey.mjs",

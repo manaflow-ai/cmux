@@ -38,7 +38,7 @@ local diagnostic.
 
 ## Database provider
 
-cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
+cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Merging `main` deploys production without migrating, so apply a pull request's migration to staging and then production before merge (`cloud-vm-migrate.yml` with `source_ref=<PR head SHA>`); the required `Migration ledger` check enforces it. See [the migration order](../skills/cmux-backend/references/cloud-vm-control-plane.md#migrations). Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
 
 ## Running Cloud machines
 
