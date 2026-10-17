@@ -3,6 +3,7 @@ import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.t
 import type { Env } from "./env.ts"
 import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
+import { warmBrain } from "./mux-wake-delivery.ts"
 import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
@@ -83,7 +84,9 @@ export const drainOutboxChannels = async <S>(
           const ns = targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
           const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
-          const res = await stub.systemDeliver(batch.name, engine.stream, batch.items)
+          // The commit-time wake path also starts each woken Chief's brain beside MuxDO's commit (mux-wake-delivery.ts).
+          const warms = only && isWakeChannel(channel) ? batch.items.map((i) => warmBrain(env, batch.name, (i.params as { conversation?: unknown } | null)?.conversation)) : []
+          const [res] = await Promise.all([stub.systemDeliver(batch.name, engine.stream, batch.items), ...warms])
           outbox.markSent(res.done, Date.now())
           if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
         }

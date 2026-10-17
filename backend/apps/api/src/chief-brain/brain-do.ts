@@ -196,8 +196,20 @@ export class ChiefBrainDO extends DurableObject<Env> {
     })
   }
   leasing: Promise<number> | undefined
-  /** A no-op: the caller warms this object (a new Chief's first turn then meets a running object). */
+  /**
+   * The caller warms this object: a new Chief's first turn then meets a running object. A conversation brain
+   * that knows its Chief also starts its wake's reads (the settings object and chief record, the team's meter,
+   * the route's auth, pi) while MuxDO commits the wake (mux-wake-delivery.ts warmBrain).
+   */
   async warm(): Promise<true> {
+    const cfg = this.config()
+    if (!cfg.agent || !cfg.owner || this.childOf()) return true
+    await this.lifecycle.start()
+    const [agent, owner] = [cfg.agent, cfg.owner]
+    this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
+    this.ctx.waitUntil(creditsCanStart(this.env, cfg).catch(() => undefined))
+    if (isClaude(cfg.model)) this.ctx.waitUntil(claudeAuthFor(this.env, this.holder).catch(() => undefined))
+    this.ctx.waitUntil(this.harness.pi().catch(() => undefined))
     return true
   }
   /** Holder only: a lease of today's deployment-wide bound (CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL) for an owner's turns object. */
