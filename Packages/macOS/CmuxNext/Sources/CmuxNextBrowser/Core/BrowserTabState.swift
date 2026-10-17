@@ -103,6 +103,11 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
         }
     }
 
+    /// Whether the toolbar shows this load (Stop, the progress line): a load of
+    /// the New Tab page is quiet, like Chromium's, so a new tab's chrome is
+    /// settled on its first frame.
+    public var showsLoad: Bool { isLoading && !BrowserNewTabPage.isNewTabPage(url) }
+
     /// The request is out and no response committed yet: Chromium's waiting throbber
     /// (counter-clockwise), before the loading one (clockwise) once the page commits.
     public var isWaiting: Bool {

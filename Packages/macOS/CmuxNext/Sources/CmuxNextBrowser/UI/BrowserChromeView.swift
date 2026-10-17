@@ -332,7 +332,7 @@ public final class BrowserChromeView: NSView {
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
 
-        let loading = state.isLoading
+        let loading = state.showsLoad
         if loading != showsStop {
             showsStop = loading
             reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
