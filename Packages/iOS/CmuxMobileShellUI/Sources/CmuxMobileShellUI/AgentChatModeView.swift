@@ -864,6 +864,11 @@ private struct AgentQuestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(question.prompt).font(.headline)
+            if let selected = question.selectedOptionLabel {
+                Label("Answered: \(selected)", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+            }
             ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
                 Button {
                     answer?(index)
@@ -875,6 +880,7 @@ private struct AgentQuestionCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
+                .disabled(question.selectedOptionLabel != nil)
             }
         }
         .padding(14)
