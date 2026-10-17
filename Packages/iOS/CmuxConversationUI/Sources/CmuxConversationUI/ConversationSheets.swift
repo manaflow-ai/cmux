@@ -125,36 +125,60 @@ struct ConversationModelSettingsSheet: View {
 struct ConversationFilesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let items: [ConversationItem]
-    @State private var selection: String?
-    @State private var filter = ConversationL10n.value("conversation.unstaged", "Unstaged")
+    let capabilities: ConversationCapabilities?
+    @State private var selection: ConversationItemID?
+    @State private var filter = DiffFilter.all
 
-    private var diffs: [ConversationDiff] {
-        items.compactMap(\.diff).filter { filter == ConversationL10n.value("conversation.all", "All") || $0.comparison.localizedCaseInsensitiveContains(filter.lowercased()) }
+    private enum DiffFilter: String, CaseIterable, Identifiable {
+        case all
+        case unstaged
+        case staged
+        case lastTurn = "last-turn"
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: ConversationL10n.value("conversation.all", "All")
+            case .unstaged: ConversationL10n.value("conversation.unstaged", "Unstaged")
+            case .staged: ConversationL10n.value("conversation.staged", "Staged")
+            case .lastTurn: ConversationL10n.value("conversation.last_turn", "Last turn")
+            }
+        }
+    }
+
+    private var diffs: [(id: ConversationItemID, diff: ConversationDiff)] {
+        items.compactMap { item in
+            guard let diff = item.diff else { return nil }
+            guard filter == .all || diff.comparison.lowercased() == filter.rawValue else { return nil }
+            return (item.id, diff)
+        }
+    }
+
+    private var visibleFilters: [DiffFilter] {
+        var values: [DiffFilter] = [.all, .unstaged, .lastTurn]
+        if capabilities?.features.contains("git_staged") == true { values.insert(.staged, at: 2) }
+        return values
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Picker(ConversationL10n.value("conversation.comparison", "Comparison"), selection: $filter) {
-                    Text(ConversationL10n.value("conversation.unstaged", "Unstaged")).tag(ConversationL10n.value("conversation.unstaged", "Unstaged"))
-                    Text(ConversationL10n.value("conversation.staged", "Staged")).tag(ConversationL10n.value("conversation.staged", "Staged"))
-                    Text(ConversationL10n.value("conversation.last_turn", "Last turn")).tag(ConversationL10n.value("conversation.last_turn", "Last turn"))
-                    Text(ConversationL10n.value("conversation.all", "All")).tag(ConversationL10n.value("conversation.all", "All"))
+                    ForEach(visibleFilters) { value in Text(value.title).tag(value) }
                 }
                 .pickerStyle(.segmented)
                 if diffs.isEmpty {
                     ContentUnavailableView(ConversationL10n.value("conversation.no_changes", "No changes"), systemImage: "doc.text", description: Text(ConversationL10n.value("conversation.no_changes.description", "There are no changes for this comparison.")))
                         .listRowBackground(Color.clear)
                 } else {
-                    ForEach(diffs, id: \.path) { diff in
+                    ForEach(diffs, id: \.id) { entry in
                         Button {
-                            selection = diff.path
+                            selection = entry.id
                         } label: {
                             HStack {
                                 Image(systemName: "doc.text")
-                                Text(diff.path)
+                                Text(entry.diff.path)
                                 Spacer()
-                                Text(diff.comparison).font(.caption).foregroundStyle(.secondary)
+                                Text(entry.diff.comparison).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .buttonStyle(.plain)
@@ -166,8 +190,8 @@ struct ConversationFilesSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
             }
             .sheet(item: Binding(get: {
-                selection.flatMap { path in diffs.first(where: { $0.path == path }).map { ConversationDiffItem(diff: $0) } }
-            }, set: { value in selection = value?.diff.path })) { item in
+                selection.flatMap { id in diffs.first(where: { $0.id == id }).map { ConversationDiffItem(id: id, diff: $0.diff) } }
+            }, set: { value in selection = value?.id })) { item in
                 NavigationStack {
                     ConversationDiffView(diff: item.diff)
                         .navigationTitle(item.diff.path)
@@ -182,8 +206,8 @@ struct ConversationFilesSheet: View {
 }
 
 private struct ConversationDiffItem: Identifiable {
+    let id: ConversationItemID
     let diff: ConversationDiff
-    var id: String { diff.path }
 }
 
 /// A small native diff viewer with line numbers and colored additions/removals.

@@ -85,7 +85,7 @@ private struct ConversationDetailView: View {
         .background(Color(uiColor: .systemBackground))
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showsFiles) {
-            ConversationFilesSheet(items: model.items)
+            ConversationFilesSheet(items: model.items, capabilities: model.capabilities)
         }
         .sheet(isPresented: $showsModelSettings) {
             ConversationModelSettingsSheet(model: model)

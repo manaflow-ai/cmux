@@ -16,7 +16,14 @@ public actor ConversationFixtureClient: ConversationClient {
         case disconnected
 
         public init(rawValue: String) {
-            self = Scenario(rawValue: rawValue.lowercased()) ?? .all
+            switch rawValue.lowercased() {
+            case "approval": self = .approval
+            case "question": self = .question
+            case "files": self = .files
+            case "running": self = .running
+            case "disconnected": self = .disconnected
+            default: self = .all
+            }
         }
     }
 

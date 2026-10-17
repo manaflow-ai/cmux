@@ -143,13 +143,13 @@ private struct ConversationItemRow: View {
         if let tool = item.tool {
             switch tool.status {
             case .queued: ConversationL10n.value("conversation.queued", "Queued")
-            case .running: "Running"
-            case .success: "Success"
-            case .failed: "Failed"
-            case .cancelled: "Cancelled"
+            case .running: ConversationL10n.value("conversation.running", "Running")
+            case .success: ConversationL10n.value("conversation.success", "Success")
+            case .failed: ConversationL10n.value("conversation.failed", "Failed")
+            case .cancelled: ConversationL10n.value("conversation.cancelled", "Cancelled")
             case .unknown: ""
             }
-        } else if item.kind == .reasoning { "Worked" } else { "" }
+        } else if item.kind == .reasoning { ConversationL10n.value("conversation.worked", "Worked") } else { "" }
     }
 
     private var statusColor: Color {
@@ -167,8 +167,8 @@ private struct ConversationItemRow: View {
             ConversationArtifactPreview(artifact: artifact, model: model)
         } else if let tool = item.tool {
             VStack(alignment: .leading, spacing: 8) {
-                if let input = tool.input { ConversationCodeBlock(text: input.prettyDescription, label: "Input") }
-                if let output = tool.output { ConversationCodeBlock(text: output.prettyDescription, label: "Output") }
+                if let input = tool.input { ConversationCodeBlock(text: input.prettyDescription, label: ConversationL10n.value("conversation.input", "Input")) }
+                if let output = tool.output { ConversationCodeBlock(text: output.prettyDescription, label: ConversationL10n.value("conversation.output", "Output")) }
             }
         } else {
             Text(item.displayText)

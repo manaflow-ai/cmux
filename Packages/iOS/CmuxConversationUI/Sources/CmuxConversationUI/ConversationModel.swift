@@ -60,6 +60,7 @@ public final class ConversationModel {
     private var draftBySession: [ConversationID: String] = [:]
     private var cursorBySession: [ConversationID: ConversationCursor] = [:]
     private var pendingCreateRequestID: ConversationCommandID?
+    private var snapshotBufferLimit = 2_000
 
     /// Creates state for a host scope. A nil client starts in a disconnected,
     /// read-only state and can be replaced when pairing becomes available.
@@ -300,6 +301,7 @@ public final class ConversationModel {
         let maximumChunk = 64 * 1024
         var offset: UInt64 = 0
         var totalBytes: UInt64?
+        var pinnedSHA256: String?
         var bytes = Data()
         while totalBytes == nil || offset < (totalBytes ?? 0) {
             let chunk = try await client.artifactChunk(
@@ -307,7 +309,7 @@ public final class ConversationModel {
                     sessionID: selectedSessionID,
                     artifactID: artifact.artifactID,
                     offset: offset,
-                    expectedSHA256: artifact.sha256
+                    expectedSHA256: pinnedSHA256 ?? artifact.sha256
                 )
             )
             guard chunk.artifactID == artifact.artifactID,
@@ -315,22 +317,30 @@ public final class ConversationModel {
                   chunk.data.count <= maximumChunk,
                   chunk.totalBytes <= maximumBytes else { throw ConversationArtifactError.invalidChunk }
             if totalBytes == nil { totalBytes = chunk.totalBytes }
-            guard chunk.totalBytes == totalBytes, !chunk.data.isEmpty || offset == chunk.totalBytes else {
+            if pinnedSHA256 == nil { pinnedSHA256 = chunk.sha256 }
+            guard chunk.totalBytes == totalBytes,
+                  chunk.sha256.caseInsensitiveCompare(pinnedSHA256 ?? "") == .orderedSame,
+                  !chunk.data.isEmpty || offset == chunk.totalBytes else {
                 throw ConversationArtifactError.invalidChunk
             }
             bytes.append(chunk.data)
             offset += UInt64(chunk.data.count)
             guard offset <= maximumBytes else { throw ConversationArtifactError.tooLarge }
-            if chunk.data.isEmpty { break }
+            if chunk.data.isEmpty { throw ConversationArtifactError.invalidChunk }
         }
-        let expectedHash = artifact.sha256 ?? ""
+        guard offset == totalBytes else { throw ConversationArtifactError.invalidChunk }
+        let expectedHash = pinnedSHA256 ?? artifact.sha256 ?? ""
         let actualHash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-        guard expectedHash.isEmpty || expectedHash.caseInsensitiveCompare(actualHash) == .orderedSame else {
+        guard !expectedHash.isEmpty, expectedHash.caseInsensitiveCompare(actualHash) == .orderedSame else {
             throw ConversationArtifactError.hashMismatch
         }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-conversation-artifacts", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-conversation-artifacts", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(artifact.fileName)
+        let fileName = URL(fileURLWithPath: artifact.fileName).lastPathComponent
+        let safeFileName = fileName.isEmpty || fileName == "." ? "artifact" : fileName
+        let url = directory.appendingPathComponent(safeFileName)
         try bytes.write(to: url, options: .atomic)
         return url
     }
@@ -447,6 +457,13 @@ public final class ConversationModel {
     private func receive(_ event: ConversationEvent) {
         guard event.sessionID == selectedSessionID else { return }
         if snapshotLoading {
+            guard bufferedEvents.count < snapshotBufferLimit else {
+                snapshotLoading = false
+                bufferedEvents.removeAll()
+                connectionState = .failed(message: ConversationL10n.value("conversation.error.event_overflow", "The event stream changed too quickly. Reopen the task to continue."))
+                errorMessage = connectionStateMessage
+                return
+            }
             bufferedEvents.append(event)
             return
         }
@@ -476,12 +493,12 @@ public final class ConversationModel {
 
     private func apply(event: ConversationEvent) {
         guard event.sessionID == selectedSessionID else { return }
+        guard event.sequence > currentCursor else { return }
         if event.generation != currentProviderGeneration {
             // A restarted provider invalidates old requests and cursors.
             if currentProviderGeneration != nil { requests.removeAll() }
             currentProviderGeneration = event.generation
         }
-        guard event.sequence > currentCursor else { return }
         currentCursor = event.sequence
         if let selectedSessionID { cursorBySession[selectedSessionID] = event.sequence }
         switch event.kind {
@@ -545,6 +562,7 @@ public final class ConversationModel {
             if let self, self.generation == expectedGeneration {
                 if let restoreDraft, self.draft.isEmpty { self.updateDraft(restoreDraft) }
                 self.isSubmitting = false
+                self.commandTasks.removeValue(forKey: commandID.rawValue)
             }
         }
         commandTasks[commandID.rawValue] = task
@@ -555,20 +573,25 @@ public final class ConversationModel {
         isSubmitting = true
         let commandID = ConversationCommandID(rawValue: UUID().uuidString)
         let expectedGeneration = generation
-        let envelope = ConversationCommandEnvelope(commandID: commandID, sessionID: sessionID, expectedGeneration: nil, command: command)
+        let expectedProviderGeneration = sessions.first(where: { $0.id == sessionID })?.generation ?? currentProviderGeneration
+        let envelope = ConversationCommandEnvelope(commandID: commandID, sessionID: sessionID, expectedGeneration: expectedProviderGeneration, command: command)
         let task = Task { [weak self] in
             do {
                 let receipt = try await client.execute(envelope)
                 guard let self, self.generation == expectedGeneration else { return }
                 self.apply(receipt: receipt)
-                if case .setArchived(true) = command {
+                if receipt.state == .applied, case .setArchived(true) = command {
                     self.sessions.removeAll { $0.id == sessionID }
                     if self.selectedSessionID == sessionID { self.selectSession(id: nil) }
                 }
+                if receipt.state == .applied { self.refreshSessions() }
             } catch {
                 self?.errorMessage = Self.userMessage(for: error)
             }
-            if let self, self.generation == expectedGeneration { self.isSubmitting = false }
+            if let self, self.generation == expectedGeneration {
+                self.isSubmitting = false
+                self.commandTasks.removeValue(forKey: commandID.rawValue)
+            }
         }
         commandTasks[commandID.rawValue] = task
     }
@@ -581,7 +604,12 @@ public final class ConversationModel {
 
     private static func userMessage(for error: any Error) -> String {
         if let error = error as? any LocalizedError, let message = error.errorDescription { return message }
-        return ConversationL10n.value("conversation.error.unavailable", "The Cloud service is unavailable.")
+        return ConversationL10n.value("conversation.error.unavailable", "The task connection is unavailable.")
+    }
+
+    private var connectionStateMessage: String {
+        if case .failed(let message) = connectionState { return message }
+        return ConversationL10n.value("conversation.error.event_overflow", "The event stream changed too quickly. Reopen the task to continue.")
     }
 }
 

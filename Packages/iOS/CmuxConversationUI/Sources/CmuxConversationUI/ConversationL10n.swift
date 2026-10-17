@@ -4,6 +4,6 @@ import Foundation
 /// SwiftUI labels auditable and gives package resources one source of truth.
 enum ConversationL10n {
     static func value(_ key: String, _ fallback: String) -> String {
-        String(localized: String.LocalizationValue(key), defaultValue: fallback, bundle: .module)
+        Bundle.module.localizedString(forKey: key, value: fallback, table: nil)
     }
 }
