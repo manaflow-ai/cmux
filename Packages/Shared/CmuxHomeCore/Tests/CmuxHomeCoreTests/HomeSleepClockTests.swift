@@ -20,8 +20,13 @@ import Testing
     /// The pruning and backoff loops are cancelled mid-sleep: the sleep ends with
     /// `CancellationError` instead of running to its deadline.
     @Test(.timeLimit(.minutes(1))) func cancellingTheSleepEndsIt() async {
-        let sleeper = Task { try await HomeSleepClock().sleep(for: .seconds(3_600)) }
+        let sleeper = Task { try await Self.sleepAnHour() }
         sleeper.cancel()
         await #expect(throws: CancellationError.self) { try await sleeper.value }
+    }
+
+    /// A sleep the test cancels, never one it waits out.
+    static func sleepAnHour() async throws {
+        try await HomeSleepClock().sleep(for: .seconds(3_600))
     }
 }
