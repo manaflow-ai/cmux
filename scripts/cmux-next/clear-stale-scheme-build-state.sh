@@ -14,6 +14,8 @@ esac
 # holds downloaded sources, which name no build output.
 shopt -s dotglob nullglob
 for entry in "$derived_data"/*; do
-  [[ "$(basename "$entry")" == SourcePackages ]] && continue
+  # The binary-module guard's header digest (scripts/ci/swiftpm-binary-module-guard.sh)
+  # stays valid: this removes stale modules, not a change of headers.
+  case "$(basename "$entry")" in SourcePackages|.cmux-binary-module-inputs) continue ;; esac
   rm -rf -- "$entry"
 done

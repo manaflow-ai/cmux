@@ -13,6 +13,8 @@ mkdir -p "$TMP/bin" "$TMP/steptmp" "$TMP/dev"
 cat > "$TMP/bin/xcodebuild" <<EOF
 #!/bin/bash
 if [[ "\$1" == "-version" ]]; then echo "Xcode 26.6"; exit 0; fi
+# The kept path's binary-module guard resolves packages first; not a build.
+for arg in "\$@"; do [[ "\$arg" == -resolvePackageDependencies ]] && exit 0; done
 while [[ \$# -gt 0 ]]; do
   if [[ "\$1" == "-derivedDataPath" ]]; then
     printf '%s\n' "\$2" >> "$TMP/paths"

@@ -66,8 +66,14 @@ def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     return pool.pool_label(label)
 
 
-def gui_route_label(label: str) -> str:
-    """Return the GUI-token label paired with a side or pool label."""
+def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Return a live GUI-token label paired with a side or pool label.
+
+    An empty live runner list is meaningful: the picker must not synthesize a
+    label that no online runner carries, or GUI jobs wait forever on a dead
+    queue. An unreadable runner listing also keeps the output empty so the
+    workflow's known fallback can choose the generic route.
+    """
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
     owned = pool.pool_label(label)
@@ -75,7 +81,13 @@ def gui_route_label(label: str) -> str:
     # logged-in owned mini rather than silently landing on a headless host.
     if owned.startswith("glaeda-aws-"):
         return ""
-    return pool.gui_label(owned)
+    gui = pool.gui_label(owned)
+    if runners is None:
+        return ""
+    if any(runner.get("status") == "online" and gui in pool.runner_labels(runner)
+           for runner in runners):
+        return gui
+    return ""
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
@@ -115,7 +127,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners)
-    gui_route = gui_route_label(label)
+    gui_route = gui_route_label(label, runners)
     if route and route != label:
         why += f"; no online side runner, routing jobs on `{route}`"
     print(f"side-lane placement: {why}")
