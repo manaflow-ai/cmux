@@ -157,7 +157,7 @@
   position: absolute;
   inset-inline-end: 8px;
   color: var(--agent-muted, currentColor);
-  font-size: 18px;
+  font-size: var(--text-title);
   line-height: 1;
 }
 .ui-context-menu-submenu {
