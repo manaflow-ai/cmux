@@ -88,8 +88,16 @@ extension TabContentCache {
 
     /// A hidden terminal leaves the warm set: its last frame stays (volatile, no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
+        // The frame is read while the surface is still in its window, before it closes.
+        let frame: TerminalLastFrame?
+        if evictsAtOnce { frame = nil; lastFrameOutcomes["evicted_at_once", default: 0] += 1 }
+        else if !entry.session.showsOutput { frame = nil; lastFrameOutcomes["evicted_no_output", default: 0] += 1 }
+        else {
+            frame = TerminalLastFrame(of: entry.session)
+            lastFrameOutcomes[frame == nil ? "evicted_no_frame" : "kept", default: 0] += 1
+        }
+        lastFrames[key] = frame
         entry.session.view.removeFromSuperview()
-        lastFrames[key] = !evictsAtOnce && entry.session.showsOutput ? TerminalLastFrame(of: entry.session) : nil
         entry.close()
     }
 

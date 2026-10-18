@@ -110,6 +110,7 @@ try:
         wait(lambda: (focused_pane(surfaces()) or {}).get("selected_tab") not in (None, before), 30, 0.1)
         time.sleep(0.3)  # test harness: the new terminal draws before the next one hides it
     report["live_before"] = surfaces().get("live_terminals")
+    report["last_frames_before"] = surfaces().get("last_frames")
     # Go to Tab on the first tab: the evicted terminal.
     report["select"] = rpc("action.run", {"action": "tab.search", "target": f"tab:{report['first_tab']}", "focus": True})
     start = time.monotonic()
@@ -120,6 +121,7 @@ try:
                                   "phase": pane.get("phase"), "attach": pane.get("attach")})
         if pane.get("selected_tab") == report["first_tab"] and pane.get("frame_held") is False and pane.get("last_frame_holds"):
             break
+    report["last_frames_after"] = surfaces().get("last_frames")
     shown = focused_pane(surfaces(text=True)) or {}
     report["text_back"] = MARK in str(shown.get("text") or "")
     # The pane's fields follow the content it presents: the first sample of the new session
@@ -139,8 +141,8 @@ finally:
     teardown.end()
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
-print(json.dumps({k: report.get(k) for k in ("write", "capacity", "first_tab", "live_before", "select", "first_sample",
-                                              "text_back")}))
+print(json.dumps({k: report.get(k) for k in ("write", "capacity", "first_tab", "live_before", "last_frames_before",
+                                              "select", "last_frames_after", "first_sample", "text_back")}))
 print("samples:", json.dumps(report["samples"][:12]), "...", json.dumps(report["samples"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)

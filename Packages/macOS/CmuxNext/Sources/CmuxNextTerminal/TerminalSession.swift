@@ -228,15 +228,19 @@ public final class TerminalSession {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
     }
 
-    /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     /// A new session for an evicted terminal: its last frame shows at once, until the first
-    /// content the owner sends is parsed and drawn (no empty pane while it attaches).
-    public func showLastFrame(_ frame: TerminalLastFrame) {
-        guard !surfaceHasContent, let surface = frame.take() else { return }
+    /// content the owner sends is parsed and drawn (no empty pane while it attaches). Returns
+    /// why it did not (diagnostics), nil when it holds the frame.
+    @discardableResult
+    public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
+        guard !surfaceHasContent else { return "has_content" }
+        guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
         frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        return nil
     }
 
+    /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
