@@ -13,7 +13,7 @@ interface Machine {
 export const teamVmApiService = (tenant: string) => {
   const vms = new Map<string, Machine>(), intents = new Map<string, { body: string; id: string }>()
   const calls: Array<{ method: string; path: string; body: Record<string, any> | null; key: string | null }> = []
-  const control = { creationState: "missing" as "missing" | "pending" | "committed", loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
+  const control = { creationState: "missing" as "missing" | "pending" | "committed" | "cancelling" | "cancelled", loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
   const bodyOf = (m: Machine) => ({ id: m.id, displayName: m.displayName, labels: m.labels, state: m.state,
     resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: 300,
     maxRunSeconds: null, autoDeleteSeconds: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" })

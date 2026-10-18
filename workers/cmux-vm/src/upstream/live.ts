@@ -13,7 +13,7 @@ import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
 import { makeStatFile } from "./live-file-stat.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
-import { makeDurableCreate, makeRecoverCreation } from "./live-create.ts";
+import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
@@ -231,6 +231,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     recoverCreation: makeRecoverCreation(config),
+    inspectCancellingCreation: makeInspectCancellation(config),
+    deleteCancellingCreation: makeDeleteCancellation(config),
     createVm: (caller, spec, proofs) => {
       const { source, network, image } = proofs;
       if (spec.journal) return makeDurableCreate(config, baseImageFor)(caller, spec, proofs);

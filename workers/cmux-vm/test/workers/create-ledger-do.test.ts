@@ -52,3 +52,18 @@ it("decodes retained creation evidence and settles it after lease expiry across 
   expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toEqual({ phase: "done", vmId });
   expect(await stub.reserve("vm", 1, 0, now + IDEMPOTENCY_TTL_MS + 1, "free")).toMatchObject({ ok: true });
 });
+
+it("serializes dispatch and cancellation through the native RPC and retains the tombstone", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  const id = "vm_00000000000000000000000001", now = Date.now();
+  await stub.begin("cancel", "request", now);
+  await stub.reserve("vm", 1, 0, now, "held");
+  expect(await stub.advance("cancel", { phase: "creating", vmId: id, reservationId: "held", context: "digest", createdBy: "key:owner", dispatch: { state: "ready", token: "ready" } }, now + 1)).toBe(true);
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  expect(await Effect.runPromise(limits.beginCreateSend(tenant, "cancel", id, "original"))).toBe(true);
+  expect(await Effect.runPromise(limits.cancelCreation(tenant, "cancel", id))).toBe("accepted");
+  expect(await Effect.runPromise(limits.beginCreateSend(tenant, "cancel", id, "late"))).toBe(false);
+  await Effect.runPromise(limits.rejectCreateSend(tenant, "cancel", id, "original"));
+  expect((await Effect.runPromise(limits.inspect(tenant, "cancel")))?.progress).toMatchObject({ phase: "cancelled" });
+  expect(await stub.begin("cancel", "request", now + IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "resume", progress: { phase: "cancelled" } });
+});

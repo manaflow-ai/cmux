@@ -300,9 +300,29 @@ export interface paths {
         put?: never;
         /**
          * Reconcile a retained VM creation
-         * @description Reconcile a retained VM creation. Requires the vm:write scope. Records an existing allocation after verifying its original intent. Never creates, starts or grows a VM. Provider absence remains pending; it does not prove cancellation.
+         * @description Reconcile a retained VM creation. Requires the vm:write scope. Records a verified allocation or finishes a previously requested cancellation. Never creates, starts or grows a VM. Provider absence alone is not cancellation.
          */
         post: operations["vmCreations.reconcileVmCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations/by-key/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a pending VM creation
+         * @description Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Cancellation keys cannot be reused.
+         */
+        post: operations["vmCreations.cancelVmCreation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1227,8 +1247,11 @@ export interface components {
             _tag: "ForkIncomplete";
         };
         VmCreationStatus: {
-            /** @enum {string} */
-            state: "pending" | "committed" | "deleted" | "unresolved";
+            /**
+             * @description Committed means ownership recorded, not running. Cancelling retains uncertain provider work; only verified rejection/deletion reaches cancelled. Cancelled keys cannot be reused.
+             * @enum {string}
+             */
+            state: "pending" | "committed" | "deleted" | "unresolved" | "cancelling" | "cancelled";
             id: string | null;
             receipt?: components["schemas"]["VmCreationReceipt"];
         };
@@ -3077,6 +3100,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vmCreations.cancelVmCreation": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
                 };
             };
             /** @description QuotaExceeded */

@@ -24,6 +24,9 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   const limits = yield* TenantLimits;
   const scoped = yield* scopedCreationKey(principal, key);
   const claim = yield* limits.begin(principal.tenantId, scoped, yield* fingerprint(request)).pipe(Effect.mapError(() => unavailable()));
+  if (claim.state === "resume" && (claim.progress.phase === "cancelled" || (claim.progress.phase === "creating" && claim.progress.cancelRequested === true))) {
+    return yield* Effect.fail(conflict("This VM creation was cancelled; inspect its status"));
+  }
   switch (claim.state) {
     case "mismatch":
       return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));

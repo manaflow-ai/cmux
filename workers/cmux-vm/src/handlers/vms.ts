@@ -161,14 +161,26 @@ const createRecorded = <C, S>(
     const limits = yield* TenantLimits;
     const createdAt = new Date(yield* Clock.currentTimeMillis);
     let intent: RetainedVmCreation | undefined = attempt?.prior?.phase === "creating" ? attempt.prior.intent : undefined;
+    const dispatch = attempt?.prior?.phase === "creating" ? attempt.prior.dispatch : { state: "ready" as const, token: crypto.randomUUID() };
     const journal = attempt === undefined ? undefined : {
+      active: limits.creationActive(caller.value.tenantId, attempt.key, cmuxId).pipe(
+        Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })),
+        Effect.flatMap((active) => active ? Effect.void : Effect.fail(new UpstreamError({ operation: "createCancelled", status: null }))),
+      ),
+      beginSend: () => Effect.gen(function* () {
+        const token = crypto.randomUUID();
+        const allowed = yield* limits.beginCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+        if (!allowed) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));
+        return token;
+      }),
+      rejected: (token: string) => limits.rejectCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createSendReceipt", status: null }))),
       context: attempt.prior?.phase === "creating" ? attempt.prior.context : null,
       beforeSend: (context: string, probe: VmCreationProbe) => {
         intent ??= { receipt: { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(proofs.image === undefined ? {} : { bootImage: vmImageEvidenceOf(proofs.image).receipt }),
           ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
         }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
-        return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
+        return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(dispatch === undefined ? {} : { dispatch }), ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
           Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
         );
       },
@@ -200,6 +212,7 @@ const createRecorded = <C, S>(
                 : attempt === undefined ? conflict("The VM could not be grown to the requested size; nothing was kept") : unavailable(),
             ),
           );
+    if (journal !== undefined) yield* journal.active.pipe(Effect.mapError(() => unavailable()));
     yield* store
       .record({
         tenantId: caller.value.tenantId,

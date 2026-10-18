@@ -1,3 +1,4 @@
+import { cancelVmCreation, continueCancellation } from "./creation-cancellation.ts";
 import { HttpApiBuilder } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Effect } from "effect";
@@ -15,6 +16,7 @@ const inspect = (key: string) => withCaller("vm:read", "read", (caller) => readV
 
 const reconcile = (key: string) => withCaller("vm:write", "write", (caller, scope) => Effect.gen(function* () {
   const status = yield* readVmCreation(caller, key);
+  if (status.state === "cancelling" || status.state === "cancelled") return yield* continueCancellation(caller, scope, key);
   const limits = yield* TenantLimits;
   const scoped = yield* scopedCreationKey(caller.value, key);
   if (status.state !== "pending" || status.id === null) {
@@ -47,5 +49,6 @@ const reconcile = (key: string) => withCaller("vm:write", "write", (caller, scop
 })).pipe(Effect.uninterruptible);
 
 export const creationHandlers = HttpApiBuilder.group(CmuxVmApi, "vmCreations", (handlers) => handlers
+  .handle("cancelVmCreation", ({ headers }) => audited("vm.create.cancel", null, cancelVmCreation(headers["idempotency-key"]), (result) => result.id))
   .handle("getVmCreation", ({ headers }) => inspect(headers["idempotency-key"]))
   .handle("reconcileVmCreation", ({ headers }) => audited("vm.create.reconcile", null, reconcile(headers["idempotency-key"]), (result) => result.id)));

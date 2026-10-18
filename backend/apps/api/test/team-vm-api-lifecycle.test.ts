@@ -186,3 +186,18 @@ it.each(["credential", "deadline"])("recovers a retained creation after the %s c
     expect((await t.owner.ledger(t.team)).rows[0]?.state).toBe("confirmed")
   })
 })
+
+
+it.each(["cancelling", "cancelled"] as const)("does not replay a create after the API reports %s", async (state) => {
+  await withTeamVmApi(async (t) => {
+    t.service.control.loseNextCreate = true
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    t.service.control.creationState = state
+    await t.owner.fakeAlarm(5_000)
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    expect(t.service.calls.filter((c) => c.method === "POST" && c.path === "/v1/vms")).toHaveLength(1)
+    expect(t.service.control.creates).toBe(1)
+  })
+})

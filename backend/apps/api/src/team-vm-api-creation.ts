@@ -9,6 +9,8 @@ export async function recoverTeamVmCreation(api: TeamVmApiRequest, name: string,
   if (read.response.status === 404) return null
   let status = api.value(read)
   if (status.state === "pending" && reconcile) status = api.value(await api.request(() => api.client.POST("/v1/vm-creations/by-key/reconcile", { params })))
+  if (status.state === "cancelling") throw teamApiFailure("the original creation is being cancelled")
+  if (status.state === "cancelled") throw teamApiFailure("the original creation was cancelled", true)
   if (status.state === "unresolved") return null
   if (status.state === "pending") {
     if (!reconcile) return null

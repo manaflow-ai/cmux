@@ -117,3 +117,31 @@ it("deletes an unfinished allocation without growing it to the requested floors"
   expect(t.upstreamRequests.slice(before).every((r) => r.method === "GET" || r.method === "DELETE")).toBe(true);
   expect(t.upstream.vms.size).toBe(0);
 });
+
+it("keeps tenant and allowlist checks ahead of cancellation and provider calls", async () => {
+  const t = await setup(); t.recordFault.before = 1;
+  expect((await t.create()).status).toBe(503);
+  const other = await t.addKey("team_bravo", ["vm:read", "vm:write"]);
+  const limited = await t.addKey("team_alpha", ["vm:read", "vm:write"], { allowlist: [] });
+  const before = t.upstreamRequests.length;
+  for (const key of [other, limited]) expect((await t.request("/v1/vm-creations/by-key/cancel", { ...t.headers, authorization: `Bearer ${key}` }, { method: "POST" })).status).toBe(404);
+  expect(t.upstreamRequests).toHaveLength(before);
+  expect(t.upstream.vms.size).toBe(1);
+});
+it("refuses changed provider context before probing or deleting a cancelled intent", async () => {
+  const t = await setup(); t.recordFault.before = 1;
+  expect((await t.create()).status).toBe(503);
+  const before = t.upstreamRequests.length;
+  t.setProviderConfig("https://other-provider.test", "changed-test-key");
+  expect((await t.cancel()).status).toBe(503);
+  expect(t.upstreamRequests).toHaveLength(before);
+  expect(t.upstream.vms.size).toBe(1);
+  t.setProviderConfig();
+  expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelled" });
+});
+it("preserves a known rejected create's retryability before cancellation", async () => {
+  const t = await setup(); t.upstream.fail("create", 429);
+  expect((await t.create()).status).toBe(429);
+  expect((await t.create()).status).toBe(201);
+  expect(t.upstream.vms.size).toBe(1);
+});

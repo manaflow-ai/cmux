@@ -1,4 +1,4 @@
-import type { PendingVmCreation } from "../proofs/vm-creation.ts";
+import type { PendingVmCreation, CancellingVmCreation } from "../proofs/vm-creation.ts";
 import type { VmCreationProbe } from "../domain/vm-creation.ts";
 /**
  * The upstream VM provider, as handlers see it: the service tag, its
@@ -69,6 +69,9 @@ export interface CreateVmSpec {
   readonly journal?: {
     readonly context: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
+    readonly beginSend: () => Effect.Effect<string, UpstreamError>;
+    readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
+    readonly active: Effect.Effect<void, UpstreamError>;
   };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
@@ -144,6 +147,8 @@ export interface UpstreamClientService {
    * carry the tenant id and the cmux id. With `source`, it boots from that
    * snapshot of the tenant's.
    */
+  readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
+  readonly deleteCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V>; readonly owns: Owns<C, V> }) => Effect.Effect<void, UpstreamError>;
   readonly recoverCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly pending: PendingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
   readonly createVm: <C, S = never>(
     caller: Named<C, Principal>,

@@ -1724,3 +1724,63 @@ async fn creation_reconcile_retains_pending_and_reports_missing_without_retry() 
     assert_eq!(invalid.code, exit::USAGE, "{}", invalid.stderr);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn creation_cancel_requires_confirmation_and_preserves_cancelling_receipts() {
+    let server = MockServer::start().await;
+    let receipt = json!({"state":"cancelling", "id":VM_ID});
+    Mock::given(method("POST"))
+        .and(path("/v1/vm-creations/by-key/cancel"))
+        .and(header("idempotency-key", "original-create"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let refused = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "cancel",
+            "--idempotency-key",
+            "original-create",
+        ],
+    )
+    .await;
+    assert_eq!(refused.code, exit::USAGE);
+    assert!(server.received_requests().await.unwrap().is_empty());
+    let mut tty = Tty {
+        answer: "no",
+        asked: 0,
+    };
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let args = [
+        "--json",
+        "creation",
+        "cancel",
+        "--idempotency-key",
+        "original-create",
+    ];
+    let declined = cli_with_prompt(&args, &env, &mut tty).await;
+    assert_eq!(declined.code, exit::CANCELLED);
+    tty.answer = "cancel";
+    let accepted = cli_with_prompt(&args, &env, &mut tty).await;
+    assert_eq!(accepted.code, exit::OK, "{}", accepted.stderr);
+    assert_eq!(json_stdout(&accepted), receipt);
+    let scripted = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "cancel",
+            "--idempotency-key",
+            "original-create",
+            "--yes",
+        ],
+    )
+    .await;
+    assert_eq!(scripted.code, exit::OK, "{}", scripted.stderr);
+    assert_eq!(json_stdout(&scripted), receipt);
+}

@@ -1,4 +1,4 @@
-import { pendingVmCreation } from "../../src/proofs/vm-creation.ts";
+import { pendingVmCreation, cancellingVmCreation } from "../../src/proofs/vm-creation.ts";
 /**
  * Compile-time checks, enforced by `tsc` (this file is in tsconfig's include).
  * Each `@ts-expect-error` line is a call the type checker must refuse; if one
@@ -191,5 +191,23 @@ export const creationRecoveryMisuse = (principal: Principal, vmA: VmId, vmB: VmI
     yield* upstream.recoverCreation(caller, a, { pending, scope: read });
     // @ts-expect-error ordinary write permission cannot adopt a provider allocation
     yield* upstream.recoverCreation(caller, a, { scope });
+  }));
+});
+
+
+export const cancellationMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, vmA, vmB, (caller, a, b) => Effect.gen(function* () {
+    const cancelling = yield* cancellingVmCreation(caller, a, "cancel-intent");
+    const owns = yield* tenantOwnsVm(caller, a), scope = keyHasScope(caller, "vm:write"), read = keyHasScope(caller, "vm:read");
+    if (cancelling === null || owns === null || scope === null || read === null) return;
+    yield* upstream.inspectCancellingCreation(caller, a, { cancelling, scope });
+    yield* upstream.deleteCancellingCreation(caller, a, { cancelling, owns, scope });
+    // @ts-expect-error VM A's cancellation proof cannot delete VM B
+    yield* upstream.deleteCancellingCreation(caller, b, { cancelling, owns, scope });
+    // @ts-expect-error read authority does not authorize cancellation cleanup
+    yield* upstream.deleteCancellingCreation(caller, a, { cancelling, owns, scope: read });
+    // @ts-expect-error write authority and ownership alone cannot bypass the cancellation fence
+    yield* upstream.deleteCancellingCreation(caller, a, { owns, scope });
   }));
 });

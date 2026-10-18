@@ -125,6 +125,17 @@ enum CreationCommand {
     Get(CreationArgs),
     /// Recover the original allocation; never creates, starts or grows a VM
     Reconcile(CreationArgs),
+    /// Fence a pending creation and delete its verified allocation (requires confirmation)
+    Cancel(CreationCancelArgs),
+}
+
+#[derive(Args, Debug)]
+struct CreationCancelArgs {
+    #[arg(long)]
+    idempotency_key: String,
+    /// Confirm cancellation without an interactive prompt
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -528,6 +539,26 @@ async fn dispatch(
                         &args.idempotency_key,
                     )?;
                     fetch_body(client.vm_creations_get_vm_creation(&key, None)).await?
+                }
+                CreationCommand::Cancel(args) => {
+                    let key = parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    if !args.yes {
+                        if !prompt.is_interactive() {
+                            return Err(CliError::usage(
+                                "creation cancel requires --yes without a terminal",
+                            ));
+                        }
+                        let answer = prompt.ask("Cancel this pending VM creation and delete its allocation? Type cancel to confirm: ")
+                            .map_err(|e| CliError::cancelled(format!("could not read confirmation: {e}")))?;
+                        if answer.trim() != "cancel" {
+                            return Err(CliError::cancelled(
+                                "creation cancellation was not confirmed",
+                            ));
+                        }
+                    }
+                    fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?
                 }
                 CreationCommand::Reconcile(args) => {
                     let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(

@@ -7,6 +7,7 @@ import { Context, Data, Effect, Layer, Schema } from "effect";
 import type { TenantId } from "../lib/ids.ts";
 import type { TenantLimitsObject } from "./durable-object.ts";
 import {
+  CancelCreationDecision,
   IdempotencyBegin,
   IdempotencyRecord,
   memoryLedgerStorage,
@@ -22,6 +23,11 @@ import {
 export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ readonly cause: unknown }> {}
 
 export interface TenantLimitsService {
+  readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  readonly rejectCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<void, LimitsUnavailable>;
+  readonly creationActive: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  readonly cancelCreation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<CancelCreationDecision, LimitsUnavailable>;
+  readonly settleCancellation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly inspect: (tenantId: TenantId, key: string) => Effect.Effect<IdempotencyRecord | null, LimitsUnavailable>;
   readonly settleCreation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationReservation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<string | null, LimitsUnavailable>;
@@ -41,6 +47,11 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
+  beginCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
+  rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
+  creationActive(key: string, vmId: string): Promise<boolean>;
+  cancelCreation(key: string, vmId: string): Promise<CancelCreationDecision>;
+  settleCancellation(key: string, vmId: string): Promise<boolean>;
   inspect(key: string): Promise<IdempotencyRecord | null>;
   settleCreation(key: string, vmId: string, nowMs: number): Promise<void>;
   creationReservation(key: string, vmId: string): Promise<string | null>;
@@ -59,7 +70,13 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     Effect.flatMap(Effect.clockWith((clock) => clock.currentTimeMillis), (nowMs) =>
       Effect.tryPromise({ try: () => run(ledgerFor(tenantId), nowMs), catch: (cause) => new LimitsUnavailable({ cause }) }),
     );
+  const confirmed = (value: boolean) => value ? Effect.void : Effect.fail(new LimitsUnavailable({ cause: "creation write was not confirmed" }));
   return {
+    beginCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.beginCreateSend(key, vmId, token))(tenantId),
+    rejectCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.rejectCreateSend(key, vmId, token))(tenantId).pipe(Effect.flatMap(confirmed)),
+    creationActive: (tenantId, key, vmId) => call((ledger) => ledger.creationActive(key, vmId))(tenantId),
+    cancelCreation: (tenantId, key, vmId) => call((ledger) => ledger.cancelCreation(key, vmId))(tenantId),
+    settleCancellation: (tenantId, key, vmId) => call((ledger) => ledger.settleCancellation(key, vmId))(tenantId).pipe(Effect.flatMap(confirmed)),
     inspect: (tenantId, key) => call((ledger) => ledger.inspect(key))(tenantId),
     settleCreation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleCreation(key, vmId, now))(tenantId),
     creationReservation: (tenantId, key, vmId) => call((ledger) => ledger.creationReservation(key, vmId))(tenantId),
@@ -90,6 +107,11 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
     makeService((tenantId): LedgerHandle => {
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
+        beginCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token)),
+        rejectCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.rejectCreateSend(key, vmId, token)),
+        creationActive: (key, vmId) => decoded(Schema.Boolean)(stub.creationActive(key, vmId)),
+        cancelCreation: (key, vmId) => decoded(CancelCreationDecision)(stub.cancelCreation(key, vmId)),
+        settleCancellation: (key, vmId) => decoded(Schema.Boolean)(stub.settleCancellation(key, vmId)),
         inspect: (key) => decoded(Schema.NullOr(IdempotencyRecord))(stub.inspect(key)),
         settleCreation: async (key, vmId, nowMs) => {
           if (!await decoded(Schema.Boolean)(stub.settleCreation(key, vmId, nowMs))) throw new Error("allocation settlement was not confirmed");

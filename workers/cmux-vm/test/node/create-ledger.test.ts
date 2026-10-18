@@ -71,3 +71,46 @@ it("inspects without claiming or renewing and settles committed ownership after 
   expect((await ledger.inspect("key"))?.progress).toEqual({ phase: "done", vmId: "vm_00000000000000000000000001" });
   expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS + 4, "other")).toMatchObject({ ok: true });
 });
+
+const dispatchable = async () => {
+  const ledger = new TenantLedger(memoryLedgerStorage());
+  await ledger.begin("fenced", "request", 0);
+  await ledger.reserve("vm", 1, 0, 0, "slot");
+  await ledger.advance("fenced", { phase: "creating", vmId: "vm_00000000000000000000000001", reservationId: "slot", createdBy: "key:owner", context: "digest", dispatch: { state: "ready", token: "initial" } }, 1);
+  return ledger;
+};
+it("grants only one unknown provider send and fences cancellation beyond retention", async () => {
+  const ledger = await dispatchable(), id = "vm_00000000000000000000000001";
+  const grants = await Promise.all([ledger.beginCreateSend("fenced", id, "a"), ledger.beginCreateSend("fenced", id, "b")]);
+  expect(grants.filter(Boolean)).toHaveLength(1);
+  expect(await ledger.cancelCreation("fenced", id)).toBe("accepted");
+  expect(await ledger.creationActive("fenced", id)).toBe(false);
+  expect(await ledger.beginCreateSend("fenced", id, "late")).toBe(false);
+  expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS * 2, "replacement")).toEqual({ ok: false });
+  await expect(ledger.settleCreation("fenced", id, IDEMPOTENCY_TTL_MS * 2)).rejects.toThrow("intent changed");
+  expect(await ledger.begin("fenced", "request", IDEMPOTENCY_TTL_MS * 2)).toMatchObject({ state: "resume", progress: { phase: "creating", cancelRequested: true } });
+  expect(await ledger.settleCancellation("fenced", id)).toBe(true);
+  expect(await ledger.begin("fenced", "request", IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "resume", progress: { phase: "cancelled" } });
+  expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS * 3, "replacement")).toMatchObject({ ok: true });
+});
+it("cancels before dispatch immediately and never reopens the original key", async () => {
+  const ledger = await dispatchable(), id = "vm_00000000000000000000000001";
+  expect(await ledger.cancelCreation("fenced", id)).toBe("accepted");
+  expect((await ledger.inspect("fenced"))?.progress).toMatchObject({ phase: "cancelled" });
+  expect(await ledger.beginCreateSend("fenced", id, "late")).toBe(false);
+  expect(await ledger.begin("fenced", "request", IDEMPOTENCY_TTL_MS * 5)).toMatchObject({ state: "resume", progress: { phase: "cancelled" } });
+});
+it("allows a verified rejection to reopen only its own send and refuses legacy cancellation", async () => {
+  const ledger = await dispatchable(), id = "vm_00000000000000000000000001";
+  expect(await ledger.beginCreateSend("fenced", id, "first")).toBe(true);
+  expect(await ledger.rejectCreateSend("fenced", id, "not-first")).toBe(false);
+  expect(await ledger.rejectCreateSend("fenced", id, "first")).toBe(true);
+  expect(await ledger.beginCreateSend("fenced", id, "second")).toBe(true);
+  expect(await ledger.rejectCreateSend("fenced", id, "first")).toBe(false);
+  await ledger.cancelCreation("fenced", id);
+  expect(await ledger.rejectCreateSend("fenced", id, "second")).toBe(true);
+  expect((await ledger.inspect("fenced"))?.progress).toMatchObject({ phase: "cancelled" });
+  const legacy = await held();
+  expect(await legacy.ledger.cancelCreation("key", id)).toBe("legacy");
+  expect(await legacy.ledger.beginCreateSend("key", id, "unsafe")).toBe(false);
+});
