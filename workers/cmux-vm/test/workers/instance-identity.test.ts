@@ -57,3 +57,29 @@ it("does not mistake an allocation receipt for a liveness or access grant", asyn
   expect((await identity(t, key, owned.vmId)).status).toBe(200);
   expect(t.upstreamRequests).toHaveLength(0);
 });
+
+it("explicitly confirms physical absence only after proving ownership", async () => {
+  const t = await harness(), owned = t.addVm("team_alpha");
+  const key = await t.addKey("team_alpha", ["vm:read"]);
+  const path = `/v1/vms/${owned.vmId}/identity?checkPresence=true`;
+  const present = await t.request(path, bearer(key));
+  expect(present.status).toBe(200);
+  expect(await present.json()).toMatchObject({ id: owned.vmId, presence: "present" });
+  t.upstream.vms.delete(owned.upstreamId);
+  const missing = await t.request(path, bearer(key));
+  expect(missing.status).toBe(200);
+  expect(await missing.json()).toMatchObject({ id: owned.vmId, presence: "missing" });
+  const foreign = await t.addKey("team_bravo", ["vm:read"]);
+  const before = t.upstreamRequests.length;
+  expect((await t.request(path, bearer(foreign))).status).toBe(404);
+  expect(t.upstreamRequests).toHaveLength(before);
+});
+
+it("does not report a missing VM when the presence request fails", async () => {
+  const t = await harness(), owned = t.addVm("team_alpha");
+  const key = await t.addKey("team_alpha", ["vm:read"]);
+  t.upstream.fail("get", 503, 1, { message: "private provider detail" });
+  const r = await t.request(`/v1/vms/${owned.vmId}/identity?checkPresence=true`, bearer(key));
+  expect(r.status).toBe(503);
+  expect(await r.text()).not.toContain("private provider detail");
+});
