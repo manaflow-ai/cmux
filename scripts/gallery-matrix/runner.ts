@@ -179,7 +179,7 @@ function queryUrl(pathOrUrl: string, params: Record<string, Scalar> | undefined)
 function safeFilePart(value: string): string { return value.replace(/[^A-Za-z0-9._-]+/g, "_"); }
 
 async function serveDirectory(root: string): Promise<{ baseUrl: string; close: () => void }> {
-  const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".woff": "font/woff", ".ttf": "font/ttf", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".webm": "video/webm", ".woff2": "font/woff2" };
+  const contentTypes: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".woff": "font/woff", ".ttf": "font/ttf", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2" };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -193,16 +193,15 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
-async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser, recordVideo = false): Promise<Record<string, unknown>> {
+async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
   const height = Number(params.height ?? DEFAULT_HEIGHT);
   const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
   // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference", ...(recordVideo ? { recordVideo: { dir: outputDir, size: { width: width * DEFAULT_DEVICE_SCALE, height: height * DEFAULT_DEVICE_SCALE } } } : {}) });
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
   try {
     const page = await context.newPage();
-    const recordedVideo = recordVideo ? page.video() : undefined;
     // Play steps (webviews/src/gallery/play.ts) act through Playwright's trusted mouse and keyboard.
     await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
       const at = () => page.mouse.move(action.x ?? 0, action.y ?? 0);
@@ -261,16 +260,6 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
         result.diffImage = diffName;
       } else result.diff = { percentage: null, passed: true, missingBaseline: true };
     }
-    if (recordVideo) {
-      await context.close();
-      const video = await recordedVideo?.path();
-      if (video) {
-        const videoName = `${safeFilePart(item.id)}-${engine}.webm`;
-        await Bun.write(join(outputDir, videoName), await readFile(video));
-        await rm(video, { force: true });
-        result.video = videoName;
-      }
-    }
     return result;
   } finally { await context.close(); }
 }
@@ -284,10 +273,10 @@ export function renderIndex(results: Record<string, unknown>[]): string {
     return latency.count ? { ...result, latency } : result;
   });
   const data = JSON.stringify(withLatency).replace(/</g, "\\u003c");
-  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img,.card video{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};function playCells(result){const p=result.play;if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const latency=result.latency;const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const latencyCell=latency?.count?cell('settle','pass',latency.p50.toFixed(1)+' / '+latency.p95.toFixed(1)+' / '+latency.max.toFixed(1)+' ms ('+latency.count+')'):'';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');const motion=p.motion?'<pre>motion '+p.motion.kind+': '+p.motion.status+(p.motion.problems.length?'\\n'+p.motion.problems.join('; '):'')+'</pre>':'';return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+(latencyCell?' '+latencyCell:'')+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre>'+motion+'</details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'">'+(r.video?'<video controls preload="metadata" src="'+r.video+'"></video>':'')+'<small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r)+'</article>'}).join('')}render();</script>`;
+  return `<!doctype html><meta charset="utf-8"><title>cmux gallery matrix</title><style>body{font:14px system-ui;margin:24px;background:#f5f5f5;color:#222}header{position:sticky;top:0;background:#f5f5f5;padding:8px 0;z-index:2}label{margin-right:12px}select{margin-left:4px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}.card{background:white;padding:10px;border-radius:8px;box-shadow:0 1px 4px #0002}.card img{width:100%;image-rendering:auto}.meta{display:flex;justify-content:space-between;gap:8px}.diff{color:#a11}.pass{color:#176b2c}.cell{font-size:12px;margin-right:8px}.cell.fail{color:#a11}.cell.warn{color:#9a6700}.cell.pass{color:#176b2c}.play pre{font-size:11px;white-space:pre-wrap}</style><header><strong>cmux gallery matrix</strong> <span id="count"></span><label>entry <select data-filter="entry"><option value="">all</option></select></label><label>variant <select data-filter="variant"><option value="">all</option></select></label><label>locale <select data-filter="locale"><option value="">all</option></select></label><label>theme <select data-filter="theme"><option value="">all</option></select></label><label>engine <select data-filter="engine"><option value="">all</option></select></label></header><main class="grid" id="grid"></main><script>const results=${data};const esc=(s)=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));function playCells(result){const p=result.play;if(!p||!p.steps)return '';const cls=p.steps.reduce((s,x)=>s+x.layoutShift,0);const frames=p.steps.flatMap(x=>x.longFrames);const raf=p.steps.some(x=>x.frameSource==='raf');const fail=!raf&&frames.some(f=>f>33);const shift=p.steps.some(x=>x.problems.some(m=>m.startsWith('layout')||m.startsWith('anchor')));const latency=result.latency;const cell=(name,state,text)=>'<span class="cell '+state+'">'+name+': '+state+' '+text+'</span>';const latencyCell=latency?.count?cell('settle','pass',latency.p50.toFixed(1)+' / '+latency.p95.toFixed(1)+' / '+latency.max.toFixed(1)+' ms ('+latency.count+')'):'';const detail=p.steps.map(x=>x.status+' '+x.step+(x.problems.length?': '+x.problems.join('; '):'')).join('\\n');return '<details class="play"><summary>'+cell('layout shift',shift?'fail':'pass','CLS '+cls.toFixed(3))+' '+cell('long frames',fail?'fail':frames.length?'warn':'pass',frames.length+(frames.length?' (max '+Math.max(...frames).toFixed(1)+' ms)':'')+(raf?' · software-rendered, not a gate':''))+(latencyCell?' '+latencyCell:'')+'</summary><pre>'+detail.replace(/</g,'&lt;')+(p.error?'\\n'+p.error:'')+'</pre></details>'}const filters=[...document.querySelectorAll('select')];const values=(key)=>[...new Set(results.map(r=>r.params?.[key]??(key==='engine'?r.engine:'' )).filter(Boolean))].sort();for(const s of filters){for(const v of values(s.dataset.filter)){const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o)}s.onchange=render}function render(){const active=Object.fromEntries(filters.map(s=>[s.dataset.filter,s.value]));const shown=results.filter(r=>Object.entries(active).every(([k,v])=>!v||String(k==='engine'?r.engine:r.params?.[k]??'')===v));document.querySelector('#count').textContent=shown.length+'/'+results.length;document.querySelector('#grid').innerHTML=shown.map(r=>{const d=r.diff;const provenance=r.revision?'<small>head '+esc(r.revision.sha||'unknown').slice(0,12)+' · '+esc(r.revision.source||'')+'</small>':'';return '<article class="card"><div class="meta"><strong>'+r.id+'</strong><span>'+r.engine+'</span></div><img loading="lazy" src="'+r.screenshot+'"><small>'+Object.entries(r.params||{}).map(([k,v])=>k+'='+v).join(' · ')+'</small>'+provenance+(r.diffImage?'<img loading="lazy" src="'+r.diffImage+'"><span class="'+(d.passed?'pass':'diff')+'">diff '+(d.percentage??0).toFixed(3)+'%</span>':'')+playCells(r)+'</article>'}).join('')}render();</script>`;
 }
 
-export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number; recordVideo?: boolean }, browserTypes = engines): Promise<Record<string, unknown>[]> {
+export async function runLocal(args: { manifest: string; galleryDir: string; outputDir: string; baselineDir?: string; threshold: number; engines: Engine[]; shardCount: number; shardIndex: number; caseTimeoutMs?: number }, browserTypes = engines): Promise<Record<string, unknown>[]> {
   const caseTimeoutMs = args.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS;
   if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("case timeout must be a positive number");
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
@@ -315,8 +304,8 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
         let result: Record<string, unknown>;
         try {
           if (!browsers.has(engine)) browsers.set(engine, await launch(engine));
-            result = await withTimeout(
-            renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!, args.recordVideo),
+          result = await withTimeout(
+            renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!),
             caseTimeoutMs,
             `${item.id} ${engine}`,
           );
@@ -331,7 +320,7 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
             const replacement = await launch(engine);
             browsers.set(engine, replacement);
             result = await withTimeout(
-              renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement, args.recordVideo),
+              renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, replacement),
               caseTimeoutMs,
               `${item.id} ${engine} retry`,
             );
@@ -377,7 +366,7 @@ export async function createAllVms<T>(count: number, create: (shard: number) => 
   return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
-async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; caseTimeoutMs: number; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string; recordVideo?: boolean }): Promise<void> {
+async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; caseTimeoutMs: number; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
   // The key is read from its file and only ever sent to the Freestyle API; never printed or logged.
   const key = readFileSync(args.keyFile, "utf8").trim();
@@ -429,7 +418,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}${args.recordVideo ? " --record-video" : ""}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });
@@ -465,7 +454,6 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       for (const result of shardResults) {
         if (typeof result.screenshot === "string") result.screenshot = `${shardDir}/${result.screenshot}`;
         if (typeof result.diffImage === "string") result.diffImage = `${shardDir}/${result.diffImage}`;
-        if (typeof result.video === "string") result.video = `${shardDir}/${result.video}`;
         combined.push(result);
       }
     }
@@ -503,7 +491,7 @@ export function publishRun(outputDir: string, run: string, host = "cmux-lawrence
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "record-video": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
+  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
   if (values["freestyle-cleanup"]) return cleanupLedger(values["freestyle-key-file"], values["freestyle-api-url"]);
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
   if (values["dry-run"]) {
@@ -515,13 +503,13 @@ async function main(): Promise<void> {
   const publish = () => { if (values["publish-run"]) console.log(`matrix: ${publishRun(values["output-dir"], values["publish-run"], values["publish-host"])}`); };
   const threshold = Number(values.threshold); const engines = parseEngineList(values.engines); const caseTimeoutMs = Number(values["case-timeout-ms"]); if (!Number.isFinite(threshold) || threshold < 0) throw new Error("--threshold must be a non-negative number"); if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs <= 0) throw new Error("--case-timeout-ms must be a positive number");
   if (values["freestyle-vms"]) {
-    await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, caseTimeoutMs, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"], recordVideo: values["record-video"] });
+    await runFreestyle({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], threshold, engines, caseTimeoutMs, vmCount: Number(values["freestyle-vms"]), snapshot: values["freestyle-snapshot"], keyFile: values["freestyle-key-file"], apiUrl: values["freestyle-api-url"] });
     return publish();
   }
   // A browser on a developer laptop interrupts its owner: render only inside a VM (or CI, which sets
   // CMUX_GALLERY_IN_VM=1 on its runner). Use --freestyle-vms N, or --dry-run to list the cases.
   if (!IN_VM) throw new Error("the matrix renders only on Freestyle VMs or CI: pass --freestyle-vms N, or --dry-run");
-  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, caseTimeoutMs, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]), recordVideo: values["record-video"] });
+  await runLocal({ manifest: values.manifest, galleryDir: values["gallery-dir"], outputDir: values["output-dir"], baselineDir: values.baseline, threshold, engines, caseTimeoutMs, shardCount: Number(values["shard-count"]), shardIndex: Number(values["shard-index"]) });
   publish();
 }
 
