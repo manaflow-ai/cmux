@@ -35,6 +35,10 @@ pub async fn verify_mux_binding(
     expected_mux: &Path,
 ) -> Result<(), AdminError> {
     verify_unix_peer_owner(link)?;
+    // This probe belongs inside the caller's binding deadline too: a stale
+    // pathname or a full accept queue must not hang explicit attachment.
+    let owner = UnixStream::connect(expected_mux).await?;
+    verify_unix_peer_owner(&owner)?;
     let admin = UnixStream::connect(admin_path).await?;
     verify_unix_peer_owner(&admin)?;
     let peer_pid = link.peer_cred()?.pid();
@@ -71,6 +75,7 @@ mod tests {
 
     struct Fixture {
         _directory: tempfile::TempDir,
+        _mux: std::os::unix::net::UnixListener,
         link: UnixListener,
         admin: PathBuf,
         binding: MuxBinding,
@@ -103,7 +108,7 @@ mod tests {
             } else {
                 serve_admin(daemon, &admin, vec![]).await.unwrap()
             };
-            Self { _directory: directory, link, admin, binding, server }
+            Self { _directory: directory, _mux, link, admin, binding, server }
         }
     }
 

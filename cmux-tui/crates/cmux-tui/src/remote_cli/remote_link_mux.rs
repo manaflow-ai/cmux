@@ -23,8 +23,6 @@ pub(super) fn check_binding(
     explicit: Option<&Path>,
 ) -> anyhow::Result<std::os::unix::net::UnixStream> {
     let Some(mux) = explicit else { return Ok(stream) };
-    // A stale socket pathname is not a running supervisor-owned daemon.
-    let _owner = super::connect_same_user_socket(mux)?;
     let (_, _, admin) = crate::remote_runtime::daemon_paths(session, state_root)?;
     stream.set_nonblocking(true)?;
     let result: anyhow::Result<_> = super::tokio_runtime()?.block_on(async {
