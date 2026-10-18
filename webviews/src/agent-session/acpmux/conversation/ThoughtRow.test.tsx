@@ -1,11 +1,12 @@
 // l10n-allow-file: test fixture thoughts, not shipped UI.
-// A long thought folds once done (behind the Debug toggle agentPane.debug.foldLongThoughts, off by
-// default): it shows in full while it streams, and once done a thought taller than about one
-// transcript viewport (never less than THOUGHT_FOLD_MIN_PX) folds to one line that opens to its
-// text: "Thought for 12s", or with the Debug choice agentPane.debug.thoughtHeader "preview",
-// "Thought" and its first line. The reader's toggle always wins over the fold; the toggle animates the height, the
-// automatic fold snaps (as Codex's does), and Reduce Motion animates nothing. Off, a thought shows
-// in full as it always did (Leo 2026-10-13, #20330).
+// A long thought folds once done (behind the Debug toggle agentPane.debug.foldLongThoughts, on by
+// default in the app): while it streams, a long one holds Codex's seven-line viewport
+// (agentPane.debug.liveThoughtViewport), and once done a thought taller than about one transcript
+// viewport (never less than THOUGHT_FOLD_MIN_PX; with agentPane.debug.thoughtFoldThreshold "codex",
+// THOUGHT_LIVE_PX) folds to one line that opens to its text: "Thought for 12s", or with the Debug
+// choice agentPane.debug.thoughtHeader "preview", "Thought" and its first line. The reader's toggle
+// always wins over the fold; the toggle animates the height, the automatic fold snaps (as Codex's
+// does), and Reduce Motion animates nothing. Off, a thought shows in full (Leo 2026-10-13, #20330).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -19,6 +20,7 @@ import {
   thoughtDuration,
   thoughtLayout,
   thoughtPreview,
+  type ThoughtFoldThreshold,
   type ThoughtHeader,
 } from "./ThoughtRow";
 
@@ -37,6 +39,7 @@ let header: ThoughtHeader = "duration";
 /// The live viewport's Debug toggle, and the text's whole height (0: only `height` counts).
 let live = true;
 let content = 0;
+let threshold: ThoughtFoldThreshold = "viewport";
 type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
 let animations: Animated[] = [];
 
@@ -69,7 +72,9 @@ beforeEach(() => {
   header = "duration";
   live = true;
   content = 0;
+  threshold = "viewport";
   animations = [];
+  thoughtLayout.threshold = () => threshold;
   thoughtLayout.header = () => header;
   thoughtLayout.liveViewport = () => live;
   thoughtLayout.contentHeight = () => content;
@@ -135,6 +140,14 @@ test("a tiny pane folds only thoughts taller than the floor", () => {
   expect(folds(THOUGHT_FOLD_MIN_PX - 1, 200, "floor-1:0")).toBe(false);
   expect(folds(THOUGHT_FOLD_MIN_PX, 200, "floor-2:0")).toBe(false);
   expect(folds(THOUGHT_FOLD_MIN_PX + 1, 200, "floor-3:0")).toBe(true);
+});
+
+test("with the Debug choice codex, a done thought folds once taller than seven lines", () => {
+  threshold = "codex";
+  expect(folds(THOUGHT_LIVE_PX, 600, "codex-1:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, 600, "codex-2:0")).toBe(true);
+  // The transcript's viewport no longer counts.
+  expect(folds(THOUGHT_LIVE_PX + 1, 2000, "codex-3:0")).toBe(true);
 });
 
 test("a folded thought reads how long the agent thought, without its text", () => {
