@@ -81,7 +81,7 @@ extension TabContentCache {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
-        presenters = presenters.filter { $0.value.value != nil }
+        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
