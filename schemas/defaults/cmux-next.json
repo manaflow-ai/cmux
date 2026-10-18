@@ -444,6 +444,7 @@
     "setting.palette.scopes.workspaces.prefix": "#",
     "setting.phone.allowConnections": false,
     "setting.phone.keepAwake": "pluggedIn",
+    "setting.phone.newDevices": "ask",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
     "setting.sessions.allowFullAccess": true,

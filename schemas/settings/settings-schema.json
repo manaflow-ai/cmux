@@ -544,7 +544,9 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -921,6 +923,7 @@
             "key" : "settings.group.phone",
             "rows" : [
               "phone.allowConnections",
+              "phone.newDevices",
               "phone.startSessions",
               "phone.keepAwake"
             ],
@@ -941,7 +944,7 @@
           "text" : "Accounts"
         },
         "trail" : [
-
+          "phones"
         ]
       },
       {
@@ -3820,6 +3823,105 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.promptSuggestions.help",
+        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "follow-up",
+        "tasks",
+        "child chats",
+        "subagents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "promptSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.promptSuggestions",
+        "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -3862,6 +3964,71 @@
       "title" : {
         "key" : "settings.phone.allowConnections",
         "text" : "Let Your Phone Use This Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "ask",
+        "account"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAsk",
+            "text" : "Ask on This Mac"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAccount",
+            "text" : "Any Phone on My Account"
+          },
+          "value" : "account"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.newDevices.help",
+        "text" : "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.newDevices",
+      "keywords" : [
+        "iphone",
+        "pair",
+        "approve",
+        "device",
+        "trust",
+        "remove"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "newDevices"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.newDevices",
+        "text" : "New Phones"
       },
       "validation" : "portable"
     },
@@ -25388,7 +25555,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e9ecbd2c1f2c90cdd577a35656d9adb442a2d0e42842ad27d737005d5cc193d2",
+  "schema_hash" : "2c9fad613a211a28fed0824f4b4310166e6d4944f8a05a9f815df8fcc6c1fe5b",
   "sections" : [
     {
       "id" : "general",
