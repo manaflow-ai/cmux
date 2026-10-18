@@ -63,6 +63,16 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
             self.attachTransports = attachTransports
         }
 
+        /// The operations a list of capability names advertises. Accepts the
+        /// contract spelling (`persistentHome`) and snake case (`persistent_home`).
+        public init(names: [String]) {
+            let named = Set(names.map { $0.replacingOccurrences(of: "_", with: "").lowercased() })
+            func has(_ operation: Operation) -> Bool { named.contains(operation.rawValue.lowercased()) }
+            self.init(snapshot: has(.snapshot), restore: has(.restore), fork: has(.fork), exec: has(.exec),
+                      stats: has(.stats), restart: has(.restart), ports: has(.ports), desktop: has(.desktop),
+                      sizing: has(.sizing), persistentHome: has(.persistentHome))
+        }
+
         /// Returns whether the provider advertised an operation before the
         /// client attempts the corresponding request.
         public func supports(_ operation: Operation) -> Bool {
@@ -87,7 +97,15 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
             case snapshot, restore, fork, exec, stats, restart, ports, desktop, sizing, persistentHome, attachTransports
         }
 
+        /// Decodes the web route's boolean object (`/api/vm`) or a list of
+        /// capability names (the Cloud app server's `capabilities: [String]`).
+        /// A name list advertises exactly the operations it names; names that
+        /// are not provider operations (such as `agent_session`) are ignored.
         public init(from decoder: any Decoder) throws {
+            if let names = try? decoder.singleValueContainer().decode([String].self) {
+                self.init(names: names)
+                return
+            }
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.init(snapshot: try c.decodeIfPresent(Bool.self, forKey: .snapshot) ?? false,
                       restore: try c.decodeIfPresent(Bool.self, forKey: .restore) ?? false,
@@ -114,8 +132,22 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var createdAt: Date?
     public var address: Address?
     public var size: Size?
-    /// Server-declared provider operations and attach transports.
-    public var capabilities: Capabilities
+    /// Server-declared provider operations and attach transports; `nil`
+    /// when the record carried none (an older server, or the cmux-next
+    /// backend record, whose capability names are not provider operations).
+    public var declaredCapabilities: Capabilities?
+
+    /// The declared capabilities, or the conservative empty set when the
+    /// record declared none. Gate actions with ``allows(_:)``, not this.
+    public var capabilities: Capabilities { declaredCapabilities ?? Capabilities() }
+
+    /// Whether an action needing `operation` may be attempted on this
+    /// machine: a declared capability set must advertise it, and a record
+    /// without one keeps the behavior from before capabilities existed (the
+    /// server refuses what its provider cannot do).
+    public func allows(_ operation: Capabilities.Operation) -> Bool {
+        declaredCapabilities?.supports(operation) ?? true
+    }
 
     /// Sidebar and menu title: the user's name, else the slug, else the id.
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
@@ -125,14 +157,14 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
-                slug: String? = nil, address: Address? = nil, capabilities: Capabilities = .init()) {
+                slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
         self.displayName = displayName
         self.slug = slug
         self.address = address
-        self.capabilities = capabilities
+        self.declaredCapabilities = capabilities
     }
 
     public init(from decoder: any Decoder) throws {
@@ -149,7 +181,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
-        capabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities) ?? .init()
+        declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
     }
 }
 
