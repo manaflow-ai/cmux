@@ -110,6 +110,7 @@ impl ResourceOperation {
                 | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
+                | Self::StashList
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
