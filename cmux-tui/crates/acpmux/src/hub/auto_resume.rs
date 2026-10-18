@@ -12,19 +12,24 @@
 //!   [`DEFAULT_DELAYS_MS`] spans about 26 minutes. `[]` turns it off.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
-//! - It is skipped when anything else ran in the chat meanwhile (a person's prompt, a cancel
-//!   that started a turn), when the chat is closed or moving, or when a turn is running.
+//! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
+//!   checked again under the turn lock), when the person pressed Stop or closed the chat, or
+//!   when the chat is moving. Each chat staggers its waits a little, so chats an outage cut
+//!   off together do not all come back at the same moment.
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
-//! - A continuation that completes resumes the prompts the failed turn held (`pause_queue`):
-//!   they waited only because of the connection.
+//! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
+//!   only those: they waited only because of the connection.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus};
+use crate::rpc::RpcError;
+use crate::store::EventRecord;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
@@ -99,93 +104,164 @@ pub(super) struct CutTurn<'a> {
     pub error: &'a str,
 }
 
+/// The cut turn each chat's waiting continuation answers for. Stop and close remove it.
+#[derive(Default)]
+pub(super) struct Pending(Mutex<HashMap<String, String>>);
+
+impl Pending {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Whether the chat still ends on `cut_turn`: no turn runs, nothing waits that the cut turn did
+/// not hold, and its last turn is that one.
+pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
+    session.turn().is_none()
+        && session.queue().iter().all(|q| q.held)
+        && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
+            == Some(cut_turn)
+}
+
+/// The refusal of a continuation something else in the chat overtook.
+pub(super) fn superseded() -> RpcError {
+    RpcError::invalid_params(
+        "auto_resume.superseded: the chat moved on before the continuation ran",
+    )
+    .with_data(json!({"reason": "auto_resume.superseded"}))
+}
+
+/// Up to a fifth more than `delay`, the same for a chat each time.
+fn staggered(delay: u64, session_id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    session_id.hash(&mut h);
+    delay + h.finish() % (delay / 5 + 1)
+}
+
 impl Hub {
     /// Schedules the next continuation of a turn that failed with a transport error. Nothing
     /// for any other failure, or once the configured attempts are used.
-    pub(super) async fn schedule_auto_resume(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        cut: CutTurn<'_>,
-    ) {
+    pub(super) fn schedule_auto_resume(self: &Arc<Self>, session: &Arc<Session>, cut: CutTurn<'_>) {
         if !is_transport_error(cut.error) {
             return;
         }
-        let delays = {
-            let cfg = self.config.read().await;
-            cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
-        };
         let (root, done) = split_attempt(cut.prompt_id);
-        let Some(&delay) = delays.get(done) else {
-            if done > 0 {
-                self.append(
-                    session,
-                    "mux",
-                    "auto_resume_exhausted",
-                    json!({"promptId": root, "attempts": done, "turnId": cut.turn_id}),
-                );
-            }
-            return;
-        };
-        let attempt = done + 1;
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        self.append(
-            session,
-            "mux",
-            "auto_resume_scheduled",
-            json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": delay}),
-        );
-        let (hub, session, control, trust_gate) =
-            (self.clone(), session.clone(), cut.control, cut.trust_gate);
+        let (control, trust_gate) = (cut.control, cut.trust_gate);
+        self.auto_resumes.lock().insert(session.id.clone(), turn_id.clone());
+        let (hub, session) = (self.clone(), session.clone());
+        // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
+            let delays = {
+                let cfg = hub.config.read().await;
+                cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+            };
+            let Some(&delay) = delays.get(done) else {
+                hub.take_pending(&session, &turn_id);
+                if done > 0 {
+                    let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id});
+                    hub.append(&session, "mux", "auto_resume_exhausted", msg);
+                }
+                return;
+            };
+            let attempt = done + 1;
+            let delay = staggered(delay, &session.id);
+            let msg =
+                json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": delay});
+            hub.append(&session, "mux", "auto_resume_scheduled", msg);
             tokio::time::sleep(Duration::from_millis(delay)).await;
-            hub.auto_resume(&session, &root, attempt, &turn_id, &error, control, trust_gate).await;
+            let cut =
+                CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
+            hub.auto_resume(&session, cut, attempt).await;
         });
     }
 
-    /// Sends attempt `attempt` when the chat still ends on the cut turn.
-    #[allow(clippy::too_many_arguments)]
+    /// Stop or close: the chat's waiting continuation does not fire.
+    pub(super) fn drop_auto_resume(&self, session: &Session) {
+        self.auto_resumes.lock().remove(&session.id);
+    }
+
+    /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
+    fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
+        let mut pending = self.auto_resumes.lock();
+        let ours = pending.get(&session.id).is_some_and(|t| t == cut_turn);
+        if ours {
+            pending.remove(&session.id);
+        }
+        ours
+    }
+
+    /// Sends attempt `attempt` (`cut.prompt_id` is the root prompt) when the chat still ends
+    /// on the cut turn.
     async fn auto_resume(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        root: &str,
+        cut: CutTurn<'_>,
         attempt: usize,
-        cut_turn: &str,
-        error: &str,
-        control: Control,
-        trust_gate: bool,
     ) {
+        let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
+        if !self.take_pending(session, cut_turn) {
+            self.append(session, "mux", "auto_resume_skipped", skipped("stopped"));
+            return;
+        }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
             self.append(session, "mux", "auto_resume_skipped", skipped("closed"));
             return;
         }
-        let last_turn = session.meta().last_turn;
-        let still_cut = session.turn().is_none()
-            && last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
-                == Some(cut_turn);
-        if !still_cut {
+        if !still_cut(session, cut_turn) {
             self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
             return;
         }
+        let held = self.held_by(session, cut_turn);
         let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         let opts = PromptOptions {
             prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
             resend: true,
-            control,
-            trust_gate,
+            control: cut.control,
+            trust_gate: cut.trust_gate,
             provenance: Some(provenance),
+            after_turn: Some(cut_turn.to_owned()),
             ..PromptOptions::default()
         };
-        let blocks = vec![json!({"type": "text", "text": continue_text(error)})];
+        let blocks = vec![json!({"type": "text", "text": continue_text(cut.error)})];
         match self.prompt_with(session, blocks, "acpmux", false, opts).await {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
-                self.resume_queue(session);
+                self.resume_held(session, &held);
             }
             Ok(_) => {}
+            Err(e)
+                if e.data.as_ref().and_then(|d| d.get("reason"))
+                    == Some(&json!("auto_resume.superseded")) =>
+            {
+                self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
+            }
             // A failure that is itself a transport error scheduled the next attempt.
             Err(e) => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
         }
+    }
+
+    /// The prompts `cut_turn` held (its `queue_paused` record).
+    fn held_by(&self, session: &Session, cut_turn: &str) -> Vec<String> {
+        let mut held = Vec::new();
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if e.kind == "queue_paused"
+                && e.msg.get("turnId").and_then(Value::as_str) == Some(cut_turn)
+            {
+                held = e
+                    .msg
+                    .get("held")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect();
+            }
+            true
+        });
+        held
     }
 }
 

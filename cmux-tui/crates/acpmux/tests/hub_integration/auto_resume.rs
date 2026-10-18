@@ -54,7 +54,7 @@ async fn a_turn_a_connection_error_cut_off_goes_on_by_itself() {
         .await;
     assert!(r.unwrap_err().contains("stream disconnected"));
 
-    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_end").count() == 1).await;
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 2).await;
     assert!(k.iter().any(|k| k == "auto_resume_scheduled"), "{k:?}");
     let messages = user_messages(&hub, &id);
     assert_eq!(messages.len(), 2, "{messages:?}");
@@ -129,5 +129,29 @@ async fn other_failures_are_not_continued() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let k = kinds(&hub, &id);
     assert!(!k.iter().any(|k| k.starts_with("auto_resume")), "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 1);
+}
+
+#[tokio::test]
+async fn stop_cancels_a_continuation_that_has_not_fired() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
+    let id = new_session(&mut c, "stop").await;
+    let _ = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-once: x"}]}),
+        )
+        .await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_skipped")).await;
+    let skipped: Vec<Value> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "auto_resume_skipped")
+        .map(|e| e.msg["skipped"].clone())
+        .collect();
+    assert_eq!(skipped, [json!("stopped")], "{k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
 }

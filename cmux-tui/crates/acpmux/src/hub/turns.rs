@@ -244,6 +244,14 @@ impl Hub {
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
+        // An automatic continuation runs only while the chat still ends on the cut turn: no await
+        // between this check and `queue_slot`'s choice, so it never joins the queue.
+        let after_turn = opts.after_turn.clone();
+        if let Some(after) = &after_turn
+            && !super::auto_resume::still_cut(session, after)
+        {
+            return Err(super::auto_resume::superseded());
+        }
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -260,6 +268,13 @@ impl Hub {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // A prompt that took the turn lock first (a person's) supersedes the continuation.
+        if let Some(after) = &after_turn
+            && (waiting || !super::auto_resume::still_cut(session, after))
+        {
+            drop(guard);
+            return Err(super::auto_resume::superseded());
+        }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         let text = prompt_text(&blocks);
@@ -432,18 +447,22 @@ impl Hub {
             }
         }
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
+        // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
+        // model switch (`detach_child`) that ended the turn is no connection error.
+        let agent_error = result.as_ref().err().map(|e| e.message.clone());
+        let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
-        if let Err(e) = &result {
+        if let (Err(e), false) = (&result, detached) {
             let cut = super::auto_resume::CutTurn {
                 prompt_id: &prompt_id,
                 turn_id: &turn_id,
                 control,
                 trust_gate,
-                error: &e.message,
+                error: agent_error.as_deref().unwrap_or(&e.message),
             };
-            self.schedule_auto_resume(session, cut).await;
+            self.schedule_auto_resume(session, cut);
         }
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
@@ -950,6 +969,7 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        self.drop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {

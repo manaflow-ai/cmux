@@ -198,6 +198,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
+    /// this turn, checked again once it holds the turn lock, else refused unrecorded.
+    pub after_turn: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -309,6 +312,8 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
+    pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -371,6 +376,7 @@ impl Hub {
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
