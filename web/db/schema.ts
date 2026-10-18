@@ -79,6 +79,85 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
+/** Durable Run API state. Runs are user-scoped; provider credentials never enter these rows. */
+export const runStatus = pgEnum("run_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runAttemptStatus = pgEnum("run_attempt_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runEventKind = pgEnum("run_event_kind", [
+  "run.created",
+  "attempt.queued",
+  "attempt.started",
+  "attempt.succeeded",
+  "attempt.failed",
+]);
+
+export const runs = pgTable("runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  billingTeamId: text("billing_team_id"),
+  idempotencyKey: text("idempotency_key"),
+  requestDigest: text("request_digest").notNull(),
+  source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+  recipe: text("recipe").notNull(),
+  provider: text("provider").notNull().default("cloud-vm"),
+  desiredAttempts: integer("desired_attempts").notNull().default(1),
+  status: runStatus("status").notNull().default("queued"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("runs_user_idempotency_key_unique")
+    .on(table.userId, table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} is not null`),
+  index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+]);
+
+export const runAttempts = pgTable("run_attempts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
+  status: runAttemptStatus("status").notNull().default("queued"),
+  providerVmId: text("provider_vm_id"),
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+  index("run_attempts_run_status_idx").on(table.runId, table.status),
+]);
+
+export const runEvents = pgTable("run_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  kind: runEventKind("kind").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+  index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
+]);
+
+
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
   id: uuid("id").defaultRandom().primaryKey(),

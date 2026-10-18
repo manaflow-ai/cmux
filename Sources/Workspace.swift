@@ -2812,22 +2812,41 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    private var automaticTitleMutationDepth = 0
+    private let sidebarTitleDidChangeSubject = CurrentValueSubject<UInt64, Never>(0)
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
             // snapshot reads the workspace after this property changes, so
             // publish a second value from didSet for a committed title.
-            sidebarTitleDidChangeSubject.send(title)
+            // Automatic process-title writes use the settled observation
+            // model instead; forwarding them here would wake every sidebar
+            // row for each animation frame. Send a revision rather than the
+            // title: a skipped automatic write leaves the subject behind, and
+            // a later rename back to that stale value must not look like a
+            // duplicate.
+            guard automaticTitleMutationDepth == 0 else { return }
+            sidebarTitleDidChangeSubject.send(sidebarTitleDidChangeSubject.value &+ 1)
         }
     }
-    /// Publishes the workspace title after the stored value has been updated.
+    /// Publishes a revision after each committed non-automatic title write.
     ///
     /// `@Published` emits from `willSet`; sidebar snapshots must read the
     /// committed title so the first refresh after a rename cannot cache the
     /// previous value.
-    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+    var sidebarTitleDidChangePublisher: AnyPublisher<UInt64, Never> {
         sidebarTitleDidChangeSubject.eraseToAnyPublisher()
+    }
+
+    /// Performs an automatic title write without invalidating the immediate
+    /// sidebar publisher; the settled process-title model owns that refresh.
+    ///
+    /// The depth counter keeps nested title reconciliation safe if a future
+    /// caller performs another automatic write from inside the mutation.
+    func withAutomaticTitleMutation(_ body: () -> Void) {
+        automaticTitleMutationDepth += 1
+        defer { automaticTitleMutationDepth -= 1 }
+        body()
     }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
@@ -4302,7 +4321,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
-        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil

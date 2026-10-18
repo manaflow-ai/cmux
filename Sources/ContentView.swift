@@ -2647,7 +2647,9 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            ChiefHomeNavigation.restoreConversations(in: tabManager)
+            if ChiefHomeNavigation.makesHomeWhenAWindowAppears() {
+                ChiefHomeNavigation.restoreConversations(in: tabManager)
+            }
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -17123,6 +17125,7 @@ struct TabItemView: View, Equatable {
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor

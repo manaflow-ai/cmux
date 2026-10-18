@@ -306,6 +306,14 @@ import Testing
         #expect(restored.tabs.contains { $0.isChiefHome })
     }
 
+    /// A window in the app makes Home when it appears; one in the unit-test host does not,
+    /// so window tests see plain cmux windows and Chief tests call `ensureHome` themselves.
+    @Test func onlyAnAppWindowMakesHomeWhenItAppears() {
+        #expect(ChiefHomeNavigation.makesHomeWhenAWindowAppears(environment: [:]))
+        #expect(!ChiefHomeNavigation.makesHomeWhenAWindowAppears(environment: ["CMUX_TEST_PROCESS": "1"]))
+        #expect(!ChiefHomeNavigation.makesHomeWhenAWindowAppears(environment: ["XCTestConfigurationFilePath": "/x"]))
+    }
+
     @Test func aHomeOnlyWindowGetsATerminalToOpenOn() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         defer { manager.finalizeAllWorkspacesForWindowClose() }
