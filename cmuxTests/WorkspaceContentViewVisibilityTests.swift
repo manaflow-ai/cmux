@@ -6,7 +6,7 @@ import CmuxUpdater
 import CoreGraphics
 import Observation
 import SwiftUI
-import Bonsplit
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -206,6 +206,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
     }
 
+    /// Confirms minimal-mode changes do not trigger a sustained Bonsplit render storm.
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
@@ -312,6 +313,7 @@ final class WorkspaceContentViewVisibilityTests {
             "Initial pane rendering must not sustain a tab-bar render storm."
         )
         counts.reset()
+        sustainedTabBarRenderWindows = 0
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
         defaults.set(
@@ -321,6 +323,10 @@ final class WorkspaceContentViewVisibilityTests {
         await Self.drainMainRunLoop(for: window)
         counts.isMeasuringInvalidations = false
 
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Minimal-mode toggles must not sustain a tab-bar render storm."
+        )
         #expect(
             counts.contentViewBody == 0,
             "Minimal-mode toggles must not re-evaluate the whole ContentView body."
@@ -677,6 +683,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// Confirms duplicate interactivity callbacks stay silent while real changes publish once.
     @Test
     @MainActor
     func bonsplitInteractivitySyncChangesOnlyWhenInputActivityChanges() {
@@ -689,11 +696,20 @@ final class WorkspaceContentViewVisibilityTests {
         // SwiftUI can deliver duplicate lifecycle and change callbacks while a
         // hosted pane is being mounted. Repeating the same value must not write
         // Bonsplit's observable controller state again.
+        let internalController = controller.internalController
+        var publicationCount = 0
+        withObservationTracking {
+            _ = internalController.isInteractive
+        } onChange: {
+            publicationCount += 1
+        }
         WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
         #expect(!controller.isInteractive)
+        #expect(publicationCount == 0, "Duplicate interactivity synchronization must not publish.")
 
         WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: true)
         #expect(controller.isInteractive)
+        #expect(publicationCount == 1, "A real interactivity change must publish once.")
     }
 
     @Test
@@ -765,6 +781,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// Confirms a stale Bonsplit selection keeps the pane's first tab visible.
     @Test
     func testEffectiveSelectedTabIdTreatsMovedTabAsSelectionGap() {
         let firstTabId = UUID()
