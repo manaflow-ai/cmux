@@ -54,15 +54,17 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/cursor-account"])
     }
 
-    @Test("Resolves Cursor config from XDG without replaying unrelated XDG state")
-    func resolvesCursorConfigFromXDGWithoutReplayingUnrelatedState() {
-        let policy = AgentLaunchEnvironmentPolicy()
-        let selected = policy.selectedRestoreEnvironment(
+    @Test("Does not derive a Cursor config root from XDG_CONFIG_HOME")
+    func doesNotDeriveCursorConfigRootFromXDG() {
+        // cursor-agent reads XDG_CONFIG_HOME only on Linux/BSD; on macOS it uses ~/.cursor,
+        // so only an explicit CURSOR_CONFIG_DIR is replayed.
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
             from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
             kind: "cursor"
         )
 
-        #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/custom-config/cursor"])
+        #expect(selected.isEmpty)
+        #expect(!AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
     }
 
     @Test("Cursor config override stays scoped to Cursor restores")
@@ -78,11 +80,6 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
         #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
         #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
-    }
-
-    @Test("Cursor restore capture includes XDG fallback input")
-    func cursorRestoreCaptureIncludesXDGFallbackInput() {
-        #expect(AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
     }
 
     @Test("Custom Antigravity executable remains scoped to Antigravity restores")
