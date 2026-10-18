@@ -35,6 +35,8 @@ parser.add_argument("--step-pt", type=float, default=6.0)
 parser.add_argument("--lag", type=int, default=3, help="steps the owner's grid may trail the edge")
 parser.add_argument("--hitch-ms", type=float, default=50.0)
 parser.add_argument("--hang-ms", type=int, help="watchdog stall threshold: debug.hangs stack samples of pass A")
+parser.add_argument("--lldb-break", action="append", default=[],
+                    help="symbol: lldb attaches for pass A and logs each caller's backtrace (lldb.log)")
 parser.add_argument("--profile", action="store_true",
                     help="xctrace Time Profiler over pass A: main-thread busy runs over 30 ms, heaviest frames")
 opts = parser.parse_args()
@@ -230,6 +232,16 @@ try:
         recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
                                      "--time-limit", "30s", "--output", trace], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         time.sleep(4)  # test harness: the recorder attaches
+    debugger = None
+    if opts.lldb_break:
+        lldb_log = os.path.join(opts.out, "lldb.log")
+        args = ["lldb", "--batch", "-p", str(app.pid)]
+        for symbol in opts.lldb_break:
+            args += ["-o", f"breakpoint set -n '{symbol}' -G true -C 'bt 40'"]
+        args += ["-o", "process handle SIGTERM -s false -p true", "-o", "process continue"]
+        debugger = subprocess.Popen(args, stdout=open(lldb_log, "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        wait(lambda: "resuming" in open(lldb_log).read().lower() or debugger.poll() is not None, 60)
+        time.sleep(0.5)  # test harness: the attach stop ends
     if opts.hang_ms:
         rpc("debug.hangs", {"clear": True})
     rpc("debug.frames", {"action": "start"})
@@ -239,6 +251,7 @@ try:
     report["frames"] = rpc("debug.frames", {"action": "stop"})
     if opts.hang_ms:
         report["hangs"] = rpc("debug.hangs")
+    report["debugger"] = bool(debugger)
     if recorder:
         recorder.send_signal(signal.SIGINT)
         try:
