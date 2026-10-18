@@ -54,6 +54,8 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 mod remote_link_mux;
+#[cfg(test)]
+mod remote_link_binding_tests;
 use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
