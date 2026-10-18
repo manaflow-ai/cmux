@@ -3,7 +3,6 @@
 
 Runs upsert against an in-memory fake of the four comment endpoints; nothing reaches GitHub.
 """
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -26,24 +25,21 @@ class FakeGitHub:
         self.comments[self.next_id] = {"id": self.next_id, "body": body, "user": user}
         return self.next_id
 
-    def __call__(self, args, stdin):
-        if args[:2] == ["api", "--paginate"]:
+    def __call__(self, method, path, payload):
+        if method == "GET":
             if self.on_read:
                 hook, self.on_read = self.on_read, None
                 hook()
-            marker = args[4].split('startswith("', 1)[1].split('")', 1)[0]
-            return "".join(json.dumps({"id": c["id"], "body": c["body"]}) + "\n"
-                           for c in self.comments.values()
-                           if c["user"] == pr_status.BOT and c["body"].startswith(marker))
-        method, path = args[2], args[3]
+            return [{"id": c["id"], "body": c["body"], "user": {"login": c["user"]}}
+                    for c in self.comments.values()]
         self.writes.append(method)
         if method == "POST":
-            self.add(json.loads(stdin)["body"])
+            self.add(payload["body"])
         elif method == "PATCH":
-            self.comments[int(path.rsplit("/", 1)[1])]["body"] = json.loads(stdin)["body"]
+            self.comments[int(path.rsplit("/", 1)[1])]["body"] = payload["body"]
         elif method == "DELETE":
             del self.comments[int(path.rsplit("/", 1)[1])]
-        return ""
+        return None
 
     def status(self):
         found = [c for c in self.comments.values() if c["body"].startswith(pr_status.MARKER)]
@@ -52,7 +48,7 @@ class FakeGitHub:
 
 
 def upsert(gh, key, text, **kw):
-    return pr_status.upsert(REPO, PR, key, text, gh=gh, sleep=lambda _: None, **kw)
+    return pr_status.upsert(REPO, PR, key, text, api=gh, sleep=lambda _: None, **kw)
 
 
 class PrStatusTests(unittest.TestCase):
@@ -94,13 +90,13 @@ class PrStatusTests(unittest.TestCase):
         upsert_calls = []
         orig = gh.__call__
 
-        def gh_with_race(args, stdin):
-            out = orig(args, stdin)
-            if args[2:3] == ["PATCH"] and not upsert_calls:
+        def gh_with_race(method, path, payload):
+            out = orig(method, path, payload)
+            if method == "PATCH" and not upsert_calls:
                 upsert_calls.append(1)
                 other_writer_overwrites()
             return out
-        pr_status.upsert(REPO, PR, "checks", "red: web / lint", gh=gh_with_race, sleep=lambda _: None)
+        pr_status.upsert(REPO, PR, "checks", "red: web / lint", api=gh_with_race, sleep=lambda _: None)
         self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "checks": "red: web / lint"})
 
     def test_two_status_comments_fold_into_the_oldest(self):

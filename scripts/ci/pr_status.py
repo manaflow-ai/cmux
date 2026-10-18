@@ -28,7 +28,7 @@ Usage:
   pr_status.py set   --repo R --pr N --section S (--body-file F | --clear) [--legacy MARKER]
   pr_status.py field --repo R --pr N (--bead cx-ID | --preview SHA)
   pr_status.py render --sections-json F        (print the body; tests and previews)
-Needs gh with GH_TOKEN (pull-requests: write).
+Needs GH_TOKEN or GITHUB_TOKEN with pull-requests: write; GITHUB_API_URL overrides the API.
 """
 from __future__ import annotations
 
@@ -36,9 +36,10 @@ import argparse
 import json
 import random
 import re
-import subprocess
+import os
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -54,7 +55,7 @@ SHA = re.compile(r"[0-9a-f]{40}")
 PREVIEW_FEED = "https://github.com/manaflow-ai/cmuxterm-hq/issues/2098"
 ATTEMPTS = 4
 
-Gh = Callable[[list[str], "str | None"], str]
+Api = Callable[[str, str, "dict | None"], object]
 
 
 def parse(body: str) -> dict[str, str]:
@@ -79,46 +80,55 @@ def render(sections: Mapping[str, str]) -> str:
     return body
 
 
-def run_gh(args: list[str], stdin: str | None = None) -> str:
-    done = subprocess.run(["gh", *args], input=stdin, capture_output=True, text=True)
-    if done.returncode:
-        raise RuntimeError(f"gh {' '.join(args[:3])}: {(done.stderr or done.stdout).strip()}")
-    return done.stdout
+def http_api(method: str, path: str, payload: dict | None = None):
+    """GitHub REST at GITHUB_API_URL with GH_TOKEN (or GITHUB_TOKEN)."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    token = os.environ.get("GH_TOKEN") or os.environ["GITHUB_TOKEN"]
+    request = urllib.request.Request(api + path, method=method,
+                                     data=None if payload is None else json.dumps(payload).encode(),
+                                     headers={"Authorization": f"Bearer {token}",
+                                              "Accept": "application/vnd.github+json",
+                                              "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read() or b"null")
 
 
-def bot_comments(gh: Gh, repo: str, pr: int, marker: str) -> list[dict]:
+def bot_comments(api: Api, repo: str, pr: int, marker: str) -> list[dict]:
     """This bot's comments that start with marker, oldest first."""
-    out = gh(["api", "--paginate", f"repos/{repo}/issues/{pr}/comments",
-              "--jq", f'.[] | select(.user.login == "{BOT}" and (.body | startswith("{marker}"))) '
-                      '| {id, body}'], None)
-    found = [json.loads(line) for line in out.splitlines() if line.strip()]
+    found, page = [], 1
+    while page <= 30:
+        items = api("GET", f"/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}", None) or []
+        found += [{"id": c["id"], "body": c.get("body") or ""} for c in items
+                  if (c.get("user") or {}).get("login") == BOT and (c.get("body") or "").startswith(marker)]
+        if len(items) < 100:
+            break
+        page += 1
     return sorted(found, key=lambda c: int(c["id"]))
 
 
-def write(gh: Gh, repo: str, pr: int, comment_id: int | None, body: str) -> None:
-    payload = json.dumps({"body": body})
+def write(api: Api, repo: str, pr: int, comment_id: int | None, body: str) -> None:
     if comment_id is None:
-        gh(["api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments", "--input", "-"], payload)
+        api("POST", f"/repos/{repo}/issues/{pr}/comments", {"body": body})
     else:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{comment_id}", "--input", "-"], payload)
+        api("PATCH", f"/repos/{repo}/issues/comments/{comment_id}", {"body": body})
 
 
-def delete(gh: Gh, repo: str, comment_id: int) -> None:
-    gh(["api", "-X", "DELETE", f"repos/{repo}/issues/comments/{comment_id}"], None)
+def delete(api: Api, repo: str, comment_id: int) -> None:
+    api("DELETE", f"/repos/{repo}/issues/comments/{comment_id}", None)
 
 
 def upsert(repo: str, pr: int, key: str, text: str | None, *, legacy: str | None = None,
-           gh: Gh = run_gh, sleep: Callable[[float], None] = time.sleep) -> str:
+           api: Api = http_api, sleep: Callable[[float], None] = time.sleep) -> str:
     """Set (or with None, remove) one section; returns what it did."""
     text = text.strip() if text else None
     did = "unchanged"
     for _ in range(ATTEMPTS):
-        found = bot_comments(gh, repo, pr, MARKER)
+        found = bot_comments(api, repo, pr, MARKER)
         if not found:
             if text is None:
                 did = "none"
                 break
-            write(gh, repo, pr, None, render({key: text}))
+            write(api, repo, pr, None, render({key: text}))
             did = "created"
         else:
             primary, extras = found[0], found[1:]
@@ -131,24 +141,30 @@ def upsert(repo: str, pr: int, key: str, text: str | None, *, legacy: str | None
                 sections[key] = text
             body = render(sections)
             if body != primary["body"] or extras:
-                write(gh, repo, pr, int(primary["id"]), body)
+                write(api, repo, pr, int(primary["id"]), body)
                 did = "updated" if did == "unchanged" else did
             for extra in extras:
-                delete(gh, repo, int(extra["id"]))
+                delete(api, repo, int(extra["id"]))
             if body == primary["body"] and not extras:
                 break
         # Another writer may have read the comment before this write and will write over it:
         # wait, re-read, and repeat when this section did not survive.
-        sleep(random.uniform(1.5, 3.0))
-        again = bot_comments(gh, repo, pr, MARKER)
+        sleep(float(os.environ.get("PR_STATUS_SETTLE_SECONDS") or random.uniform(1.5, 3.0)))
+        again = bot_comments(api, repo, pr, MARKER)
         if len(again) <= 1 and (parse(again[0]["body"]).get(key) if again else None) == text:
             break
     else:
         did += " (unconfirmed: another writer kept replacing the comment)"
     if legacy:
-        for old in bot_comments(gh, repo, pr, legacy):
-            delete(gh, repo, int(old["id"]))
+        for old in bot_comments(api, repo, pr, legacy):
+            delete(api, repo, int(old["id"]))
     return did
+
+
+def section(repo: str, pr: int, key: str, *, api: Api = http_api) -> str | None:
+    """The section's current text, or None."""
+    found = bot_comments(api, repo, pr, MARKER)
+    return parse(found[0]["body"]).get(key) if found else None
 
 
 def field_text(bead: str | None, preview: str | None) -> tuple[str, str]:
