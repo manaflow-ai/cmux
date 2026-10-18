@@ -143,9 +143,10 @@ describe("create", () => {
     expect(String(body["id"])).toMatch(SNAPSHOT_ID);
     for (const leak of [upstreamVmId, "sh-", "slug-", "leak-check", "freestyle", "Freestyle"]) expect(text).not.toContain(leak);
 
-    expect(upstreamPaths()).toEqual([`POST /v5/vms/${upstreamVmId}/snapshot`]);
-    expect(h.upstream.callsTo("POST", /\/snapshot$/).at(0)?.json).toEqual({
-      displayName: `cmux-vm-local ${TENANT_A} ${String(body["id"])}`,
+    expect(upstreamPaths().filter((path) => path.startsWith("POST"))).toEqual([`POST /v5/vms/${upstreamVmId}/snapshot`]);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/).at(0)?.json).toMatchObject({
+      slug: expect.stringContaining(String(body["id"]).replace("_", "-")),
+      displayName: expect.stringMatching(/^cmux-snapshot:[a-f0-9]{64}$/),
       ttlSeconds: 86_400,
       autoDeleteSeconds: 3_600,
     });
@@ -256,7 +257,7 @@ describe("create", () => {
     expect(h.audit).toMatchObject([{ action: "snapshot.create", cmuxId: vmId, outcome: "Conflict" }]);
   });
 
-  it("deletes the upstream snapshot again when its ownership row cannot be written", async () => {
+  it("retains the captured snapshot for reconciliation when its ownership row cannot be written", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);
     h.s3a.failNextSnapshotRecord();
@@ -264,8 +265,13 @@ describe("create", () => {
     const response = await create(vmId, bearer(key));
 
     expect(response.status).toBe(503);
-    expect(h.upstream.snapshots.size).toBe(0);
-    expect(upstreamPaths().map((path) => path.split(" ")[0])).toEqual(["POST", "DELETE"]);
+    expect(h.upstream.snapshots.size).toBe(1);
+    const { pendingSnapshotId } = await response.json<{ pendingSnapshotId: string }>();
+    expect(pendingSnapshotId).toMatch(SNAPSHOT_ID);
+    const repair = await h.request(`/v1/snapshot-creations/${pendingSnapshotId}/reconcile`, bearer(key), { method: "POST" });
+    expect(repair.status).toBe(200);
+    expect(await repair.json()).toMatchObject({ state: "committed", id: pendingSnapshotId });
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   });
 
   it("needs snapshot:write; vm:write is not enough", async () => {
@@ -331,6 +337,93 @@ describe("capture recovery", () => {
       expect((await capture("different")).status).toBe(429);
       expect(limited.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
     } finally { await limited.dispose(); }
+  });
+});
+
+describe("capture controls", () => {
+  const pending = async (idempotency?: string) => {
+    const { vmId } = h.addVm(TENANT_A);
+    const token = await h.addKey(TENANT_A, ["snapshot:write", "snapshot:read", "vm:write"]);
+    h.upstream.faults.lostSnapshotResponses = 1;
+    const headers = { ...bearer(token), ...(idempotency === undefined ? {} : { "idempotency-key": idempotency }) };
+    const response = await create(vmId, headers);
+    expect(response.status).toBe(503);
+    const { pendingSnapshotId } = await response.json<{ pendingSnapshotId: string }>();
+    expect(pendingSnapshotId).toMatch(SNAPSHOT_ID);
+    return { vmId, token, headers, id: pendingSnapshotId };
+  };
+  it("recovers an unkeyed capture from read-only history after its source is deleted", async () => {
+    const { vmId, token, id } = await pending();
+    const calls = h.upstream.calls.length;
+    const history = await h.request("/v1/snapshot-creations?limit=1", bearer(token));
+    expect(await history.json()).toMatchObject({ items: [{ id, state: "pending" }], nextCursor: null });
+    expect(h.upstream.calls).toHaveLength(calls);
+    expect((await h.request(`/v1/vms/${vmId}`, bearer(token), { method: "DELETE" })).status).toBe(204);
+    const repaired = await h.request(`/v1/snapshot-creations/${id}/reconcile`, bearer(token), { method: "POST" });
+    expect(repaired.status).toBe(200);
+    expect(await repaired.json()).toMatchObject({ id, state: "committed" });
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it("does not send again when an unknown capture is absent", async () => {
+    const { vmId, headers, id } = await pending("absent-capture");
+    h.upstream.snapshots.clear();
+    expect((await create(vmId, headers)).status).toBe(503);
+    const response = await h.request(`/v1/snapshot-creations/${id}/reconcile`, headers, { method: "POST" });
+    expect(await response.json()).toMatchObject({ state: "pending", id });
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it("cancels a verified uncertain capture and permanently fences its key", async () => {
+    const { vmId, headers, id } = await pending("cancel-capture");
+    const cancelled = await h.request(`/v1/snapshot-creations/${id}/cancel`, headers, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ state: "deleted", cancellation: "completed", id });
+    expect(h.upstream.snapshots.size).toBe(0);
+    expect((await create(vmId, headers)).status).toBe(409);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it("keeps cancellation pending when the unknown capture is absent", async () => {
+    const { vmId, headers, id } = await pending("cancel-absent");
+    h.upstream.snapshots.clear();
+    const cancelled = await h.request(`/v1/snapshot-creations/${id}/cancel`, headers, { method: "POST" });
+    expect(await cancelled.json()).toMatchObject({ state: "pending", cancellation: "requested", id });
+    expect((await create(vmId, headers)).status).toBe(409);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it.each(["slug", "displayName", "sourceVmId"])("refuses recovery when the provider %s no longer matches", async (field) => {
+    const { vmId, headers, id } = await pending(`wrong-${field}`);
+    const snapshot = [...h.upstream.snapshots.values()][0];
+    if (snapshot === undefined) throw new Error("capture missing");
+    Object.assign(snapshot, { [field]: "different" });
+    const repaired = await h.request(`/v1/snapshot-creations/${id}/reconcile`, headers, { method: "POST" });
+    expect(repaired.status).toBe(field === "slug" ? 200 : 503);
+    if (field === "slug") expect(await repaired.json()).toMatchObject({ state: "pending" });
+    expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(0);
+    expect((await create(vmId, headers)).status).toBe(503);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it("conceals capture controls from another tenant and rejects missing scopes", async () => {
+    const { id } = await pending();
+    const other = await h.addKey(TENANT_B, ["snapshot:read", "snapshot:write"]);
+    const noWrite = await h.addKey(TENANT_A, ["snapshot:read"]);
+    const before = h.upstream.calls.length;
+    for (const suffix of ["", "/reconcile", "/cancel"]) {
+      const opts = suffix === "" ? undefined : { method: "POST" };
+      expect((await h.request(`/v1/snapshot-creations/${id}${suffix}`, bearer(other), opts)).status).toBe(404);
+    }
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, bearer(noWrite), { method: "POST" })).status).toBe(403);
+    expect(h.upstream.calls).toHaveLength(before);
+  });
+  it("keeps source-allowlisted capture access specific to the original actor", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const original = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"], { allowlist: [vmId] });
+    const other = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"], { allowlist: [vmId] });
+    h.upstream.faults.lostSnapshotResponses = 1;
+    const result = await create(vmId, bearer(original));
+    const { pendingSnapshotId: id } = await result.json<{ pendingSnapshotId: string }>();
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, bearer(other), { method: "POST" })).status).toBe(404);
+    expect((await h.request("/v1/snapshot-creations", bearer(original))).status).toBe(403);
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, bearer(original), { method: "POST" })).status).toBe(200);
+    expect((await h.request(`/v1/snapshots/${id}`, bearer(original))).status).toBe(404);
   });
 });
 

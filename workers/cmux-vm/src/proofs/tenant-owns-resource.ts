@@ -9,6 +9,7 @@
  */
 import { defineProof, name, type Named, type NameOf, type Proof } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
+import { snapshotCaptureEvidenceOf, type AuthorizedSnapshotCapture } from "./snapshot-capture.ts";
 import { OwnershipStore, type OwnedResource, type PagePosition } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
@@ -63,6 +64,15 @@ export const tenantOwnsVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmI
 
 export const tenantOwnsSnapshot = <C, R>(caller: Named<C, Principal>, snapshot: Named<R, SnapshotId>) =>
   owns(caller, snapshot, "snapshot");
+
+/** A selected source permits only this original actor's derived capture, never other snapshots. */
+export const tenantOwnsCapturedSnapshot = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, capture: AuthorizedSnapshotCapture<C, S>) => Effect.gen(function* () {
+  const record = snapshotCaptureEvidenceOf(capture);
+  if (record.intent.id !== snapshot.value) return null;
+  const row = yield* (yield* OwnershipStore).find(caller.value.tenantId, "snapshot", snapshot.value);
+  if (Option.isNone(row) || row.value.createdBy !== record.intent.createdBy || !carriesRequiredLabels(caller.value, row.value.labels)) return null;
+  return mint(caller, snapshot, row.value);
+});
 
 /** Mesh experiment (cx-0op): a mesh's upstream id is its private network. */
 export const tenantOwnsMesh = <C, R>(caller: Named<C, Principal>, mesh: Named<R, MeshId>) => owns(caller, mesh, "mesh");

@@ -3,7 +3,7 @@ import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
 import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
-import { TenantId, VmId, VmCreationKey } from "../../src/lib/ids.ts";
+import { newSnapshotId, newVmId, TenantId, VmId, VmCreationKey } from "../../src/lib/ids.ts";
 
 it("persists generated history and permanent replay through native RPC serialization", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();
@@ -100,4 +100,25 @@ it("serializes dispatch and cancellation through the native RPC and retains the 
   await Effect.runPromise(limits.rejectCreateSend(tenant, "cancel", id, "original"));
   expect((await Effect.runPromise(limits.inspect(tenant, "cancel")))?.progress).toMatchObject({ phase: "cancelled" });
   expect(await stub.begin("cancel", "request", now + IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "resume", progress: { phase: "cancelled" } });
+});
+
+it("persists snapshot capture fences and quota through the actual native RPC", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  const id = newSnapshotId(), intent = { id, sourceVmId: newVmId(), displayName: null, labels: {}, createdBy: "service:cloud",
+    createdAt: new Date(now).toISOString(), ttlSeconds: null, autoDeleteSeconds: null };
+  await Effect.runPromise(limits.snapshotCapture(tenant, { op: "begin", key: "snapshot", fingerprint: "request", intent, nonce: "lease" }));
+  const reserved = await Effect.runPromise(limits.reserve(tenant, "snapshot", 1, 0));
+  if (!reserved.ok) throw new Error("reservation missing");
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "prepare", id, nonce: "lease", reservationId: reserved.reservationId,
+    probe: { context: "context", source: "source", stamp: "stamp" } }))).toMatchObject({ granted: true });
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "send", id, token: "one" }))).toMatchObject({ granted: true });
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "send", id, token: "two" }))).toMatchObject({ granted: false });
+  await Effect.runPromise(limits.snapshotCapture(tenant, { op: "cancel", id }));
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "commit", id }))).toMatchObject({ granted: false });
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  expect(await stub.reserve("snapshot", 1, 0, now + IDEMPOTENCY_TTL_MS * 2, "held")).toEqual({ ok: false });
+  await Effect.runPromise(limits.snapshotCapture(tenant, { op: "cancelled", id }));
+  expect(await stub.snapshotCapture({ op: "get", id }, now + IDEMPOTENCY_TTL_MS * 2)).toMatchObject({ record: { state: "cancelled" } });
+  expect(await Effect.runPromise(limits.snapshotCapture(tenant, { op: "list", limit: 1 }))).toMatchObject({ state: "page", items: [{ intent: { id } }] });
 });

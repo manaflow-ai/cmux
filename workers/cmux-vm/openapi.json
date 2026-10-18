@@ -3047,6 +3047,459 @@
         "summary": "List a directory in a VM"
       }
     },
+    "/v1/snapshot-creations": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.listSnapshotCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$",
+              "pattern": "^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List snapshot captures, newest first. Requires the snapshot:read scope. Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.",
+        "summary": "List snapshot captures, newest first"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.getSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a snapshot capture. Requires the snapshot:read scope. Read only; never contacts the provider.",
+        "summary": "Inspect a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/reconcile": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.reconcileSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reconcile a snapshot capture. Requires the snapshot:write scope. Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.",
+        "summary": "Reconcile a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/cancel": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.cancelSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel a pending snapshot capture. Requires the snapshot:write scope. Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.",
+        "summary": "Cancel a pending snapshot capture"
+      }
+    },
     "/v1/vms/{vmId}/snapshots": {
       "post": {
         "tags": [
@@ -3186,7 +3639,7 @@
             }
           }
         },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
         "summary": "Snapshot a running or paused VM",
         "requestBody": {
           "content": {
@@ -7182,6 +7635,11 @@
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7209,6 +7667,11 @@
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7230,6 +7693,11 @@
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "retryAfterSeconds": {
             "$ref": "#/components/schemas/Int"
@@ -7471,6 +7939,11 @@
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7492,6 +7965,11 @@
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "_tag": {
             "type": "string",
@@ -7990,6 +8468,11 @@
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -8418,6 +8901,122 @@
         },
         "additionalProperties": false
       },
+      "SnapshotCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotCreationStatus"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id",
+          "receipt"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SnapshotSummary"
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceVmId",
+          "displayName",
+          "labels",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "sourceVmId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "$ref": "#/components/schemas/SnapshotLabels"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
+      },
       "CreateSnapshotRequest": {
         "type": "object",
         "required": [],
@@ -8448,16 +9047,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "SnapshotLabels": {
-        "type": "object",
-        "required": [],
-        "properties": {},
-        "additionalProperties": {
-          "type": "string",
-          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-        }
       },
       "Snapshot": {
         "type": "object",
@@ -8561,52 +9150,6 @@
                 "type": "null"
               }
             ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "SnapshotSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "sourceVmId",
-          "displayName",
-          "labels",
-          "createdAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-          },
-          "sourceVmId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "labels": {
-            "$ref": "#/components/schemas/SnapshotLabels"
-          },
-          "createdAt": {
-            "type": "string"
           }
         },
         "additionalProperties": false

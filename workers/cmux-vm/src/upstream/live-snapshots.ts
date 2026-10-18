@@ -2,6 +2,7 @@
  * The live provider snapshot client (see src/upstream/snapshots.ts for the
  * interface). Imported only from src/upstream/, src/proofs/ and src/index.ts.
  */
+import { makeSnapshotCaptureClient } from "./snapshot-capture.ts";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
@@ -25,6 +26,7 @@ export function makeUpstreamSnapshots(config: UpstreamConfig): UpstreamSnapshots
   const created = new WeakSet<CreatedSnapshot>();
 
   return {
+    ...makeSnapshotCaptureClient(config, http, (result) => { created.add(result); return result; }),
     createSnapshot: (_vm, { owns }, options) =>
       http
         .json(

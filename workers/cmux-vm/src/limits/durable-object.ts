@@ -4,6 +4,7 @@
  * two concurrent creates cannot both take the last quota slot, and two
  * requests with the same idempotency key cannot both start.
  */
+import type { SnapshotCaptureCommand, SnapshotCaptureResult } from "./snapshot-capture.ts";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -27,6 +28,8 @@ const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): Ledg
 
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
+
+  snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return this.ledger.snapshotCapture(command, nowMs); }
 
   beginCreateSend(key: string, vmId: string, token: string): Promise<boolean> { return this.ledger.beginCreateSend(key, vmId, token); }
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> { return this.ledger.rejectCreateSend(key, vmId, token); }

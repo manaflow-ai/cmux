@@ -8,7 +8,7 @@ import { Schema } from "effect";
 import { ReportedScope, type Scope } from "./domain/scopes.ts";
 import { SnapshotId, VmCreationKey } from "./lib/ids.ts";
 
-const CreationRecovery = { creationKey: Schema.optional(VmCreationKey) };
+const CreationRecovery = { creationKey: Schema.optional(VmCreationKey), pendingSnapshotId: Schema.optional(SnapshotId) };
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",

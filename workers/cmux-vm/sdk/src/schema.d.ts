@@ -433,6 +433,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/snapshot-creations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List snapshot captures, newest first
+         * @description List snapshot captures, newest first. Requires the snapshot:read scope. Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.
+         */
+        get: operations["snapshots.listSnapshotCreations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a snapshot capture
+         * @description Inspect a snapshot capture. Requires the snapshot:read scope. Read only; never contacts the provider.
+         */
+        get: operations["snapshots.getSnapshotCreation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile a snapshot capture
+         * @description Reconcile a snapshot capture. Requires the snapshot:write scope. Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.
+         */
+        post: operations["snapshots.reconcileSnapshotCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/snapshot-creations/{snapshotId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a pending snapshot capture
+         * @description Cancel a pending snapshot capture. Requires the snapshot:write scope. Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.
+         */
+        post: operations["snapshots.cancelSnapshotCreation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/snapshots": {
         parameters: {
             query?: never;
@@ -444,7 +524,7 @@ export interface paths {
         put?: never;
         /**
          * Snapshot a running or paused VM
-         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+         * @description Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
          */
         post: operations["snapshots.createSnapshot"];
         delete?: never;
@@ -988,6 +1068,8 @@ export interface components {
         ServiceUnavailable: {
             message: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "ServiceUnavailable";
         };
@@ -996,12 +1078,16 @@ export interface components {
         NotFound: {
             message: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "NotFound";
         };
         QuotaExceeded: {
             message: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
             budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
@@ -1075,12 +1161,16 @@ export interface components {
         BadRequest: {
             message: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "BadRequest";
         };
         Conflict: {
             message: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "Conflict";
         };
@@ -1272,6 +1362,8 @@ export interface components {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             snapshotId: string;
             creationKey?: components["schemas"]["VmCreationKey"];
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            pendingSnapshotId?: string;
             /** @enum {string} */
             _tag: "ForkIncomplete";
         };
@@ -1400,6 +1492,30 @@ export interface components {
             /** @enum {string} */
             kind: "file" | "directory" | "symlink" | "other";
         };
+        SnapshotCreationList: {
+            items: components["schemas"]["SnapshotCreationStatus"][];
+            nextCursor: string | null;
+        };
+        SnapshotCreationStatus: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted";
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            receipt: components["schemas"]["SnapshotSummary"];
+            /** @enum {string} */
+            cancellation?: "requested" | "completed";
+        };
+        SnapshotSummary: {
+            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            sourceVmId: string | null;
+            displayName: string | null;
+            labels: components["schemas"]["SnapshotLabels"];
+            createdAt: string;
+        };
+        SnapshotLabels: {
+            [key: string]: string;
+        };
         CreateSnapshotRequest: {
             /**
              * maxLength(100)
@@ -1418,9 +1534,6 @@ export interface components {
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
         };
-        SnapshotLabels: {
-            [key: string]: string;
-        };
         /** @description A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters. */
         Snapshot: {
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -1436,14 +1549,6 @@ export interface components {
         SnapshotList: {
             items: components["schemas"]["SnapshotSummary"][];
             nextCursor: string | null;
-        };
-        SnapshotSummary: {
-            /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
-            id: string;
-            sourceVmId: string | null;
-            displayName: string | null;
-            labels: components["schemas"]["SnapshotLabels"];
-            createdAt: string;
         };
         InvalidRequest: {
             message: string;
@@ -3745,6 +3850,325 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.listSnapshotCreations": {
+        parameters: {
+            query?: {
+                /** @description a string to be decoded into a number */
+                limit?: string;
+                /** @description a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$ */
+                cursor?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.getSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.reconcileSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "snapshots.cancelSnapshotCreation": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                snapshotId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SnapshotCreationStatus */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotCreationStatus"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
                 };
             };
             /** @description Unauthorized */

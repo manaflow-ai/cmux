@@ -71,6 +71,22 @@ describe("migration 0003", () => {
 });
 
 describe("snapshot store", () => {
+  it("replays the same ownership write and rejects identity changes or resurrection", async () => {
+    const value = { tenantId: TENANT_A, id: newSnapshotId(), sourceVmId: newVmId(), upstreamId: UpstreamId.make("sh-capture"),
+      createdBy: "service:cloud", displayName: "capture", labels: { role: "cloud" }, createdAt: new Date("2026-10-18T00:00:00Z") };
+    const write = (input: typeof value) => run(Effect.flatMap(SnapshotStore, (store) => store.record(input)));
+    await write(value); await write(value);
+    for (const change of [{ tenantId: TENANT_B }, { upstreamId: UpstreamId.make("sh-different") }, { sourceVmId: newVmId() },
+      { createdBy: "service:different" }, { labels: { role: "different" } }, { displayName: "different" }, { createdAt: new Date() }]) {
+      await expect(write({ ...value, ...change })).rejects.toThrow();
+    }
+    await run(Effect.flatMap(SnapshotStore, (store) => store.markDeleted(TENANT_A, value.id, new Date())));
+    await expect(write(value)).rejects.toThrow();
+    const inspected = await run(Effect.flatMap(SnapshotStore, (store) => store.inspect(TENANT_A, value.id)));
+    expect(Option.isSome(inspected) && inspected.value).toMatchObject({ id: value.id, deleted: true, createdBy: "service:cloud" });
+    expect(Option.isNone(await run(Effect.flatMap(SnapshotStore, (store) => store.inspect(TENANT_B, value.id))))).toBe(true);
+  });
+
   it("intersects creator, tenant, source, labels, allowlist and deletion before paging", async () => {
     const vm = newVmId();
     const one = await run(record(TENANT_A, 1, { role: "cloud" }, vm, "service:cloud"));

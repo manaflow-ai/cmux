@@ -7,6 +7,7 @@
  * Nothing here holds a secret, a command or a provider id: idempotency records
  * keep request/provider digests, public creation intent and public cmux ids.
  */
+import { snapshotCapture, type SnapshotCaptureCommand, type SnapshotCaptureResult } from "./snapshot-capture.ts";
 import { Schema } from "effect";
 import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
@@ -135,6 +136,8 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
+
+  snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return snapshotCapture(this.storage, command, nowMs); }
 
   /** Read only: inspecting an expired record never drops a retained allocation. */
   async inspect(key: string): Promise<IdempotencyRecord | null> {

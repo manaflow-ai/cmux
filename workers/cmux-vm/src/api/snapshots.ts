@@ -5,7 +5,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Conflict, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
+import { Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
@@ -66,6 +66,18 @@ export class SnapshotList extends Schema.Class<SnapshotList>("SnapshotList")({
   nextCursor: Schema.NullOr(Schema.String),
 }) {}
 
+export class SnapshotCreationStatus extends Schema.Class<SnapshotCreationStatus>("SnapshotCreationStatus")({
+  state: Schema.Literal("pending", "committed", "deleted"), id: SnapshotId, receipt: SnapshotSummary,
+  cancellation: Schema.optional(Schema.Literal("requested", "completed")),
+}) {}
+export class SnapshotCreationList extends Schema.Class<SnapshotCreationList>("SnapshotCreationList")({
+  items: Schema.Array(SnapshotCreationStatus), nextCursor: Schema.NullOr(Schema.String),
+}) {}
+const CreationListParams = Schema.Struct({
+  limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
+  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$/))),
+});
+
 export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("CreateSnapshotRequest")({
   displayName: Schema.optional(DisplayName),
   labels: Schema.optional(Labels),
@@ -90,6 +102,18 @@ const SnapshotPath = Schema.Struct({ snapshotId: Schema.String });
 
 /** Endpoints without the Authentication middleware; src/api.ts applies it. */
 export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
+  .add(HttpApiEndpoint.get("listSnapshotCreations", "/v1/snapshot-creations")
+    .setHeaders(GroupTeamHeaders).setUrlParams(CreationListParams).addSuccess(SnapshotCreationList).addError(Forbidden).addError(QuotaExceeded)
+    .annotateContext(describe("List snapshot captures, newest first", "snapshot:read", "Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.")))
+  .add(HttpApiEndpoint.get("getSnapshotCreation", "/v1/snapshot-creations/:snapshotId")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(QuotaExceeded)
+    .annotateContext(describe("Inspect a snapshot capture", "snapshot:read", "Read only; never contacts the provider.")))
+  .add(HttpApiEndpoint.post("reconcileSnapshotCreation", "/v1/snapshot-creations/:snapshotId/reconcile")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(QuotaExceeded)
+    .annotateContext(describe("Reconcile a snapshot capture", "snapshot:write", "Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.")))
+  .add(HttpApiEndpoint.post("cancelSnapshotCreation", "/v1/snapshot-creations/:snapshotId/cancel")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+    .annotateContext(describe("Cancel a pending snapshot capture", "snapshot:write", "Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.")))
   .add(
     HttpApiEndpoint.post("createSnapshot", "/v1/vms/:vmId/snapshots")
       .setPath(VmPath)
@@ -104,7 +128,7 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
         describe(
           "Snapshot a running or paused VM",
           "snapshot:write",
-          `The snapshot captures memory and disk; VMs can boot from it as soon as this returns. ${RESTORE_NOTE}`,
+          `Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. ${RESTORE_NOTE}`,
         ),
       ),
   )
