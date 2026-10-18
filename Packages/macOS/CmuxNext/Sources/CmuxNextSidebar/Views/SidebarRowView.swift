@@ -10,7 +10,7 @@ class SidebarRowView: NSView {
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
     /// The row is the sidebar's selected item and paints the selection fill.
     /// A selection change paints at once, never fades or travels
-    /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION); hover alone fades.
+    /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION); hover changes apply in place.
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
@@ -92,21 +92,24 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        // Hover state is a pointer affordance; update its fill and controls
+        // in the same turn so moving between rows never leaves a transient
+        // half-hovered state on screen.
+        fadesNextFill = false
+        fadesNextHover = false
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades in and out
-    /// (`MotionFade.hover` both ways, Leo 2026-10-13: moving between rows
-    /// snapped); reloads and theme changes apply at once.
+    /// Whether the next fill change should animate. Hover changes leave this
+    /// false so moving between rows applies in one frame; reloads and theme
+    /// changes also apply at once.
     var fadesNextFill = false
-    /// The next layout came from hover: the row's hover controls fade in
-    /// place (the row's `layout()` clears it).
+    /// Whether the next layout should animate hover controls. This remains
+    /// false so controls appear or disappear in their reserved slots at once.
     var fadesNextHover = false
 
-    /// Paints `color` on the row's backing layer, fading when hover changed
-    /// it. Call from `updateLayer()` inside the theme scope.
+    /// Paints `color` on the row's backing layer. Call from `updateLayer()`
+    /// inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }

@@ -7,8 +7,8 @@ import QuartzCore
 
 /// One item of a pinned section: a row (built-in or list look) or a tray
 /// tile. A pill shows on hover, while pressed and while the item is
-/// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
-/// pointer changes. The rail's icon-only items show unread items as a dot
+/// active, in the shared chrome fills (`ChromeHover.fillColor`). Pointer
+/// changes apply immediately. The rail's icon-only items show unread items as a dot
 /// on the glyph instead of a count; the sidebar's own icon looks hide them.
 class SidebarItemRowView: NSView {
     enum Style: Hashable {
@@ -59,7 +59,8 @@ class SidebarItemRowView: NSView {
     }
     private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
-    /// The next fill change came from the pointer, so it fades.
+    /// The next fill change came from the pointer. Pointer feedback is
+    /// applied immediately.
     private var fadesNextFill = false
 
     override init(frame: NSRect) {
@@ -166,7 +167,7 @@ class SidebarItemRowView: NSView {
     }
 
     private func pointerChanged() {
-        fadesNextFill = true
+        fadesNextFill = false
         needsDisplay = true
     }
 
