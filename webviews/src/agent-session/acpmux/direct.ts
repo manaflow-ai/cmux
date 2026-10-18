@@ -637,6 +637,10 @@ export class AcpmuxDirectClient {
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
+  /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
+  /// names the options it runs now), then each newer config update. A replayed update at or before
+  /// it is history and never takes the current options back (a chat moved from Low to High).
+  private configSeq = 0;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private pendingSecret?: AcpmuxSecretAsk;
@@ -981,6 +985,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
+    this.configSeq = 0;
     this.usage = undefined;
     this.queue = [];
     this.turnOpen = false;
@@ -1435,6 +1440,7 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
+    this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = (detail.queue ?? []).map((entry: any) => ({
       id: String(entry.promptId),
       prompt: String(entry.prompt ?? ""),
@@ -1682,7 +1688,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
-      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
+      if (!Array.isArray(update.configOptions) || (event.seq && event.seq <= this.configSeq)) return;
+      this.summary = { ...this.summary, configOptions: update.configOptions };
+      if (event.seq) this.configSeq = event.seq;
       return;
     }
     if (event.dir === "mux") {
