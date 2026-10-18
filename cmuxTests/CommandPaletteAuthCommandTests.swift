@@ -24,7 +24,8 @@ struct CommandPaletteAuthCommandTests {
         context.setBool(CommandPaletteContextKeys.authWorking, false)
         #expect(visibleAuthCommandIDs(context) == [
             ContentView.commandPaletteAuthSignOutCommandId,
-            ContentView.commandPaletteAuthTeamPickerCommandId
+            ContentView.commandPaletteAuthTeamPickerCommandId,
+            ContentView.commandPaletteAuthTeamMembersCommandId
         ])
     }
 

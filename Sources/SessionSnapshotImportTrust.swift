@@ -45,7 +45,7 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
 ///   prefix) and never records approvals for them, so they only run through
 ///   `cmux restore --surface`. A hook binding already covered by a rebuilt
 ///   built-in agent is dropped.
-/// - tmux start commands are dropped.
+/// - tmux start commands and recorded Claude background viewers are dropped.
 /// - Scrollback keeps text and SGR styling only; OSC (clipboard, notification,
 ///   hyperlink, title, cwd), DCS, APC, PM, SOS and other control sequences
 ///   are removed before replay.
@@ -70,6 +70,7 @@ enum SessionSnapshotImportTrust {
             .builtInAntigravity,
             .builtInGrok,
             .builtInKimi,
+            .builtInMuse,
             .builtInHermes,
         ]
         return Dictionary(builtIns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -149,8 +150,6 @@ enum SessionSnapshotImportTrust {
         }
         guard var terminal = panel.terminal else { return panel }
         var heldBack = false
-        // Only this Mac's own update relaunch may ask an agent to continue.
-        terminal.resumeWithContinuation = nil
 
         var rebuiltAgent: SessionRestorableAgentSnapshot?
         if let agent = terminal.agent {
@@ -183,6 +182,12 @@ enum SessionSnapshotImportTrust {
 
         if terminal.tmuxStartCommand != nil {
             terminal.tmuxStartCommand = nil
+            heldBack = true
+        }
+        // A recorded `claude attach` viewer carries a launch prefix and config
+        // directory that restore would type; a file must not supply them.
+        if terminal.claudeBackgroundViewer != nil {
+            terminal.claudeBackgroundViewer = nil
             heldBack = true
         }
         if heldBack {
@@ -286,6 +291,10 @@ enum SessionSnapshotImportTrust {
         sanitized.cloudTeamID = nil
         sanitized.diffViewerToken = nil
         sanitized.diffViewerRequestPath = nil
+        // WebKit's interaction state holds its own back/forward list, which
+        // would bypass the history filter above.
+        sanitized.interactionState = nil
+        sanitized.keepsPageActive = nil
         sanitized.transparentBackground = nil
         sanitized.developerToolsVisible = false
         let changed = sanitized.urlString != browser.urlString
@@ -296,6 +305,8 @@ enum SessionSnapshotImportTrust {
             || browser.cloudTeamID != nil
             || browser.diffViewerToken != nil
             || browser.diffViewerRequestPath != nil
+            || browser.interactionState != nil
+            || browser.keepsPageActive != nil
             || browser.transparentBackground != nil
             || browser.developerToolsVisible
         return (sanitized, changed)

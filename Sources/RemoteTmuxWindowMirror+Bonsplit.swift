@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxRemoteSession
 import Foundation
+import SwiftUI
 
 @MainActor
 extension RemoteTmuxWindowMirror {
@@ -16,6 +18,9 @@ extension RemoteTmuxWindowMirror {
     func configureBonsplitController() {
         bonsplitController.delegate = self
         bonsplitController.tabShortcutHintsEnabled = false
+        bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         bonsplitController.onExternalTabDrop = { _ in false }
     }
 

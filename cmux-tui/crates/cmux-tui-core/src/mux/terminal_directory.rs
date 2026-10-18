@@ -74,7 +74,9 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
-        self.publish_resource_event();
+        // Notify directly: publish_resource_event would retry pending
+        // directories, including this one, from inside its own publication.
+        self.publish_journal_event();
         Ok(true)
     }
 
@@ -85,5 +87,65 @@ impl Mux {
         for surface in terminals {
             surface.publish_pending_directory();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn published_cwds(mux: &Mux) -> Vec<Value> {
+        mux.resource_events_after(0)
+            .unwrap()
+            .batches
+            .iter()
+            .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+            .filter(|change| change["resource"] == "terminal")
+            .map(|change| change["value"]["cwd"].clone())
+            .collect()
+    }
+
+    #[test]
+    fn cwd_reported_before_terminal_registration_reaches_event_feed() {
+        // A new Cloud terminal's shell can print its first prompt, OSC 7
+        // included, before the daemon has registered the terminal. The reader
+        // then cannot publish and leaves the report pending. Clients follow the
+        // incremental event feed, so the pending report must be published once
+        // the terminal joins the graph, not only after the shell prints again or
+        // someone reads a full snapshot.
+        let mux = Mux::new_for_test("cwd-before-registration", SurfaceOptions::default());
+        *mux.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() =
+            Some(Arc::new(|surface: &Arc<Surface>| {
+                assert!(surface.terminal_public_id().is_some());
+                surface.set_test_pwd(Some("file://localhost/srv/early".into()));
+                // The reader's attempt: the terminal is not in the catalog yet.
+                surface.publish_pending_directory();
+            }));
+        let request = serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"create",
+            "operation":"workspace.create",
+            "idempotency_key":"cwd-before-registration",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "name":"early cwd",
+                "initial_content":"terminal",
+            },
+        });
+        let created =
+            crate::resource_router::handle_resource_message(&mux, &request.to_string()).unwrap();
+        assert_eq!(created["ok"], true, "{created}");
+        let cwds = published_cwds(&mux);
+        assert_eq!(
+            cwds.iter().filter(|cwd| *cwd == "/srv/early").count(),
+            1,
+            "the first prompt's cwd must reach the event feed exactly once: {cwds:?}"
+        );
+        // The report follows the creation that made the terminal public.
+        assert_eq!(cwds.last().unwrap(), "/srv/early", "{cwds:?}");
+        mux.shutdown();
     }
 }

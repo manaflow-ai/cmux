@@ -1,7 +1,11 @@
 import { Effect } from "effect";
 import { getStackServerApp } from "../../app/lib/stack";
 import { authorizedSubrouterTeams } from "../subrouter/routeHelpers";
-import { SubrouterAuthorizationUnavailableError, type AuthedUser } from "../vms/auth";
+import {
+  deadlineGatedStackCall,
+  SubrouterAuthorizationUnavailableError,
+  type AuthedUser,
+} from "../vms/auth";
 
 /** Provider accounts are team resources: every member may add, change, share
  * their own imports, transfer and remove them (routeHelpers MEMBER_CAPABILITIES).
@@ -22,11 +26,69 @@ export async function canManageCoderouterApiKeys(userId: string, teamId: string)
   return result.right;
 }
 
-export async function authorizedCoderouterTeams(user: AuthedUser) {
+/** The organization catalog: every team with its API-key administration grant.
+ * Runs inside the caller's authorization deadline. The Stack user is fetched
+ * once for all teams (the per-team form fetched it N times), and every call
+ * goes through the deadline gate so nothing new starts after the 503. */
+export async function authorizedCoderouterTeams(user: AuthedUser, signal: AbortSignal) {
   const teams = authorizedSubrouterTeams(user);
-  return Promise.all(teams.map(async team => ({ ...team,
-    manageApiKeys: await canManageCoderouterApiKeys(user.id, team.teamId),
-  })));
+  const memberTeamIds = teams.map(team => team.teamId).filter(teamId => teamId !== user.id);
+  const grants = await apiKeyAdministrationGrants(user.id, memberTeamIds, signal);
+  return teams.map(team => ({ ...team,
+    manageApiKeys: team.teamId === user.id || grants.has(team.teamId),
+  }));
+}
+
+async function apiKeyAdministrationGrants(
+  userId: string,
+  teamIds: readonly string[],
+  signal: AbortSignal,
+): Promise<ReadonlySet<string>> {
+  if (teamIds.length === 0) return new Set();
+  const app = getStackServerApp();
+  const stackUser = await deadlineGatedStackCall(() => app.getUser(userId), signal, "get_user_by_id");
+  if (!stackUser) return new Set();
+  // Bounded below the shared gate (8 active, 32 queued per instance): an
+  // unbounded fan-out for a user in 41+ teams would overflow the queue and
+  // turn a healthy request into a 503, and would starve concurrent logins.
+  const granted = await mapBounded(teamIds, API_KEY_GRANT_CONCURRENCY, async (teamId) => {
+    const team = await deadlineGatedStackCall(() => app.getTeam(teamId), signal, "get_team");
+    if (!team) return null;
+    const allowed = await deadlineGatedStackCall(
+      () => stackUser.hasPermission(team, "$manage_api_keys"),
+      signal,
+      "has_permission",
+    );
+    return allowed ? teamId : null;
+  });
+  return new Set(granted.filter((teamId): teamId is string => teamId !== null));
+}
+
+const API_KEY_GRANT_CONCURRENCY = 4;
+
+/** `work` over `items` with at most `limit` in flight, in input order. The
+ * first rejection stops workers from starting more items. */
+async function mapBounded<Item, Result>(
+  items: readonly Item[],
+  limit: number,
+  work: (item: Item) => Promise<Result>,
+): Promise<Result[]> {
+  const results: Result[] = new Array(items.length);
+  let next = 0;
+  let failed = false;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await work(items[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** The API-key routes' gate: null when the caller may create or revoke the

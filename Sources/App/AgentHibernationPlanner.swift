@@ -4,10 +4,14 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
     case scheduled
     case systemMemoryPressure
     case aggregateMemoryPressure
+    /// The user asked for one specific agent (`cmux agent hibernate`). It skips
+    /// the idle delay, live-terminal limit and confirmation window, and keeps
+    /// every safety check.
+    case manual
 
     var isMemoryPressure: Bool {
         switch self {
-        case .scheduled:
+        case .scheduled, .manual:
             false
         case .systemMemoryPressure, .aggregateMemoryPressure:
             true
@@ -48,6 +52,9 @@ enum AgentHibernationPlanner {
         case .scheduled:
             guard settings.enabled else { return [] }
             scheduledExcess = liveRestorable.count - settings.maxLiveTerminals
+        case .manual:
+            // Manual requests name their panel and never go through the planner.
+            return []
         case .systemMemoryPressure, .aggregateMemoryPressure:
             // Memory pressure is a trigger, not a memory or agent quota.
             // Every candidate that is already idle and independently proven

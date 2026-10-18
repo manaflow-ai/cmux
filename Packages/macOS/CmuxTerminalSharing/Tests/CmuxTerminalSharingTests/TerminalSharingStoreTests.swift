@@ -54,6 +54,17 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         return (store, controller, id)
     }
 
+    /// This Mac's own UI never disconnects its own view, but another
+    /// participant (a phone or a viewing Mac, which passes `by`) may.
+    @Test func onlyAnotherParticipantDisconnectsThisView() {
+        let (store, controller, id) = fixture()
+        #expect(!store.disconnect(participantID: "mac:1", surfaceID: id))
+        let phone = TerminalDetachActor(userID: "u_a", displayName: "A", deviceName: "A's iPhone")
+        #expect(store.disconnect(participantID: "mac:1", surfaceID: id, by: phone))
+        #expect(controller.disconnected == ["mac:1"])
+        #expect(store.snapshot(for: id)?.state.participant("mac:1") == nil)
+    }
+
     @Test func disconnectOthersNeverDisconnectsSelf() {
         let (store, controller, id) = fixture()
         #expect(store.disconnectOthers(surfaceID: id) == 2)

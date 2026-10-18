@@ -3,6 +3,33 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test(
+        "Strips the cmux NODE_OPTIONS restore preload when HOME contains a space",
+        arguments: [
+            (
+                #"--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096 --trace-warnings"#,
+                "--trace-warnings"
+            ),
+            (
+                #"--require "/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size 4096 --trace-warnings"#,
+                "--trace-warnings"
+            ),
+            (
+                #"-r "/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs""#,
+                nil
+            ),
+            (
+                #"--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096 --require="/Users/a b/lib/user \"preload\".cjs"  --inspect"#,
+                #"--require="/Users/a b/lib/user \"preload\".cjs" --inspect"#
+            ),
+        ] as [(String, String?)]
+    )
+    func stripsQuotedNodeOptionsRestorePreload(raw: String, expected: String?) {
+        #expect(
+            AgentLaunchEnvironmentPolicy().sanitizedValue(key: "NODE_OPTIONS", value: raw) == expected
+        )
+    }
+
     @Test("Custom Codex executable remains scoped to Codex restores")
     func customCodexExecutableRemainsScopedToCodexRestores() {
         let policy = AgentLaunchEnvironmentPolicy()
@@ -56,6 +83,16 @@ struct AgentLaunchEnvironmentPolicyTests {
     @Test("Cursor restore capture includes XDG fallback input")
     func cursorRestoreCaptureIncludesXDGFallbackInput() {
         #expect(AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+    }
+
+    @Test("Custom Antigravity executable remains scoped to Antigravity restores")
+    func customAntigravityExecutableRemainsScopedToAntigravityRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["CMUX_CUSTOM_ANTIGRAVITY_PATH": "/opt/antigravity/bin/agy"]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "antigravity") == environment)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
     }
 
     @Test("Preserves OMP config roots without persisting secrets")

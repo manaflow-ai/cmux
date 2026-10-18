@@ -27,7 +27,9 @@ struct GhosttyHostActionHandler {
         switch action {
         case .newWorkspace:
             return app.performNewWorkspaceAction(
-                tabManager: context.manager, debugSource: "ghostty.new_tab"
+                tabManager: context.manager,
+                debugSource: "ghostty.new_tab",
+                localOnly: true
             )
         case .selectWorkspace(let index):
             guard let manager = context.manager else { break }
@@ -57,8 +59,11 @@ struct GhosttyHostActionHandler {
             return true
         case .closeWindow:
             guard let window = context.window, let manager = context.manager else { break }
-            Task { @MainActor [weak app, weak window, weak manager] in
-                guard let app, let window, manager?.window === window,
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak app, weak manager] in
+                guard let app,
+                      let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+                      manager?.window === window,
                       manager?.isFinalizedForWindowClose == false else { return }
                 _ = app.closeWindowWithConfirmation(window)
             }

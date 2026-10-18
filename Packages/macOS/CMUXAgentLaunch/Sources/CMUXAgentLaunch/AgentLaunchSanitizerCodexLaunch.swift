@@ -169,9 +169,13 @@ private func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
 
 private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
     var index = 0
-    if index + 1 < args.count, args[index] == "--enable", args[index + 1] == "hooks" {
+    let hookFeatureNames = ["hooks", "codex_hooks"]
+    if index + 1 < args.count,
+       args[index] == "--enable",
+       hookFeatureNames.contains(args[index + 1]) {
         index += 2
-    } else if index < args.count, args[index] == "--enable=hooks" {
+    } else if index < args.count,
+              hookFeatureNames.contains(where: { args[index] == "--enable=\($0)" }) {
         index += 1
     } else {
         return nil
@@ -229,10 +233,23 @@ private func isCmuxInjectedCodexHookConfigValue(
 
     let body = String(value[value.index(after: equals)...])
     let prefix = "[{hooks=[{type=\"command\",command='''"
-    let suffix = "''',timeout=\(event.timeoutMs)}]}]"
-    guard body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
-    let command = String(body.dropFirst(prefix.count).dropLast(suffix.count))
-    return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
+    let lastTimeout = event.companion?.timeoutMs ?? event.timeoutMs
+    let suffix = "''',timeout=\(lastTimeout)}]}]"
+    guard body.count >= prefix.count + suffix.count,
+          body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
+    let inner = String(body.dropFirst(prefix.count).dropLast(suffix.count))
+    guard let companion = event.companion else {
+        return isCmuxCodexHookCommand(inner, subcommand: event.cmuxSubcommand)
+    }
+    // Two handlers in one group, split on the exact separator cmux emits.
+    // Generated commands never contain a triple single quote. A crafted value
+    // can still pass the inline command check below, which is as loose as it
+    // is for single-handler values; stripping it only drops it from replay.
+    let separator = "''',timeout=\(event.timeoutMs)},{type=\"command\",command='''"
+    let commands = inner.components(separatedBy: separator)
+    guard commands.count == 2 else { return false }
+    return isCmuxCodexHookCommand(commands[0], subcommand: event.cmuxSubcommand)
+        && isCmuxCodexHookCommand(commands[1], subcommand: companion.cmuxSubcommand)
 }
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {

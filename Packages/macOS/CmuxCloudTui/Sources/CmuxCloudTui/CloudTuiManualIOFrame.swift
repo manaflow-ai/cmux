@@ -38,8 +38,15 @@ public enum CloudTuiManualIOFrame: Equatable, Sendable {
     )
     case colorsChanged(surfaceID: UInt64, colors: CloudTuiRemoteColors)
     /// `reason` defaults to `network` for daemons that send none; `view` names
-    /// a relay sub-view (a phone behind this Mac) when only it was detached.
-    case detached(surfaceID: UInt64, reason: TerminalDetachReason = .network, view: String? = nil)
+    /// a relay sub-view (a phone behind this Mac) when only it was detached;
+    /// `viewOnly` (`scope:"view"`) means only this Mac's own view left and
+    /// the connection and its relay sub-views stay.
+    case detached(
+        surfaceID: UInt64,
+        reason: TerminalDetachReason = .network,
+        view: String? = nil,
+        viewOnly: Bool = false
+    )
     /// The host's published size state (`size-state`, `shared-sizing-v1`).
     case sizeState(surfaceID: UInt64, state: TerminalSizingState)
     case overflow(surfaceID: UInt64?)

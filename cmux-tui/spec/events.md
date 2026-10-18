@@ -76,7 +76,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `browser-state` | browser attach | `surface` | protocol 6 |
 | `frame` | browser attach | `surface` | protocol 6 |
 | `scroll-changed` | subscribe and all attach modes | `surface` | protocol 6 |
-| `detached` | byte/render/browser attach | `surface` | protocol 5; `reason`, `by`, `view` additive with `shared-sizing-v1` |
+| `detached` | byte/render/browser attach | `surface` | protocol 5; `reason`, `by`, `view` additive with `shared-sizing-v1`; `scope` with `sizing-view-detach-v1` |
 
 ## Ordering Guarantees
 
@@ -1095,7 +1095,7 @@ Payload: `object{event:"frame",surface:Id,seq:uint64,width:uint32,height:uint32,
 Payload:
 
 ```text
-object{event:"detached",surface:Id,reason?:"network"|"disconnected-by"|"host-shutdown",by?:object{user_id?,display_name?,device_name?},view?:string}
+object{event:"detached",surface:Id,reason?:"network"|"disconnected-by"|"host-shutdown",by?:object{user_id?,display_name?,device_name?},view?:string,scope?:"view"}
 ```
 
 Meaning: The attach stream ended because the surface disappeared, its output
@@ -1105,7 +1105,9 @@ the actor), `host-shutdown` after `shutdown-daemon`, and `network` otherwise.
 A client treats an absent or unknown reason as `network` and reconnects; it
 must not reconnect automatically after `disconnected-by`. `view` is present
 only when a relay sub-view was detached; the relay keeps its own attachment
-and forwards the notice to that leaf.
+and forwards the notice to that leaf. `scope:"view"` means only the
+receiving client's own view left shared sizing; its connection and attach
+stream stay, and `reattach-view` restores the view.
 
 Example:
 

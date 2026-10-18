@@ -17,8 +17,6 @@ extension CMUXCLI {
         let permissionMode: String?
         let legacyCommand: String?
         let legacyForkCommand: String?
-        /// A prompt for the resumed agent's next turn; see `AgentRestoreRequest.continuationPrompt`.
-        let continuationPrompt: String?
 
         /// Compatibility alias matching the wire field name `fork_command`.
         var forkCommand: String? { legacyForkCommand }
@@ -46,8 +44,7 @@ extension CMUXCLI {
                 legacyCommand: legacyCommand,
                 // A compatibility fork command also embeds the superseded
                 // checkpoint; never replay it after Hermes identity recovery.
-                legacyForkCommand: nil,
-                continuationPrompt: continuationPrompt
+                legacyForkCommand: nil
             )
         }
     }

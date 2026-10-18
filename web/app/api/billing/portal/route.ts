@@ -10,12 +10,15 @@ import {
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import { resolveProPlanStatus, stripeBillingStatusForUser } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
-import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import {
+  personalPortalSession,
+  personalSwitchLinkRedirect,
+} from "../../../../services/billing/personalPortal";
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
@@ -74,6 +77,20 @@ export async function GET(request: NextRequest) {
     // still needs the caller to be its admin.
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
     if (team?.id) return await explicitTeamPortal(request, user, team.id);
+    const target = request.nextUrl.searchParams.get("plan");
+    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
+    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
+      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
+    }
+    // A switch the hosted portal cannot do goes to checkout or the dashboard
+    // dialog, including for an account with no Stripe customer yet.
+    const switchStatus = wantsSwitch ? await stripeBillingStatusForUser(user.id) : null;
+    const switchRedirect = switchStatus && wantsSwitch
+      ? personalSwitchLinkRedirect({
+          status: switchStatus, origin: requestOrigin(request), target, searchParams: request.nextUrl.searchParams,
+        })
+      : null;
+    if (switchRedirect) return NextResponse.redirect(switchRedirect, 302);
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
@@ -95,14 +112,9 @@ export async function GET(request: NextRequest) {
     const returnUrl = team?.id
       ? teamBillingReturnURL(requestOrigin(request), team.id)
       : new URL("/dashboard/billing", requestOrigin(request)).toString();
-    const target = request.nextUrl.searchParams.get("plan");
-    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
-    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
-      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
-    }
     const session = wantsSwitch
       ? await personalPortalSession({
-          userId: user.id, origin: requestOrigin(request), target,
+          userId: user.id, origin: requestOrigin(request), target, status: switchStatus ?? undefined,
           attribution: checkoutAttributionFromRequest({ searchParams: request.nextUrl.searchParams, referer: request.headers.get("referer") }),
         })
       : await stripe().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });

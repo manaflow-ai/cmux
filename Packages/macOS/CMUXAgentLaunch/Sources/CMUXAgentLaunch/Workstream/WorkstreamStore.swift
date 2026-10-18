@@ -25,6 +25,15 @@ public final class WorkstreamStore {
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
 
+    /// Monotonic change counter bumped on every item mutation (ingest,
+    /// resolve, expire, history load). Remote mirrors of the feed (the iOS
+    /// Feed tab) compare list responses against this revision to discard
+    /// stale snapshots, the same contract the notification feed uses.
+    public private(set) var revision: Int = 0
+    /// Fires on the main actor after each revision bump so the app layer can
+    /// broadcast a revision-only invalidation to subscribed phones.
+    public var onRevisionChange: ((Int) -> Void)?
+
     public var pending: [WorkstreamItem] {
         items.filter { $0.status.isPending }
     }
@@ -43,6 +52,9 @@ public final class WorkstreamStore {
     /// App-owned migration hook for versioned workstream identities.
     let workstreamIDNormalizer: @Sendable (String, String) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
+    /// The one startup pass for this store. Later ``start()`` calls await it
+    /// instead of re-reading persisted history or subscribing again.
+    private var startTask: Task<Void, Never>?
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -85,13 +97,39 @@ public final class WorkstreamStore {
         self.workstreamIDNormalizer = workstreamIDNormalizer
     }
 
+    /// Loads persisted history and subscribes to the transport, once.
+    ///
+    /// Concurrent and repeated calls share the first pass. A later pass
+    /// would re-read the Feed log, replace items ingested after the first
+    /// load, move ``revision`` backward and subscribe to the transport again.
+    /// A subscription that fails in the first pass is therefore not retried.
     public func start() async {
+        if let startTask {
+            await startTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStart()
+        }
+        startTask = task
+        await task.value
+    }
+
+    private func performStart() async {
         if let persistence {
-            if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items.map(normalizedWorkstreamItem)
-                hasMorePersistedItems = page.hasMoreBefore
-                oldestLoadedPersistenceOffset = page.startOffset
+            revision = (try? await persistence.loadRevision()) ?? 0
+            if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
+                items = loaded.map(normalizedWorkstreamItem)
+                if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
+                    hasMorePersistedItems = page.hasMoreBefore
+                    oldestLoadedPersistenceOffset = page.startOffset
+                } else {
+                    hasMorePersistedItems = false
+                    oldestLoadedPersistenceOffset = nil
+                }
                 rebuildContextIndex()
+                bumpRevision()
             }
         }
         do {
@@ -135,6 +173,9 @@ public final class WorkstreamStore {
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
         rebuildContextIndex()
+        if !olderItems.isEmpty {
+            bumpRevision()
+        }
     }
 
     // MARK: - Ingest
@@ -145,11 +186,8 @@ public final class WorkstreamStore {
     func ingestPrepared(_ item: WorkstreamItem) {
         insert(item)
         updateContextIndex(with: item)
-        if let persistence {
-            Task { [persistence, item] in
-                try? await persistence.append(item)
-            }
-        }
+        bumpRevision()
+        persist(item)
     }
 
     // MARK: - Actions
@@ -170,6 +208,8 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        persist(items[idx])
+        bumpRevision()
     }
 
     /// Marks one still-pending item expired.
@@ -179,22 +219,71 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        persist(items[idx])
+        bumpRevision()
+    }
+
+    /// Records a terminal free-text reply against the exact feed event UUID.
+    /// The item UUID is the concise identity sent by the phone with its paste
+    /// request, so the acknowledgement survives relaunches and refreshes.
+    @discardableResult
+    public func recordTerminalReply(_ itemId: UUID, text: String) -> Bool {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }), !text.isEmpty else {
+            return false
+        }
+        let now = clock()
+        items[idx].reply = WorkstreamReply(text: text, createdAt: now)
+        items[idx].updatedAt = now
+        persist(items[idx])
+        bumpRevision()
+        return true
     }
 
     /// Marks every still-pending item created before `threshold` as
     /// expired. Call periodically to clean stale items.
     public func expirePending(olderThan threshold: TimeInterval) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                persist(items[idx])
+                didExpireItem = true
             }
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 
     // MARK: - Private helpers
+
+    private func bumpRevision() {
+        revision += 1
+        onRevisionChange?(revision)
+    }
+
+    /// The latest append in the ordered write chain. Each append waits for
+    /// the one before it, so the log replays mutations in the order the store
+    /// applied them (latest version of an item wins on restart).
+    private var persistenceTail: Task<Void, Never>?
+
+    private func persist(_ item: WorkstreamItem) {
+        guard let persistence else { return }
+        let previous = persistenceTail
+        persistenceTail = Task { [persistence, item] in
+            await previous?.value
+            try? await persistence.append(item)
+        }
+    }
+
+    /// Waits until every append issued so far has been written, for callers
+    /// (and tests) that must read the log back.
+    public func flushPersistence() async {
+        await persistenceTail?.value
+    }
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
@@ -250,11 +339,17 @@ public final class WorkstreamStore {
     /// so the exact moment an agent dies, its pending cards close.
     public func expireItems(forPpid ppid: Int) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending,
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            persist(items[idx])
+            didExpireItem = true
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 
@@ -268,13 +363,19 @@ public final class WorkstreamStore {
         isProcessAlive: (Int) -> Bool = WorkstreamStore.defaultIsProcessAlive
     ) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             guard let ppid = items[idx].ppid, ppid > 0 else { continue }
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                persist(items[idx])
+                didExpireItem = true
             }
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 

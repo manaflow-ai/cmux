@@ -378,6 +378,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
         XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "codex --yolo")
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarActionReferenceIDs["start-codex"], "start-codex")
     }
 
     func testDecodeActionIconObjectsSupportAllFormats() throws {
@@ -672,6 +673,51 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.isEmpty)
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
+    func testInvalidReloadKeepsLastGoodGlobalConfigAndReportsLine() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-last-good-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path)
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo broken"
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+        XCTAssertEqual(issue.line, 3)
+
+        try """
+        {
+          "actions": {
+            "second": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "first"))
+        XCTAssertNotNil(store.resolvedAction(id: "second"))
+        XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
     @MainActor
@@ -1370,13 +1416,17 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let configURL = root.appendingPathComponent("cmux.json")
         let json = """
         {
+          "actions": {
+            "hidden-ref": { "type": "workspaceCommand", "commandName": "Missing Environment" }
+          },
           "ui": {
             "surfaceTabBar": {
               "buttons": [
                 { "action": "newTerminal" },
                 { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
                 { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" },
-                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" }
+                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" },
+                { "id": "hidden-ref-button", "action": "hidden-ref" }
               ]
             }
           },
@@ -1403,6 +1453,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+        XCTAssertNil(store.surfaceTabBarActionReferenceIDs["hidden-ref-button"])
     }
 
     @MainActor

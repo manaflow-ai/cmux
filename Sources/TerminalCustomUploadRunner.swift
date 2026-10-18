@@ -1,6 +1,5 @@
 import CmuxCloud
 import CmuxFoundation
-import CmuxRemoteSession
 import CmuxSettings
 import Darwin
 import Foundation
@@ -113,7 +112,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = TerminalUploadCommand.customRemotePath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -183,7 +182,12 @@ struct TerminalCustomUploadRunner {
         )
         guard let command = matchedCommand(for: endpoint) else { return false }
 
-        run(fileURLs: fileURLs, endpoint: endpoint, command: command, operation: operation) { result in
+        run(
+            fileURLs: fileURLs,
+            endpoint: endpoint,
+            command: command,
+            operation: operation
+        ) { result in
             cleanup(fileURLs)
             DispatchQueue.main.async {
                 // A cancelled/finished operation means the cancel handler already

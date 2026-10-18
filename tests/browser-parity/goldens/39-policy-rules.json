@@ -1,0 +1,8 @@
+{
+  "oracle": {},
+  "cmux": {
+    "next-call-fails": "policy not applied",
+    "later-calls-fail": "policy not applied",
+    "a-compiling-policy-recovers": "done"
+  }
+}

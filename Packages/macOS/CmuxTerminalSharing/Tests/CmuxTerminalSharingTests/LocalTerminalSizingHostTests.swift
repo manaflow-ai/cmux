@@ -90,11 +90,55 @@ import Testing
         #expect(h.applyTarget == .uncapped)
     }
 
-    @Test func macCannotBeDisconnectedFromItsOwnHost() {
+    /// tmux `detach-client` on the host's own view: the terminal keeps
+    /// running and every other viewer keeps its session; the Mac pane stops
+    /// counting and ignores its own resizes and input until it reattaches.
+    @Test func macViewDetachesWhileTheTerminalAndPhonesStay() {
         var h = host()
-        let detachment = TerminalSharingDetachment(reason: .disconnectedBy(nil), at: Date())
+        h.syncPhones([phone("a")])
+        #expect(h.state.participant("mobile:a")?.counts == false)
+        let detachment = TerminalSharingDetachment(reason: .disconnectedBy(me.detachActor), at: Date(timeIntervalSince1970: 0))
         let disconnected = h.disconnect("mac:pane", detachment: detachment)
-        #expect(!disconnected)
+        #expect(disconnected)
+        #expect(h.isDetached("mac:pane"))
+        #expect(h.macDetachment == detachment)
+        #expect(h.state.participant("mac:pane") == nil)
+        #expect(h.state.participant("mobile:a")?.counts == true)
+        #expect(h.state.owners == ["mobile:a"])
+        #expect(h.applyTarget == .grid(TerminalGridSize(cols: 50, rows: 30)))
+        let resized = h.updateMacViewport(TerminalGridSize(cols: 180, rows: 50))
+        let typed = h.noteActivity("mac:pane")
+        #expect(!resized)
+        #expect(!typed)
+        #expect(h.state.participant("mac:pane") == nil)
+        h.syncPhones([phone("a")])
+        #expect(h.state.participant("mac:pane") == nil)
+    }
+
+    @Test func macReattachRestoresItsViewWithTheLatestPaneGrid() {
+        var h = host()
+        h.syncPhones([phone("a", user: "u_other")])
+        _ = h.disconnect("mac:pane", detachment: TerminalSharingDetachment(reason: .disconnectedBy(nil), at: Date()))
+        h.updateMacViewport(TerminalGridSize(cols: 180, rows: 50))
+        let reattached = h.reattach("mac:pane", asViewer: true)
+        #expect(reattached)
+        #expect(!h.isDetached("mac:pane"))
+        let row = h.state.participant("mac:pane")
+        #expect(row?.participant.viewport == TerminalGridSize(cols: 180, rows: 50))
+        #expect(row?.participant.countsOverride == false)
+        #expect(h.state.owners == ["mobile:a"])
+        let again = h.reattach("mac:pane", asViewer: false)
+        #expect(!again)
+    }
+
+    @Test func macReattachAsParticipantTakesTheGridBack() {
+        var h = host()
+        h.syncPhones([phone("a", user: "u_other")])
+        _ = h.disconnect("mac:pane", detachment: TerminalSharingDetachment(reason: .disconnectedBy(nil), at: Date()))
+        let reattached = h.reattach("mac:pane", asViewer: false)
+        #expect(reattached)
+        #expect(h.state.owners == ["mac:pane"])
+        #expect(h.applyTarget == .uncapped)
     }
 
     @Test func droppedPhoneLeavesAndGridFollowsTheMacPane() {

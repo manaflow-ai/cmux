@@ -35,7 +35,7 @@ export function teamDetailFixture(overrides: Partial<TeamDetail> = {}): TeamDeta
         useCount: 2,
       },
     ],
-    billing: { planId: "team", seats: 3, memberCount: 2, hasActiveSubscription: true },
+    billing: { planId: "team", seats: 3, memberLimit: null, memberCount: 2, hasActiveSubscription: true },
     ...overrides,
   };
 }

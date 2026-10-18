@@ -83,6 +83,128 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// A sidebar drop of a browser, display or port opens a pane for that link.
+    /// It starts blank while it connects, but it is not a new tab to type into:
+    /// focusing it must not select the address bar and open its suggestions.
+    @Test(arguments: [false, true])
+    func browserPaneOpenedForASidebarResourceDoesNotFocusTheAddressBar(split: Bool) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId).id.uuidString
+        let destination: SurfaceDestination = split
+            ? .split(workspaceID: workspace.id, paneID: paneID, direction: .right)
+            : .tab(workspaceID: workspace.id, paneID: paneID, index: nil)
+
+        let created = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: true)
+        let browser = try #require(SurfacePaneFactory.browserPanel(panelID: created.panelID, in: created.workspaceID))
+        // The display caller relies on the factory itself focusing the new pane.
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+
+        // The drop handler focuses the pane again once it is created.
+        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+    }
+
+    /// Opening a sidebar resource splits the focused pane. When split admission
+    /// has no room left, the factory reports `noSpace` and the sidebar gesture
+    /// opens the resource as a tab in that pane instead of failing with
+    /// "Could not create the pane: noSpace".
+    @Test func splitWithNoRoomOpensAsTabInTheTargetPane() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let narrow = CGSize(width: 400, height: 700)
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        window.setContentSize(narrow)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: narrow))
+        let first = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplitOutcome(from: first, orientation: .horizontal).panel != nil)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let paneCount = workspace.bonsplitController.allPaneIds.count
+        let destination = SurfaceDestination.split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right)
+
+        // Layout replay and socket callers still see the refusal.
+        #expect(throws: SurfacePaneFactory.FactoryError.self) {
+            try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: true)
+        }
+        let created = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+            try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: target, focus: true)
+        }
+
+        #expect(created.workspaceID == workspace.id)
+        #expect(workspace.bonsplitController.allPaneIds.count == paneCount)
+        #expect(workspace.paneId(forPanelId: created.panelID) == paneID)
+    }
+
+    @Test("Cloud terminal input reasserts the active pane")
+    func cloudTerminalInputReassertsActivePane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        cloudPanel.cloudAttachment = CloudTerminalAttachmentStatus(machineID: "focus-ring-test")
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        var sessionActive = true
+        Workspace.bindCloudManualMirrorInputConvergence(
+            panel: cloudPanel,
+            isActive: { sessionActive },
+            onExplicitInput: {
+                #expect(Workspace.liveWorkspace(id: cloudPanel.workspaceId)?.focusedPanelId == cloudPanel.id)
+            }
+        )
+
+        #expect(workspace.focusedPanelId == localPanelID)
+
+        // Pointer activation must converge the visible pane selection before
+        // the portal's asynchronous callback gets a chance to run.
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        workspace.focusPanel(localPanelID)
+        #expect(workspace.focusedPanelId == localPanelID)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+
+        // Moving the same panel to another workspace must keep the input hook
+        // attached to its new owner after attach rebinds ordinary callbacks.
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let destination = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let detached = try #require(workspace.detachSurface(panelId: cloudPanel.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false) == cloudPanel.id)
+        manager.selectWorkspace(destination)
+        // Bonsplit selects a tab it creates, so an unfocused attach into the
+        // destination's only pane still leaves the moved panel selected there.
+        // Put the destination's own terminal in front before typing.
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanel(localDestinationPanel)
+        #expect(destination.focusedPanelId == localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == cloudPanel.id)
+
+        // A stopped session must not steal focus if its panel is later reused.
+        sessionActive = false
+        destination.focusPanelFromTerminalInput(localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == localDestinationPanel)
+    }
+
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
     func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
         let harness = try Harness()
@@ -641,6 +763,37 @@ import SwiftUI
 #endif
     }
 
+    /// A Cloud manual-mirror surface can receive a pointer while its portal
+    /// focus callback is being rebound. Pointer activation must still update
+    /// the workspace model immediately, otherwise keyboard input goes to Cloud
+    /// while Bonsplit keeps the local pane's focus ring.
+    @Test func pointerFocusConvergesMixedLocalAndCloudPanes() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        #expect(workspace.focusedPanelId == localPanelID)
+        #expect(workspace.isFocusedTerminalInputSurface(localPanelID))
+
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+        let cloudPane = try #require(workspace.paneId(forPanelId: cloudPanel.id))
+        #expect(cloudPane != sourcePane)
+    }
+
     /// A projected browser (VM desktop or port preview) goes through the same create
     /// handler as a terminal; `focus: true` must select it too.
     @Test func focusedBrowserTabIsSelected() throws {
@@ -660,6 +813,62 @@ import SwiftUI
         #expect(workspace.focusedPanelId == created.panelID)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
+    /// New Display opens its pane at the click, before the guest answers. In a
+    /// workspace bound to that Cloud machine the pane is a display reservation,
+    /// not a new Cloud browser: it must not start a daemon browser that
+    /// replaces the display's projection or shows "Cloud browsers are unavailable".
+    @Test("New Display reserves its pane without starting a Cloud browser")
+    func newDisplayReservedPaneIsNotACloudBrowser() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machineID = "new-display-\(UUID().uuidString)"
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machineID, isBase: false, remoteWorkspaceID: "ws-display")
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            guard command.contains("\"$path\" create --request-id ") else {
+                return .init(exitCode: 0, stdout: #"{"version":1,"canCreate":true,"displays":[]}"#, stderr: "")
+            }
+            started.resolve(true)
+            _ = await release.result
+            return .init(exitCode: 1, stdout: "", stderr: "released")
+        }
+        var summary = VMSummary(id: machineID, provider: "freestyle", status: "running",
+            image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        summary.addressIPv4 = "10.0.0.7"
+        let catalog = SurfaceCatalog.shared
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            displayCoordinator: coordinator
+        )
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
+        let before = Set(workspace.panels.keys)
+
+        let creation = Task {
+            try await catalog.createDisplay(on: provider.machine, into: .workspace(id: workspace.id, placement: .split))
+        }
+        Task {
+            _ = await creation.result
+            started.resolve(false)
+        }
+        try #require(await started.result == true, "creation must reach the guest helper")
+
+        let reservedID = try #require(workspace.panels.keys.first { !before.contains($0) })
+        let reserved = try #require(workspace.browserPanel(for: reservedID))
+        #expect(workspace.pendingCloudBrowserPanelIDs.isEmpty)
+        #expect(workspace.cloudBrowserCreationTasks.isEmpty)
+        #expect(reserved.cloudAccess.unavailable == nil)
+        #expect(reserved.cloudAccess.starting == String(localized: "cloud.display.starting", defaultValue: "Starting display…"))
+
+        release.resolve(true)
+        _ = await creation.result
     }
 
     @Test("Cloud resource drop hands keyboard ownership to its first pane")
@@ -754,6 +963,9 @@ import SwiftUI
             let window = try #require(appDelegate.mainWindow(for: windowId))
             window.setContentSize(Self.contentSize)
             window.contentView?.layoutSubtreeIfNeeded()
+            // Surface split behavior should not depend on AppKit having laid out
+            // a hidden test window yet. Install deterministic geometry so the
+            // factory can allocate the new pane immediately on a cold runner.
             workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
 

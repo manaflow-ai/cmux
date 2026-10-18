@@ -231,8 +231,15 @@ exit 97
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
             self.assertEqual(
                 checkout['with']['sparse-checkout'].split(),
-                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py'],
+                ['.github/actions/e2e-run-tests',
+                 'scripts/ci/e2e-frames.py',
+                 'scripts/ci/brew-ensure.sh'],
             )
+            # Every entry has to exist, since sparse-checkout of a missing path
+            # is silent and the action would fall back to the tested revision's
+            # copy without saying so.
+            for entry in checkout['with']['sparse-checkout'].split():
+                self.assertTrue((ROOT / entry).exists(), entry)
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
@@ -392,7 +399,7 @@ exit 97
                          str(self.root / 'canonical' / 'derived-data-compile-admission'))
         # The CAS path is a compiler argument: a different one than admission
         # passes invalidates every compile the seed carries.
-        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas', admission)
+        self.assertIn('CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas', admission)
         self.assertEqual(values['CMUX_E2E_COMPILATION_CACHE'],
                          str(self.root / 'canonical' / 'compile-admission-cas'))
 

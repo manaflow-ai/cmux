@@ -71,7 +71,7 @@ struct JSONConfigAtomicPublisher: Sendable {
         stagingContainsRecovery = true
 
         guard isTargetCurrent?() ?? true else {
-            if rollbackIfStillOwned(candidate: data, recovery: expected, staging: staging, target: target) {
+            if try rollbackIfStillOwned(candidate: data, recovery: expected, staging: staging, target: target) {
                 stagingContainsRecovery = false
             }
             throw JSONConfigWriteConflict.sourceChanged

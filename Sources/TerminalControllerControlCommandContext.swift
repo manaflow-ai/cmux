@@ -76,8 +76,8 @@ extension TerminalController: ControlWindowContext {
         AppDelegate.shared?.focusMainWindow(windowId: id) ?? false
     }
 
-    func controlCreateWindowAndActivate() -> UUID? {
-        guard let windowId = AppDelegate.shared?.createMainWindow() else { return nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? {
+        guard let windowId = AppDelegate.shared?.createMainWindow(initialWorkspaceTitle: title) else { return nil }
         // The new window should become key, but setActiveTabManager defensively
         // (preserves the legacy v2WindowCreate side effect and ordering).
         if let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {

@@ -6,9 +6,14 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import { openVmPort } from "../../../../../services/vms/workflows";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
+
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
@@ -60,10 +65,11 @@ export async function POST(
         billingTeamId: account.entitlements.billingTeamId,
         maxActiveVms: account.entitlements.maxActiveVms,
         callerPlanId: account.entitlements.planId,
+        modelPlane: vmModelPlaneRevoker(),
         teamIds: user.teamIds,
         providerVmId: id,
         port,
-      }), { request });
+      }), { request, deadline: { operation: "openPort" } });
       if (!run.ok) return run.response;
       const endpoint = run.value;
       // People see and keep openUrl, so it points at the cmux desktop

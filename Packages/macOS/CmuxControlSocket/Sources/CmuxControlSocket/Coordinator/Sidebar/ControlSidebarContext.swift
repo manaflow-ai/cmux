@@ -62,7 +62,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -192,6 +193,24 @@ public protocol ControlSidebarContext: AnyObject {
     /// Whether a raw PR state token is valid (`SidebarPullRequestStatus` raw
     /// values).
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool
+
+    /// Returns an app-bundle-localized error for an invalid handoff or missing workspace.
+    nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String
+
+    /// Applies a workspace-owned pull request handoff before acknowledging it.
+    /// - Returns: False when the target no longer exists.
+    func controlSidebarAttachManualPullRequest(
+        tabArg: String?,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) -> Bool
+
+    /// Clears a workspace-owned pull request before acknowledging it.
+    /// - Returns: False when the target no longer exists.
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool
 
     /// Enqueues the `report_pr` panel pull-request update.
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(

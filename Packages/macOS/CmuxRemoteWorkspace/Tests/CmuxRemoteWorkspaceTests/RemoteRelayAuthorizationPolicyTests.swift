@@ -20,6 +20,56 @@ struct RemoteRelayAuthorizationPolicyTests {
         }
     }
 
+    @Test("terminal paste is scoped to one exact remote surface")
+    func terminalPasteScope() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        #expect(policy.validate(
+            method: "terminal.paste",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "text": "first line\nsecond line",
+                "submit_key": "return",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
+
+        #expect(policy.validate(
+            method: "terminal.paste",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": UUID().uuidString,
+                "text": "nope",
+                "submit_key": "none",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay request targets a surface outside its workspace"
+        ))
+
+        for submitKey in ["enter", "ctrl+enter", ""] {
+            #expect(policy.validate(
+                method: "terminal.paste",
+                parameters: [
+                    "workspace_id": workspaceID.uuidString,
+                    "surface_id": surfaceID.uuidString,
+                    "text": "bounded",
+                    "submit_key": submitKey,
+                ],
+                ownerWorkspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            ) == .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay terminal paste requires text and submit_key none|return"
+            ))
+        }
+    }
+
     @Test("tmux surface mutations require exact in-workspace selectors")
     func tmuxSurfaceSelectors() {
         let policy = RemoteRelayAuthorizationPolicy()
@@ -128,6 +178,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    /// Only `notification.create_for_target` is relay-reachable, and its closed contract admits `effects`.
     @Test("relay notification delivery is confined to the targeted method")
     func notificationCreateCannotUseRehomingPath() {
         let policy = RemoteRelayAuthorizationPolicy()
@@ -148,6 +199,97 @@ struct RemoteRelayAuthorizationPolicyTests {
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
         ) == .allowed)
+        // `effects` can only turn the relay's own delivery off (every default
+        // is true); it stays inside the targeted method's closed contract.
+        #expect(policy.validate(
+            method: "notification.create_for_target",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "title": "Done",
+                "effects": ["desktop": false],
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
+    }
+
+    @Test("agent message relay methods stay inside the authenticated session")
+    func agentMessageSelectorsStayOwned() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        let surface = UUID()
+        let foreign = UUID()
+        let ownedSurface = Set([surface])
+
+        #expect(policy.validate(
+            method: "agent.message.poll",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.claim",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: ["surface": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": surface.uuidString,
+                "sender_workspace_id": owner.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: [:],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": foreign.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": owner.uuidString, "reply_to": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": foreign.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString, "id": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
     }
 
     @Test("respawn planner quotes remote directories and classifies transports")

@@ -6,9 +6,9 @@ import Foundation
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
-/// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` plus a kernel lookup of each PID's listening sockets covering
-/// every panel that needs scanning.
+/// PortScanner coalesces kicks across all panels, then reads the processes on
+/// every panel's terminal and each PID's listening sockets straight from the
+/// kernel in one pass. A scan spawns no subprocesses.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -20,7 +20,7 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
-    let commandRunner: any CommandRunning
+    let processTable: any PortProcessTableReading
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
@@ -97,7 +97,7 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - Public API
 
     init(
-        commandRunner: any CommandRunning = CommandRunner(),
+        processTable: any PortProcessTableReading = KernelPortProcessTable(),
         processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
             AgentPIDProcessIdentity(pid: $0)
         },
@@ -113,7 +113,7 @@ final class PortScanner: @unchecked Sendable {
         burstOffsets: [TimeInterval] = PortScanner.defaultBurstOffsets,
         coalesceDelay: TimeInterval = PortScanner.defaultCoalesceDelay
     ) {
-        self.commandRunner = commandRunner
+        self.processTable = processTable
         self.burstOffsets = burstOffsets
         self.coalesceDelay = coalesceDelay
         self.processIdentityProvider = processIdentityProvider
@@ -190,15 +190,31 @@ final class PortScanner: @unchecked Sendable {
             guard scanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
-            pendingKicks.insert(key)
-            scansRemainingForPendingKicks = Self.minimumScansPerKick
-
-            if !burstActive {
-                startCoalesce()
-            }
-            // If a burst is active, its later scans pay down this count. A
-            // follow-up burst starts when too few scans remained.
+            enqueueKicksLocked([key])
         }
+    }
+
+    /// Queues `keys` for the scans a kick owes. Already on `queue`.
+    private func enqueueKicksLocked(_ keys: [PanelKey]) {
+        pendingKicks.formUnion(keys)
+        scansRemainingForPendingKicks = Self.minimumScansPerKick
+
+        if !burstActive {
+            startCoalesce()
+        }
+        // If a burst is active, its later scans pay down this count. A
+        // follow-up burst starts when too few scans remained.
+    }
+
+    /// Which of a panel's listeners badge it depends on which processes are
+    /// agent roots, so a root registered or removed makes the ports the panel
+    /// last published stale. Rescans the workspace's panels instead of waiting
+    /// for a command to kick them. Already on `queue`.
+    private func kickPanelsLocked(inWorkspace workspaceId: UUID) {
+        guard scanningEnabled else { return }
+        let keys = ttyNames.keys.filter { $0.workspaceId == workspaceId }
+        guard !keys.isEmpty else { return }
+        enqueueKicksLocked(keys)
     }
 
     @MainActor
@@ -438,15 +454,15 @@ final class PortScanner: @unchecked Sendable {
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
 
-        // 1. ps -t tty1,tty2,... -o pid=,tty=
+        // 1. Processes on each panel's terminal, read from the kernel.
         async let agentProcessScanTask = expandAgentProcessTree(
             agentRootsByWorkspace: agentRootsByWorkspace
         )
-        let psScan = ttyList.isEmpty
+        let terminalProcessScan = ttyList.isEmpty
             ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
-            : await runPS(ttyList: ttyList)
+            : await readTerminalProcesses(ttyList: ttyList)
         let agentProcessScan = await agentProcessScanTask
-        let pidToTTY = psScan.values
+        let pidToTTY = terminalProcessScan.values
         let capturedPanelPIDs = capturePIDIdentities(Set(pidToTTY.keys))
         let capturedAgentPIDs = captureAgentPIDIdentities(
             ownershipByPID: agentProcessScan.values,
@@ -475,7 +491,7 @@ final class PortScanner: @unchecked Sendable {
             let panelCompletenessByKey = Self.panelCompletenessByKey(
                 panelTTYs: panelSnapshot,
                 pidToTTY: pidToTTY,
-                psCompleteness: psScan.completeness,
+                psCompleteness: terminalProcessScan.completeness,
                 lsofScan: panelLsofEvidence
             )
             queue.async { [weak self] in
@@ -504,7 +520,7 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
+        // 2. Listening TCP sockets for every PID, read from the kernel.
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
         let lsofScan = scanListeningPorts(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
@@ -516,7 +532,7 @@ final class PortScanner: @unchecked Sendable {
         )
         let refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
             ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
-            : await runPS(ttyList: ttyList)
+            : await readTerminalProcesses(ttyList: ttyList)
         let revalidatedPanelPIDs = revalidatePanelPIDOwnership(
             capturedPIDToTTY: pidToTTY,
             capturedIdentitiesByPID: capturedPanelPIDs.identitiesByPID,
@@ -526,7 +542,11 @@ final class PortScanner: @unchecked Sendable {
         let finalizedAgentPIDs = await finalizedAgentPIDTask
         let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
-        // 3. Join: PID→TTY + PID→ports → TTY→ports
+        // 3. Join: PID→TTY + PID→ports → TTY→ports. Agent-root-owned ports
+        // (validated by identity, not raw PID) are excluded so a foreground
+        // agent's own listeners never badge its panel; its child processes
+        // still contribute ports normally.
+        let agentRootPIDs = finalizedAgentPIDs.rootPIDs
         var portsByTTY: [String: Set<Int>] = [:]
         var panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]] = [:]
         let panelKeysByTTY = panelSnapshot.reduce(into: [String: [PanelKey]]()) { result, entry in
@@ -540,7 +560,7 @@ final class PortScanner: @unchecked Sendable {
             }
         }
         for (pid, ports) in pidToPorts {
-            guard let tty = validPIDToTTY[pid] else { continue }
+            guard !agentRootPIDs.contains(pid), let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
             guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
             for key in panelKeysByTTY[tty] ?? [] {
@@ -560,7 +580,7 @@ final class PortScanner: @unchecked Sendable {
             }
         }
         for (pid, ports) in pidToPorts {
-            guard let ownership = agentOwnershipByPID[pid] else { continue }
+            guard !agentRootPIDs.contains(pid), let ownership = agentOwnershipByPID[pid] else { continue }
             for workspaceId in ownership {
                 agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
                 guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
@@ -611,7 +631,7 @@ final class PortScanner: @unchecked Sendable {
             panelTTYs: panelSnapshot,
             pidToTTY: pidToTTY,
             psCompleteness: Self.combinedCompleteness(
-                psScan.completeness,
+                terminalProcessScan.completeness,
                 refreshedPanelProcessScan.completeness
             ),
             lsofScan: panelProcessScopeEvidence
@@ -620,7 +640,7 @@ final class PortScanner: @unchecked Sendable {
             panelTTYs: panelSnapshot,
             pidToTTY: pidToTTY,
             psCompleteness: Self.combinedCompleteness(
-                psScan.completeness,
+                terminalProcessScan.completeness,
                 refreshedPanelProcessScan.completeness
             ),
             lsofScan: panelLsofEvidence
@@ -708,9 +728,12 @@ final class PortScanner: @unchecked Sendable {
         revision: UInt64
     ) {
         agentRevisionByWorkspace[workspaceId] = revision
-        if agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId),
-           !agentRoots.isEmpty {
+        let rootsChanged = agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId)
+        if rootsChanged, !agentRoots.isEmpty {
             agentSnapshotReplacementState.begin(workspaceId: workspaceId)
+        }
+        if rootsChanged {
+            kickPanelsLocked(inWorkspace: workspaceId)
         }
         if agentRoots.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
@@ -857,6 +880,7 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: request.workspaceIds
             )
             let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
+            let agentRootPIDs = finalizedAgentPIDs.rootPIDs
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
             var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
@@ -867,7 +891,7 @@ final class PortScanner: @unchecked Sendable {
                 }
             }
             for (pid, ports) in pidToPorts {
-                guard let ownership = agentOwnershipByPID[pid] else { continue }
+                guard !agentRootPIDs.contains(pid), let ownership = agentOwnershipByPID[pid] else { continue }
                 for targetWorkspaceId in ownership {
                     agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
                     guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }

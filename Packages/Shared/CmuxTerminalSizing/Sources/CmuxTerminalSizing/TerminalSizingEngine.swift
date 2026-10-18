@@ -104,8 +104,12 @@ public struct TerminalSizingEngine: Sendable {
         // deferral only stops a phone from taking the grid by activity.
         if policy.mode == .smallest || policy.mode == .largest { return true }
         guard p.deviceKind.isHandheld, let user = p.userID else { return true }
+        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // viewer-only or viewport-less Mac leaves the phone in charge.
         return !entries.contains {
-            $0.participant.userID == user && ($0.participant.deviceKind == .mac || $0.participant.deviceKind == .tui)
+            let other = $0.participant
+            return other.userID == user && (other.deviceKind == .mac || other.deviceKind == .tui)
+                && other.viewport != nil && other.countsOverride != false
         }
     }
 
@@ -123,7 +127,7 @@ public struct TerminalSizingEngine: Sendable {
             return (owner.participant.viewport!, [owner.participant.id], .latest)
         case .priority:
             for key in policy.priority {
-                let matches = counting.filter { $0.participant.priorityKey == key }
+                let matches = counting.filter { $0.participant.matchesPriorityKey(key) }
                 if !matches.isEmpty {
                     let owner = newest(matches)
                     return (owner.participant.viewport!, [owner.participant.id], .priority)
