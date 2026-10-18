@@ -241,7 +241,8 @@ def macho(path):
             opts.append(" ".join(s.decode() for s in data[off + 12:off + size].split(b"\0")[:count]))
         elif cmd in DYLIB:
             name_off = struct.unpack_from("<I", data, off + 8)[0]
-            dylibs.append(f"{DYLIB[cmd]} {data[off + name_off:off + size].split(b'\0')[0].decode()}")
+            name = data[off + name_off:off + size].split(b"\0")[0].decode()
+            dylibs.append(f"{DYLIB[cmd]} {name}")
         off += size
     return {"fl": fl, "opts": opts, "dylibs": dylibs, "sha": hashlib.sha256(data).hexdigest()}
 
@@ -413,7 +414,7 @@ import json, sys
 want = {p["identity"]: p["state"] for p in json.load(open(sys.argv[1]))["pins"]}
 got = {p["identity"]: p["state"] for p in json.load(open(sys.argv[2]))["pins"]}
 moved = sorted(k for k in want if got.get(k) != want[k])
-print(f"RESULT pins kept={not moved} pins={len(want)} moved={moved[:8] or 'none'}")
+print(f"RESULT pins kept={not moved} pins={len(want)} moved={[(k, want[k].get('version'), (got.get(k) or {}).get('version')) for k in moved[:8]] or 'none'}")
 PY
 if (( force_module )) && python3 -I - "$RA/Build/Products/Debug/cmux-next-exe" "$module" <<'PY'
 import struct, sys
