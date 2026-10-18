@@ -299,7 +299,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       expect(hover.background, "hover strengthens the pill fill").not.toBe(idle[0]!.background);
 
       await page.locator(chip("Effort")).first().click();
-      await page.locator('[role="menuitemradio"][aria-checked="true"]').waitFor();
+      await page.locator('[role="menuitemradio"][aria-checked="true"]:visible').first().waitFor();
       const openEffort = await state("Effort");
       expect(openEffort.background, "open keeps a stronger pill fill").not.toBe(idle[1]!.background);
       expect(openEffort.boxShadow, "open has a tonal edge highlight").not.toBe("none");
