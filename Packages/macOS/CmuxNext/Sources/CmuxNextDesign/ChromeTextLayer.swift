@@ -5,15 +5,18 @@ public import QuartzCore
 ///
 /// `CATextLayer` renders without font smoothing on a transparent layer, so
 /// its glyphs come out visibly thinner than an `NSTextField` next to them.
-/// This layer draws the string with Core Text with font smoothing enabled,
-/// which matches AppKit label weight. Set `contentsScale` to the window's
-/// backing scale, like any drawn layer.
+/// This layer draws the string with Core Text through ``GlyphMask``, the
+/// drawing ``ChromeLabel`` uses too, so both match an AppKit label's weight
+/// in any theme. Set `contentsScale` to the window's backing scale, like any
+/// drawn layer.
 ///
 /// The color is a layer property, not drawn ink (I5, cx-8w027.3): the glyphs
 /// draw once as the mask of a fill layer whose `backgroundColor` is
 /// ``foregroundColor``, so a theme change blends the text on the render server
-/// from the color on screen (`ThemeRepaint`) and a color change redraws no
-/// glyphs.
+/// from the color on screen (`ThemeRepaint`). A color change draws the glyphs
+/// again only when it moves the ink to another stem weight
+/// (``GlyphMask/weight(of:)``), at once, so the blend ends at the weight
+/// AppKit draws the new color with.
 ///
 /// The text is top-aligned like `CATextLayer`: the first baseline sits
 /// `font.ascender` below the top edge. Overflow is clipped, not truncated;
@@ -46,19 +49,26 @@ nonisolated public final class ChromeTextLayer: CALayer {
     override public var contentsScale: CGFloat {
         didSet {
             guard oldValue != contentsScale else { return }
-            glyphs.contentsScale = contentsScale
+            layoutFill()
             glyphs.setNeedsDisplay()
         }
     }
 
     override public var bounds: CGRect {
-        didSet { if oldValue.size != bounds.size { layoutFill() } }
+        didSet {
+            guard oldValue.size != bounds.size else { return }
+            layoutFill()
+            // Truncation and alignment follow the width, which the whole-pixel mask may not show.
+            glyphs.setNeedsDisplay()
+        }
     }
 
     /// The text color, masked by ``glyphs``.
     private let fill = CALayer()
     private let glyphs = GlyphLayer()
     private var cachedLine: CTLine?
+    /// The stem weight of the ink ``glyphs`` was drawn in.
+    private var drawnWeight: Int?
 
     override public init() {
         super.init()
@@ -108,7 +118,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         fill.frame = CGRect(origin: .zero, size: bounds.size)
-        glyphs.frame = fill.bounds
+        GlyphMask.place(glyphs, in: fill, scale: contentsScale)
         CATransaction.commit()
     }
 
@@ -117,6 +127,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
         CATransaction.setDisableActions(true)
         fill.backgroundColor = foregroundColor
         CATransaction.commit()
+        if let drawnWeight, drawnWeight != GlyphMask.weight(of: foregroundColor) { glyphs.setNeedsDisplay() }
     }
 
     private func invalidate() {
@@ -138,45 +149,39 @@ nonisolated public final class ChromeTextLayer: CALayer {
     }
 
     /// The glyph coverage, opaque where the text is: the mask of ``fill``.
-    fileprivate func drawGlyphs(in ctx: CGContext, bounds: CGRect, flipped: Bool, scale: CGFloat) {
-        guard !string.isEmpty else { return }
+    fileprivate func glyphImage() -> CGImage? {
+        drawnWeight = GlyphMask.weight(of: foregroundColor)
+        guard !string.isEmpty else { return nil }
+        let size = bounds.size
         var line = line()
-        if let truncation, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) > bounds.width {
+        if let truncation, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) > size.width {
             let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "\u{2026}", attributes: [
                 .font: font, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
             ]))
-            line = CTLineCreateTruncatedLine(line, Double(bounds.width), truncation, ellipsis) ?? line
+            line = CTLineCreateTruncatedLine(line, Double(size.width), truncation, ellipsis) ?? line
         }
-        ctx.saveGState()
-        defer { ctx.restoreGState() }
-        // What AppKit enables for label text; CATextLayer leaves it off on
-        // non-opaque layers, which is why its text reads thin.
-        ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(true)
-        ctx.setAllowsAntialiasing(true)
-        ctx.setShouldAntialias(true)
-        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         let x: CGFloat = switch alignmentMode {
-        case .center: (bounds.width - width) / 2
-        case .right: bounds.width - width
+        case .center: (size.width - width) / 2
+        case .right: size.width - width
         default: 0
         }
-        // Layer contexts on macOS are unflipped unless the geometry is.
-        let raw = flipped ? font.ascender : bounds.height - font.ascender
-        let scale = max(scale, 1)
-        let baseline = (raw * scale).rounded() / scale
-        ctx.textMatrix = flipped ? CGAffineTransform(scaleX: 1, y: -1) : .identity
-        ctx.textPosition = CGPoint(x: (x * scale).rounded() / scale, y: baseline)
-        CTLineDraw(line, ctx)
+        let scale = max(contentsScale, 1)
+        let font = font
+        return GlyphMask.image(size: size, scale: scale, ink: foregroundColor) { ctx, _ in
+            // Top-down space: the baseline sits `ascender` below the top edge, on a whole pixel.
+            ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            ctx.textPosition = CGPoint(x: (x * scale).rounded() / scale, y: (font.ascender * scale).rounded() / scale)
+            CTLineDraw(line, ctx)
+        }
     }
 }
 
-/// ``ChromeTextLayer``'s glyphs, drawn in its own context's orientation.
+/// ``ChromeTextLayer``'s glyphs: the ``GlyphMask`` image of its line.
 nonisolated private final class GlyphLayer: CALayer {
     weak var owner: ChromeTextLayer?
 
-    override func draw(in ctx: CGContext) {
-        owner?.drawGlyphs(in: ctx, bounds: bounds, flipped: contentsAreFlipped(), scale: contentsScale)
+    override func display() {
+        contents = owner?.glyphImage()
     }
 }
