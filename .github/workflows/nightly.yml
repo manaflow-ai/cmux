@@ -5923,7 +5923,7 @@ jobs:
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
-      group: nightly-deltas-${{ needs.decide.outputs.release_tag }}
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -6162,7 +6162,7 @@ jobs:
   publish-release-notes:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
-      group: nightly-release-notes-${{ needs.decide.outputs.release_tag }}
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}

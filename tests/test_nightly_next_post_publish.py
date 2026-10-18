@@ -54,8 +54,8 @@ for writer in ("publish-release-notes", "republish-nightly-deltas"):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
         failures.append(f"{writer} must serialize its mutable publication writes")
-    if "needs.decide.outputs.release_tag" not in writer_text:
-        failures.append(f"{writer} concurrency must be scoped to the channel release tag")
+    if "group: release-publish-${{ needs.decide.outputs.release_tag }}" not in writer_text:
+        failures.append(f"{writer} must share publish-nightly's channel publication lock")
     if "cancel-in-progress: false" not in writer_text:
         failures.append(f"{writer} must let an in-flight publication finish")
 if "publish-nightly.result == 'success'" not in notes_publish:
