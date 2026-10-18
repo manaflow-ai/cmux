@@ -268,6 +268,14 @@ public nonisolated struct AgentPaneTunables {
         help: "A folded long thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
         default: .duration, code: "AgentPaneTunables.thoughtHeader")
 
+    /// A long thought streams in a fixed seven-line viewport with its newest line in view, as
+    /// Codex's reasoning trace does, then folds once done (``foldLongThoughts``). Off, it shows in
+    /// full while it streams. Only applies while ``foldLongThoughts`` is on. New agent tabs read it.
+    public static let liveThoughtViewport = Tunable<Bool>.toggle(
+        "agentPane.debug.liveThoughtViewport", PageTunables.section, "Live thought viewport",
+        help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
+        default: true, code: "AgentPaneTunables.liveThoughtViewport")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -312,18 +320,19 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(
             foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
-            thoughtHeader: thoughtHeader.value, thoughtStyle: thoughtStyle.value,
-            labs: labTunables.mapValues { $0.value })
+            thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
+            thoughtStyle: thoughtStyle.value, labs: labTunables.mapValues { $0.value })
     }
 
     static func attributes(
         foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
-        thoughtHeader: AgentPaneThoughtHeader = .duration, thoughtStyle: AgentPaneThoughtStyle = .plain,
-        labs: [String: Bool] = [:]
+        thoughtHeader: AgentPaneThoughtHeader = .duration, liveThoughtViewport: Bool = true,
+        thoughtStyle: AgentPaneThoughtStyle = .plain, labs: [String: Bool] = [:]
     ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
+        if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
         for (name, tunable) in labTunables {
@@ -366,5 +375,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtHeader.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

@@ -37,7 +37,7 @@ public nonisolated struct AgentPageOps {
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "pane.tabRowTools", "chat.toolCard.respond", "chat.upload", "chat.sideChat", "chat.subagentPane", "chat.openTab", "chat.newHere", "pane.rename", "folder.openIn", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
-            "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
+            "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods { methods[method] = method }
