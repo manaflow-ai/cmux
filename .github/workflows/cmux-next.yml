@@ -1926,6 +1926,7 @@ jobs:
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
         run: |
           set -euo pipefail
+          status=0
           for test in \
             CloudBringBackTests.aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed \
             CloudBringBackTests.aRevokeThatFailsIsTriedAgainUntilItIsDone \
@@ -1940,8 +1941,14 @@ jobs:
             CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch \
             CloudBringBackTests.aSyncPullThatThrowsKeepsTheBringBackRetryable; do
             echo "Running isolated Swift Testing case: $test"
-            ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter "$test"
+            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter "$test"; then
+              :
+            else
+              status=$?
+              echo "Cloud bring-back case failed: $test (status $status)"
+            fi
           done
+          exit "$status"
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
