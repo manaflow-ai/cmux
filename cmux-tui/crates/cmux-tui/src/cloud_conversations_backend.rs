@@ -518,17 +518,18 @@ mod tests {
         }
     }
 
-    /// A Worker from before cx-dgsp answers 401 without `x-cmux-wire-auth`: the
-    /// client retries once with the legacy subprotocol, and a refusal there is final.
+    /// Any 401, with or without `x-cmux-wire-auth`, is final: the client never
+    /// retries with the token in a subprotocol, which Workers invocation logs
+    /// record (cx-dgsp; the legacy `bearer.` retry is retired).
     #[test]
-    fn a_worker_without_header_auth_gets_the_legacy_subprotocol_once() {
+    fn a_401_without_header_auth_is_final_and_sends_no_token_subprotocol() {
         let backend = RemoteCloudBackend::new().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (seen_tx, seen) = mpsc::channel();
         std::thread::spawn(move || {
             for _ in 0..2 {
-                let (mut socket, _) = listener.accept().unwrap();
+                let Ok((mut socket, _)) = listener.accept() else { return };
                 let mut buffer = [0u8; 4096];
                 let read = socket.read(&mut buffer).unwrap();
                 seen_tx
@@ -546,8 +547,9 @@ mod tests {
         let first = seen.recv().unwrap();
         assert!(first.contains("authorization: bearer tok.en"), "{first}");
         assert!(first.contains("sec-websocket-protocol: cmux.wire.v1\r\n"), "{first}");
-        let second = seen.recv().unwrap();
-        assert!(second.contains("sec-websocket-protocol: cmux.wire.v1, bearer.tok.en"), "{second}");
-        assert!(!second.contains("authorization:"), "{second}");
+        assert!(
+            seen.recv_timeout(std::time::Duration::from_millis(500)).is_err(),
+            "the client must not retry"
+        );
     }
 }
