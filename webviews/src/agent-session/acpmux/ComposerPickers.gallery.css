@@ -35,3 +35,7 @@
   font-size: var(--text-title);
   font-weight: 600;
 }
+
+.acpmux-composer-gallery-shell .acpmux-picker-button:hover {
+  background: var(--acpmux-pill-hover);
+}
