@@ -113,7 +113,7 @@ public final class AgentTurnStateFeed {
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
                                title: change.title, generatedTitle: change.generatedTitle,
                                detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
-                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session, title: change.title) })
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session) })
             } else {
                 return nil
             }
@@ -123,7 +123,7 @@ public final class AgentTurnStateFeed {
         static func lanes(_ result: [String: Any]) -> [String: AgentActivityLane] {
             var lanes: [String: AgentActivityLane] = [:]
             for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
-                if let lane = AgentActivityLane.of(summary: summary, title: AgentTurnStates.title(summary)) { lanes[lane.id] = lane }
+                if let lane = AgentActivityLane.of(summary: summary) { lanes[lane.id] = lane }
             }
             return lanes
         }

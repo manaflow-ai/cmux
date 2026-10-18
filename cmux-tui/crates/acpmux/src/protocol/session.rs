@@ -193,8 +193,14 @@ pub struct Lane {
     pub state: LaneState,
     /// Unix ms the state began; null when the daemon does not know.
     pub since: Option<u64>,
-    /// The failed or lost turn's error text.
+    /// The failed or lost turn's error text, secrets masked (`secret_scan`).
     pub error: Option<String>,
+    /// What the session is doing now, one line: the running turn's prompt,
+    /// else the agent's last reply line, secrets masked (`secret_scan`).
+    pub step: Option<String>,
+    /// The session's title, else its first prompt, one line, secrets masked
+    /// (`secret_scan`).
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
