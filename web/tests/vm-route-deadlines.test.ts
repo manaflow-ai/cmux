@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
 import { FreestyleApiError, type Freestyle } from "freestyle";
