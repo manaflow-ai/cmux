@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision, type RunAttemptTerminalStatus } from "./worker-contract";
+
+export { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision };
 
 const DEFAULT_LEASE_MS = 60_000;
 const MAX_LEASE_MS = 15 * 60_000;
 type CloudTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
-
-import { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision, type RunAttemptTerminalStatus } from "./worker-contract";
-export { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision };
 
 function boundedLeaseMs(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_LEASE_MS;
