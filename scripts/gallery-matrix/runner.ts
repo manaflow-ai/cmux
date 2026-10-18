@@ -317,7 +317,43 @@ export function renderIndex(results: Record<string, unknown>[], receipt?: Captur
     const latency = settleSummary(steps.map((step) => step && typeof step === "object" ? (step as { settleMs?: unknown }).settleMs : undefined));
     return latency.count ? { ...result, latency } : result;
   });
-  const data = JSON.stringify(withLatency).replace(/</g, "\\u003c");
+  // The index is a triage surface, not the raw receipt. Keep the full results.json for report
+  // rebuilds, but avoid embedding step screenshots, experiment traces, and other runner payloads
+  // in the paged page when only 24 cards are mounted.
+  const compactPlay = (value: unknown) => {
+    if (!value || typeof value !== "object") return value;
+    const play = value as Record<string, unknown>;
+    const steps = Array.isArray(play.steps)
+      ? play.steps.map((step) => {
+          if (!step || typeof step !== "object") return step;
+          const item = step as Record<string, unknown>;
+          return {
+            status: item.status,
+            step: item.step,
+            layoutShift: item.layoutShift,
+            longFrames: item.longFrames,
+            frameSource: item.frameSource,
+            problems: item.problems,
+            settleMs: item.settleMs,
+          };
+        })
+      : undefined;
+    return { status: play.status, error: play.error, ...(steps ? { steps } : {}) };
+  };
+  const compact = withLatency.map((result) => ({
+    id: result.id,
+    engine: result.engine,
+    screenshot: result.screenshot,
+    params: result.params,
+    ready: result.ready,
+    revision: result.revision,
+    play: compactPlay(result.play),
+    diff: result.diff,
+    diffImage: result.diffImage,
+    video: result.video,
+    latency: result.latency,
+  }));
+  const data = JSON.stringify(compact).replace(/</g, "\\u003c");
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
   const receiptMarkup = receipt
     ? `<div class="receipt" data-capture-id="${escapeHtml(receipt.captureId)}"><strong>Capture receipt</strong> <code>${escapeHtml(receipt.captureId)}</code> · <time datetime="${escapeHtml(receipt.capturedAt)}">${escapeHtml(receipt.capturedAt)}</time> · ${escapeHtml(receipt.results.status)} ${receipt.results.count}/${receipt.results.expected} results · quality ${escapeHtml(receipt.quality)} · head ${receipt.revisions.shas.map((sha) => escapeHtml(sha.slice(0, 12))).join(", ") || "unknown"} · source ${receipt.revisions.sources.map((source) => `<code>${escapeHtml(source)}</code>`).join(", ") || "unknown"} · scenario <code>${escapeHtml(receipt.scenario.fingerprint.slice(0, 12))}</code> · <a href="receipt.json">raw receipt</a></div>`

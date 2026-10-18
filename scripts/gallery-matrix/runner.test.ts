@@ -16,6 +16,26 @@ test("ordinary matrix cards include settled interaction latency", () => {
   expect(html).toContain("playCells(r)");
 });
 
+test("matrix index embeds only triage play fields, not raw frame payloads", () => {
+  const html = renderIndex([
+    {
+      id: "large-play",
+      engine: "chromium",
+      screenshot: "large-play.png",
+      params: { entry: "agent-pane.composer" },
+      play: {
+        status: "pass",
+        steps: [{ status: "pass", step: "click", layoutShift: 0, longFrames: [], problems: [], png: "raw-step-image" }],
+        rawTrace: "raw-experiment-trace",
+      },
+    },
+  ]);
+  expect(html).toContain("large-play.png");
+  expect(html).toContain('"step":"click"');
+  expect(html).not.toContain("raw-step-image");
+  expect(html).not.toContain("raw-experiment-trace");
+});
+
 test("matrix index exposes receipt metadata and triage state filtering", () => {
   const html = renderIndex(
     [{ id: "broken", engine: "chromium", screenshot: "broken.png", ready: "error" }],
