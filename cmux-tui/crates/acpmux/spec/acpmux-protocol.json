@@ -1076,7 +1076,7 @@
       "description": "The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).",
       "properties": {
         "error": {
-          "description": "The failed or lost turn's error text.",
+          "description": "The failed or lost turn's error text, secrets masked (`secret_scan`).",
           "type": [
             "string",
             "null"
@@ -1093,12 +1093,28 @@
         },
         "state": {
           "$ref": "#/types/LaneState"
+        },
+        "step": {
+          "description": "What the session is doing now, one line: the running turn's prompt,\nelse the agent's last reply line, secrets masked (`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The session's title, else its first prompt, one line, secrets masked\n(`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "error",
         "since",
-        "state"
+        "state",
+        "step",
+        "title"
       ],
       "type": "object"
     },
@@ -1186,7 +1202,7 @@
       "type": "object"
     },
     "LifecycleReceipt": {
-      "description": "A durable lifecycle fact supplied by an explicit producer.",
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
       "properties": {
         "id": {
           "type": "string"
@@ -2086,7 +2102,7 @@
               "type": "null"
             }
           ],
-          "description": "An optional explicit lifecycle receipt; absent until a producer supplies validated evidence."
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
