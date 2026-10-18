@@ -45,7 +45,8 @@ export type UpstreamOperation =
   | "dir"
   | "resize"
   | "listTlsRules"
-  | "replaceTlsRule";
+  | "replaceTlsRule"
+  | "getSnapshot";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
@@ -135,6 +136,11 @@ export function makeFakeUpstream(apiKey: string) {
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
+      case "getSnapshot": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
+        const snapshot = snapshots.get(id);
+        return snapshot === undefined ? notFound() : Response.json(snapshot);
+      }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
         const offset = Number(url.searchParams.get("offset") ?? 0);
@@ -261,6 +267,7 @@ export function makeFakeUpstream(apiKey: string) {
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
+    if (SNAPSHOT_PATH.test(url.pathname) && method === "GET") return { operation: "getSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
     if (match?.[1] === undefined) return null;
     const vmId = decodeURIComponent(match[1]);

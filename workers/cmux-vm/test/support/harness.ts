@@ -31,6 +31,8 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** Operator-approved image configuration, as supplied to the Worker. */
+  readonly bootImages?: string;
   readonly httpsProxyOrigins?: ReadonlyArray<string>;
   /** The deployment environment; every tenant is dev/test outside production. */
   readonly environment?: "local" | "staging" | "production";
