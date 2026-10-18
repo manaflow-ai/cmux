@@ -56,6 +56,8 @@
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}.acpmux-mic-meter span{transition:transform var(--agent-motion-hover) var(--agent-ease-out)}}
 .acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 max(16px,calc((100% - 736px)/2)) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
+/* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
+:root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}
 .acpmux-dictation-notice span{flex:1}
 .acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
@@ -91,6 +93,7 @@
 .acpmux-menu-search-value{display:none}
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
 @media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:acpmux-mp-spin 700ms linear infinite}}
+:root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
 @keyframes acpmux-mp-spin{to{transform:rotate(360deg)}}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
 .acpmux-context{flex:none}
@@ -452,6 +455,10 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 @media (prefers-reduced-motion:reduce){.acpmux-floating-status[data-status=streaming]{animation:none}}
 .acpmux-quick[data-floating=compact]{justify-content:stretch}
 .acpmux-quick-compact-bar{flex:1;min-height:0;display:flex;align-items:center}
+/* Static status indicators (cx-sya4n): no breathing, and a shape per state, not color alone: a solid dot
+   while it works, a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
+:root[data-status-indicators=static] .acpmux-floating-status[data-status=streaming]{animation:none}
+:root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
 .acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}

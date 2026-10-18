@@ -4,11 +4,13 @@ public import AppKit
 ///
 /// It is an `NSTextField` in every way but the ink: layout, intrinsic size, wrapping, line
 /// count, truncation, alignment and accessibility are the field's own, and its own cell draws
-/// the text, so the glyphs are where and how an `NSTextField` draws them. The cell draws once,
-/// in black, as the mask of a fill layer whose `backgroundColor` is ``textColor``: the color is
-/// a layer color the render server blends from the color on screen (`ThemeRepaint`), and a
-/// color change draws no glyphs. The glyphs draw again only when what they show changes (text,
-/// font, size, scale, line settings).
+/// the text, so the glyphs are where and how an `NSTextField` draws them. The cell draws once
+/// through ``GlyphMask`` (the drawing ``ChromeTextLayer`` uses too), in the text color, as the
+/// mask of a fill layer whose `backgroundColor` is ``textColor``: the color is a layer color the
+/// render server blends from the color on screen (`ThemeRepaint`). The glyphs draw again only
+/// when what they show changes (text, font, size, scale, line settings) or a color change moves
+/// the ink to a stem weight (``GlyphMask/weight(of:)``) they were not drawn in yet, so they keep an
+/// `NSTextField`'s weight in every theme; each weight's image is kept for the same text.
 ///
 /// One text color per label: per-run colors of an attributed string draw in ``textColor``
 /// (keep an `NSTextField` for text with its own run colors).
@@ -16,8 +18,11 @@ open class ChromeLabel: NSTextField {
     /// The text color, masked by ``glyphs``.
     private let fill = CALayer()
     private let glyphs = CALayer()
-    /// What ``glyphs`` shows now; a different one draws them again.
-    private var drawn: Ink?
+    /// What ``glyphs`` shows now and in which stem weight; a different one draws them again.
+    private var drawn: (ink: Ink, weight: Int)?
+    /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
+    /// selected row's color and its plain one) swaps images and draws each weight once.
+    private var images: [Int: CGImage] = [:]
 
     public convenience init(font: NSFont) {
         self.init(labelWithString: "")
@@ -63,32 +68,47 @@ open class ChromeLabel: NSTextField {
         fill.backgroundColor = textColor?.cgColor
         // Selected (a selectable label): the field editor draws the text; editable: AppKit does.
         fill.isHidden = !wantsUpdateLayer || currentEditor() != nil
+        hideStockText()
         let scale = window?.backingScaleFactor ?? layer.contentsScale
-        if fill.frame != layer.bounds || glyphs.contentsScale != scale {
-            fill.frame = layer.bounds
-            glyphs.contentsScale = scale
-        }
-        let ink = Ink(text: inkText(), size: bounds.size, scale: scale, lines: maximumNumberOfLines,
-                      lineBreak: lineBreakMode, alignment: alignment,
-                      truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
-        if ink != drawn {
-            drawn = ink
-            let image = glyphImage(ink)
-            glyphs.contents = image
-            // The image at its own pixel size (whole pixels, rounded up), top edge on the field's
-            // top edge, as the field's backing store sits: no resampling.
-            let size = image.map { CGSize(width: CGFloat($0.width) / scale, height: CGFloat($0.height) / scale) } ?? .zero
-            let top = ScrollEdgeFadeView.rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
-            glyphs.frame = CGRect(origin: CGPoint(x: 0, y: top), size: size)
-        }
+        if fill.frame != layer.bounds { fill.frame = layer.bounds }
+        let color = textColor?.cgColor, weight = GlyphMask.weight(of: color)
+        let ink = Ink(text: inkText(), size: bounds.size, scale: scale, lines: maximumNumberOfLines, lineBreak: lineBreakMode,
+                      alignment: alignment, truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
+        guard drawn?.ink != ink || drawn?.weight != weight else { return }
+        if drawn?.ink != ink { images = [:] }
+        drawn = (ink, weight)
+        let image = images[weight] ?? glyphImage(ink, color: color)
+        images[weight] = image
+        glyphs.contents = image
+        // As the field's backing store sits: the image at its own pixel size, top edge on top.
+        GlyphMask.place(glyphs, in: fill, scale: scale)
     }
 
     private func inkModeDidChange() {
         drawn = nil
+        images = [:]
         fill.isHidden = !wantsUpdateLayer
         // The stock drawing's backing store, from before; the glyphs replace it.
-        if wantsUpdateLayer { layer?.contents = nil }
+        if wantsUpdateLayer { layer?.contents = nil } else { for view in stockTextViews { view.alphaValue = 1 } }
         needsDisplay = true
+    }
+
+    /// AppKit draws a label's text in a subview of its own (`NSTextFieldSimpleLabel` on macOS 26
+    /// and later), in the stock color and over nothing that blends: the glyphs replace it, so it
+    /// draws transparent (else the text draws twice, 12% heavier, and its color snaps under the
+    /// blend). Its alpha, not `isHidden`: AppKit shows and hides that view itself on layout. The
+    /// field editor of a selected or edited label is not one of them. A ChromeLabel has no other
+    /// subviews: put views beside it, not in it.
+    private var stockTextViews: [NSView] { subviews.filter { !($0 is NSClipView || $0 is NSText) } }
+
+    private func hideStockText() {
+        guard wantsUpdateLayer else { return }
+        for view in stockTextViews where view.alphaValue != 0 { view.alphaValue = 0 }
+    }
+
+    override open func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        hideStockText()
     }
 
     override open func becomeFirstResponder() -> Bool {
@@ -106,39 +126,24 @@ open class ChromeLabel: NSTextField {
         needsDisplay = true
     }
 
-    /// The field's text with every run in black: the glyph coverage, whatever the color.
+    /// The field's text without its run colors: the glyphs draw in one ink.
     private func inkText() -> NSAttributedString {
         let text = NSMutableAttributedString(attributedString: attributedStringValue)
-        let all = NSRange(location: 0, length: text.length)
-        text.removeAttribute(.foregroundColor, range: all)
-        text.addAttribute(.foregroundColor, value: NSColor.black, range: all)
+        text.removeAttribute(.foregroundColor, range: NSRange(location: 0, length: text.length))
         return text
     }
 
-    /// The glyph coverage, upright: a copy of the field's cell drawn in black without a
-    /// background, at the backing scale.
-    private func glyphImage(_ ink: Ink) -> CGImage? {
-        let width = Int((ink.size.width * ink.scale).rounded(.up)), height = Int((ink.size.height * ink.scale).rounded(.up))
-        guard ink.text.length > 0, width > 0, height > 0, let cell = cell?.copy() as? NSTextFieldCell,
-              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        cell.drawsBackground = false
-        cell.textColor = .black
-        cell.attributedStringValue = ink.text
-        // The field draws in flipped coordinates, top row first.
-        ctx.translateBy(x: 0, y: CGFloat(height))
-        ctx.scaleBy(x: ink.scale, y: -ink.scale)
-        // What AppKit enables for label text (a transparent layer leaves it off).
-        ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(true)
-        ctx.setAllowsAntialiasing(true)
-        ctx.setShouldAntialias(true)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-        cell.draw(withFrame: NSRect(origin: .zero, size: ink.size), in: self)
-        NSGraphicsContext.restoreGraphicsState()
-        return ctx.makeImage()
+    /// The glyph coverage, upright: a copy of the field's cell drawn without a background, in the
+    /// text color's stem weight, at the backing scale.
+    private func glyphImage(_ ink: Ink, color: CGColor?) -> CGImage? {
+        guard ink.text.length > 0, let cell = cell?.copy() as? NSTextFieldCell else { return nil }
+        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { _, opaque in
+            let text = NSMutableAttributedString(attributedString: ink.text)
+            text.addAttribute(.foregroundColor, value: NSColor(cgColor: opaque) ?? .black, range: NSRange(location: 0, length: text.length))
+            cell.drawsBackground = false
+            cell.attributedStringValue = text
+            cell.draw(withFrame: NSRect(origin: .zero, size: ink.size), in: self)
+        }
     }
 
     /// What the glyphs show (not their color).
