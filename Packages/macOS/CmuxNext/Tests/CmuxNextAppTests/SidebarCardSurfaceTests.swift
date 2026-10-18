@@ -27,7 +27,11 @@ import Testing
 
     /// Shows `card` in a window in the purple theme and returns its fill and the composer's.
     static func fills(_ card: NSView) throws -> (card: NSColor?, composer: NSColor) {
-        try #require(!ReduceTransparency.shared.isEnabled, "Reduce Transparency is on: every surface draws opaque")
+        let oldOverride = ReduceTransparency.shared.override
+        // Surface assertions cover the translucent branch. Pin the shared source so a
+        // Blacksmith accessibility preference cannot change the branch under test.
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = oldOverride }
         _ = NSApplication.shared
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)

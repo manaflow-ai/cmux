@@ -6,12 +6,7 @@ import Testing
 /// POLISH audit, batch 4 (cx-2grmt): the icon picker appeared and left in one frame. It opens and
 /// closes like every native popup (`PopupFade`).
 @MainActor @Suite(.serialized) struct IconPickerMotionTests {
-    static func animatesHere() -> Bool {
-        guard let screen = NSScreen.main, !DisplaySleep.shared.isAsleep(screen) else { return false }
-        return Motion.speed != .off
-    }
-
-    @Test(.enabled("needs an awake display and animations on, or every picker snaps anyway") { await Self.animatesHere() })
+    @Test(.enabled("needs an awake display and animations on, or every picker snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func thePickerOpensAndClosesWithMotion() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
