@@ -63,6 +63,8 @@ it("recovers a lost create answer from trusted server metadata without resending
   expect(await inDO(teamStub(t.personal), async (_instance, state) => {
     const restarted = new TeamDO(state, env as Env)
     restarted.personalStack = t.stack
+    // A normal request opens the persisted owner engine; direct construction bypasses the platform's input gate.
+    expect((await restarted.readOp(t.personal, { identity: `user:${t.user}`, kind: "session", user: t.user, team: t.personal }, "team.directory", {})).ok).toBe(true)
     return restarted.ensureVmApiTenant(t.personal)
   })).toMatchObject({ status: "ready", target: { tenant: STACK_TEAM } })
   expect(t.creates()).toBe(1)
