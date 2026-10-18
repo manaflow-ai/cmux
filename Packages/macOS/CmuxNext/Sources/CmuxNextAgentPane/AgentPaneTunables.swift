@@ -42,6 +42,67 @@ public nonisolated enum AgentPaneThoughtStyle: String, Sendable, CaseIterable, T
     }
 }
 
+/// What a folded long thought's one line reads (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtHeader`. `duration` sets nothing on the page.
+public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, TunableChoice {
+    /// "Thought for 12s", as Codex's reasoning trace reads once it ends (#20963).
+    case duration
+    /// "Thought", then the thought's first line (#20948).
+    case preview
+
+    public var tunableTitle: String {
+        switch self {
+        case .duration: "Thought for 12s (default)"
+        case .preview: "Thought, then its first line"
+        }
+    }
+}
+
+/// Where the quiet answer-footer actions sit under a completed turn.
+public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case right
+    case left
+
+    public var tunableTitle: String {
+        switch self {
+        case .right: "Right (default)"
+        case .left: "Left"
+        }
+    }
+}
+
+/// Visual treatment of the opt-in reasoning slider. The default keeps the current tokenized
+/// accent thumb; `minimal` is a quieter outlined treatment for comparing composer density.
+public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIterable, TunableChoice {
+    case accent
+    case minimal
+
+    public var tunableTitle: String {
+        switch self {
+        case .accent: "Accent (current)"
+        case .minimal: "Minimal (quiet fill, outlined thumb)"
+        }
+    }
+}
+
+/// Visual treatments for the session sidebar's latest-reply hover preview.
+public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
+    /// The elevated card used by the current sidebar.
+    case card
+    /// A quieter, flatter preview card.
+    case quiet
+    /// A preview card distinguished by an outline instead of elevation.
+    case outline
+
+    public var tunableTitle: String {
+        switch self {
+        case .card: "Card (current)"
+        case .quiet: "Quiet (flatter)"
+        case .outline: "Outline (rim, no shadow)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -200,6 +261,12 @@ public nonisolated struct AgentPaneTunables {
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
         "shortcuts-help": shortcutsHelp
     ]
+    /// What a folded long thought's line reads: how long the agent thought, or its first line.
+    /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
+    public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(
+        "agentPane.debug.thoughtHeader", PageTunables.section, "Folded thought header",
+        help: "A folded long thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
+        default: .duration, code: "AgentPaneTunables.thoughtHeader")
 
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
@@ -208,15 +275,21 @@ public nonisolated struct AgentPaneTunables {
         help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, plain text, or a tray tucked under the card. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
 
+    /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
+    public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
+        "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
+        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
+        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
-    /// call's row until Leo picks the default. The page gets it with the theme (`AgentPaneTheme`,
-    /// `codexToolRuns`), again on each change.
+    /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
+    /// each change. The Debug toggle remains available for comparing the ungrouped presentation.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
         help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: false, code: "AgentPaneTunables.codexToolRuns")
+        default: true, code: "AgentPaneTunables.codexToolRuns")
 
     /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
     /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
@@ -225,8 +298,8 @@ public nonisolated struct AgentPaneTunables {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = codexToolRuns.value
-            for await on in ObservationStream({ codexToolRuns.value }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -239,15 +312,18 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(
             foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
-            thoughtStyle: thoughtStyle.value, labs: labTunables.mapValues { $0.value })
+            thoughtHeader: thoughtHeader.value, thoughtStyle: thoughtStyle.value,
+            labs: labTunables.mapValues { $0.value })
     }
 
     static func attributes(
-        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle, thoughtStyle: AgentPaneThoughtStyle = .plain,
+        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+        thoughtHeader: AgentPaneThoughtHeader = .duration, thoughtStyle: AgentPaneThoughtStyle = .plain,
         labs: [String: Bool] = [:]
     ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
+        if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
         for (name, tunable) in labTunables {
@@ -275,5 +351,20 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    /// The slider treatment to compare while `reasoningSlider` is on. The default is today's
+    /// tokenized accent thumb; this remains a Debug Settings choice and never changes the
+    /// slider's availability.
+    public static let reasoningSliderStyle = Tunable<AgentPaneReasoningSliderStyle>.choice(
+        "agent.reasoningSliderStyle", PageTunables.section, "Reasoning slider style",
+        help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
+        default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
+
+    /// The session sidebar's latest-reply hover preview treatment. User layout customization may
+    /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
+    public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
+        "agentPane.debug.sidebarPreviewVariant", PageTunables.section, "Sidebar preview variant",
+        help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
+        default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtHeader.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

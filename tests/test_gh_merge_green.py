@@ -1000,7 +1000,7 @@ class FreezeRegression(unittest.TestCase):
         "FREEZE: docs/frozen/ docs/app.md token=d0c5d0c5\n"
     )
 
-    def run_with_window(self, directory, window, changed_files, extra_args=()):
+    def run_with_window(self, directory, window, changed_files, extra_args=(), labels=()):
         path = Path(directory) / "WINDOW"
         if window is not None:
             path.write_text(window)
@@ -1009,7 +1009,7 @@ class FreezeRegression(unittest.TestCase):
         try:
             marker = Path(directory) / "merged"
             result = InstalledHelperRegression.run_helper(
-                self, directory, marker, changed_files=changed_files, extra_args=extra_args)
+                self, directory, marker, changed_files=changed_files, extra_args=extra_args, labels=labels)
         finally:
             os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = previous
         return result, marker
@@ -1053,6 +1053,88 @@ class FreezeRegression(unittest.TestCase):
                 extra_args=("--override", "the red check is a known base failure on this exact head"))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
+
+    def test_expired_freeze_is_ignored(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=old owner=hq-a3 pr=21233 "
+            "head=deadbeef expires=2000-01-01T00:00:00Z\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",), labels=("exploration",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("exploration PR", result.stderr)
+            self.assertNotIn("frozen paths", result.stderr)
+
+    def test_active_freeze_refusal_names_owner_and_expiry(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=live owner=hq-a3 pr=21233 "
+            "head=deadbeef expires=2999-01-01T00:00:00Z\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("owner=hq-a3", result.stderr)
+            self.assertIn("pr=21233", result.stderr)
+            self.assertIn("expires=2999-01-01T00:00:00Z", result.stderr)
+
+    def test_timezone_less_expiry_uses_utc(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=old owner=hq-a3 pr=21233 "
+            "head=deadbeef expires=2000-01-01T00:00:00\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",), labels=("exploration",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("exploration PR", result.stderr)
+            self.assertNotIn("frozen paths", result.stderr)
+
+    def test_comma_separated_freeze_token_grant_matches(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=first,live owner=hq-a3 pr=21233 "
+            "head=deadbeef expires=2999-01-01T00:00:00Z\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",),
+                extra_args=("--freeze-token", "live"), labels=("exploration",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("exploration PR", result.stderr)
+            self.assertNotIn("frozen paths", result.stderr)
+
+    def test_legacy_freeze_refusal_identifies_missing_metadata(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=legacy\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("metadata=legacy-unannotated", result.stderr)
+
+    def test_partial_freeze_metadata_identifies_missing_fields(self):
+        window = (
+            "[SETTINGS] webviews settings\nowner: hq-a3\n"
+            "FREEZE: webviews/src/pages/settings/ token=partial owner=hq-a3 pr=21233\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("webviews/src/pages/settings/refined.css",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("metadata=incomplete missing=head,expires", result.stderr)
 
     def test_an_unreadable_window_refuses_and_names_the_coordinator(self):
         with tempfile.TemporaryDirectory() as directory:

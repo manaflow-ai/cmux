@@ -821,6 +821,16 @@
       "title" : "Sidebar Background",
       "type" : "string"
     },
+    "appearance.statusIndicator.animation" : {
+      "default" : "animated",
+      "description" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static.",
+      "enum" : [
+        "animated",
+        "static"
+      ],
+      "title" : "Status Indicators",
+      "type" : "string"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",
@@ -2210,6 +2220,17 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sessions.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake While Agents Work",
+      "type" : "string"
+    },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
@@ -3131,6 +3152,12 @@
       ],
       "title" : "Titlebar Buttons",
       "type" : "string"
+    },
+    "workspaces.autoName" : {
+      "default" : true,
+      "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
+      "title" : "Name Workspaces from Tabs",
+      "type" : "boolean"
     },
     "workspaces.newPlacement" : {
       "default" : "top",

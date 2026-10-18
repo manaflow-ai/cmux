@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Reprenez votre forfait pour le modifier.",
           "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "grantedNoCancel": "Accordé par cmux, il n'y a donc rien à résilier.",
+          "paymentFailed": "Mettez à jour votre moyen de paiement avant de changer de forfait.",
+          "foundersLifetime": "Founder's Edition inclut Pro à vie.",
           "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Basculer vers {plan} ?",
         "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "upgradeBodyYearly": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par an.",
         "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
         "confirm": "Basculer vers {plan}",
         "keep": "Garder le forfait actuel",
@@ -578,6 +582,8 @@
         "title": "Résilier {plan} ?",
         "body": "Vous gardez {plan} jusqu'au {date}. Ensuite, vous perdez :",
         "bodyNoDate": "Vous gardez {plan} jusqu'à la fin de cette période de facturation. Ensuite, vous perdez :",
+        "foundersBody": "Votre abonnement {plan} se termine le {date}. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
+        "foundersBodyNoDate": "Votre abonnement {plan} se termine à la fin de cette période de facturation. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
         "reasonLabel": "Pourquoi résiliez-vous ? (facultatif)",
         "otherPlaceholder": "Dites-nous-en plus (facultatif)",
         "confirm": "Résilier le forfait",

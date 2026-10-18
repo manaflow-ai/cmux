@@ -41,6 +41,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
@@ -282,7 +283,9 @@ export function Composer({
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
+  // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
+  // arrive in the same render; preferring the host value keeps it visible through initialization.
+  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
@@ -326,10 +329,16 @@ export function Composer({
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
+  // Once a new chat has shown its location strip, keep its layout slot through the first send.
+  // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
+  const locationSlotSession = useRef<string | undefined>(undefined);
+  const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
+  // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar);
+  // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
+  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -442,6 +451,7 @@ export function Composer({
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
     if (!draft || field.current?.value()) return;
+    field.current?.reset(draft);
     setText((current) => seededText(current, draft));
     setCaret(draft.length);
     pendingCaret.current = draft.length;
@@ -454,10 +464,14 @@ export function Composer({
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
-    setText(restored);
-    setCaret(restored.length);
-    pendingCaret.current = restored.length;
-  }, [sessionId, text]);
+    // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
+    // when the local remount cache is empty; otherwise this effect can clear the host-provided
+    // draft before the editor has initialized.
+    const initial = restored || draft || "";
+    setText(initial);
+    setCaret(initial.length);
+    pendingCaret.current = initial.length;
+  }, [sessionId, text, draft]);
   useEffect(() => {
     let current = true;
     void readDurableDraft(sessionId).then((restored) => {
@@ -800,7 +814,12 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
+      const chat = form.current?.closest(".acpmux-main") ?? form.current;
+      // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
+      const rows = chat?.querySelectorAll<HTMLElement>(
+        ".acpmux-composer-queue .acpmux-queued, .acpmux-queue-foldbar .acpmux-queue-fold",
+      );
       const last = rows?.[rows.length - 1];
       if (last) {
         event.preventDefault();
@@ -947,10 +966,28 @@ export function Composer({
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row. Only a new chat has it, before
-  // its first send (locationRow.ts): a started chat cannot change folder or machine, so it draws
-  // nothing there and the queue and the card close up (the strip's rules are `:has()` on it).
-  const context = showsLocationRow(snapshot) && (
+  // composer location strip), so the card holds one controls row. Only a new chat has the visible
+  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
+  // composer is bottom-anchored, so removing the slot in the same render would move every control
+  // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
+  // becomes the top strip.
+  const locationVisible = showsLocationRow(snapshot);
+  const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
+  // Do not let that transient visible strip reserve space for a different, already-started chat.
+  // A slot is meaningful only after the visible strip was observed for a known session identity.
+  const locationWasVisible =
+    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
+  if (locationVisible && locationKey !== undefined) {
+    locationSlotSession.current = locationKey;
+    locationSlotWasShown.current = true;
+  } else if (!locationWasVisible) {
+    locationSlotSession.current = undefined;
+    locationSlotWasShown.current = false;
+  }
+  const keepLocationSlot = !locationVisible && locationWasVisible && snapshot.queue.length === 0;
+  const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
@@ -970,7 +1007,9 @@ export function Composer({
       localName={localName}
       onNewChat={onNewChat}
     />
-  );
+  ) : keepLocationSlot ? (
+    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+  ) : null;
   return (
     <form
       ref={form}
@@ -1013,6 +1052,9 @@ export function Composer({
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
       <ComposerQueue
+        // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
+        key={snapshot.summary?.sessionId || sessionId}
+        chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         t={t}
@@ -1219,7 +1261,10 @@ export function Composer({
             )}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}
@@ -1239,7 +1284,13 @@ export function Composer({
                   {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
                 </button>
               )}
-              {accessory}
+              {speed && <FastToggle speed={speed} />}
+              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {accessory && (
+                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                  {accessory}
+                </span>
+              )}
               {stop ? (
                 <button
                   key="stop"

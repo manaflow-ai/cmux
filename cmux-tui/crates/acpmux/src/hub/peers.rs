@@ -1,10 +1,19 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::session_identity::SessionReceipt;
+
+fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
+    summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
+}
 
 /// How long `peer_add` with `wait` waits for the first connect attempt: an
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
 const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The record kind of a peer's `_acpmux/permission_pending`, relayed to
+/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 
 impl Hub {
     // ------------------------------------------------------------- peers
@@ -114,18 +123,15 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
-        let gone: Vec<String> = {
+        let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
             let ids: Vec<String> =
                 map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
-            for id in &ids {
-                map.remove(id);
-            }
-            ids
+            ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
         };
         // Clients watching the list drop these rows.
-        for id in gone {
-            self.announce_remote(name, json!({"sessionId": id}), "purged");
+        for summary in gone {
+            self.announce_remote(name, summary, "purged");
         }
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
@@ -178,6 +184,21 @@ impl Hub {
 
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`.
     pub(super) fn remote_summary(peer: &str, mut summary: Value) -> Value {
+        let generation = summary
+            .get("sessionReceipt")
+            .and_then(|value| serde_json::from_value::<SessionReceipt>(value.clone()).ok())
+            .map(|receipt| receipt.generation)
+            .unwrap_or_default();
+        if let Some(mux_id) = summary.get("sessionId").and_then(Value::as_str) {
+            let receipt = SessionReceipt::new(
+                peer,
+                mux_id,
+                summary.get("agentSessionId").and_then(Value::as_str).map(str::to_owned),
+                generation,
+            );
+            summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
+            summary["sessionReceipt"] = receipt.to_value();
+        }
         if let Some(name) = summary.get("name").and_then(Value::as_str)
             && !name.starts_with(&format!("{peer}/"))
         {
@@ -265,35 +286,40 @@ impl Hub {
                         map.retain(|_, r| r.peer != peer);
                         let mut changed = Vec::new();
                         for s in list {
-                            if let Some(id) =
-                                s.get("sessionId").and_then(Value::as_str).map(str::to_owned)
-                            {
-                                let summary = Self::remote_summary(&peer, s);
-                                if old.remove(&id).as_ref() != Some(&summary) {
-                                    changed.push(summary.clone());
-                                }
-                                map.insert(id, RemoteSession { peer: peer.clone(), summary });
+                            let summary = Self::remote_summary(&peer, s);
+                            let Some(receipt) = session_receipt(&summary) else { continue };
+                            let id = receipt.qualified_id();
+                            if old.remove(&id).as_ref() != Some(&summary) {
+                                changed.push(summary.clone());
                             }
+                            map.insert(id, RemoteSession { peer: peer.clone(), summary, receipt });
                         }
-                        (changed, old.into_keys().collect::<Vec<_>>())
+                        (changed, old.into_values().collect::<Vec<_>>())
                     };
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
-                    for id in gone {
-                        self.announce_remote(&peer, json!({"sessionId": id}), "purged");
+                    for summary in gone {
+                        self.announce_remote(&peer, summary, "purged");
                     }
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
-                    let Some(id) =
+                    let Some(mux_id) =
                         session.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
                         return;
                     };
                     if kind == "purged" {
-                        self.remote_sessions.lock().unwrap().remove(&id);
+                        let removed = {
+                            let mut map = self.remote_sessions.lock().unwrap();
+                            let key = map
+                                .iter()
+                                .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
+                                .map(|(key, _)| key.clone());
+                            key.and_then(|key| map.remove(&key).map(|r| r.summary))
+                        };
                         let _ = self.events.send(HubEvent {
-                            session_id: id,
+                            session_id: mux_id.clone(),
                             record: EventRecord {
                                 seq,
                                 at: now_ms(),
@@ -304,18 +330,30 @@ impl Hub {
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: json!({"sessionId": session.get("sessionId")}),
+                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
                         });
                         return;
                     }
                     let summary = Self::remote_summary(&peer, session);
-                    self.remote_sessions.lock().unwrap().insert(
-                        id.clone(),
-                        RemoteSession { peer: peer.clone(), summary: summary.clone() },
-                    );
+                    let Some(receipt) = session_receipt(&summary) else { return };
+                    let id = receipt.qualified_id();
+                    {
+                        let mut map = self.remote_sessions.lock().unwrap();
+                        let old_id = map
+                            .iter()
+                            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
+                            .map(|(key, _)| key.clone());
+                        if let Some(old_id) = old_id {
+                            map.remove(&old_id);
+                        }
+                        map.insert(
+                            id.clone(),
+                            RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
+                        );
+                    }
                     let _ = self.events.send(HubEvent {
-                        session_id: id,
+                        session_id: mux_id,
                         record: EventRecord {
                             seq,
                             at: now_ms(),
@@ -337,7 +375,8 @@ impl Hub {
                         .remote_sessions
                         .lock()
                         .unwrap()
-                        .get(&id)
+                        .values()
+                        .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
                         .map(|r| r.summary.clone())
                         .unwrap_or(Value::Null);
                     let record = match m.as_str() {
@@ -375,7 +414,27 @@ impl Hub {
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
                             host_seq: None,
                         },
-                        // permission_pending is derived from the permission_request event locally.
+                        // A prompt the person must answer, to watchers of this
+                        // daemon that did not attach the session (attached
+                        // clients derive it from the permission_request event):
+                        // the peer's decision nonce and run come with it, so the
+                        // app that holds the peer's key can answer
+                        // (`hub/person.rs` (c)). Only the peer's own session
+                        // in its own run, never one of this daemon's.
+                        method::MUX_PERMISSION_PENDING
+                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                        {
+                            tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
+                            return;
+                        }
+                        method::MUX_PERMISSION_PENDING => EventRecord {
+                            seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_PERMISSION_PENDING.into(),
+                            msg: params.clone(),
+                            host_seq: None,
+                        },
                         _ => return,
                     };
                     let _ = self.events.send(HubEvent {
@@ -388,21 +447,48 @@ impl Hub {
         }
     }
 
+    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
+    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
+    /// peer listed as its own and that is not one of this daemon's, in the
+    /// daemon run the peer named at its handshake, which is not this run and
+    /// no other peer's. A prompt with this daemon's session or run would let
+    /// the peer show the person other text for one of this daemon's real
+    /// prompts, whose allow the app proves with this daemon's key.
+    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
+        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
+            return false;
+        };
+        let listed = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
+        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        let peers: Vec<_> =
+            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
+        let own_run = peers.iter().any(|p| p.name == peer && named(p));
+        let others = peers.iter().any(|p| p.name != peer && named(p));
+        listed && !local && own_run && !others && instance != self.person.instance()
+    }
+
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
         let hit = if let Some(r) = map.get(key) {
-            Some((r.peer.clone(), key.to_owned(), r.summary.clone()))
+            Some((r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
         } else {
             let mut matches: Vec<_> = map
                 .iter()
                 .filter(|(id, r)| {
                     let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
                     name == key
+                        || r.receipt.mux_session_id.starts_with(key)
                         || id.starts_with(key)
                         || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
                 })
-                .map(|(id, r)| (r.peer.clone(), id.clone(), r.summary.clone()))
+                .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
                 .collect();
             if matches.len() == 1 { matches.pop() } else { None }
         };
@@ -415,7 +501,15 @@ impl Hub {
     /// A remote session was deleted through us: drop it now rather than at
     /// the next reconnect.
     pub fn forget_remote(&self, id: &str) {
-        self.remote_sessions.lock().unwrap().remove(id);
+        let mut map = self.remote_sessions.lock().unwrap();
+        if map.remove(id).is_some() {
+            return;
+        }
+        let key =
+            map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone());
+        if let Some(key) = key {
+            map.remove(&key);
+        }
     }
 
     pub fn remote_sessions(&self) -> Vec<Value> {
@@ -429,5 +523,33 @@ impl Hub {
         // Newest first, ties by sessionId: the order session list pages keep.
         super::session_pages::sort_session_summaries(&mut v);
         v
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn remote_summary_qualifies_the_mux_id_without_changing_legacy_name() {
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "mux-1",
+                "agentSessionId": "agent-1",
+                "name": "review",
+                "sessionReceipt": {
+                    "hostId": "local",
+                    "muxSessionId": "mux-1",
+                    "agentSessionId": "agent-1",
+                    "generation": 23,
+                },
+            }),
+        );
+        assert_eq!(summary["name"], "builder/review");
+        assert_eq!(summary["qualifiedSessionId"], "builder/mux-1");
+        assert_eq!(summary["sessionReceipt"]["hostId"], "builder");
+        assert_eq!(summary["sessionReceipt"]["generation"], 23);
     }
 }

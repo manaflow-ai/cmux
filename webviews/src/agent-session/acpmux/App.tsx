@@ -48,6 +48,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -106,7 +107,8 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useSummaryCard } from "./summary/cardState";
+import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
+import { chatGallery } from "./summary/chatGallery";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -209,10 +211,12 @@ import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
+import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
+import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
@@ -227,14 +231,7 @@ import {
   type ShellRun,
 } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import {
-  SUBAGENT_OF,
-  SUBAGENT_ROW,
-  type SubagentRows,
-  childView,
-  isSubagentGroup,
-  subagentRowsFrom,
-} from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -320,6 +317,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// The native Debug Settings baseline for the sidebar latest-reply preview.
+      applySidebarPreviewVariant?(variant: unknown): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -576,6 +575,7 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <FailedPrompt row={row} />
+          {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -1044,11 +1044,17 @@ export function shellRowsFrom(runs: readonly ShellRun[], previous: readonly Acpm
   const byRun = new Map(previous.map((row) => [row.shell, row]));
   return withShellRows([], runs).map((row) => byRun.get(row.shell) ?? row);
 }
+/// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
+/// resting zone so every token does not write a new fractional scroll offset (and make the thumb
+/// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
+/// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
+/// give while a burst is measured and one correction when that burst is meaningful.
+export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
-  atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
+  atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
 /// The thread's top padding (`.acpmux-thread` in styles.css): every row draws this far below its
@@ -1056,6 +1062,12 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 const THREAD_INSET = 16;
 /// Room under the last row at the latest message, so it rests above the composer instead of on it.
 const THREAD_END = 16;
+function settleFollowBottom(node: HTMLElement, latest: number): boolean {
+  if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
+  node.scrollTop = latest;
+  return true;
+}
+
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
@@ -1196,7 +1208,7 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
-  /// Pages older history in (canLoadOlder): asked again on each render while the view is near the top.
+  /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
@@ -1282,6 +1294,9 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  // This effect validates at most two focused ids, so build the lookup once per rows identity
+  // instead of scanning the whole transcript for every id on each streaming snapshot.
+  const rowIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -1290,14 +1305,13 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    // Two ids to look up: a scan, not a set of a long chat's every row on each snapshot.
-    const has = (id: string) => rows.some((row) => row.id === id);
+    const has = (id: string) => rowIds.has(id);
     setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
       return has(current.anchorId) && has(current.focusId) ? current : undefined;
     });
-  }, [rows, sessionChanged, sessionKey]);
+  }, [rowIds, rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -1599,6 +1613,10 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // Find highlights only need repainting when the query/target, row content, or mounted DOM
+  // window changes. Keep this signature primitive so scroll and layout state updates that leave
+  // the mounted rows alone do not walk every text node in the transcript again.
+  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -1778,7 +1796,7 @@ export function VirtualTranscript({
         ? true
         : clamped || unmoved
           ? scrolledTo.current.atLatest
-          : top >= old.totalHeight - node.clientHeight - 1 ||
+          : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
             (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
@@ -1793,10 +1811,8 @@ export function VirtualTranscript({
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
-        if (Math.abs(step) > 0.5) {
-          node.scrollTop = latest;
-          followTrace.set(latest);
-        }
+        const settled = settleFollowBottom(node, latest);
+        if (settled) followTrace.set(latest);
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
         // again by its drawn height, both before the frame paints: each step glides, and the
@@ -1806,7 +1822,7 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
           glide(thread.current, step);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -1881,19 +1897,21 @@ export function VirtualTranscript({
   // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
   const findQuery = find?.open ? find.query : "";
   const findTarget = find?.matches[find.active];
+  const findTargetRowId = findTarget?.rowId;
+  const findTargetOccurrence = findTarget?.occurrence;
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
-  const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
+  const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
-    findTarget && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTarget.occurrence}:${findQuery}`
+    findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
+      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
-  const [, setRevealed] = useState(0);
+  const [revealed, setRevealed] = useState(0);
   // Keyed on what it names, not the match object, which is new on each update while Find is open:
   // a new value would open again every group a reader closed.
   const promptOccurrence = promptCollapse ? findTarget?.occurrence : undefined;
@@ -1932,8 +1950,8 @@ export function VirtualTranscript({
     const current = paintFindHighlights(
       node,
       findQuery,
-      findTarget && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTarget.occurrence }
+      findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -1957,7 +1975,19 @@ export function VirtualTranscript({
       if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
         scrollRangeIn(box, current);
     scrollRangeIn(node, current);
-  });
+    // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
+    // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
+  }, [
+    drawnCard,
+    drawnId,
+    findQuery,
+    findTargetOccurrence,
+    findTargetRowId,
+    mountedRangeKey,
+    revealed,
+    rows,
+    targetKey,
+  ]);
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
   const reportedAnchor = useRef<string | undefined>(undefined);
@@ -2038,14 +2068,16 @@ export function VirtualTranscript({
     // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
-    const layoutDriven = followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= 0.5;
+    const layoutDriven =
+      followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
-      scrolledTo.current = { top: latest, atLatest: true };
-      followTrace.set(latest);
+      const settled = settleFollowBottom(node, latest);
+      const resting = settled ? latest : next;
+      scrolledTo.current = { top: resting, atLatest: true };
+      followTrace.set(resting);
       follow(true);
-      setScroll((current) => ({ top: latest, delta: latest - current.top }));
+      setScroll((current) => ({ top: resting, delta: resting - current.top }));
       return;
     }
     const was = scrolledTo.current;
@@ -2121,21 +2153,40 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
-  const markTurns = () => {
+  const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  };
-  useLayoutEffect(markTurns);
+  }, [lastTurnId]);
+  // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
+  // layout effect scanned every commit, including scroll/follow state commits that cannot change
+  // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
+  useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
-    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
-    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
-  });
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
+      olderLoadRequested.current = undefined;
+      return;
+    }
+    if (node.scrollTop >= node.clientHeight * 2) {
+      // Allow the next visit to the threshold to request the next page, even when the first row
+      // did not change while the reader was away from the top.
+      olderLoadRequested.current = undefined;
+      return;
+    }
+    if (olderLoadRequested.current === olderLoadKey) return;
+    olderLoadRequested.current = olderLoadKey;
+    onLoadOlder().catch(() => {
+      // Keep transient transport failures retryable without turning every render into a request.
+      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
+    });
+  }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
@@ -2837,14 +2888,30 @@ function AcpmuxPane() {
     chatShellRows,
     panelAsks,
   ]);
-  // Another chat never opens on a subagent of this one.
+  // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
+  // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
-  const summaryCard = useSummaryCard(
-    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
-    hasSubagents && !subagentPane.current,
-  );
+  const summaryHasContent = useMemo(() => {
+    if (chatGallery(snapshot.rows).length > 0) return true;
+    return snapshot.rows.some(
+      (row) =>
+        row.subagents?.length ||
+        row.backgroundTask ||
+        (row.kind === "activity" &&
+          row.items?.some((item) => {
+            const tool = item.tool;
+            if (!tool) return false;
+            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            if (tool.kind !== "execute") return false;
+            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
+            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
+              command,
+            );
+          })),
+    );
+  }, [snapshot.rows]);
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -3471,9 +3538,7 @@ function AcpmuxPane() {
     if (continueAvailable) enabledCmuxActions.add("continue");
     if (asksAside && snapshot.sessionId) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
-    return projectDraft && !snapshot.sessionId
-      ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
-      : withCommands;
+    return withDraftFolder(withCommands, projectDraft);
   }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
@@ -3655,6 +3720,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applySidebarPreviewVariant(variant) {
+        configureNativeSidebarPreviewVariant(variant);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -3701,8 +3769,9 @@ function AcpmuxPane() {
           configureThreadTitle(customization.layout);
           configurePointerCursor(customization.layout);
           configureLabs(customization.layout);
+          configureSidebarPreviewVariant(customization.layout.sidebarPreviewVariant);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
-        }
+        } else configureSidebarPreviewVariant(undefined);
       },
       dictation(update) {
         deliverDictation(update);
@@ -4909,7 +4978,7 @@ function AcpmuxPane() {
         // The chat's start is part of this send: a trust refusal there asks the folder's
         // question, keeps this prompt (with its send's gesture) and sends it after Trust
         // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-        await callNative("chat.new", { cwd: projectDraft }).catch((error: unknown) => {
+        await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
           if (isTrustRefusal(error)) {
             holdPrompt.current?.();
             trustRefused.current?.(error, () => composerHandle.current?.send());
@@ -5453,10 +5522,43 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  const summaryPanel = (
+    <SummaryCard
+      key={snapshot.sessionId}
+      card={summaryCard}
+      rows={snapshot.rows}
+      changes={quick ? undefined : lastChanges}
+      onOpenChanges={toggleLastChanges}
+      onOpenOutput={quick ? undefined : openOutput}
+      onOpenImage={quick ? undefined : openImage}
+      subagents={cardSubagents}
+      details={
+        quick || !threadTitle ? undefined : (
+          <ThreadDetails
+            folder={localCwd}
+            {...(machineName ? { machine: machineName } : {})}
+            openIn={(app) =>
+              callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
+                (reply) => reply?.apps ?? [],
+              )
+            }
+          />
+        )
+      }
+    />
+  );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
-        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
+      <section
+        ref={setShell}
+        className="acpmux-shell"
+        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+      >
+        <div
+          className="acpmux-main"
+          data-new-chat={freshView && !showNewTab ? "" : undefined}
+          data-summary={summaryCard.column ? "inline" : "popover"}
+        >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5688,30 +5790,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                <SummaryCard
-                  // Another chat closes this one's gallery, as it does the image viewer.
-                  key={snapshot.sessionId}
-                  card={summaryCard}
-                  rows={snapshot.rows}
-                  changes={quick ? undefined : lastChanges}
-                  onOpenChanges={toggleLastChanges}
-                  onOpenOutput={quick ? undefined : openOutput}
-                  onOpenImage={quick ? undefined : openImage}
-                  subagents={cardSubagents}
-                  details={
-                    quick || !threadTitle ? undefined : (
-                      <ThreadDetails
-                        folder={localCwd}
-                        {...(machineName ? { machine: machineName } : {})}
-                        openIn={(app) =>
-                          callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
-                            (reply) => reply?.apps ?? [],
-                          )
-                        }
-                      />
-                    )
-                  }
-                />
+                {!summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -5798,6 +5877,13 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {!harnessesOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          !inspectorOpen &&
+          !diffView &&
+          summaryCard.column &&
+          summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (

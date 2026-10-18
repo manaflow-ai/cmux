@@ -11,21 +11,13 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-    /// The daemon's allocation name is useful as an identity, but it is not
-    /// useful content for a sidebar row. Keep it hidden until a page title,
-    /// agent title, or user title replaces it so a new workspace reads as a
-    /// stable loading state instead of flashing `workspace-7`.
+    /// What a workspace's row shows of its front tab: a name in place of one
+    /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
+    /// hq#1957), and a page's favicon in place of an icon the user never chose.
+    /// A daemon default name (`workspace-7`) remains visible until a rename.
     private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
-        let title = workspace.displayName
-        guard !isDefaultWorkspaceName(title) else { return "" }
-        return title
-    }
-
-    private static func isDefaultWorkspaceName(_ name: String) -> Bool {
-        guard name.hasPrefix("workspace-") else { return false }
-        let suffix = name.dropFirst("workspace-".count)
-        return !suffix.isEmpty && suffix.allSatisfy { $0.isASCII && $0.isNumber }
+        return workspace.displayName
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
@@ -47,8 +39,8 @@ public struct SidebarMapping {
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
-    /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// titled `newTabTitle` (localized by the App). `pageFace` gives the face
+    /// a workspace's front tab (any kind) lends its row, and the favicon of
     /// each browser tab in the tab list. `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
@@ -120,7 +112,7 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
+        let page = front.flatMap { pageFace(workspace, $0) }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
@@ -173,7 +165,7 @@ public struct SidebarMapping {
 
     /// The tab the row stands for: the selected tab of the workspace's most
     /// recently focused pane; nil for a workspace with no tabs.
-    func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
         let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
         guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
         if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }

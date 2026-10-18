@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// small-radius rect of the agent's presence color at the content's top-right.
 /// It passes clicks through to the content under it.
 public final class AgentPresenceTagView: NSView {
-    let label = NSTextField(labelWithString: "")
+    let label = ChromeLabel(labelWithString: "")
     public private(set) var presence: TabPresence?
 
     override public init(frame: NSRect) {
@@ -50,7 +50,7 @@ public final class AgentPresenceTagView: NSView {
     /// the cell cut 3-4 characters at that width. The cell needs its
     /// `cellSize` plus about a point (measured on macOS 26).
     private var labelSize: NSSize {
-        let cell = label.cell?.cellSize ?? label.intrinsicContentSize
+        let cell = label.naturalSize
         return NSSize(width: ceil(cell.width) + 1, height: ceil(label.intrinsicContentSize.height))
     }
 

@@ -155,12 +155,17 @@ export function ThreadMinimap({
     };
   }, [scroller]);
 
-  const indexAt = (clientY: number) => {
-    const box = root.current?.getBoundingClientRect();
-    if (!box || !turns.length) return undefined;
-    const index = Math.floor((clientY - box.top) / pitch);
-    return Math.max(0, Math.min(turns.length - 1, index));
-  };
+  const indexAt = useCallback(
+    (clientY: number) => {
+      const box = root.current?.getBoundingClientRect();
+      if (!box || !turns.length) return undefined;
+      const index = Math.floor((clientY - box.top) / pitch);
+      return Math.max(0, Math.min(turns.length - 1, index));
+    },
+    [pitch, turns.length],
+  );
+  // Keep the tick callbacks stable while scrolling and streaming: they read the latest turns and
+  // tops from `stepping`, so memoized Tick rows skip a streaming delta (Lucas 2026-10-19).
   const jump = useCallback(
     (index: number) => {
       const node = scroller.current;

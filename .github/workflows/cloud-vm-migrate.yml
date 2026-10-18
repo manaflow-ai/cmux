@@ -90,6 +90,13 @@ jobs:
         run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
+      - name: Run durable runtime promotion suite
+        env:
+          CMUX_DB_TEST: "1"
+          CMUX_CLOUD_VM_ENV_SOURCE: process
+          CMUX_DB_DRIVER: url
+          DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun run test:runtime-promotion:db
       - name: Clean up staging Iroh challenges
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:cleanup-iroh -- staging --apply

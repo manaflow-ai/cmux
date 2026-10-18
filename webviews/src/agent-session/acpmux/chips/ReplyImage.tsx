@@ -71,7 +71,9 @@ function useImageLoad(src: string, auto: boolean) {
 export function OpenableImage({ src, alt }: { src: string; alt: string }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  const image = <img className="cv-img" src={src} alt={alt} loading="lazy" decoding="async" />;
+  // Use the shared compositor-only fade for a calm handoff from the placeholder.
+  // The motion is disabled under reduced-motion; opacity never affects layout.
+  const image = <img className="cv-img cv-img--enter" src={src} alt={alt} loading="lazy" decoding="async" />;
   if (!openImage) return image;
   return (
     <button

@@ -16,7 +16,7 @@ import CmuxNextWakeups
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let message = NSTextField(labelWithString: "")
+    private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles
     /// (Chief conversation only); the transcript narrows while it shows.
@@ -172,7 +172,7 @@ final class HomeHostView: NSView {
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
         message.maximumNumberOfLines = 0
         message.lineBreakMode = .byWordWrapping
-        message.cell?.wraps = true
+        message.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -238,8 +238,7 @@ final class HomeHostView: NSView {
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
         message.preferredMaxLayoutWidth = width
-        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
-            ?? message.intrinsicContentSize.height)
+        let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 

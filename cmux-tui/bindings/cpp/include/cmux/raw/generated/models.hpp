@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
+inline constexpr std::string_view kProtocolIrSha256 = "a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationReactionKind;
 struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
+struct ConversationTabSplit;
 struct ConversationTextRun;
 struct ConversationThreadResolution;
 struct ConversationThreadState;
@@ -108,6 +109,7 @@ struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+enum class NameSource;
 struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
@@ -2322,6 +2324,13 @@ struct ConversationSnapshotResult {
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
 };
 
+struct ConversationTabSplit {
+    std::string direction{};
+    Field<std::string> pane_id{};
+    Field<std::string> split_id{};
+    friend bool operator==(const ConversationTabSplit&, const ConversationTabSplit&) = default;
+};
+
 struct ConversationThreadRequest {
     std::optional<std::uint64_t> after_seq{};
     std::string conversation{};
@@ -2666,6 +2675,7 @@ struct LayoutSplit {
     SplitDirection dir{};
     float ratio{};
     std::optional<Id> split{};
+    std::optional<std::string> split_id{};
     friend bool operator==(const LayoutSplit&, const LayoutSplit&) = default;
 };
 
@@ -3174,7 +3184,12 @@ struct KittyImageAlias {
 };
 
 struct LayoutChangedEvent {
+    std::optional<Id> active_pane{};
+    std::optional<Layout> layout{};
     Id screen{};
+    std::optional<std::string> transaction{};
+    std::optional<Id> workspace{};
+    Field<Id> zoomed_pane{};
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
@@ -3716,6 +3731,11 @@ struct MoveWorkspaceToGroupRequest {
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
@@ -3735,6 +3755,7 @@ struct NewConversationTabRequest {
     Field<Id> pane{};
     Field<std::string> route{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
@@ -4254,11 +4275,14 @@ struct RenameSurfaceRequest {
 
 struct RenameWorkspaceRequest {
     Field<std::string> expected_generation{};
+    Field<std::string> expected_name_revision{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     std::string name{};
     Field<std::string> origin{};
+    std::optional<bool> release{};
+    Field<NameSource> source{};
     Field<Id> workspace{};
     friend bool operator==(const RenameWorkspaceRequest&, const RenameWorkspaceRequest&) = default;
 };
@@ -5048,6 +5072,7 @@ struct SplitRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> split_id{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
@@ -5414,6 +5439,8 @@ struct Workspace {
     Id id{};
     std::optional<std::string> key{};
     std::string name{};
+    std::optional<std::string> name_revision{};
+    std::optional<NameSource> name_source{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
@@ -6008,6 +6035,12 @@ struct Codec<ConversationTabRecord> {
 };
 
 template <>
+struct Codec<ConversationTabSplit> {
+    static Result<Json> encode(const ConversationTabSplit& value);
+    static Result<ConversationTabSplit> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationTextRun> {
     static Result<Json> encode(const ConversationTextRun& value);
     static Result<ConversationTextRun> decode(const Json& value);
@@ -6293,6 +6326,12 @@ template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NameSource> {
+    static Result<Json> encode(const NameSource& value);
+    static Result<NameSource> decode(const Json& value);
 };
 
 template <>

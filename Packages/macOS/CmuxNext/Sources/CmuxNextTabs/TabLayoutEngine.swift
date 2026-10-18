@@ -65,7 +65,8 @@ public struct TabLayoutEngine {
             slots: slots,
             contentWidth: x,
             standardWidth: flexibleWidths.standard,
-            availableWidth: available
+            availableWidth: available,
+            dependsOnSelection: flexibleWidths.dependsOnSelection
         )
     }
 
@@ -74,20 +75,20 @@ public struct TabLayoutEngine {
         available: CGFloat,
         style: TabStripStyle,
         metrics: TabStripMetrics
-    ) -> (widths: [CGFloat], standard: CGFloat) {
+    ) -> (widths: [CGFloat], standard: CGFloat, dependsOnSelection: Bool) {
         let count = tabs.count
-        guard count > 0 else { return ([], 0) }
+        guard count > 0 else { return ([], 0, false) }
         if style == .compact {
-            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth)
+            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth, false)
         }
 
         let ideal = available / CGFloat(count)
         if ideal >= metrics.maxTabWidth {
-            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth)
+            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth, false)
         }
         if ideal >= metrics.minActiveTabWidth {
             let widths = distribute(available, count: count)
-            return (widths, widths.last ?? 0)
+            return (widths, widths.last ?? 0, false)
         }
 
         // Too narrow for everyone: the selected tab keeps its minimum and the
@@ -95,7 +96,7 @@ public struct TabLayoutEngine {
         guard let selectedIndex = tabs.firstIndex(where: \.isSelected), count > 1 else {
             let width = max(ideal.rounded(.down), metrics.minInactiveTabWidth)
             let clamped = count == 1 ? max(width, metrics.minActiveTabWidth) : width
-            return (Array(repeating: clamped, count: count), clamped)
+            return (Array(repeating: clamped, count: count), clamped, count > 1)
         }
         let othersAvailable = available - metrics.minActiveTabWidth
         let perOther = othersAvailable / CGFloat(count - 1)
@@ -107,7 +108,7 @@ public struct TabLayoutEngine {
         }
         let standard = others.last ?? metrics.minInactiveTabWidth
         others.insert(metrics.minActiveTabWidth, at: selectedIndex)
-        return (others, standard)
+        return (others, standard, true)
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to

@@ -43,12 +43,13 @@ struct ScreenDividers {
         }.sorted { $0.id < $1.id }
     }
 
-    /// The dividers' drawn lines, in the screen's coordinates: native UI that
-    /// Chromium pages leave uncovered (they sit in the gap between panes). A
-    /// divider that never draws (`layout.paneSeparation` none) leaves no hole.
+    /// The dividers' currently drawn lines, in the screen's coordinates:
+    /// native UI that Chromium pages leave uncovered (they sit in the gap
+    /// between panes). A transparent edge handle at rest leaves no hole;
+    /// hovering or dragging it makes the line part of the overlay again.
     var lineRects: [CGRect] {
         screen.dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
+            guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
             let rect = view.lineFrameInSuperview.intersection(screen.bounds)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }

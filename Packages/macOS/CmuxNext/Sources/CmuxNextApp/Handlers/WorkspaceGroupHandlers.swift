@@ -196,7 +196,7 @@ enum WorkspaceGroupHandlers {
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
             let target = groups[index]
-            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { $0.rowState != .placeholder }) {
+            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { !$0.rowState.isPending }) {
                 context.services.windows.show(workspaceID: workspace.id.rawValue, in: window.state)
                 return
             }

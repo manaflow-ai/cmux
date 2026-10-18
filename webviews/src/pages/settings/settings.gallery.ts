@@ -167,6 +167,50 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  "backdrops-pending": variant("appearance", {
+    options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "system:/S/Sonoma.heic",
+          title: "Sonoma",
+          attribution: "macOS system wallpaper · Sonoma",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: true,
+        },
+        {
+          id: "system:/S/Grid Green.madesktop",
+          title: "Grid Green",
+          attribution: "macOS system wallpaper · Grid Green",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+      ],
+    },
+    backdropImages: {
+      "system:/S/Sonoma.heic":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#8b9aae"/><circle cx="236" cy="58" r="34" fill="#f7e7bd"/><path d="M0 145L90 82L160 139L250 72L320 130V180H0Z" fill="#40526b"/></svg>',
+        ),
+      "system:/S/Grid Green.madesktop":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263a32"/><path d="M0 180L108 58L186 180Z" fill="#6fa06c"/><path d="M128 180L233 38L320 180Z" fill="#9bcf8d"/></svg>',
+        ),
+    },
+    steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
+    note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
+  }),
+  "backdrops-empty": variant("appearance", {
+    options: { values: { "appearance.background": "none" } },
+    host: { ...host, backdrops: [] },
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+  }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",

@@ -5,6 +5,7 @@ import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { ThoughtFold } from "./ThoughtFold";
 import { thoughtStyle } from "./thoughtStyle";
+import { formatDuration } from "./turns";
 
 /// A done thought folds once it is taller than the transcript's viewport, and never under this
 /// (20 of the tool rows' 20px lines), so a small pane does not fold every thought.
@@ -17,12 +18,27 @@ export const thoughtLayout = {
   /// The Debug toggle `agentPane.debug.foldLongThoughts` (off by default), which the app sets on
   /// `<html>` as `data-fold-long-thoughts="on"` before the page loads.
   enabled: () => typeof document !== "undefined" && document.documentElement.dataset.foldLongThoughts === "on",
+  /// The Debug choice `agentPane.debug.thoughtHeader`: a folded thought reads "Thought for 12s"
+  /// unless the app sets `data-thought-header="preview"`, "Thought" and its first line (#20948).
+  header: (): ThoughtHeader =>
+    typeof document !== "undefined" && document.documentElement.dataset.thoughtHeader === "preview"
+      ? "preview"
+      : "duration",
   height: (node: HTMLElement) => node.getBoundingClientRect().height,
   /// The transcript scroller's height (VirtualTranscript's `.acpmux-scroll`).
   viewport: (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0,
   reducedMotion: () =>
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };
+
+export type ThoughtHeader = "duration" | "preview";
+
+/// How long the agent thought, from the thought's first chunk to its latest (direct.ts
+/// appendThought), never negative: events out of order can date the latest before the first.
+export function thoughtDuration(item: AcpmuxActivity): number | undefined {
+  if (item.startedAt === undefined || item.endedAt === undefined) return undefined;
+  return Math.max(0, item.endedAt - item.startedAt);
+}
 
 /// The reader's open or closed, by thought, so a row the transcript unmounts and mounts again keeps it.
 const choices = new Map<string, boolean>();
@@ -37,8 +53,9 @@ export function thoughtPreview(text: string): string {
 
 /// A thought (the agent's reasoning) on its row: a muted "Thought", then the text wrapped on the tool
 /// rows' rhythm (Leo 2026-10-13). With the Debug toggle on, a long one shows in full while it
-/// streams and folds to one line once done, as Codex folds work when its next output starts; the
-/// reader's toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's
+/// streams and folds to one line once done, as Codex folds work when its next output starts. The
+/// line reads "Thought for 12s" (an undated thought, or one under a second, reads "Thought"), or
+/// with the Debug choice "preview", "Thought" and its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's
 /// toggle animates the height, except under Reduce Motion.
 export function ThoughtRow(props: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
   // The Debug choice agentPane.debug.thoughtStyle (thoughtStyle.ts): a brain line that opens.
@@ -105,6 +122,10 @@ function PlainThoughtRow({ item, id, streaming = false }: { item: AcpmuxActivity
         </span>
       </div>
     );
+  const header = thoughtLayout.header();
+  const ms = header === "duration" ? thoughtDuration(item) : undefined;
+  const label =
+    ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   const toggle = () => {
     toggled.current = true;
     if (open && !thoughtLayout.reducedMotion()) setClosing(true);
@@ -120,9 +141,9 @@ function PlainThoughtRow({ item, id, streaming = false }: { item: AcpmuxActivity
         onClick={toggle}
       >
         <span className="cv-thought__label" data-find-skip>
-          {t("tools.thought")}
+          {label}
         </span>
-        {!open && (
+        {!open && header === "preview" && (
           <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
             {thoughtPreview(text)}
           </span>

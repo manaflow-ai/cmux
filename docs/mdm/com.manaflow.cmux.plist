@@ -692,6 +692,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>pluggedIn</string>
+			<key>pfm_description</key>
+			<string>Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.</string>
+			<key>pfm_name</key>
+			<string>sessions.keepAwake</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>pluggedIn</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Keep Mac Awake While Agents Work</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -867,6 +885,18 @@
 			<string>sidebar.groupByComputer</string>
 			<key>pfm_title</key>
 			<string>Group Workspaces by Computer</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoName</string>
+			<key>pfm_title</key>
+			<string>Name Workspaces from Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -2375,6 +2405,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>animated</string>
+			<key>pfm_description</key>
+			<string>Static draws a still, distinct shape for each state. Reduce Motion always uses Static.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.animation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>animated</string>
+				<string>static</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Status Indicators</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

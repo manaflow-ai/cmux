@@ -58,6 +58,8 @@ test("the summary card opens after being hidden without breaking the pane", asyn
   const errors: unknown[] = [];
   const card = (shown: boolean) => ({
     shown,
+    column: false,
+    reserve: false,
     collapsed: false,
     toggle() {},
     show() {},

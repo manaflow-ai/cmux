@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
+import CmuxNextFocus
 
 /// Deterministic replay of an input journal against the pure reducers
 /// (plans/cmux-next/input-spec.md section 5). Each window's focus machine
@@ -50,7 +51,7 @@ nonisolated enum InputReplay {
 
     static func replay(_ entries: [InputJournalEntry]) -> Result {
         var result = Result()
-        var states: [String: FocusState] = [:]
+        var machines: [String: (machine: FocusMachine, state: FocusState)] = [:]
         var terminals: [String: Terminal] = [:]
         func diverge(_ divergence: Divergence) {
             result.divergences += 1
@@ -60,19 +61,26 @@ nonisolated enum InputReplay {
             let window = entry.window ?? "-"
             switch entry.kind {
             case .focusCheckpoint(let checkpoint):
-                if let state = states[window], state != checkpoint {
+                let machine = machines[window]?.machine ?? FocusMachine()
+                if let replayed = machines[window], !replayed.machine.checkpoint().matches(checkpoint) {
                     diverge(Divergence(kind: .checkpoint, seq: entry.seq, window: window, event: "checkpoint",
-                                       recorded: String(describing: FocusDigest(checkpoint)), replayed: String(describing: FocusDigest(state))))
+                                       recorded: checkpoint.json, replayed: replayed.machine.checkpoint().json))
                 }
-                if states[window] == nil { result.windows.append(window) }
-                states[window] = checkpoint
+                guard let state = machine.restore(checkpoint) else {
+                    machines[window] = nil
+                    continue
+                }
+                if !result.windows.contains(window) { result.windows.append(window) }
+                machines[window] = (machine, state)
             case .focus(let event, let recorded):
-                guard let state = states[window] else {
+                guard let replaying = machines[window] else {
                     result.skippedFocusEvents += 1
                     continue
                 }
+                let (machine, state) = (replaying.machine, replaying.state)
                 result.focusEvents += 1
-                let next = FocusReducer.reduce(state, event).0
+                var next = state
+                _ = machine.send(event, into: &next)
                 let digest = FocusDigest(next)
                 if digest != recorded {
                     diverge(Divergence(kind: .outcome, seq: entry.seq, window: window, event: String(describing: event),
@@ -83,7 +91,7 @@ nonisolated enum InputReplay {
                     diverge(Divergence(kind: .invariant, seq: entry.seq, window: window, event: String(describing: event),
                                        violations: violations))
                 }
-                states[window] = next
+                machines[window] = (machine, next)
             case .attach(let record):
                 if record.event == "start" { terminals[record.surface] = Terminal() }
                 guard var terminal = terminals[record.surface], let event = attachEvent(record, chunk: &terminal.chunk) else {

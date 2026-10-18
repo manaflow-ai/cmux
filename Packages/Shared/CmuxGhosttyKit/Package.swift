@@ -30,6 +30,25 @@ import PackageDescription
 // dark on a light theme (PR 35).
 // Since 4792f0307 it does the same at background-opacity 0, which cmux-next
 // gives its surfaces in a translucent window (PR 36).
+// Since 48d353b8c a macOS surface can be host-sized
+// (ghostty_surface_set_host_sized): its target follows set_size, not the
+// view's bounds, so a pane drag keeps the last frame (PR 38).
+// Since c5926d664 a host-locked mirror draws its own reflow at the view's
+// grid until the owner announces it (ghostty_surface_set_reflow_preview),
+// and reports the grid its last frame drew (ghostty_surface_drawn_grid;
+// PR 39).
+// Since e4831af81 cells keep the source of each color and a config color
+// change blends on the GPU with the surface's transition
+// (ghostty_surface_set_color_transition), and the renderer reports its
+// frame counters (ghostty_surface_render_counters; PR 40).
+// Since e6a27a1fb a config change of colors only rebuilds no cells, and the
+// render counters report full rebuilds by cause (PR 41).
+// Since a19c884fa a released drawable keeps its pixels while another owner
+// holds it (the layer's presented frame, an evicted terminal's last frame;
+// cmux marks those volatile while hidden; PR 42).
+// Since ced99dcde a new drawn terminal (a restore, the reflow preview) keeps
+// rows whose content is the same (PR 43) and the renderer's cell size
+// follows its font grid only (PR 44), so a font change rebuilds once.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -54,8 +73,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-4792f03070e6134ea764e3e9bec630631eb1bd47-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "fe416827c16b0abb2e31de16294dfc22265d503f4dedc84036b0fc5145fecfb6"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ced99dcde2f11df0e9f9e4a3d768c2a8ff62d903-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "1b63ad807de22b8c51489c3bf1640dbc2b8582beca9f74a516471f59ac0e63ed"
         ),
     ]
 )

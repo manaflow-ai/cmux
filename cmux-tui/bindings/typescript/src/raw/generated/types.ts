@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
+/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -338,6 +338,15 @@ export type ConversationTabRecord = {
   "route"?: string;
 };
 
+export type ConversationTabSplit = {
+  /** The side of pane the new pane takes: right, down, left or up. */
+  "direction": string;
+  /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
+  "pane_id"?: (string) | null;
+  /** Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed. */
+  "split_id"?: (string) | null;
+};
+
 export type ConversationTextRun = {
   "length": number;
   "link"?: string;
@@ -590,6 +599,8 @@ export type Layout = ({ "type": "leaf" } & {
   "ratio": number;
   /** Stable for the lifetime of this split node. */
   "split"?: Id;
+  /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+  "split_id"?: string;
   "type": "split";
 }) | ({ "type": "stack" } & {
   "expanded": Id;
@@ -676,6 +687,8 @@ export type MoveTerminalResult = {
   "workspace": (Id) | null;
   "workspace_key": string;
 };
+
+export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
@@ -1488,6 +1501,8 @@ export type Workspace = {
   "id": Id;
   "key"?: string;
   "name": string;
+  "name_revision"?: string;
+  "name_source"?: NameSource;
   "screens": Array<Screen>;
   "short_id"?: string;
 };

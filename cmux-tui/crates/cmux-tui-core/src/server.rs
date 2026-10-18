@@ -102,6 +102,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -237,6 +238,7 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -285,6 +287,10 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// `layout-changed` carries the screen's layout fields, its workspace and
+/// the transaction of the request that caused it (events.md
+/// `layout-changed`): a frontend patches that one screen.
+pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// A docked column marked permanent stays docked on its edge for every
 /// client: `set-column-dock` takes `permanent`, and an undock, another edge,
 /// a replacement or a close or move that would remove it answers
@@ -2009,11 +2015,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2606,17 +2609,30 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),

@@ -30,6 +30,7 @@ extension DaemonStore {
         guard intentLog.append(intent, transaction: transaction) else { return }
         if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
+        publishTabListChange()
         recordMirror()
         workspaceListMayHaveChanged()
     }
@@ -73,7 +74,10 @@ extension DaemonStore {
     /// snapshot covering `resyncSequence` is applied, so the tab never
     /// shows back at its old place in between.
     func settleIntentOnEcho(_ transaction: ClientTransactionID, needsResync: Bool, sequence: UInt64?) {
-        guard intentLog.contains(transaction) else { return }
+        guard let entry = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
+        // A split's `pane-added` echo comes before the `layout-changed` that places the pane:
+        // it stays until the records place it (cx-ry0y), as when its reply settles it.
+        if awaitsRecords(entry) { return intentLog.awaitRecords(transaction) }
         if needsResync {
             if let sequence { intentLog.settle(transaction, at: sequence) }
             return
@@ -106,10 +110,12 @@ extension DaemonStore {
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
             intentSettlements.append((intent.transaction, .applied))
         }
+        releaseSettledProvisionalPanes()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
         recomputeSidebarIfNeeded()
+        publishTabListChange()
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
         workspaceListMayHaveChanged()
@@ -126,6 +132,25 @@ extension DaemonStore {
     private func awaitsRecords(_ intent: PendingIntent) -> Bool {
         guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
         return !ProvisionalSplit.daemonPlaces(provisional, in: self)
+    }
+
+    /// The pane model of a split that left the log (settled or refused) is no longer provisional.
+    private func releaseSettledProvisionalPanes() {
+        guard !provisionalPanes.isEmpty else { return }
+        let pending = Set(intentLog.entries.compactMap { entry -> String? in
+            if case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
+            return nil
+        })
+        provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
+    }
+
+    /// The record of a pane the daemon reports: the provisional pane's own model when a pending
+    /// split shows it under the same public id, updated in place, so its observers keep their
+    /// object and see only the fields that changed (perf I3); else a new model.
+    func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
+        guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
+        model.update(snapshot)
+        return model
     }
 
     /// A new connection replaces the last one (`run(connection:)`): its
