@@ -85,6 +85,27 @@ struct InProcessMachineCreateLauncherTests {
         #expect(!completion.wasCancelled)
     }
 
+    @Test("A refused create carries the server's code apart from its message")
+    func refusedCreateCarriesTheRefusalCode() async throws {
+        let invocation = try #require(InProcessMachineCreateLauncher.parse(arguments: [
+            "vm", "new", "--workspace", UUID().uuidString
+        ]))
+        // The message names another code; the completion must carry the real one.
+        let body = #"{"error":"vm_new_gate","message":"Refused (HTTP 402: vm_resource_pool_exceeded)"}"#
+        let dependencies = InProcessMachineCreateLauncher.Dependencies(
+            create: { _, _ in throw VMClientError.httpStatus(402, body) },
+            record: { _, _ in Issue.record("Unexpected record"); return nil },
+            provider: { _ in Issue.record("Unexpected lookup"); return nil },
+            refresh: { _ in Issue.record("Unexpected refresh") },
+            open: { _, _ in Issue.record("Unexpected open") }
+        )
+        let completion = await InProcessMachineCreateLauncher.run(
+            invocation, operationID: UUID(), dependencies: dependencies, onOutput: { _ in }
+        )
+        #expect(!completion.succeeded)
+        #expect(completion.refusalCode == "vm_new_gate")
+    }
+
     @Test("A missing receipt provider forces a fresh fleet discovery")
     func missingReceiptProviderForcesFreshRefresh() async throws {
         let workspace = UUID()

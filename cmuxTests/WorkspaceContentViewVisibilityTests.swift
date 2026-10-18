@@ -6,7 +6,7 @@ import CmuxUpdater
 import CoreGraphics
 import Observation
 import SwiftUI
-import Bonsplit
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -206,6 +206,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
     }
 
+    /// Confirms minimal-mode changes do not trigger a sustained Bonsplit render storm.
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
@@ -249,6 +250,12 @@ final class WorkspaceContentViewVisibilityTests {
                 if root == projectRoot.path { break }
             }
             try #require(workspace.extensionSidebarProjectRootPath == projectRoot.path)
+        }
+        var sustainedTabBarRenderWindows = 0
+        for workspace in tabManager.tabs {
+            workspace.bonsplitController.onTabBarRenderDiagnostic = { _ in
+                sustainedTabBarRenderWindows += 1
+            }
         }
         // The right-side file explorer is outside this test's minimal-mode
         // scope. Keep it hidden so delayed workspace-root discovery cannot
@@ -301,7 +308,12 @@ final class WorkspaceContentViewVisibilityTests {
         // window has gone quiet.
         let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
         try #require(settled, "The window must stop re-evaluating chrome bodies before the toggle is measured")
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Initial pane rendering must not sustain a tab-bar render storm."
+        )
         counts.reset()
+        sustainedTabBarRenderWindows = 0
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
         defaults.set(
@@ -311,6 +323,10 @@ final class WorkspaceContentViewVisibilityTests {
         await Self.drainMainRunLoop(for: window)
         counts.isMeasuringInvalidations = false
 
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Minimal-mode toggles must not sustain a tab-bar render storm."
+        )
         #expect(
             counts.contentViewBody == 0,
             "Minimal-mode toggles must not re-evaluate the whole ContentView body."
@@ -347,11 +363,12 @@ final class WorkspaceContentViewVisibilityTests {
         // re-evaluates VerticalTabsSidebar for a reason unrelated to unread
         // state, so the count below depended on how fast the runner was.
         let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
-        let workspaceId = tabManager.addWorkspace(
+        let selectedWorkspace = tabManager.addWorkspace(
             initialSurface: .cloudVMLoading,
             select: true,
             autoWelcomeIfNeeded: false
-        ).id
+        )
+        let workspaceId = selectedWorkspace.id
         let unaffectedWorkspace = tabManager.addWorkspace(
             initialSurface: .cloudVMLoading,
             select: false,
@@ -428,6 +445,14 @@ final class WorkspaceContentViewVisibilityTests {
             unaffectedApplyCount += 1
         }
         counts.reset()
+        // SidebarUnreadModel cannot publish a Workspace, so a Workspace publish
+        // in this window is unrelated settling (main run 38492427482 logged
+        // "WorkspaceContentView: _workspace changed." here).
+        var unrelatedWorkspacePublishes = 0
+        let workspacePublishes = selectedWorkspace.objectWillChange.sink { _ in
+            unrelatedWorkspacePublishes += 1
+        }
+        defer { workspacePublishes.cancel() }
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
 
@@ -453,7 +478,7 @@ final class WorkspaceContentViewVisibilityTests {
             "Unread changes must update their leaf consumers without rebuilding ContentView."
         )
         #expect(
-            counts.workspaceContentBody == 0,
+            counts.workspaceContentBody <= unrelatedWorkspacePublishes,
             "Unread changes must not rebuild terminal or browser content."
         )
         #expect(
@@ -658,6 +683,35 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// Confirms duplicate interactivity callbacks stay silent while real changes publish once.
+    @Test
+    @MainActor
+    func bonsplitInteractivitySyncChangesOnlyWhenInputActivityChanges() {
+        let controller = BonsplitController()
+        #expect(controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+
+        // SwiftUI can deliver duplicate lifecycle and change callbacks while a
+        // hosted pane is being mounted. Repeating the same value must not write
+        // Bonsplit's observable controller state again.
+        let internalController = controller.internalController
+        var publicationCount = 0
+        withObservationTracking {
+            _ = internalController.isInteractive
+        } onChange: {
+            publicationCount += 1
+        }
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+        #expect(publicationCount == 0, "Duplicate interactivity synchronization must not publish.")
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: true)
+        #expect(controller.isInteractive)
+        #expect(publicationCount == 1, "A real interactivity change must publish once.")
+    }
+
     @Test
     func testPanelVisibleInUIReturnsTrueForSelectedPanel() {
         #expect(
@@ -679,6 +733,70 @@ final class WorkspaceContentViewVisibilityTests {
                 isSelectedInPane: false,
                 isFocused: true
             )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsTrueForBonsplitFallbackDuringTransientSelectionGap() {
+        #expect(
+            WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIKeepsNonFallbackPanelHiddenDuringTransientSelectionGap() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: false
+            )
+        )
+    }
+
+    @Test
+    func testFallbackTabIdKeepsFirstOfTwoAgentTabsDuringReparentingGap() {
+        let firstTabId = UUID()
+        let secondTabId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: nil,
+                tabIds: [firstTabId, secondTabId]
+            ) == firstTabId
+        )
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: secondTabId,
+                tabIds: [firstTabId, secondTabId]
+            ) == nil
+        )
+    }
+
+    /// Confirms a stale Bonsplit selection keeps the pane's first tab visible.
+    @Test
+    func testEffectiveSelectedTabIdTreatsMovedTabAsSelectionGap() {
+        let firstTabId = UUID()
+        let movedTabId = UUID()
+
+        let effectiveSelectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+            selectedTabId: movedTabId,
+            tabIds: [firstTabId]
+        )
+        #expect(effectiveSelectedTabId == nil)
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: effectiveSelectedTabId,
+                tabIds: [firstTabId]
+            ) == firstTabId
         )
     }
 

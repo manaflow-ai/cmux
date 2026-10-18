@@ -1967,7 +1967,8 @@ class TerminalController {
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
-             "browser.addinitscript", "browser.addscript", "browser.addstyle":
+             "browser.addinitscript", "browser.addscript", "browser.addstyle",
+             "browser.geolocation.set", "browser.offline.set":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -2630,7 +2631,7 @@ class TerminalController {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
                     continue
                 }
-                handleEventsStreamRequest(
+                await handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
                     authorizationGeneration: authorizationGeneration,
@@ -2640,11 +2641,15 @@ class TerminalController {
                 return
             }
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
-                await processSocketLineAsync(
-                    trimmed,
-                    passwordAuthorization: passwordAuthorization,
-                    rateLimiter: rateLimiter
-                )
+                await SocketCommandTaskPolicy.$peerProcessID.withValue(pid) {
+                    await SocketCommandTaskPolicy.$peerHasSameUID.withValue(peerHasSameUID) {
+                        await processSocketLineAsync(
+                            trimmed,
+                            passwordAuthorization: passwordAuthorization,
+                            rateLimiter: rateLimiter
+                        )
+                    }
+                }
             }
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
@@ -3630,10 +3635,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
         case "browser.viewport.set":
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
-        case "browser.geolocation.set":
-            return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
-        case "browser.offline.set":
-            return v2Result(id: id, self.v2BrowserOfflineSet(params: params))
         case "browser.trace.start":
             return v2Result(id: id, self.v2BrowserTraceStart(params: params))
         case "browser.trace.stop":
@@ -3720,376 +3721,6 @@ class TerminalController {
                 bundle: .main
             )
         }
-    }
-
-    private nonisolated func v2Capabilities() -> [String: Any] {
-        var methods: [String] = [
-            "system.ping",
-            "system.capabilities",
-            "coderouter.handoff.begin",
-            "coderouter.handoff.complete",
-            "coderouter.handoff.arm",
-            "system.identify",
-            "system.tree",
-            "sidebar.custom.open",
-            "system.top",
-            "system.memory",
-            "automation.list",
-            "automation.show",
-            "automation.test",
-            "automation.enable",
-            "automation.disable",
-            "automation.logs",
-            "automation.reload",
-            "vault.sessions",
-            "vault.search",
-            "vault.checkpoints",
-            "vault.checkpoint",
-            "vault.fork",
-            "caffeine.status",
-            "caffeine.set",
-            "comments.list",
-            "mobile.host.status",
-            "mobile.attach_ticket.create",
-            "mobile.terminal.set_font",
-            "mobile.compatible_tags.get",
-            "mobile.compatible_tags.set",
-            "mobile.task.attachment.upload",
-            "mobile.task.models.list",
-            "mobile.workspace.list",
-            "mobile.terminal.create",
-            "mobile.terminal.input",
-            "mobile.terminal.paste",
-            "mobile.terminal.replay",
-            "mobile.browser.list",
-            "mobile.browser.create",
-            "mobile.browser.stream.start",
-            "mobile.browser.stream.stop",
-            "mobile.browser.viewport",
-            "mobile.browser.frame.ack",
-            "mobile.browser.dialog.respond",
-            "mobile.browser.input.pointer",
-            "mobile.browser.input.scroll",
-            "mobile.browser.input.key",
-            "mobile.browser.input.text",
-            "mobile.browser.navigate",
-            "mobile.browser.back",
-            "mobile.browser.forward",
-            "mobile.browser.reload",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
-            "terminal.create",
-            "terminal.input",
-            "terminal.paste",
-            "terminal.replay",
-            "terminal.viewport",
-            "auth.login",
-            "auth.status",
-            "auth.sign_in_url",
-            "auth.begin_sign_in",
-            "auth.sign_out",
-            "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
-            "vm.publication_list",
-            "vm.publication_create",
-            "vm.publication_verify",
-            "vm.publication_update",
-            "vm.publication_delete",
-            "vm.publication_grants",
-            "vm.publication_grant",
-            "vm.publication_ungrant",
-            "vm.domain_list",
-            "vm.domain_verify",
-            "vm.create",
-            "vm.base_open",
-            "vm.base_reset",
-            "vm.status",
-            "vm.stats",
-            "vm.resize",
-            "vm.rename",
-            "vm.snapshot",
-            "vm.fork",
-            "vm.restore",
-            "vm.destroy",
-            "vm.exec",
-            "vm.open_port",
-            "vm.attach_info",
-            "vm.cmux_remote_info",
-            "vm.ssh_info",
-            "vm.scp_info",
-            "vm.sessions",
-            "vm.session_attach_info",
-            "vm.tree",
-            "vm.terminal_open",
-            "vm.terminal_new",
-            "vm.terminal_rename",
-            "vm.tab_rename",
-            "vm.workspace_new",
-            "vm.workspace_open",
-            "vm.workspace_close",
-            "vm.workspace_delete",
-            "vm.workspace_rename",
-            "vm.terminal_close",
-            "vm.terminal_write",
-            "vm.terminal_read",
-            "vm.terminal_wait",
-            "vm.desktop_open",
-            "vm.port_open",
-            "vm.link_socket",
-            "vm.cloud_agent_open",
-            "vm.cloud_prompt",
-            "vm.tunnel_config",
-            "vm.tunnel_status",
-            "vm.tunnel_revoke",
-            "vm.tunnel_up",
-            "vm.tunnel_down",
-            "vm.tunnel_wait",
-            "surface.catalog",
-            "surface.project",
-            "surface.new_terminal",
-            "aiAccounts.list",
-            "aiAccounts.upload",
-            "aiAccounts.remove",
-            "coderouter.claude_upstream.get",
-            "coderouter.claude_upstream.set",
-            "coderouter.claude_upstream.add",
-            "coderouter.claude_upstream.update",
-            "coderouter.claude_upstream.remove",
-            "coderouter.claude_upstream.clear",
-            "coderouter.machines",
-            "window.list",
-            "window.current",
-            "window.focus",
-            "window.create",
-            "window.close",
-            "window.displays",
-            "window.display",
-            "workspace.list",
-            "workspace.create",
-            "workspace.cloud_vm_open",
-            "workspace.cloud_vm_terminal_ready",
-            "workspace.cloud_vm_bind",
-            "workspace.env",
-            "workspace.select",
-            "workspace.current",
-            "workspace.close",
-            "workspace.move_to_window",
-            "workspace.reorder",
-            "workspace.reorder_many",
-            "workspace.prompt_submit",
-            "workspace.rename",
-            "workspace.set_auto_title",
-            "surface.sync_codex_native_title",
-            "workspace.group.list",
-            "workspace.group.create",
-            "workspace.group.ungroup",
-            "workspace.group.delete",
-            "workspace.group.rename",
-            "workspace.group.collapse",
-            "workspace.group.expand",
-            "workspace.group.pin",
-            "workspace.group.unpin",
-            "workspace.group.add",
-            "workspace.group.remove",
-            "workspace.group.set_anchor",
-            "workspace.group.new_workspace",
-            "workspace.group.set_color",
-            "workspace.group.set_icon",
-            "workspace.group.move",
-            "workspace.group.focus",
-            "workspace.action",
-            "extension.sidebar.snapshot",
-            "workspace.next",
-            "workspace.previous",
-            "workspace.last",
-            "workspace.equalize_splits",
-            "workspace.remote.configure",
-            "workspace.remote.foreground_auth_ready",
-            "workspace.remote.reconnect",
-            "workspace.remote.disconnect",
-            "workspace.remote.status",
-            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
-            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_launching",
-            "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
-            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
-            "session.restore_previous",
-            "settings.open",
-            "feedback.open",
-            "feedback.submit",
-            "feed.push",
-            "feed.permission.reply",
-            "feed.question.reply",
-            "feed.exit_plan.reply",
-            "feed.jump",
-            "feed.list",
-            "surface.list",
-            "surface.current",
-            "surface.focus",
-            "surface.split",
-            "surface.respawn",
-            "surface.create",
-            "surface.close",
-            "surface.drag_to_split",
-            "surface.split_off",
-            "surface.move",
-            "surface.reorder",
-            "surface.action",
-            "tab.action",
-            "surface.refresh",
-            "surface.health",
-            "surface.resume.set",
-            "surface.resume.get",
-            "surface.resume.clear",
-            "agent.restore.admit",
-            "agent.restore.release",
-            "debug.terminals",
-            "surface.send_text",
-            "surface.send_key",
-            "surface.report_tty",
-            "surface.report_pwd",
-            "surface.report_git_branch",
-            "surface.clear_git_branch",
-            "surface.report_shell_state",
-            "surface.ports_kick",
-            "surface.read_text",
-            "surface.read_selection",
-            "surface.clear_history",
-            "surface.trigger_flash",
-            "pane.list",
-            "pane.focus",
-            "pane.surfaces",
-            "pane.create",
-            "pane.resize",
-            "pane.swap",
-            "pane.break",
-            "pane.join",
-            "pane.last",
-            "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
-            "notification.create_for_surface",
-            "notification.create_for_target",
-            "notification.list",
-            "notification.clear",
-            "notification.dismiss",
-            "notification.mark_read",
-            "notification.open",
-            "notification.jump_to_unread",
-            "app.focus_override.set",
-            "app.simulate_active",
-            "file.open",
-            "markdown.open",
-            "browser.open_split",
-            "browser.navigate",
-            "browser.back",
-            "browser.forward",
-            "browser.reload",
-            "browser.react_grab.toggle",
-            "browser.devtools.toggle",
-            "browser.console.show",
-            "browser.focus_mode.set",
-            "browser.zoom.set",
-            "browser.history.clear",
-            "browser.url.get",
-            "browser.snapshot",
-            "browser.eval",
-            "browser.wait",
-            "browser.click",
-            "browser.dblclick",
-            "browser.hover",
-            "browser.focus",
-            "browser.type",
-            "browser.fill",
-            "browser.press",
-            "browser.keydown",
-            "browser.keyup",
-            "browser.check",
-            "browser.uncheck",
-            "browser.select",
-            "browser.scroll",
-            "browser.scroll_into_view",
-            "browser.screenshot",
-            "browser.get.text",
-            "browser.get.html",
-            "browser.get.value",
-            "browser.get.attr",
-            "browser.get.title",
-            "browser.get.count",
-            "browser.get.box",
-            "browser.get.styles",
-            "browser.is.visible",
-            "browser.is.enabled",
-            "browser.is.checked",
-            "browser.focus_webview",
-            "browser.is_webview_focused",
-            "browser.find.role",
-            "browser.find.text",
-            "browser.find.label",
-            "browser.find.placeholder",
-            "browser.find.alt",
-            "browser.find.title",
-            "browser.find.testid",
-            "browser.find.first",
-            "browser.find.last",
-            "browser.find.nth",
-            "browser.frame.select",
-            "browser.frame.main",
-            "browser.dialog.accept",
-            "browser.dialog.dismiss",
-            "browser.download.list", "browser.download.wait",
-            "browser.cookies.get",
-            "browser.cookies.set",
-            "browser.cookies.clear",
-            "browser.storage.get",
-            "browser.storage.set",
-            "browser.storage.clear",
-            "browser.tab.new",
-            "browser.tab.list",
-            "browser.tab.switch",
-            "browser.tab.close",
-            "browser.console.list",
-            "browser.console.clear",
-            "browser.errors.list",
-            "browser.highlight",
-            "browser.state.save",
-            "browser.state.load",
-            "browser.addinitscript",
-            "browser.addscript",
-            "browser.addstyle",
-            "browser.viewport.set",
-            "browser.geolocation.set",
-            "browser.offline.set",
-            "browser.trace.start",
-            "browser.trace.stop",
-            "browser.network.route",
-            "browser.network.unroute",
-            "browser.network.requests",
-            "browser.screencast.start",
-            "browser.screencast.stop",
-            "browser.input_mouse",
-            "browser.input_keyboard",
-            "browser.input_touch",
-        ]
-        if !Self.mobileTaskComposerFeatureEnabled {
-            let taskComposerMethods: Set<String> = [
-                "mobile.task.attachment.upload",
-                "mobile.task.models.list",
-            ]
-            methods.removeAll { taskComposerMethods.contains($0) }
-        }
-        methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
-#if DEBUG
-        methods.append(contentsOf: Self.v2DebugMethodNames)
-#endif
-
-        return [
-            "protocol": "cmux-socket",
-            "version": 2,
-            "socket_path": socketServer.currentSocketPath,
-            "access_mode": socketServer.accessMode.rawValue,
-            "capabilities": MobileHostService.mobileHostCapabilities,
-            "methods": methods.sorted()
-        ]
     }
 
     func v2Identify(params: [String: Any]) -> [String: Any] {
@@ -4694,6 +4325,7 @@ class TerminalController {
         id: Any?,
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
+        daemonUnavailableMessage: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4757,13 +4389,13 @@ class TerminalController {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
             if let linkError = error as? CloudMachineLink.LinkError,
-               String(describing: linkError).lowercased().contains("daemon") {
+               linkError.category == .daemonUnavailable {
                 return v2Error(
                     id: id,
                     code: "vm_tui_daemon_unavailable",
-                    message: String(
-                        localized: "socket.cloudVM.tuiDaemonUnavailable",
-                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    message: daemonUnavailableMessage ?? String(
+                        localized: "socket.cloudVM.daemonUnavailable",
+                        defaultValue: "The Cloud VM connection is unavailable. Wake the machine or retry the command."
                     )
                 )
             }
@@ -7319,6 +6951,47 @@ class TerminalController {
         let webView: WKWebView
     }
 
+    /// The error a legacy `browser.*` socket method gets for tab
+    /// `surfaceId` when a browser REPL session drives it or typed a secret
+    /// into it (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``),
+    /// or nil. Every legacy resolver that hands a method a browser panel
+    /// asks it, so no method reads, evaluates, captures or sends input to
+    /// such a tab; listing tabs (id, title, URL) still shows it.
+    func v2BrowserReplTabRefusal(_ surfaceId: UUID) -> V2CallResult? {
+        guard let message = browserReplTabRefusalMessage(surfaceId) else { return nil }
+        return .err(
+            code: "denied",
+            message: message,
+            data: ["surface_id": surfaceId.uuidString, "reason": "browser_repl_tab"]
+        )
+    }
+
+    /// Why another socket client may not use, close, move, detach, reload
+    /// or navigate tab `surfaceId`, or nil: a browser REPL session drives it
+    /// or typed a secret into it (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``).
+    /// Every socket method that closes, moves, detaches, reloads or
+    /// navigates a surface asks it for each tab it would change, so another
+    /// local client cannot take a session's tab away from it. The user's
+    /// own window controls (tab close buttons, drags, menus) are not socket
+    /// clients and keep working.
+    func browserReplTabRefusalMessage(_ surfaceId: UUID) -> String? {
+        guard let refusal = BrowserReplTabAttachments.shared.outsideClientRefusal(panelID: surfaceId) else { return nil }
+        let message: String
+        switch refusal {
+        case .drivenBySession:
+            message = String(
+                localized: "cli.browser.error.replSessionTab",
+                defaultValue: "This tab belongs to a browser REPL session, which is driving it, so other clients cannot read or drive it. Use `cmux browser repl` to drive it."
+            )
+        case .holdsTypedSecrets:
+            message = String(
+                localized: "cli.browser.error.replSecretTab",
+                defaultValue: "A browser REPL session typed a secret into this tab, so other clients cannot read or drive it until it closes. Use `cmux browser repl` to drive it."
+            )
+        }
+        return message
+    }
+
     func v2ResolveBrowserPanelContext(
         params: [String: Any],
         tabManager: TabManager,
@@ -7329,6 +7002,7 @@ class TerminalController {
             tabManager: tabManager
         )
         if dockResolution.handled {
+            // The dock resolver asks v2BrowserReplTabRefusal itself.
             return (dockResolution.context, dockResolution.error)
         }
 
@@ -7344,15 +7018,18 @@ class TerminalController {
            !v2HasNonNullParam(params, "surface_id"),
            !v2HasNonNullParam(params, "tab_id"),
            !v2HasNonNullParam(params, "pane_id"),
-           surfaceId.flatMap({ ws.browserPanel(for: $0) }) == nil {
-            let browsers = ws.panels.values.compactMap { $0 as? BrowserPanel }
-            if browsers.count == 1 { surfaceId = browsers[0].id }
+           !(surfaceId.flatMap({ ws.panels[$0] }).map(Self.v2IsBrowserTab) ?? false) {
+            let browserIDs = ws.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
+            if browserIDs.count == 1 { surfaceId = browserIDs[0] }
         }
         guard let surfaceId else {
             return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
         }
-        guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+        guard let browserPanel = ws.browserPanelForAutomation(surfaceId) else {
             return (nil, .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]))
+        }
+        if let refusal = v2BrowserReplTabRefusal(surfaceId) {
+            return (nil, refusal)
         }
         return (
             V2BrowserPanelContext(
@@ -7372,15 +7049,20 @@ class TerminalController {
         panels: [any Panel],
         paneIdForPanel: (UUID) -> PaneID?
     ) -> [String: Any] {
-        let browserPanels = panels.compactMap { $0 as? BrowserPanel }
+        // A browser that session restore kept as a placeholder is still a browser
+        // tab: list it with its restored URL, as `tree` does.
+        let browserPanels = panels.filter(Self.v2IsBrowserTab)
         let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
             let paneId = paneIdForPanel(panel.id)
+            let url = (panel as? BrowserPanel)?.currentURL?.absoluteString
+                ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.urlString
+                ?? ""
             return [
                 "id": panel.id.uuidString,
                 "ref": v2Ref(kind: .surface, uuid: panel.id),
                 "index": index,
                 "title": panel.displayTitle,
-                "url": panel.currentURL?.absoluteString ?? "",
+                "url": url,
                 "focused": panel.id == focusedPanelId,
                 "pane_id": v2OrNull(paneId?.id.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
@@ -9406,58 +9088,22 @@ class TerminalController {
         }
 
         // A native descriptor is the only path that can provide trusted WebKit
-        // defaults. Socket traffic uses the asynchronous readiness path in
-        // `ControlSocketAsync`; this synchronous adapter is retained only for
-        // in-process callers that are already on the main thread.
+        // defaults. Every socket entry point (`ControlSocketAsync` and the
+        // worker's `processCommandUsingSocketExecutionPolicy`) sends such a
+        // key to the asynchronous `v2BrowserKeyboardNativeResult` before it
+        // reaches this synchronous router; that path awaits WebKit's key
+        // queue before an Edit menu shortcut, which a synchronous caller
+        // cannot. A native key here is refused, never downgraded to a DOM
+        // KeyboardEvent.
         if event.nativeKey != nil {
-            guard Thread.isMainThread else {
-                return .err(
-                    code: "invalid_dispatch",
-                    message: String(
-                        localized: "cli.browser.error.operationFailed",
-                        defaultValue: "Browser operation failed"
-                    ),
-                    data: nil
-                )
-            }
-            return v2BrowserWithPanelContext(params: params) { ctx in
-                MainActor.assumeIsolated {
-                    guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
-                            ctx.webView.backForwardList.currentItem != nil else {
-                        return .err(
-                            code: "timeout",
-                            message: String(
-                                localized: "browser.automation.error.documentReadinessTimedOut",
-                                defaultValue: "Timed out waiting for the browser document to become ready"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-
-                    switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
-                    case .delivered:
-                        let payload: [String: Any] = [
-                            "workspace_id": ctx.workspaceId.uuidString,
-                            "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                            "surface_id": ctx.surfaceId.uuidString,
-                            "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
-                        ]
-                        return .ok(payload)
-                    case .unsupported, .eventCreationFailed:
-                        // The descriptor was resolved before entering this branch;
-                        // a failed native delivery must not silently become an
-                        // untrusted page-world KeyboardEvent.
-                        return .err(
-                            code: "internal_error",
-                            message: String(
-                                localized: "cli.browser.error.operationFailed",
-                                defaultValue: "Browser operation failed"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-                }
-            }
+            return .err(
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
         }
 
         // Preserve the historical compatibility path for opaque key tokens
@@ -9906,7 +9552,21 @@ class TerminalController {
     /// GUI "act on the focused browser" semantics: an explicit `surface_id` browser wins,
     /// otherwise the workspace's focused browser, otherwise the sole browser in the workspace.
     @MainActor
+    /// The browser a focused-action method (devtools, console, focus mode,
+    /// zoom) acts on, or nil; `refusal` when that browser is a tab a browser
+    /// REPL session drives or typed a secret into (``v2BrowserReplTabRefusal(_:)``).
     private func v2ResolveBrowserPanelForFocusedAction(
+        workspace: Workspace,
+        params: [String: Any]
+    ) -> (target: (panel: BrowserPanel, surfaceId: UUID)?, refusal: V2CallResult?) {
+        guard let target = v2FindBrowserPanelForFocusedAction(workspace: workspace, params: params) else {
+            return (nil, nil)
+        }
+        if let refusal = v2BrowserReplTabRefusal(target.surfaceId) { return (nil, refusal) }
+        return (target, nil)
+    }
+
+    private func v2FindBrowserPanelForFocusedAction(
         workspace: Workspace,
         params: [String: Any]
     ) -> (panel: BrowserPanel, surfaceId: UUID)? {
@@ -9916,17 +9576,22 @@ class TerminalController {
         // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
         if v2HasNonNullParam(params, "surface_id") {
             guard let sid = v2UUID(params, "surface_id"),
-                  let panel = workspace.browserPanel(for: sid) else { return nil }
+                  let panel = workspace.browserPanelForAutomation(sid) else { return nil }
             return (panel, sid)
         }
-        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanelForAutomation(focusedId) {
             return (panel, focusedId)
         }
-        let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in
-            (panel as? BrowserPanel).map { (panel.id, $0) }
+        let browserIDs = workspace.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
+        if browserIDs.count == 1, let panel = workspace.browserPanelForAutomation(browserIDs[0]) {
+            return (panel, browserIDs[0])
         }
-        if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
         return nil
+    }
+
+    /// A live browser or a browser restore placeholder: what `tree` lists as a browser.
+    nonisolated static func v2IsBrowserTab(_ panel: any Panel) -> Bool {
+        panel is BrowserPanel || panel is DeferredBrowserPanel
     }
 
     /// Builds the standard workspace/surface/window identity payload for a browser action.
@@ -10019,6 +9684,11 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let browserSurfaceId = v2UUID(params, "surface_id")
             let returnSurfaceId = v2UUID(params, "return_to")
+            if let target = tabManager.reactGrabBrowserPanelId(in: ws, browserSurfaceId: browserSurfaceId),
+               let refusal = v2BrowserReplTabRefusal(target) {
+                result = refusal
+                return
+            }
             guard let actedBrowserId = tabManager.toggleReactGrab(
                 in: ws,
                 browserSurfaceId: browserSurfaceId,
@@ -10059,8 +9729,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             let handled = target.panel.toggleDeveloperTools()
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
@@ -10095,8 +9770,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             let handled = target.panel.showDeveloperToolsConsole()
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
@@ -10165,8 +9845,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             // Entering browser focus mode requires the target browser to be the focused, on-screen
             // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
             // that is not focused, focus it first so "enter" actually engages instead of no-opping.
@@ -10261,8 +9946,13 @@ class TerminalController {
                 }
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             switch mutate(target.panel) {
             case .success(let handled):
                 var payloadExtra = extra
@@ -10902,6 +10592,8 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
+        case "browser.offline.set": return v2BrowserOfflineSet(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -11752,7 +11444,7 @@ class TerminalController {
                     return
                 }
                 let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
-                    (panel as? BrowserPanel)?.id
+                    Self.v2IsBrowserTab(panel) ? panel.id : nil
                 }
                 let targetId: UUID? = {
                     if let explicit = v2UUID(params, "target_surface_id") ?? v2UUID(params, "tab_id") {
@@ -11797,7 +11489,7 @@ class TerminalController {
             }
 
             let browserIds = orderedPanels(in: ws).compactMap { panel -> UUID? in
-                (panel as? BrowserPanel)?.id
+                Self.v2IsBrowserTab(panel) ? panel.id : nil
             }
 
             let targetId: UUID? = {
@@ -11855,7 +11547,7 @@ class TerminalController {
                     return
                 }
                 let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
-                    (panel as? BrowserPanel)?.id
+                    Self.v2IsBrowserTab(panel) ? panel.id : nil
                 }
                 guard !browserIds.isEmpty else {
                     result = .err(code: "not_found", message: "No browser tabs", data: nil)
@@ -11880,6 +11572,10 @@ class TerminalController {
                     return
                 }
 
+                if let refusal = v2BrowserReplTabRefusal(targetId) {
+                    result = refusal
+                    return
+                }
                 if dock.panels.count <= 1 {
                     result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                     return
@@ -11903,7 +11599,7 @@ class TerminalController {
             }
 
             let browserIds = orderedPanels(in: ws).compactMap { panel -> UUID? in
-                (panel as? BrowserPanel)?.id
+                Self.v2IsBrowserTab(panel) ? panel.id : nil
             }
             guard !browserIds.isEmpty else {
                 result = .err(code: "not_found", message: "No browser tabs", data: nil)
@@ -11928,6 +11624,10 @@ class TerminalController {
                 return
             }
 
+            if let refusal = v2BrowserReplTabRefusal(targetId) {
+                result = refusal
+                return
+            }
             if ws.panels.count <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
@@ -12273,14 +11973,6 @@ class TerminalController {
 
     private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
         v2BrowserViewportSetWKWebView(params: params)
-    }
-
-    private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.geolocation.set", details: "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP")
-    }
-
-    private func v2BrowserOfflineSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.offline.set", details: "WKWebView does not expose reliable per-tab offline emulation")
     }
 
     private func v2BrowserTraceStart(params _: [String: Any]) -> V2CallResult {
@@ -13872,7 +13564,8 @@ class TerminalController {
                 from: targetSurface,
                 orientation: direction.orientation,
                 insertFirst: direction.insertFirst,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
@@ -16443,7 +16136,8 @@ class TerminalController {
             autoRefreshMetadata: false,
             preserveFocusWhenUnfocused: false,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }

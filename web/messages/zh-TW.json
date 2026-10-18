@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "機器沒有回應",
       "message": "這台機器未能及時回應，因此無法完成請求。",
-      "action": "先暫停機器，再繼續執行，然後重試。在 Mac App 中，先選擇「暫停機器」，再選擇「繼續執行機器」。在終端機中，先執行 cmux vm pause '<machine>'，再執行 cmux vm resume '<machine>'。"
+      "action": "建立新機器前，請附上追蹤 ID 聯絡支援團隊。"
     },
     "inProgress": {
       "title": "仍在進行中",
@@ -44,6 +44,16 @@
       "title": "雲端服務供應商回應緩慢",
       "message": "雲端服務供應商未能及時回應。",
       "action": "請稍後重試。"
+    },
+    "providerCapacity": {
+      "title": "Cloud 目前沒有可用容量",
+      "message": "Cloud 服務目前沒有空間執行這台機器。沒有進行任何變更。",
+      "action": "請一分鐘後再試一次。"
+    },
+    "stateConflict": {
+      "title": "機器忙碌中",
+      "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
+      "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
     },
     "networkRuleCapacity": {
       "title": "網路規則已達上限",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} 運算額度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
+      "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁碟額度已用完",
+      "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Cloud VM 資源不足",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",
@@ -558,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
         "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "foundersBody": "你的 {plan} 訂閱將於 {date} 結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 訂閱將在本計費週期結束時結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "為什麼取消？（選填）",
         "otherPlaceholder": "告訴我們更多（選填）",
         "confirm": "取消方案",
@@ -3263,12 +3289,13 @@
       "apiKeyScope": "組織的 API 金鑰只會使用團隊的共用帳號。個人團隊中的金鑰還能使用你的私人帳號。CodeRouter 提供的是 OpenAI Responses API，而不是 Chat Completions。",
       "apiKeyLogin": "在無法開啟瀏覽器的機器上，cr login --api-key 會用金鑰登入 cr，CODEROUTER_API_KEY 則可為單一指令提供金鑰。若要撤銷金鑰，請在儀表板中操作，或在使用該金鑰的機器上執行 cr logout。",
       "cloudTitle": "在 cmux Cloud 機器上",
-      "cloudDesc": "Cloud 機器不需要任何設定。機器環境會把 OPENAI_BASE_URL 和 ANTHROPIC_BASE_URL 指向 CodeRouter 的私人位址，cmux 會在 shell 或代理第一次啟動時寫入每個代理的設定：",
-      "cloudClaude": "Claude Code 會從環境讀取 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY。它的首次執行提示已經預先回答。",
+      "cloudDesc": "Cloud 機器不需要任何設定。每個代理會透過 CodeRouter 的私人位址使用你團隊的 CodeRouter 帳號，cmux 會在 shell 或代理第一次啟動時寫入它的設定：",
+      "cloudClaude": "Claude Code 會在每次啟動時取得 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY，而不是從每個 shell 取得，因此它們永遠不會蓋過你自己的登入。它的首次執行提示已經預先回答。",
       "cloudCodex": "Codex 會在 ~/.codex/config.toml 中取得 cmux 模型供應商。",
       "cloudPi": "Pi 會在 ~/.pi/agent/models.json 中取得供應商覆寫設定。",
-      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，並儲存到 ~/.config/opencode/opencode.json。",
+      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，儲存到 ~/.config/cmux/opencode-team.json，並在每次執行時將其加入你自己的設定。",
       "cloudYours": "cmux 只在檔案不存在時才會寫入，因此你的修改會被保留。已經指定其他模型供應商的 Codex 設定不會被變更。",
+      "cloudOwnLogin": "若要改用你自己的帳號，請在機器上執行 cr use own，然後依代理平常的方式登入：在 Claude Code 中使用 /login，或使用 codex login、opencode auth login。cr use team 會切換回團隊帳號，cr use own codex 只變更一個代理，cr use 會顯示每個代理的登入方式。如果沒有做選擇，你已在機器上登入的代理會使用你自己的帳號，而你的團隊沒有對應帳號的代理會顯示其一般登入。變更會在代理下次啟動時生效。",
       "cloudRun": "照常執行代理即可。cmux coderouter agent 會把單獨的提示轉換為代理的一次性執行形式；在機器內部，它會在目前的終端機中執行；在 Mac 上，它會像 cmux vm agent 一樣在你指定的機器上啟動代理。",
       "cloudAccounts": "Cloud 機器會使用擁有它的團隊的帳號。如果代理回報沒有可用的帳號，請加入一個帳號，或將現有帳號共用給該團隊。",
       "modelsTitle": "模型",
@@ -3471,7 +3498,10 @@
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "rateLimitedTitle": "登入忙碌中",
+    "rateLimitedBody": "我們的登入服務收到太多要求。請稍候幾秒鐘後繼續。你不需要重新登入。",
+    "retryButton": "繼續登入"
   },
   "landing": {
     "bestTerminal": {
@@ -5506,6 +5536,9 @@
     "switchFailed": "無法登出，請再試一次。",
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
-    "goToTeams": "前往你的團隊"
+    "goToTeams": "前往你的團隊",
+    "unavailableTitle": "無法確認你的登入",
+    "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
+    "retry": "重試"
   }
 }

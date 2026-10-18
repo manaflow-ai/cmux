@@ -13457,124 +13457,6 @@
         }
       }
     },
-    "settings.terminal.showJumpToBottomButton": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jump to Bottom Button"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زر الانتقال إلى الأسفل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schaltfläche „Zum Ende springen“"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Botón Ir al final"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bouton Aller en bas"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「一番下へ移動」ボタン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "맨 아래로 이동 버튼"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“跳到底部”按钮"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「跳至底部」按鈕"
-          }
-        }
-      }
-    },
-    "settings.terminal.showJumpToBottomButton.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض زر الانتقال إلى الأسفل أثناء التمرير لأعلى في سجل الطرفية. البرامج بملء الشاشة مثل vim وless أو وضع ملء الشاشة للوكيل تتولى التمرير بنفسها ولا تعرضه أبدًا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt die Schaltfläche „Zum Ende springen“, während du in einem Terminal im Verlauf nach oben scrollst. Vollbildprogramme wie vim, less oder der Vollbildmodus eines Agenten scrollen selbst und zeigen sie nie."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra un botón Ir al final mientras te desplazas hacia arriba en el historial de una terminal. Los programas a pantalla completa como vim, less o el modo de pantalla completa de un agente gestionan su propio desplazamiento y nunca lo muestran."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche un bouton Aller en bas lorsque vous remontez dans l'historique d'un terminal. Les programmes plein écran comme vim, less ou le mode plein écran d'un agent gèrent leur propre défilement et ne l'affichent jamais."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのスクロールバックを上にスクロールしている間、「一番下へ移動」ボタンを表示します。vim、less、エージェントのフルスクリーンモードなどのフルスクリーンプログラムは独自にスクロールを扱うため、表示されません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널의 스크롤백을 위로 스크롤하는 동안 맨 아래로 이동 버튼을 표시합니다. vim, less 또는 에이전트의 전체 화면 모드 같은 전체 화면 프로그램은 스크롤을 직접 처리하므로 표시되지 않습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在终端中向上滚动回滚内容时显示“跳到底部”按钮。vim、less 或代理的全屏模式等全屏程序会自行处理滚动，永远不会显示此按钮。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在終端機中向上捲動回溯內容時顯示「跳至底部」按鈕。vim、less 或代理的全螢幕模式等全螢幕程式會自行處理捲動，永遠不會顯示此按鈕。"
-          }
-        }
-      }
-    },
     "settings.automation.agentMessages": {
       "extractionState": "manual",
       "localizations": {
@@ -15428,6 +15310,433 @@
           "stringUnit": {
             "state": "translated",
             "value": "Коли вибрано віддалений простір tmux, новий робочий простір запускає сеанс tmux на його хості. Новий локальний робочий простір відкриває локальний."
+          }
+        }
+      }
+    },
+    "settings.account.max.activeSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Max subscription is active. It includes everything in Pro."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشتراكك في Max نشط. يتضمن كل ما في Pro."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Max-Abonnement ist aktiv. Es enthält alles aus Pro."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu suscripción Max está activa. Incluye todo lo de Pro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre abonnement Max est actif. Il inclut tout ce que contient Pro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maxサブスクリプションは有効です。Proのすべての機能が含まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 구독이 활성화되어 있습니다. Pro의 모든 기능이 포함됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Max 订阅已生效，包含 Pro 的全部功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Max 訂閱已啟用，包含 Pro 的所有功能。"
+          }
+        }
+      }
+    },
+    "settings.account.max.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        }
+      }
+    },
+    "settings.account.max.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Max…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Max…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Max upgraden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar a Max…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Max…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maxにアップグレード…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max로 업그레이드…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Max…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Max…"
+          }
+        }
+      }
+    },
+    "settings.account.pro.appStoreSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Pro subscription is active. Manage it through your subscription provider."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشتراك Pro الخاص بك نشط. أدِره من خلال مزود الاشتراك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša Pro pretplata je aktivna. Upravljajte njome preko svog pružatelja pretplate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit Pro-abonnement er aktivt. Administrer det via din abonnementsudbyder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Pro-Abonnement ist aktiv. Verwalte es über deinen Abonnementanbieter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu suscripción Pro está activa. Adminístrala a través de tu proveedor de suscripciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre abonnement Pro est actif. Gérez-le auprès de votre fournisseur d’abonnement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo abbonamento Pro è attivo. Gestiscilo tramite il tuo provider di abbonamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro サブスクリプションは有効です。サブスクリプションプロバイダーを通じて管理してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជាវ Pro របស់អ្នកសកម្ម។ គ្រប់គ្រងវាតាមរយៈអ្នកផ្តល់សេវាការជាវរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro 구독이 활성 상태입니다. 구독 제공업체를 통해 관리하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro-abonnementet ditt er aktivt. Administrer det via abonnementsleverandøren din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja subskrypcja Pro jest aktywna. Zarządzaj nią za pośrednictwem dostawcy subskrypcji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua assinatura Pro está ativa. Gerencie-a pelo seu provedor de assinaturas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша подписка Pro активна. Управляйте ею через поставщика подписки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสมัคร Pro ของคุณใช้งานอยู่ จัดการผ่านผู้ให้บริการการสมัครสมาชิกของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro aboneliğiniz etkin. Aboneliğinizi sağlayıcınız üzerinden yönetin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша підписка Pro активна. Керуйте нею через свого постачальника підписок."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 订阅已激活。请通过订阅提供商管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 訂閱已啟用。請透過訂閱服務供應商管理。"
+          }
+        }
+      }
+    },
+    "settings.account.pro.grantedSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Pro plan is active."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطة Pro الخاصة بك نشطة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Pro plan je aktivan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Pro-plan er aktiv."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Pro-Plan ist aktiv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan Pro está activo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre forfait Pro est actif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo piano Pro è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro プランは有効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង Pro របស់អ្នកសកម្ម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro 플랜이 활성 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro-planen din er aktiv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój plan Pro jest aktywny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano Pro está ativo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш план Pro активен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แพ็กเกจ Pro ของคุณใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro planınız etkin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш план Pro активний."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 方案已激活。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Pro 方案已啟用。"
           }
         }
       }

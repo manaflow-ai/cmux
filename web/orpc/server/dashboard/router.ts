@@ -2,6 +2,7 @@ import { accountRouter } from "./account";
 import { billingRouter } from "./billing";
 import { cloudRouter } from "./cloud";
 import { coderouterRouter } from "./coderouter";
+import { opsRouter } from "./ops";
 import { settingsRouter } from "./settings";
 import { teamsRouter } from "./teams";
 import { vaultRouter } from "./vault";
@@ -19,6 +20,7 @@ export const dashboardRouter = {
   cloud: cloudRouter,
   vault: vaultRouter,
   settings: settingsRouter,
+  ops: opsRouter,
 };
 
 export type DashboardRouter = typeof dashboardRouter;
