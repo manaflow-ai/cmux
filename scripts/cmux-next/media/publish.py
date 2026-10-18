@@ -167,7 +167,13 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     counts = {status: sum(1 for step in steps if step.get("status") == status)
               for status in ("ok", "failed", "unavailable")}
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
-    lines = [f"### {cell(manifest.get('title') or 'Tour')}: {summary or 'no steps ran'}", ""]
+    verdict = manifest.get("result")
+    verdict_label = {
+        "pass": "PASS",
+        "degraded": "DEGRADED",
+        "failed": "FAILED",
+    }.get(verdict, "UNCLASSIFIED")
+    lines = [f"### {cell(manifest.get('title') or 'Tour')}: {verdict_label} — {summary or 'no steps ran'}", ""]
     if manifest.get("error"):
         lines += [f"> {cell(str(manifest['error']).splitlines()[0][:300])}", ""]
     capture = str(manifest.get("capture_mode") or "")
