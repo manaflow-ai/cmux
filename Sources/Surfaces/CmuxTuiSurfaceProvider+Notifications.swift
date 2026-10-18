@@ -76,7 +76,7 @@ extension CmuxTuiSurfaceProvider {
     /// otherwise a projection with no workspace identity (a legacy or restored
     /// record) does. A terminal whose projections all name other workspaces
     /// fails closed rather than sending the hook to an adjacent local pane.
-    static func mirroredAgentHookProjection(
+    nonisolated static func mirroredAgentHookProjection(
         projections: [SurfaceProjection],
         remoteWorkspaceIDs: [String]
     ) -> SurfaceProjection? {
