@@ -22,8 +22,6 @@ name: cmux-next
 # them all; a red push run names the pull requests in its range.
 
 on:
-  push:
-    branches: [feat-cmux-next]
   pull_request:
     branches: [feat-cmux-next]
     paths:
