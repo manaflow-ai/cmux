@@ -287,6 +287,40 @@ export class SettingsStore {
     else await Promise.all([this.refresh(), this.refreshHost()]);
   }
 
+  /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
+   * refusal code the picker words, or null once it is the background. */
+  async addBackdropLink(url: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.link", { url });
+    if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
+    await Promise.all([this.refresh(), this.refreshHost()]);
+    return null;
+  }
+
+  /** Deletes one of the person's own images; resolves to the bytes the rest take, or null. */
+  async removeBackdropImage(id: string): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.remove", { id });
+    if (!reply.ok) return null;
+    await this.refreshHost();
+    return reply.value.bytes;
+  }
+
+  /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
+  revealBackdropImage(id?: string): void {
+    void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
+  }
+
+  /** Places the background picture by hand in its window; false when no window shows one. */
+  async adjustBackdrop(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.adjust", {});
+    return reply.ok;
+  }
+
+  /** The bytes the person's own images take; null when the host cannot say. */
+  async backdropUsage(): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.usage", {});
+    return reply.ok ? reply.value.bytes : null;
+  }
+
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
    * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
    * once the person is back in this window. */

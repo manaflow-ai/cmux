@@ -177,6 +177,33 @@ export class MockSettingsProvider {
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),
+      "cmux.settings.backdrop.image.link": (params) => {
+        const url = String((params as { url: string }).url);
+        if (!url.startsWith("https://"))
+          throw new ProtocolError("cmux.settings.backdrop.not_https", "not an https link");
+        if (url.endsWith(".txt")) throw new ProtocolError("cmux.settings.backdrop.not_media", "not an image or movie");
+        const id = `file:/backgrounds/${url.split("/").pop()}`;
+        const title = url.split("/").pop() ?? id;
+        const own = { id, title, attribution: title, collection: "yours", collection_title: "Your images" };
+        this.host = { ...this.host, backdrops: [own, ...(this.host.backdrops ?? [])] };
+        this.values.set("appearance.background", id);
+        return { id };
+      },
+      "cmux.settings.backdrop.image.remove": (params) => {
+        const id = String((params as { id: string }).id);
+        this.host = { ...this.host, backdrops: (this.host.backdrops ?? []).filter((row) => row.id !== id) };
+        return { bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000 };
+      },
+      "cmux.settings.backdrop.image.reveal": () => ({}),
+      "cmux.settings.backdrop.image.adjust": () => {
+        const current = String(this.values.get("appearance.background") ?? "none");
+        if (current === "none" || current === "desktop")
+          throw new ProtocolError("cmux.settings.backdrop.not_adjustable", "no picture to place");
+        return {};
+      },
+      "cmux.settings.backdrop.image.usage": () => ({
+        bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
+      }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -259,6 +286,11 @@ export class MockSettingsProvider {
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
       "cmux.settings.backdrop.wallpaper_settings",
+      "cmux.settings.backdrop.image.link",
+      "cmux.settings.backdrop.image.remove",
+      "cmux.settings.backdrop.image.reveal",
+      "cmux.settings.backdrop.image.usage",
+      "cmux.settings.backdrop.image.adjust",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",

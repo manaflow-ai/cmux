@@ -7,9 +7,10 @@ import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
-import { t } from "../strings";
+import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
+import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WindowGlass, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 
@@ -17,6 +18,8 @@ export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
 /** Shuffle Daily (cx-t2x.5): one work of the art set a day. */
 const DAILY_ID = "daily";
+/** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
+const YOURS = "yours";
 /** The rows the picker draws, left out of their group while it shows. */
 export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
@@ -47,6 +50,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const state = useSettingsState();
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [usage, setUsage] = useState<number | null>(null);
+  const [adjustRefused, setAdjustRefused] = useState(false);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
@@ -84,6 +90,16 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const endOnLeave = useRef(endPreview);
   endOnLeave.current = endPreview;
   useEffect(() => () => endOnLeave.current(), []);
+  // What the person's own images take, read again whenever their number changes.
+  const ownCount = (host?.backdrops ?? []).filter((choice) => choice.collection === YOURS).length;
+  useEffect(() => {
+    if (ownCount === 0) return setUsage(null);
+    let live = true;
+    void store.backdropUsage().then((bytes) => live && setUsage(bytes));
+    return () => {
+      live = false;
+    };
+  }, [store, ownCount]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
   const current = own
@@ -187,6 +203,28 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <WindowGlass />
         </div>
       )}
+      {/* Place the picture by hand in the window (backgrounds plan phase 6): a still only. */}
+      {!own &&
+        current !== "none" &&
+        current !== "desktop" &&
+        !backdrops.find((choice) => choice.id === current)?.video && (
+          <div className="backdrop-own-bar backdrop-adjust-bar">
+            <button
+              type="button"
+              className="button"
+              onClick={() => void store.adjustBackdrop().then((ok) => setAdjustRefused(!ok))}
+            >
+              {t("settingsWindow.backdropPicker.adjust")}
+            </button>
+            <span className="row-help">
+              {t(
+                adjustRefused
+                  ? "settingsWindow.backdropPicker.notAdjustable"
+                  : "settingsWindow.backdropPicker.adjustHelp",
+              )}
+            </span>
+          </div>
+        )}
       <div className="backdrop-grid">
         {own &&
           tile(
@@ -222,18 +260,59 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
               <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
               <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
             </button>
+            <button
+              type="button"
+              className="backdrop-tile"
+              aria-expanded={linking}
+              onClick={() => setLinking((open) => !open)}
+            >
+              <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+                ↓
+              </span>
+              <span className="backdrop-title">{t("settingsWindow.backdropPicker.fromLink")}</span>
+              <span className="row-help">{t("settingsWindow.backdropPicker.fromLinkHelp")}</span>
+            </button>
           </>
         )}
       </div>
       {browsing && !own && <ArtBrowser onClose={() => setBrowsing(false)} />}
+      {linking && !own && <BackdropLink onClose={() => setLinking(false)} />}
       {groups.map((group) => (
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
+          {group.key === YOURS && (
+            <div className="backdrop-own-bar">
+              {usage !== null && (
+                <span className="row-help">
+                  {t("settingsWindow.backdropPicker.usage", formatBytes(usage, locale()))}
+                </span>
+              )}
+              <button type="button" className="button" onClick={() => store.revealBackdropImage()}>
+                {t("settingsWindow.showInFinder")}
+              </button>
+            </div>
+          )}
           <div className="backdrop-grid">
             {group.choices.map((choice) =>
-              choice.collection === "apple"
-                ? tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
-                : tile(choice.id, choice.title, choice.attribution, choice),
+              choice.collection === "apple" ? (
+                tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
+              ) : choice.collection === YOURS ? (
+                <div className="backdrop-own" key={choice.id}>
+                  {tile(choice.id, choice.title, choice.attribution, choice)}
+                  {/* The background in use stays: removing it would leave the window blank. */}
+                  <button
+                    type="button"
+                    className="icon-button backdrop-remove"
+                    aria-label={t("settingsWindow.backdropPicker.remove", choice.title)}
+                    disabled={current === choice.id}
+                    onClick={() => void store.removeBackdropImage(choice.id).then((bytes) => setUsage(bytes))}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                tile(choice.id, choice.title, choice.attribution, choice)
+              ),
             )}
           </div>
         </div>
