@@ -197,5 +197,35 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     // Removing the key is a change too: the default (full access) applies.
     std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+
+    // A catalog reload reads both: a pick of `standard` made under `ask`
+    // (another daemon, or the file restored) wins while the setting is `ask`.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
+    let edit = |pick: Value| {
+        let path = dir.join("config.json");
+        let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        for (k, v) in pick.as_object().unwrap() {
+            match v {
+                Value::Null => config.as_object_mut().unwrap().remove(k),
+                v => config.as_object_mut().unwrap().insert(k.clone(), v.clone()),
+            };
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    edit(json!({"lastPermissionMode": "standard", "lastPermissionModeSetting": "\"ask\""}));
+    daemon.reload_catalog().await.unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    drop(app);
+    drop(daemon);
+
+    // A pick saved before acpmux recorded the setting beside it (an upgrade)
+    // keeps winning, and the setting as it is now is recorded, so a later
+    // change to the setting still wins over it.
+    edit(json!({"lastPermissionMode": "ask", "lastPermissionModeSetting": null}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }
