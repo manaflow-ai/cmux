@@ -33,7 +33,7 @@ const STEP_PENDING_MS = 800;
 /// The space left of the rows (`.acpmux-row`'s left).
 const gutter = (width: number) => transcriptColumn(width).inset;
 
-export function ThreadMinimap({
+export const ThreadMinimap = memo(function ThreadMinimap({
   rows,
   sessionId,
   layout,
@@ -146,17 +146,12 @@ export function ThreadMinimap({
     };
   }, [scroller]);
 
-  const indexAt = useCallback(
-    (clientY: number) => {
-      const box = root.current?.getBoundingClientRect();
-      if (!box || !turns.length) return undefined;
-      const index = Math.floor((clientY - box.top) / pitch);
-      return Math.max(0, Math.min(turns.length - 1, index));
-    },
-    [pitch, turns.length],
-  );
-  // Keep the tick callbacks stable while scrolling. The rail itself needs to rerender so the
-  // current marker follows the reader, but stable handlers let memoized Tick rows skip that work.
+  const indexAt = (clientY: number) => {
+    const box = root.current?.getBoundingClientRect();
+    if (!box || !turns.length) return undefined;
+    const index = Math.floor((clientY - box.top) / pitch);
+    return Math.max(0, Math.min(turns.length - 1, index));
+  };
   const jump = useCallback(
     (index: number) => {
       const node = scroller.current;
@@ -271,7 +266,7 @@ export function ThreadMinimap({
       </nav>
     </div>
   );
-}
+});
 
 function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
   const seq = promptSeq(rowId);
