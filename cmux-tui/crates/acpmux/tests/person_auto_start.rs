@@ -25,6 +25,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const REASON: &str = "permission.person_required";
+/// A caller token a profile or preset env tries to set in place of acpmux's.
+const FORGED_TOKEN: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
 
 fn person_proof(key: &str, nonce: &str, connection: &str) -> Option<String> {
@@ -182,6 +184,7 @@ impl Daemon {
                     "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
                     "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
                     "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
+                    "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
                 },
                 "defaultHarness": "fake",
                 "permissionPolicy": "ask",
@@ -626,6 +629,7 @@ async fn auto_start_an_approved_preset_with_request_overrides_needs_the_person()
         json!({"effort": "high"}),
         json!({"policy": "approve-all"}),
         json!({"env": {"FOO": "1"}}),
+        json!({"route": "lane-route"}),
     ] {
         let mut meta = json!({"preset": "lane"});
         for (k, v) in extra.as_object().unwrap() {
@@ -683,4 +687,68 @@ async fn auto_start_a_request_during_the_start_never_rebinds_the_approval() {
     let s = starter.reply(rid).await;
     assert!(s.get("error").is_none(), "{s}");
     assert_eq!(current_mode(&s["result"]), "bypass", "{s}");
+}
+
+/// The caller token and its socket are acpmux's own: a harness profile's or
+/// a preset's env that names them is dropped, so an agent never runs with a
+/// token or socket its config chose (`hub/person.rs` (a)).
+#[tokio::test]
+async fn auto_start_a_profile_or_preset_env_never_sets_the_caller_token() {
+    let d = Daemon::start("forged");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "forging", "set": {"harness": "fake",
+               "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN,
+                       "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}}}),
+    )
+    .await;
+    for meta in [json!({"harness": "forger"}), json!({"preset": "forging"})] {
+        let s = app.ok("session/new", new_params(&d, meta.clone())).await;
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        app.ok("_acpmux/attach", json!({"sessionId": id})).await;
+        for name in ["ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+            let rid = app
+                .send(
+                    "session/prompt",
+                    json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+                )
+                .await;
+            let chunk = app
+                .note("session/update", |p| {
+                    p["sessionId"] == id.as_str()
+                        && p["update"]["sessionUpdate"] == "agent_message_chunk"
+                })
+                .await;
+            let done = app.reply(rid).await;
+            assert!(done.get("error").is_none(), "{done}");
+            let text = chunk["update"]["content"]["text"].as_str().unwrap_or_default();
+            let value = text.strip_prefix(&format!("{name}=")).unwrap_or_default();
+            assert!(!value.is_empty(), "{meta}: {text:?}");
+            assert_ne!(value, FORGED_TOKEN, "{meta}: {text:?}");
+            assert_ne!(value, "/tmp/acpmux-forged.sock", "{meta}: {text:?}");
+        }
+        // The token the agent got proves its session.
+        let token = {
+            let rid = app
+                .send(
+                    "session/prompt",
+                    json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: ACPMUX_SESSION_TOKEN"}]}),
+                )
+                .await;
+            let chunk = app
+                .note("session/update", |p| {
+                    p["sessionId"] == id.as_str()
+                        && p["update"]["sessionUpdate"] == "agent_message_chunk"
+                })
+                .await;
+            app.reply(rid).await;
+            chunk["update"]["content"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .trim_start_matches("ACPMUX_SESSION_TOKEN=")
+                .to_owned()
+        };
+        assert_eq!(token.len(), 64, "{meta}: {token:?}");
+    }
 }
