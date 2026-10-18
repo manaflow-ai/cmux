@@ -9,16 +9,13 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public static let accessibilityID = "cmux.chiefPet"
     /// The bundled Chief (256 x 309) at the size Leo's floating-pet references show it.
     public static let petSize = CGSize(width: 64, height: 77)
-    /// The full-body Chief the references float over the desktop (the Chief Dock's
-    /// `webviews/src/agent-session/acpmux/ChiefAvatar.png`), not the round avatar Home shows.
-    public static let defaultImage = Bundle.module.image(forResource: "ChiefPet")
 
     /// A click that was not a drag.
     public var onClick: (() -> Void)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
 
-    public init(image: NSImage? = ChiefPetPanel.defaultImage, defaults: UserDefaults = .standard) {
+    public init(image: NSImage?, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: image)
         super.init(
