@@ -144,7 +144,7 @@ public final class ResourceSummaryView: NSView {
     }
 
     private static func label(_ font: NSFont) -> NSTextField {
-        let field = NSTextField(labelWithString: "")
+        let field = ChromeLabel(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1

@@ -54,6 +54,15 @@ CPU_TYPES = {0x01000007: "x86_64", 0x0100000C: "arm64", 7: "i386", 12: "arm"}
 # stops the process on macOS 14 before main ("Library not loaded"). Add a
 # library here when the SDK gains one that cmux links; weak-link it (Swift:
 # `-weak_framework`, or let the compiler weak-link under `#available`).
+# /usr/lib/swift sources (MacOSX27.sdk usr/lib/swift, checked 2026-10-18): a
+# library whose .tbd sends older targets to another install name with
+# `$ld$previous$<old>$$1$<from>$<to>$` first exists at <to> (the Darwin split:
+# libswift_errno ... libswiftunistd at 15.0, libswift_DarwinFoundation1-3 at
+# 26.0, libswiftCompatibilitySpan in /usr/lib/swift at 26.0); a library with no
+# redirect takes its module's availability (Synchronization 15.0, Runtime 26.0)
+# or its Swift release (_Volatile and System_Foundation are Swift 6.2, macOS 26).
+# A binary built with minos 14 links the old names; a minos 15+ binary (the
+# cx-sisy8 dev helper) links the new ones, so the minos check fires as well.
 NEWER_THAN_14 = {
     # macOS 15
     "/System/Library/Frameworks/SwiftUICore.framework/Versions/A/SwiftUICore": "15.0",
@@ -65,7 +74,21 @@ NEWER_THAN_14 = {
     "/System/Library/Frameworks/ExtensionKit.framework/Versions/A/ExtensionKit": "13.0",
     "/usr/lib/swift/libswiftSynchronization.dylib": "15.0",
     "/usr/lib/swift/libswift_Builtin_float.dylib": "15.0",
+    "/usr/lib/swift/libswift_errno.dylib": "15.0",
+    "/usr/lib/swift/libswift_math.dylib": "15.0",
+    "/usr/lib/swift/libswift_signal.dylib": "15.0",
+    "/usr/lib/swift/libswift_stdio.dylib": "15.0",
+    "/usr/lib/swift/libswift_time.dylib": "15.0",
+    "/usr/lib/swift/libswiftsys_time.dylib": "15.0",
+    "/usr/lib/swift/libswiftunistd.dylib": "15.0",
     # macOS 26
+    "/usr/lib/swift/libswift_DarwinFoundation1.dylib": "26.0",
+    "/usr/lib/swift/libswift_DarwinFoundation2.dylib": "26.0",
+    "/usr/lib/swift/libswift_DarwinFoundation3.dylib": "26.0",
+    "/usr/lib/swift/libswiftCompatibilitySpan.dylib": "26.0",
+    "/usr/lib/swift/libswiftRuntime.dylib": "26.0",
+    "/usr/lib/swift/libswift_Volatile.dylib": "26.0",
+    "/usr/lib/swift/libswiftSystem_Foundation.dylib": "26.0",
     "/System/Library/Frameworks/FoundationModels.framework/Versions/A/FoundationModels": "26.0",
     "/System/Library/Frameworks/AlarmKit.framework/Versions/A/AlarmKit": "26.0",
     "/System/Library/Frameworks/SpeechAnalyzer.framework/Versions/A/SpeechAnalyzer": "26.0",

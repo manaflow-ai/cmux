@@ -18,9 +18,9 @@ final class TabHoverCardView: NSView {
 
     static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
 
-    let titleLabel = NSTextField(wrappingLabelWithString: "")
+    let titleLabel = ChromeLabel(wrappingLabelWithString: "")
     /// Where the tab is (a page's host, a folder and branch), or a group's member titles.
-    let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    let subtitleLabel = ChromeLabel(wrappingLabelWithString: "")
     /// What the tab does and for how long, and the agent's model.
     let statusLabel = TabHoverCardView.caption()
     /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, in a quieter
@@ -106,7 +106,7 @@ final class TabHoverCardView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private static func caption() -> NSTextField {
-        let field = NSTextField(labelWithString: "")
+        let field = ChromeLabel(labelWithString: "")
         field.font = Typography.caption
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1

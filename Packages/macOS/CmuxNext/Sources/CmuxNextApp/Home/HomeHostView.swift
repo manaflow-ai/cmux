@@ -16,7 +16,7 @@ import CmuxNextWakeups
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let message = NSTextField(labelWithString: "")
+    private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles
     /// (Chief conversation only); the transcript narrows while it shows.
