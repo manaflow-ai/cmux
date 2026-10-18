@@ -2,7 +2,8 @@ public import CmuxNextDesign
 
 /// `appearance.glassLegibility` in cmux.json: "primary" (default) or "all", the text the window's
 /// glass keeps readable over background art (``ArtLegibility``).
-public nonisolated enum GlassLegibilitySetting {
+public nonisolated struct GlassLegibilitySetting {
+    public nonisolated init() {}
     public static let configPath = ["appearance", "glassLegibility"]
     public static let fallback: ArtLegibility = .primary
 
