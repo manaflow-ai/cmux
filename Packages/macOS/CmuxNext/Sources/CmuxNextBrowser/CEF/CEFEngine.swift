@@ -57,23 +57,34 @@ public final class CEFEngine: BrowserEngine {
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         try await CEFRuntime.shared.start(layout: layout)
-        recordTabOpened()
         return makeReadyTab(configuration)
+    }
+
+    /// `makeTab` for a tab the user opens (not a sign-in window): also writes
+    /// the recent-use record the launch warm start reads (`noteTabOpened`).
+    public func makeUserTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
+        let tab = try await makeTab(configuration)
+        noteTabOpened(configuration)
+        return tab
     }
 
     /// The last-used record (`ChromiumUseRecord`) of this app's Chromium storage.
     public var useRecord: ChromiumUseRecord { ChromiumUseRecord(storageRoot: storageRoot) }
 
-    /// Writes the last-used record once per process, off the main thread.
-    private func recordTabOpened() {
-        guard !Self.recordedTabOpen else { return }
-        Self.recordedTabOpen = true
+    /// A user's Chromium tab opened (the App's tab path, not a sign-in
+    /// window): writes the last-used record off the main thread, at most once
+    /// a day per process, never for an incognito profile.
+    public func noteTabOpened(_ configuration: BrowserTabConfiguration) {
+        guard !OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile) else { return }
+        let now = Date()
+        if let last = Self.lastRecorded, now.timeIntervalSince(last) < 24 * 60 * 60 { return }
+        Self.lastRecorded = now
         let record = useRecord
-        // task-owner: one small atomic file write per process; nothing waits for it
-        Task.detached(priority: .utility) { record.recordTabOpened(at: Date()) }
+        // task-owner: one small atomic file write; nothing waits for it
+        Task.detached(priority: .utility) { record.recordTabOpened(at: now) }
     }
 
-    private static var recordedTabOpen = false
+    private static var lastRecorded: Date?
 
     /// True when this app opened a Chromium tab within `window` (read off
     /// the main thread).

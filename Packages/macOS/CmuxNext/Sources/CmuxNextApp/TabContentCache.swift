@@ -83,7 +83,7 @@ final class TabContentCache {
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeTab($0)
+        try await cef.makeUserTab($0)
     }
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy

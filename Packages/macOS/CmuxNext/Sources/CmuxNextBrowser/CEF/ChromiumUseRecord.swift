@@ -48,6 +48,8 @@ nonisolated public struct ChromiumUseRecord: Sendable {
     /// True when a Chromium tab opened within `window` before `now`.
     public func usedRecently(within window: TimeInterval, now: Date = Date()) -> Bool {
         guard let last = lastTabOpened() else { return false }
-        return now.timeIntervalSince(last) <= window
+        let age = now.timeIntervalSince(last)
+        // A date after now (a clock set back) is not a recent use.
+        return age >= 0 && age <= window
     }
 }

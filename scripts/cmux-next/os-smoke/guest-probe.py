@@ -240,6 +240,10 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
 # The guest display before the app starts: shows what the image itself has open.
 subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", os.path.join(OUT, "baseline.png")], capture_output=True, timeout=60)
+# A fresh profile for the lazy-launch check: no record of an earlier Chromium tab (ChromiumUseRecord).
+USE_RECORD = os.path.expanduser("~/Library/Application Support/%s/Chromium/cmux-last-tab-opened.json" % bundle_id)
+if os.path.exists(USE_RECORD):
+    os.unlink(USE_RECORD)
 log_path = os.path.join(OUT, "app.log")
 log = open(log_path, "a")
 started = time.time()
@@ -298,9 +302,13 @@ try:
             # started (ChromiumWarmup warms at launch only after a Chromium tab in the last 7 days).
             lazy = rpc("debug.cef") or {}
             lazy_ps = [l for l in subprocess.run(["/bin/ps", "-axo", "command"], capture_output=True, text=True).stdout.splitlines() if APP in l]
-            result["lazy_launch"] = {k: lazy.get(k) for k in ("state", "trigger", "likely", "spare_window", "engine_start_main_ms", "footprint_mb")}
-            result["lazy_launch"].update({"seconds_after_launch": round(time.time() - started, 1), "bundle_processes": len(lazy_ps)})
-            step("lazy_launch", lazy.get("state") != "ready" and lazy.get("trigger") is None, result["lazy_launch"])
+            result["lazy_launch"] = {k: lazy.get(k) for k in ("state", "trigger", "likely", "preloaded", "spare_window",
+                                                               "engine_start_main_ms", "footprint_mb")}
+            lazy_seconds = round(time.time() - started, 1)
+            result["lazy_launch"].update({"seconds_after_launch": lazy_seconds, "bundle_processes": len(lazy_ps)})
+            # Past the 3 s launch preload delay: nothing started, nothing predicted, framework not mapped.
+            step("lazy_launch", lazy_seconds > 4 and lazy.get("state") == "idle" and lazy.get("trigger") is None
+                 and lazy.get("likely") is None and not lazy.get("preloaded"), result["lazy_launch"])
             newtab = rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
             newtab_state = rpc("debug.new_tab", {"action": "state"})
             snap("newtab", "newtab.png")
@@ -434,38 +442,43 @@ finally:
     # Warm launch: the run above opened a Chromium tab, so this launch starts Chromium and its
     # spare window at idle moments after launch (ChromiumWarmup), and the first Chromium tab opens
     # with no long main-thread stall (goal: none over 100 ms, debug.hangs).
-    if result.get("debug_router") and result["steps"].get("browser", {}).get("ok") and not alive():
+    if (result.get("debug_router") and result["steps"].get("browser", {}).get("ok") and result["steps"].get("quit", {}).get("ok")
+            and not alive()):
+        if os.path.exists(SOCKET):
+            os.unlink(SOCKET)
         app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         warm_started = time.time()
-        if wait(windows_now, LAUNCH_DEADLINE, alive):
-            ready = wait(lambda: (lambda c: c if isinstance(c, dict) and c.get("spare_window") == "live" else None)(rpc("debug.cef")),
-                         TAB_DEADLINE, alive)
-            cef_warm = rpc("debug.cef") or {}
-            warm_ps = [l for l in subprocess.run(["/bin/ps", "-axo", "command"], capture_output=True, text=True).stdout.splitlines() if APP in l]
-            warm_stalls, cursor = stalls_after(0, 100)
-            result["warm_launch"] = {k: cef_warm.get(k) for k in ("state", "trigger", "likely", "initialize_ms", "spare_window",
-                                                                   "engine_start_main_ms", "footprint_mb", "ready_after_launch_s")}
-            result["warm_launch"].update({"ready_seconds": round(time.time() - warm_started, 1), "bundle_processes": len(warm_ps),
-                                          "stalls_100ms": warm_stalls})
-            step("warm_launch", bool(ready) and cef_warm.get("trigger") == "launch", result["warm_launch"])
-            opened = rpc("action.run", {"action": "openBrowser", "args": {"url": page + "warm"}, "focus": True})
-            state = wait(lambda: (lambda st: st if isinstance(st, dict) and st.get("title") == TITLE else None)(rpc("browser.page.state")),
-                         TAB_DEADLINE, alive)
-            warm_tab, cursor = stalls_after(cursor, 0)
-            result["warm_first_tab"] = {"max_ms": max([x["ms"] for x in warm_tab] or [0]), "total_ms": sum(x["ms"] for x in warm_tab),
-                                        "stalls": warm_tab, "spare_window": (rpc("debug.cef") or {}).get("spare_window"), "run": opened}
-            step("warm_tab", bool(state) and "error" not in (opened or {}), result["warm_first_tab"])
-            print("warmtab100 %s max_ms=%s" % ("ok" if result["warm_first_tab"]["max_ms"] < 100 else "OVER",
-                                                result["warm_first_tab"]["max_ms"]), flush=True)
-        else:
-            step("warm_launch", False, "no window before the deadline")
-        if alive():
-            rpc("action.run", {"action": "quitEndEverything"}, timeout=10)
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.send_signal(signal.SIGKILL)
-                app.wait()
+        try:
+            if wait(windows_now, LAUNCH_DEADLINE, alive):
+                ready = wait(lambda: (lambda c: c if isinstance(c, dict) and c.get("spare_window") == "live" else None)(rpc("debug.cef")),
+                             TAB_DEADLINE, alive)
+                cef_warm = rpc("debug.cef") or {}
+                warm_ps = [l for l in subprocess.run(["/bin/ps", "-axo", "command"], capture_output=True, text=True).stdout.splitlines() if APP in l]
+                warm_stalls, cursor = stalls_after(0, 100)
+                result["warm_launch"] = {k: cef_warm.get(k) for k in ("state", "trigger", "likely", "initialize_ms", "spare_window",
+                                                                       "engine_start_main_ms", "footprint_mb", "ready_after_launch_s")}
+                result["warm_launch"].update({"ready_seconds": round(time.time() - warm_started, 1), "bundle_processes": len(warm_ps),
+                                              "stalls_100ms": warm_stalls})
+                step("warm_launch", bool(ready) and cef_warm.get("trigger") == "launch", result["warm_launch"])
+                opened = rpc("action.run", {"action": "openBrowser", "args": {"url": page + "warm"}, "focus": True})
+                state = wait(lambda: (lambda st: st if isinstance(st, dict) and st.get("title") == TITLE else None)(rpc("browser.page.state")),
+                             TAB_DEADLINE, alive)
+                warm_tab, cursor = stalls_after(cursor, 0)
+                result["warm_first_tab"] = {"max_ms": max([x["ms"] for x in warm_tab] or [0]), "total_ms": sum(x["ms"] for x in warm_tab),
+                                            "stalls": warm_tab, "spare_window": (rpc("debug.cef") or {}).get("spare_window"), "run": opened}
+                step("warm_tab", bool(state) and "error" not in (opened or {}), result["warm_first_tab"])
+                print("warmtab100 %s max_ms=%s" % ("ok" if result["warm_first_tab"]["max_ms"] < 100 else "OVER",
+                                                    result["warm_first_tab"]["max_ms"]), flush=True)
+            else:
+                step("warm_launch", False, "no window before the deadline")
+        finally:
+            if alive():
+                rpc("action.run", {"action": "quitEndEverything"}, timeout=10)
+                try:
+                    app.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    app.send_signal(signal.SIGKILL)
+                    app.wait()
     # Crash reports of any process (app, helpers, daemons) since the launch.
     for report in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")) + glob.glob("/Library/Logs/DiagnosticReports/*.ips"):
         if os.path.getmtime(report) >= started - 1 and not os.path.exists(os.path.join(OUT, os.path.basename(report))):
