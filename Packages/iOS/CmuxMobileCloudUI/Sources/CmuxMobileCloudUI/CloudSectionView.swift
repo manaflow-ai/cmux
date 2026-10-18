@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileBilling
+import CmuxMobileBillingUI
 public import CmuxMobileCloud
 import CmuxMobileSupport
 import Foundation
@@ -123,6 +125,7 @@ public struct CloudSectionView: View {
                             retryConnection: { controller.retryConnections() },
                             pause: { Task { await controller.pauseMachine(machine) } },
                             resume: { Task { await controller.resumeMachine(machine) } },
+                            restart: { Task { await controller.restartMachine(machine) } },
                             delete: { Task { await controller.deleteMachine(machine) } }
                         )
                     }
@@ -178,8 +181,12 @@ struct CloudCreateMachineSheet: View {
     let availableKinds: Set<CloudMachineKind>?
     let limits: CloudMachineLimits?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    /// App Store billing; when present, upgrade actions open the in-app plans
+    /// sheet. Without it the locked sizes stay as plain text: the App Store
+    /// build never links to a web purchase page (App Review Guideline 3.1.1).
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
+    @State private var isPlansSheetPresented = false
 
     init(
         controller: CloudSessionController,
@@ -214,10 +221,11 @@ struct CloudCreateMachineSheet: View {
                         }
                         ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
                             Button {
-                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
+                                openPlans()
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
+                            .disabled(billing == nil)
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
                         }
                     } label: {
@@ -239,9 +247,9 @@ struct CloudCreateMachineSheet: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
-                            if let upgradeActionTitle {
+                            if billing != nil, let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
-                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
+                                    openPlans()
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
@@ -262,12 +270,21 @@ struct CloudCreateMachineSheet: View {
                     }
                 }
 
-                if let machineUsageText {
+                if machineUsageText != nil || poolUsageText != nil {
                     Section {
-                        Text(machineUsageText)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("CloudCreateMachineUsage")
+                        if let machineUsageText {
+                            Text(machineUsageText)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("CloudCreateMachineUsage")
+                        }
+                        if let poolUsageText {
+                            Text(poolUsageText)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("CloudCreateMachinePoolUsage")
+                        }
                     }
                 }
 
@@ -333,9 +350,15 @@ struct CloudCreateMachineSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(isPresented: $isPlansSheetPresented, onDismiss: {
+            // A new plan changes the size ladder and machine limits.
+            controller.refreshMachines()
+        }) {
+            MobilePlansSheet(entryPoint: .cloudUpgrade)
+                .environment(billing)
+        }
     }
 
-    private static let pricingURL = URL(string: "https://cmux.com/pricing")!
     private static let fallbackMemoryMb = 8192
 
     private var machineKind: CloudMachineKind {
@@ -386,10 +409,6 @@ struct CloudCreateMachineSheet: View {
         return ListFormatter.localizedString(byJoining: names)
     }
 
-    private var highestLockedMemoryUpgradePlanID: String? {
-        lockedMemoryUpgradePlanIDs.max { upgradePriority($0) < upgradePriority($1) }
-    }
-
     private var upgradeActionTitle: String? {
         guard let planNames = lockedMemoryUpgradePlanNames else { return nil }
         if lockedMemoryUpgradePlanIDs == ["max"] {
@@ -426,6 +445,22 @@ struct CloudCreateMachineSheet: View {
                 defaultValue: "%d machines in use"
             ),
             activeCount
+        )
+    }
+
+    /// The shared pool's usage, "16 of 20 vCPUs · 32 of 40 GB RAM in use";
+    /// nil for plans without a pool and control planes that predate it.
+    private var poolUsageText: String? {
+        guard let pool = limits?.resourcePool else { return nil }
+        return String(
+            format: L10n.string(
+                "cloud.pool.usage",
+                defaultValue: "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+            ),
+            Int64(pool.usedVcpus),
+            Int64(pool.poolVcpus),
+            Int64(pool.usedMemoryMb / 1024),
+            Int64(pool.poolMemoryMb / 1024)
         )
     }
 
@@ -472,14 +507,6 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private func upgradePriority(_ planID: String) -> Int {
-        switch normalizedPlanID(planID) {
-        case "max": return 2
-        case "pro": return 1
-        default: return 0
-        }
-    }
-
     private func memoryLabel(_ memoryMb: Int) -> String {
         String(
             format: L10n.string("mobile.cloud.create.size.gb", defaultValue: "%d GB"),
@@ -506,22 +533,18 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private func openUpgradePage(planID: String?) {
-        // The mobile app has no native billing checkout surface. Keep the
-        // locked size visible and use the same pricing entrypoint as macOS.
-        guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-            openURL(Self.pricingURL)
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-        openURL(components.url ?? Self.pricingURL)
+    /// Opens the in-app plans sheet. Plans are sold only in app (App Review
+    /// Guideline 3.1.1), so without a billing model this does nothing.
+    private func openPlans() {
+        guard billing != nil else { return }
+        isPlansSheetPresented = true
     }
 }
 
 /// One machine row: its name and a lowercased status line.
 struct CloudMachineRow: View {
     let machine: CloudMachine
-    /// A pause, resume or delete is running for this machine.
+    /// A pause, resume, restart or delete is running for this machine.
     let isBusy: Bool
     /// The last lifecycle failure, when it hit this machine.
     let failure: CloudMachineActionFailure?
@@ -531,6 +554,7 @@ struct CloudMachineRow: View {
     let retryConnection: () -> Void
     let pause: () -> Void
     let resume: () -> Void
+    let restart: () -> Void
     let delete: () -> Void
     @State private var isDeleteConfirmationPresented = false
 
@@ -600,6 +624,13 @@ struct CloudMachineRow: View {
                 .tint(.green)
                 .disabled(isBusy)
             }
+            if machine.canRestart {
+                Button(action: restart) {
+                    Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
+                }
+                .tint(.blue)
+                .disabled(isBusy)
+            }
         }
         .confirmationDialog(
             String(
@@ -652,6 +683,12 @@ struct CloudMachineRow: View {
             }
             .disabled(isBusy)
         }
+        if machine.canRestart {
+            Button(action: restart) {
+                Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
+            }
+            .disabled(isBusy)
+        }
         if machine.lifecycle.canDelete {
             Button(action: requestDelete) {
                 Label(L10n.string("mobile.cloud.action.delete", defaultValue: "Delete"), systemImage: "trash")
@@ -692,6 +729,7 @@ struct CloudMachineRow: View {
         switch failure.action {
         case .pause: format = L10n.string("mobile.cloud.action.pauseFailedFormat", defaultValue: "Couldn't pause: %@")
         case .resume: format = L10n.string("mobile.cloud.action.resumeFailedFormat", defaultValue: "Couldn't resume: %@")
+        case .restart: format = L10n.string("mobile.cloud.action.restartFailedFormat", defaultValue: "Couldn't restart: %@")
         case .delete: format = L10n.string("mobile.cloud.action.deleteFailedFormat", defaultValue: "Couldn't delete: %@")
         }
         return String(format: format, failure.failure.action ?? failure.failure.localizedMessage)

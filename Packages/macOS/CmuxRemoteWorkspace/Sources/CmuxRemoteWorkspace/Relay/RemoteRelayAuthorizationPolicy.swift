@@ -154,7 +154,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         }
 
         if let key = firstParameterKey(
-               in: parameters,
+               in: RemoteRelayRoutingSchema().commandKeyScanScope(of: parameters, method: method),
                keys: Self.localExecutionKeys.union(["command"])
            ) {
             return .denied(

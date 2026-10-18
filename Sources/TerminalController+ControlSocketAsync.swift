@@ -89,6 +89,19 @@ extension TerminalController {
         }
     }
 
+    /// A `feed.push` whose event carries a request id and a wait timeout holds
+    /// its connection until the user decides (up to 120 s), so it parks
+    /// outside the running slots.
+    private nonisolated static func feedPushWaitsForDecision(_ request: ControlRequest) -> Bool {
+        guard request.method == "feed.push",
+              case .object(let event)? = request.params["event"],
+              case .string? = event["_opencode_request_id"] else {
+            return false
+        }
+        let params = request.params.mapValues(\.foundationObject)
+        return (feedPushWaitTimeoutSeconds(params: params) ?? 0) > 0
+    }
+
     private nonisolated func processV2CommandUsingSocketExecutionPolicyAsync(
         _ request: ControlRequest
     ) async throws -> String? {
@@ -115,6 +128,18 @@ extension TerminalController {
             )
         }
 
+        if Self.feedPushWaitsForDecision(authorizedRequest),
+           await socketClientWorkerPool.parkCurrentJob() == .parkedJobsFull {
+            return v2Error(
+                id: authorizedRequest.id?.foundationObject,
+                code: ControlOverloadResponder.errorCode,
+                message: String(
+                    localized: "socket.overloaded.message",
+                    defaultValue: "cmux is handling too many control-socket requests right now, so this one was not run. Retry in a moment."
+                )
+            )
+        }
+
         let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
         return try await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
             try await withSocketCommandPolicyAsync(
@@ -137,6 +162,33 @@ extension TerminalController {
                         action: action
                     )
                 }
+                // REPL evaluations run for up to two minutes; they await
+                // the REPL thread and main-actor driver without holding a
+                // socket worker thread.
+                if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    // In every socket access mode, also allowAll.
+                    guard SocketClientAuthorization().admitsMethod(
+                        authorizedRequest.method,
+                        peerHasSameUID: SocketCommandTaskPolicy.peerHasSameUID
+                    ) else {
+                        return self.v2Result(
+                            id: authorizedRequest.id?.foundationObject,
+                            .err(code: "access_denied", message: Self.browserReplOtherUserMessage, data: nil)
+                        )
+                    }
+                    return await self.v2BrowserReplResponse(request: authorizedRequest)
+                }
+                // Agent hook completions arrive in bursts. Process identity
+                // and argv/environment probes are synchronous kernel work, so
+                // collect them on the socket task before the narrow live
+                // ownership check hops to MainActor. Keeping this method on
+                // its existing main-actor policy also preserves the
+                // synchronous in-process command contract.
+                if authorizedRequest.method == "agent.resolve_delivery_target" {
+                    return try await self.socketAgentResolveDeliveryTargetResponseAsync(
+                        authorizedRequest
+                    )
+                }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {
                     return try await self.v2MainAsync {
                         self.v2Result(
@@ -147,6 +199,16 @@ extension TerminalController {
                         )
                     }
                 }
+#if DEBUG
+                if authorizedRequest.method == "debug.global_search.query" {
+                    let query = authorizedRequest.params["query"]?.foundationObject as? String ?? ""
+                    let result = await GlobalSearchCoordinator.shared.debugQuery(query)
+                    return self.v2Ok(
+                        id: authorizedRequest.id?.foundationObject,
+                        result: GlobalSearchCoordinator.debugQueryPayload(result)
+                    )
+                }
+#endif
                 if policy.runsOnSocketWorker {
                     // Terminal rename performs an awaited cloud-link mutation. Keep the
                     // actual socket connection task asynchronous instead of parking a

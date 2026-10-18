@@ -80,6 +80,9 @@ public struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     public let machineVerticalPadding: CGFloat
     public var rowGrid = CloudTreeRowGrid()
 
+    /// Supporting empty messages use a shorter real row in the compact sidebar.
+    public var emptyStateRowHeight: CGFloat { id == Self.compact.id ? 18 : rowHeight }
+
     public var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     public var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     public var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }

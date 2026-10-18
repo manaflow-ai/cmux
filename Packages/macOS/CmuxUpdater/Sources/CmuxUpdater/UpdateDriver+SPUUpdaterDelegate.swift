@@ -120,19 +120,11 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
-        allowNextRelaunch = false
-        relaunchGate.cancel()
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
         model.clearDetectedUpdate()
-    }
-
-    func updater(_ updater: SPUUpdater,
-                 shouldPostponeRelaunchForUpdate item: SUAppcastItem,
-                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        handleShouldPostponeRelaunch(installHandler: installHandler)
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

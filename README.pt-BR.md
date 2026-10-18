@@ -152,7 +152,9 @@ Para mais informações sobre como configurar o cmux, [acesse nossa documentaç�
 
 | Atalho | Ação |
 |----------|--------|
-| ⌘ N | Novo workspace |
+| ⌘ N | Novo workspace local |
+| ⌘ Y | Novo workspace Cloud no último contexto Cloud utilizável; abre o New Cloud Machine quando não há nenhum |
+| ⌘ ⇧ Y | Nova máquina Cloud |
 | ⌘ 1–8 | Ir para workspace 1–8 |
 | ⌘ 9 | Ir para último workspace |
 | ⌃ ⌘ ] | Próximo workspace |

@@ -63,6 +63,28 @@ public enum CloudTuiRequests {
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("workspace.run", fields, mutation: true, key: idempotencyKey)
     }
+    public static func createBrowserArguments(
+        socketPath: String,
+        workspaceID: String?,
+        screenID: String? = nil,
+        paneID: String? = nil,
+        url: String,
+        name: String? = nil,
+        widthPx: Int? = nil,
+        heightPx: Int? = nil,
+        idempotencyKey: String? = nil,
+        correlationKey: String? = nil
+    ) -> CloudTuiRequest {
+        var fields: [String: Any] = ["url": url]
+        if let workspaceID, !workspaceID.isEmpty { fields["workspace"] = workspaceID }
+        if let screenID, !screenID.isEmpty { fields["screen"] = screenID }
+        if let paneID, !paneID.isEmpty { fields["pane"] = paneID }
+        if let name { fields["name"] = name }
+        if let widthPx { fields["width_px"] = widthPx }
+        if let heightPx { fields["height_px"] = heightPx }
+        if let correlationKey { fields["correlation_key"] = correlationKey }
+        return CloudTuiRequest("tab.create_browser", fields, mutation: true, key: idempotencyKey)
+    }
     public static func paneCreate(paneID: String, direction: String?, command: [String], revision: UInt64?, key: String, correlationKey: String?) -> CloudTuiRequest {
         var fields: [String: Any] = ["pane": paneID]
         if let direction { fields["direction"] = direction } else { fields["argv"] = command }
@@ -86,6 +108,13 @@ public enum CloudTuiRequests {
     }
     public static func projectTerminalArguments(socketPath: String, terminalID: String, target: CloudTuiTerminalProjectionTarget, expectedRevision: String? = nil, idempotencyKey: String? = nil) -> CloudTuiRequest {
         placement("terminal.project", source: ["terminal": terminalID], target: target, revision: expectedRevision, key: idempotencyKey)
+    }
+    /// Replaces one workspace screen's tree shape, ratios and tab order. `document` is a
+    /// `LayoutDocument` whose pane, split and tab sets exactly match the live screen.
+    public static func applyWorkspaceLayoutArguments(workspaceID: String, document: [String: Any], expectedRevision: String? = nil) -> CloudTuiRequest {
+        var fields: [String: Any] = ["workspace": workspaceID, "layout": document]
+        if let expectedRevision { fields["expected_revision"] = expectedRevision }
+        return CloudTuiRequest("workspace.layout.apply", fields, mutation: true)
     }
     public static func moveTabArguments(socketPath: String, tabID: String, target: CloudTuiTerminalProjectionTarget, expectedRevision: String? = nil, idempotencyKey: String? = nil) -> CloudTuiRequest {
         placement("tab.move", source: ["tab": tabID], target: target, revision: expectedRevision, key: idempotencyKey)

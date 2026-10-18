@@ -67,7 +67,8 @@ struct CloudTreeCompactLayoutTests {
         fixture.coordinator.apply(nodes: [root])
         let outline = try #require(fixture.coordinator.outlineView)
         outline.expandItem(nil, expandChildren: true)
-        let folder = try #require(root.children.first { $0.structureTag == "workspacesGroup" }?.children.first)
+        // Workspaces sit directly under the machine row (`CloudTreeMachineDetailLayout`).
+        let folder = try #require(root.children.first { $0.structureTag == "workspace" })
         let terminal = try #require(folder.children.first { $0.structureTag == "terminal" })
         let rows = [root, folder, terminal]
         let scale = CGFloat(percent) / 100
@@ -188,15 +189,21 @@ struct CloudTreeCompactLayoutTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let nodes = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes)
         let folder = try #require(nodes.first { $0.id == fixture.folderID("ws_1") })
-        let section = try #require(nodes.first { $0.structureTag == "workspacesGroup" })
+        // Cloud workspaces start collapsed; open this one for the disclosure checks.
+        outline.expandItem(folder)
+        // A closed folder at the same level, beside the open one.
+        let section = try #require(nodes.first { $0.id == fixture.folderID("ws_2") })
         fixture.container.layoutSubtreeIfNeeded()
         let scale = Double(percent) / 100
         let folderGap = try leadingGap(folder, in: outline)
         let sectionGap = try leadingGap(section, in: outline)
         #expect(abs(folderGap - sectionGap) <= 4 * scale,
-                "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
+                "Open and closed folders use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
         #expect(folderGap <= 6 * scale, "Read rows do not reserve an empty unread column")
         for row in 0..<outline.numberOfRows {
+            // The machine's tab row and its closing gap have their own heights.
+            let tag = (outline.item(atRow: row) as? CloudTreeNode)?.structureTag
+            guard tag != "machineDetailTabs", tag != "machineEndSpacer" else { continue }
             #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }
         try fixture.attachScreenshot(named: "compact-tree-\(Int(width))-\(percent)")

@@ -246,6 +246,25 @@ class AggregateRestoreTests(unittest.TestCase):
         self.assertEqual((self.root / "app-host-products/app-host-products.tar.gz").read_bytes(), self.ARCHIVE)
         self.assertEqual(record["zip_bytes"], len(self.zip_bytes))
 
+    def test_failed_transfer_preserves_existing_empty_destination(self):
+        def fail(*args):
+            raise transport.TransportError("transfer unavailable")
+
+        for name, fetch in (("transfer", fail), ("digest", self.fetch(b"unverified bytes"))):
+            with self.subTest(miss=name):
+                destination = self.root / name
+                destination.mkdir()
+                with self.assertRaises(transport.TransportError):
+                    self.restore(destination=name, fetch=fetch)
+                self.assertTrue(destination.is_dir())
+                self.assertEqual(list(destination.iterdir()), [])
+
+    def test_verified_product_replaces_existing_empty_destination(self):
+        destination = self.root / "app-host-products"
+        destination.mkdir()
+        self.restore()
+        self.assertEqual((destination / "app-host-products.tar.gz").read_bytes(), self.ARCHIVE)
+
     def test_foreign_run_is_rejected(self):
         with self.assertRaises(transport.TransportError):
             self.restore(metadata=self.metadata(workflow_run={"id": 10}))

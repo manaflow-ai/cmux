@@ -99,7 +99,7 @@ function sessionUser(): MenuUser {
   return {
     id: "user-lawrence",
     displayName: "Lawrence",
-    primaryEmail: "lawrence@example.com",
+    primaryEmail: "user@example.com",
     primaryEmailVerified: true,
     profileImageUrl: null,
     selectedTeamId: null,
@@ -112,7 +112,7 @@ describe("dashboard account menu", () => {
     const html = renderMenu(currentUser);
 
     expect(html).toContain("Lawrence");
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).toContain('data-size="24"');
     expect(html).toContain('href="/dashboard/settings"');
     expect(html).toContain('href="/dashboard/billing"');
@@ -142,7 +142,14 @@ describe("dashboard account menu", () => {
       { id: "team-2", name: "Manaflow", personal: false, permissions: { use: true, manageAccounts: true } },
       { id: "team-3", name: "Side project", personal: false, permissions: { use: true, manageAccounts: false } },
     ];
-    teamScope = { status: "ready", teams, selected: teams[1], switchTeam: () => undefined };
+    teamScope = {
+      status: "ready",
+      teams,
+      selected: teams[1],
+      switchTeam: () => undefined,
+      refreshError: false,
+      retryRefresh: () => undefined,
+    };
     resolvedTheme = "dark";
     const html = renderMenu(currentUser);
     teamScope = { status: "unavailable" };
@@ -171,6 +178,27 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/handler/sign-in?');
     expect(html).toContain("dashboard");
     expect(html).not.toContain("/en/handler/sign-in");
+  });
+
+  test("shows a retry action when the dashboard refresh fails after switching", () => {
+    currentUser = sessionUser();
+    const teams = [
+      { id: "user-lawrence", name: "Lawrence", personal: true, permissions: { use: true, manageAccounts: true } },
+      { id: "team-2", name: "Manaflow", personal: false, permissions: { use: true, manageAccounts: true } },
+    ];
+    teamScope = {
+      status: "ready",
+      teams,
+      selected: teams[1],
+      switchTeam: () => undefined,
+      refreshError: true,
+      retryRefresh: () => undefined,
+    };
+
+    const html = renderMenu(currentUser);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('>retry<');
+    teamScope = { status: "unavailable" };
   });
 
   test("shows the plan under the name, and Upgrade only for a Free account", () => {

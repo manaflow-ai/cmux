@@ -23,11 +23,11 @@ struct CloudCreateTeamSheetPresenterTests {
 
         let window = try sheetWindow(excluding: existingWindows)
         defer { close(window) }
-        let sheet = try #require(window.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
+        let sheet = try teamSheet(in: window)
         #expect(window.isVisible || window.sheetParent != nil)
 
         // Cancel's action.
-        sheet.rootView.onCancel()
+        sheet.onCancel()
         try await waitUntilClosed(window)
 
         #expect(window.sheetParent == nil, "The sheet stayed attached after Cancel.")
@@ -46,9 +46,9 @@ struct CloudCreateTeamSheetPresenterTests {
 
         let window = try sheetWindow(excluding: existingWindows)
         defer { close(window) }
-        let sheet = try #require(window.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
-        sheet.rootView.onCreate("Launch Crew")
-        sheet.rootView.onCreate("Launch Crew")
+        let sheet = try teamSheet(in: window)
+        sheet.onCreate("Launch Crew")
+        sheet.onCreate("Launch Crew")
         try await waitUntilClosed(window)
 
         #expect(created == ["Launch Crew"])
@@ -64,7 +64,7 @@ struct CloudCreateTeamSheetPresenterTests {
         presenter.present(accountFlow: flow) { created.append($0) }
         let window = try sheetWindow(excluding: existingWindows)
         defer { close(window) }
-        let oldSheet = try #require(window.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
+        let oldSheet = try teamSheet(in: window)
 
         #expect(window.sheetParent == nil, "The regression must exercise the standalone window.")
         #expect(window.isVisible)
@@ -74,7 +74,7 @@ struct CloudCreateTeamSheetPresenterTests {
         try await waitUntilClosed(window)
         #expect(window.sheetParent == nil)
         #expect(!window.isVisible)
-        oldSheet.rootView.onCreate("Closed Team")
+        oldSheet.onCreate("Closed Team")
         #expect(created.isEmpty)
 
         presenter.present(accountFlow: flow) { created.append($0) }
@@ -86,13 +86,13 @@ struct CloudCreateTeamSheetPresenterTests {
 
         // Late actions from the closed session must not dismiss or submit the
         // next presentation.
-        oldSheet.rootView.onCancel()
-        oldSheet.rootView.onCreate("Stale Team")
+        oldSheet.onCancel()
+        oldSheet.onCreate("Stale Team")
         #expect(reopened.isVisible)
         #expect(created.isEmpty)
 
-        let newSheet = try #require(reopened.contentViewController as? NSHostingController<CloudCreateTeamSheet>)
-        newSheet.rootView.onCreate("Launch Crew")
+        let newSheet = try teamSheet(in: reopened)
+        newSheet.onCreate("Launch Crew")
         #expect(!reopened.isVisible)
         #expect(created == ["Launch Crew"])
     }
@@ -100,8 +100,15 @@ struct CloudCreateTeamSheetPresenterTests {
     private func sheetWindow(excluding existingWindows: Set<ObjectIdentifier>) throws -> NSWindow {
         try #require(NSApp.windows.first {
             !existingWindows.contains(ObjectIdentifier($0))
-                && $0.contentViewController is NSHostingController<CloudCreateTeamSheet>
+                && $0.identifier?.rawValue == "cmux.cloudCreateTeam"
         })
+    }
+
+    /// The sheet view inside the `CloudSheetWindow` sizing wrapper.
+    private func teamSheet(in window: NSWindow) throws -> CloudCreateTeamSheet {
+        try #require(
+            window.contentViewController as? NSHostingController<CloudSheetContent<CloudCreateTeamSheet>>
+        ).rootView.content
     }
 
     private func waitUntilClosed(_ window: NSWindow) async throws {
