@@ -1497,6 +1497,8 @@
 		C617000000000000000000A3 /* CmuxGit in Frameworks */ = {isa = PBXBuildFile; productRef = C617000000000000000000A2 /* CmuxGit */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
+		4E2D7E500000000000000003 /* CmuxHerdrResume in Frameworks */ = {isa = PBXBuildFile; productRef = 4E2D7E500000000000000002 /* CmuxHerdrResume */; };
+		4E2D7E500000000000000004 /* CmuxHerdrResume in Frameworks */ = {isa = PBXBuildFile; productRef = 4E2D7E500000000000000002 /* CmuxHerdrResume */; };
 				800100000000000000000201 /* CmuxHive in Frameworks */ = {isa = PBXBuildFile; productRef = 800100000000000000000202 /* CmuxHive */; };
 		800100000000000000000203 /* CmuxHive in Frameworks */ = {isa = PBXBuildFile; productRef = 800100000000000000000202 /* CmuxHive */; };
 		A11C00010000000000000001 /* CmuxHostedSystemSymbolImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C00010000000000000002 /* CmuxHostedSystemSymbolImage.swift */; };
@@ -2367,6 +2369,8 @@
 		A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */; };
 		937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
+		9A64450B4D141E4A80FC9397 /* HerdrResumeBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44D8B169E078B6036415AC7 /* HerdrResumeBinding.swift */; };
+		37BCA223B0EBED2ABFEAF6BC /* HerdrResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05BE49145FE4324D6FDDBC60 /* HerdrResumeBindingTests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
@@ -2901,6 +2905,7 @@
 		318A10362EFC47DB03BF1D5C /* ProBadgeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
+		BA49793C0FF869905F27D2BB /* ProcessDetectedTerminalBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */; };
 		AC0FCEFB6665CF134634D60B /* ProcessExitWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */; };
 		C11757000000000000000063 /* ProcessExitWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
@@ -6957,6 +6962,8 @@
 		A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokSessionLocator+ProcessDiscovery.swift"; sourceTree = "<group>"; };
 		937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
+		A44D8B169E078B6036415AC7 /* HerdrResumeBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdrResumeBinding.swift; sourceTree = "<group>"; };
+		05BE49145FE4324D6FDDBC60 /* HerdrResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HerdrResumeBindingTests.swift"; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesFirstClassSupportTests.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
@@ -7481,6 +7488,7 @@
 		F89797AE49756191CC98B2C1 /* ProBadgeActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeActions.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
+		DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedTerminalBinding.swift; sourceTree = "<group>"; };
 		E06E7588C05AC6A8659CFA51 /* ProcessExitWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessExitWait.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessSnapshotMeasurement.swift"; sourceTree = "<group>"; };
@@ -9263,6 +9271,7 @@
 				D0F1A0000000000000000003 /* CmuxFilePreviewCore in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
+				4E2D7E500000000000000003 /* CmuxHerdrResume in Frameworks */,
 				800100000000000000000201 /* CmuxHive in Frameworks */,
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */,
@@ -9383,6 +9392,7 @@
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
 				D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
+				4E2D7E500000000000000004 /* CmuxHerdrResume in Frameworks */,
 				800100000000000000000203 /* CmuxHive in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */,
@@ -12367,6 +12377,8 @@
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 				352D4A0BA53BF9B5B3480BE8 /* MainWindowHitTestMutationMonitor.swift */,
+				A44D8B169E078B6036415AC7 /* HerdrResumeBinding.swift */,
+				DF6CE43179E3A958139FB9FB /* ProcessDetectedTerminalBinding.swift */,
 				588E300F55061640D4CBE53A /* AccountAnalyticsState.swift */,
 				02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */,
 				BE0A832803DD479693FA71A0 /* HostAccountFlow+Analytics.swift */,
@@ -13957,6 +13969,7 @@
 				CDA45BE3861EEBF458303ED3 /* TerminalTTYSessionIdentityTests.swift */,
 				80B2BBAC8B90CA286F4B2BF7 /* MainWindowHitTestMutationMonitorTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
+				05BE49145FE4324D6FDDBC60 /* HerdrResumeBindingTests.swift */,
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 				DA688992ADFE3696B36EEC3D /* CloudStaleInventoryMaterializationTests.swift */,
 				BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */,
@@ -14149,6 +14162,7 @@
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
+				4E2D7E500000000000000002 /* CmuxHerdrResume */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
@@ -14305,6 +14319,7 @@
 				D96973000000000000000002 /* CmuxSudoBrokerUI */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
+				4E2D7E500000000000000002 /* CmuxHerdrResume */,
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
@@ -14400,6 +14415,7 @@
 				9758E0019758E0019758E001 /* XCLocalSwiftPackageReference "CmuxAgentSessionStore" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				CC0033E15A1B2C3D4E5F0010 /* XCLocalSwiftPackageReference "CmuxDiffComments" */,
+				4E2D7E500000000000000001 /* XCLocalSwiftPackageReference "CmuxHerdrResume" */,
 				CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */,
 				CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
@@ -15964,6 +15980,7 @@
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
+				9A64450B4D141E4A80FC9397 /* HerdrResumeBinding.swift in Sources */,
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				A10348010000000000000001 /* HistoryMenuActions.swift in Sources */,
 				C4160A020000000000000001 /* HistoryMenuCoordinator.swift in Sources */,
@@ -16298,6 +16315,7 @@
 				318A10362EFC47DB03BF1D5C /* ProBadgeActions.swift in Sources */,
 				C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */,
 				F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */,
+				BA49793C0FF869905F27D2BB /* ProcessDetectedTerminalBinding.swift in Sources */,
 				BD54FBDB9B9175C3EC73C37E /* ProductAnalytics+App.swift in Sources */,
 				0A9BC60ADCBC60AF3992E4CB /* ProductAnalyticsEvent+Upgrade.swift in Sources */,
 				D75280010000000000000001 /* ProfilingSignposts.swift in Sources */,
@@ -18603,6 +18621,7 @@
 				8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */,
 				DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */,
 					937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */,
+				37BCA223B0EBED2ABFEAF6BC /* HerdrResumeBindingTests.swift in Sources */,
 				9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */,
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				A10348030000000000000001 /* HistoryMenuCoordinatorTests.swift in Sources */,
@@ -19857,6 +19876,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxDiffComments;
 		};
+		4E2D7E500000000000000001 /* XCLocalSwiftPackageReference "CmuxHerdrResume" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxHerdrResume;
+		};
 		CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCanvas;
@@ -20229,6 +20252,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0033E15A1B2C3D4E5F0010 /* XCLocalSwiftPackageReference "CmuxDiffComments" */;
 			productName = CmuxDiffComments;
+		};
+		4E2D7E500000000000000002 /* CmuxHerdrResume */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4E2D7E500000000000000001 /* XCLocalSwiftPackageReference "CmuxHerdrResume" */;
+			productName = CmuxHerdrResume;
 		};
 		CA52A005CA52A005CA52A005 /* CmuxCanvas */ = {
 			isa = XCSwiftPackageProductDependency;
