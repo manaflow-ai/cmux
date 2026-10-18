@@ -152,6 +152,33 @@ fn secret_assignments_mask_the_value_and_keep_the_name() {
     }
 }
 
+/// Hex and UUIDs are ids in prose, but not behind a header or a key's name.
+#[test]
+fn hex_and_uuid_secrets_behind_a_header_or_a_name_are_masked() {
+    let hex = "4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e";
+    assert_masked(&format!("Authorization: Bearer {hex}"), &[hex], "Authorization: Bearer [auth token]");
+    let uuid = "6f9619ff-8b86-d011-b42d-00c04fc964ff";
+    assert_masked(&format!("x-api-key: {uuid}"), &[uuid], "x-api-key: [auth token]");
+    let short = "9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c";
+    assert_masked(&format!("api_token = \"{short}\""), &[short], "api_token = \"[secret]\"");
+}
+
+/// A value that only starts like a placeholder is still a value.
+#[test]
+fn a_secret_that_starts_with_a_sigil_is_masked() {
+    assert_masked("password: $up3rS3cret9", &["$up3rS3cret9"], "password: [secret]");
+    assert_masked("DB_PASSWORD=#h4sh-st4rt", &["#h4sh-st4rt"], "DB_PASSWORD=[secret]");
+}
+
+#[test]
+fn every_vendored_allowlist_regex_compiles() {
+    let config: Config = toml::from_str(GITLEAKS).expect("gitleaks.toml parses");
+    let lists = std::iter::once(&config.allowlist).chain(config.rules.iter().flat_map(|r| &r.allowlists));
+    let broken: Vec<&str> =
+        lists.flat_map(|a| &a.regexes).filter(|p| compile(p).is_none()).map(String::as_str).collect();
+    assert!(broken.is_empty(), "allowlist regexes the regex crate rejects: {broken:?}");
+}
+
 #[test]
 fn a_long_random_run_is_masked_without_a_known_shape() {
     let token = body(40);
@@ -168,7 +195,6 @@ fn ordinary_text_is_left_alone() {
         "GIT_COMMIT=774a92d8f81238a678ce294dd3228fe55aa2b7b2",
         // UUIDs, upper and lower.
         "session 550e8400-e29b-41d4-a716-446655440000 and 6F9619FF-8B86-D011-B42D-00C04FC964FF",
-        "session_token: 550e8400-e29b-41d4-a716-446655440000",
         r#""creating-a-strong-password":"/en/enterprise-server/authentication""#,
         // Paths, branches, identifiers and package names.
         "/Users/leoli/Projects/cmux-21189-rebase-20261018-isolated/Sources/AgentActivityLane.swift",
@@ -185,6 +211,10 @@ fn ordinary_text_is_left_alone() {
         "max_tokens: 100000, inputTokens: 123456",
         "tokenizer: sentencepiece",
         "the token: expired",
+        // Code that names a password or secret without holding one.
+        "struct Login { user: String, password: String, }",
+        "let secret = compute_secret(input);",
+        r#"passwordLabel: "Password","#,
     ] {
         assert_eq!(mask(text), text, "{text:?} was masked: {:?}", find(text));
     }
