@@ -155,12 +155,11 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
-skip_vercel=0
+vercel_gate='required'
 if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
-  # Vercel is an optional preview deployment status in this repository.  An
-  # explicit, auditable override may waive that one external status when it is
-  # pending or red; all other pending statuses remain merge blockers.
-  skip_vercel=1
+  # An explicit, auditable override may waive Vercel-family statuses when they
+  # are pending or red; all other pending statuses remain merge blockers.
+  vercel_gate='override'
 fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
@@ -483,6 +482,12 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+is_vercel_context() {
+  local lowered
+  lowered=$(LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$lowered" == vercel || "$lowered" == vercel\ * || "$lowered" == vercel-* || "$lowered" == vercel/* ]]
+}
+
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
@@ -495,7 +500,22 @@ if [ "$has_ci" -eq 0 ]; then
   ' <<<"$statuses_json" 2>/dev/null); then
     refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
   fi
-  if grep -q $'^Vercel\t' <<<"$statuses"; then
+  vercel_reported=0
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$statuses"
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$runs"
+  if [ "$vercel_reported" -eq 1 ] && [ "$vercel_gate" = required ]; then
     if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
       refuse \
         "not green: cannot list changed files for $ref" \
@@ -504,7 +524,7 @@ if [ "$has_ci" -eq 0 ]; then
     if ! python3 "$script_dir/ci/vercel_merge_gate.py" "$repo" <<<"$changed_files" >/dev/null 2>&1; then
       # Vercel is a preview convenience for non-web changes. Keep it required
       # for web inputs, but never let an unrelated deployment block a merge.
-      skip_vercel=1
+      vercel_gate='advisory'
     fi
   fi
   all_verdicts="$runs"$'\n'"$statuses"
@@ -512,8 +532,12 @@ if [ "$has_ci" -eq 0 ]; then
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
-    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
-      echo "note: --override waived Vercel $st/$co status" >&2
+    if is_vercel_context "$name" && [ "$vercel_gate" != required ]; then
+      if [ "$vercel_gate" = advisory ]; then
+        echo "note: Vercel $st/$co is advisory for non-web changes on $sha" >&2
+      else
+        echo "note: --override waived Vercel $st/$co status" >&2
+      fi
       continue
     fi
     if [ "$st" != completed ]; then

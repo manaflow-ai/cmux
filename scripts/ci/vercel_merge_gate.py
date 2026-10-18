@@ -7,7 +7,22 @@ import argparse
 import sys
 from collections.abc import Iterable
 
-WEB_PREFIXES = ("admin/", "board-ui/", "dashboard/", "web/")
+WEB_PREFIXES = (
+    "admin/",
+    "agent-chat/",
+    "app/",
+    "apps/",
+    "board-ui/",
+    "coderouter/",
+    "dashboard/",
+    "frontend/",
+    "services/",
+    "site/",
+    "sites/",
+    "web/",
+    "webviews/",
+    "website/",
+)
 WEB_FILES = frozenset({
     ".vercelignore", "package.json", "bun.lock", "package-lock.json",
     "pnpm-lock.yaml", "yarn.lock", "vercel.json",
@@ -20,6 +35,12 @@ def requires_vercel(repo: str, paths: Iterable[str]) -> bool:
     if not paths:
         return True
     return any(path in WEB_FILES or path.startswith(WEB_PREFIXES) for path in paths)
+
+
+def is_vercel_status(name: str) -> bool:
+    """Match the names used by Vercel's legacy commit-status integrations."""
+    normalized = name.strip().casefold()
+    return normalized == "vercel" or normalized.startswith(("vercel ", "vercel-", "vercel/"))
 
 
 if __name__ == "__main__":
