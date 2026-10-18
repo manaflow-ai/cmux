@@ -1552,7 +1552,9 @@ export class AcpmuxDirectClient {
     // Background processes are local state rather than transcript events. Read them on every
     // attach so reconnects and session switches show running rows immediately; old daemons simply
     // reject this optional extension.
-    await this.listProcesses(sessionId).catch(() => undefined);
+    // This is an optional extension: an older daemon may not answer it. Do not hold chat attach
+    // on the refresh; a response updates the process rows when it arrives.
+    void this.listProcesses(sessionId).catch(() => undefined);
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
       try {
