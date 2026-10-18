@@ -67,6 +67,7 @@ def wait(predicate, seconds, step=0.5):
 # The one ChromeLabel difference left, and only in some runs (cx-8w027.26.1): a wrapping label
 # limited to 2 lines at a preferred width, 10.5 pt, measures 2 pt wider than a stock field
 # (intrinsic, fitting, Auto Layout hug). Remove this when the bead is fixed.
+KNOWN_PARITY_ROWS = 21
 KNOWN_PARITY = re.compile(r"^(label|wrapping|font) 10\.5r t2 lines=2 lb=(-|0|5) pmlw=140 (intrinsic\.w|fitting\.w|auto220hug\.w): ")
 
 try:
@@ -110,6 +111,8 @@ try:
         known = [m for m in mismatches if KNOWN_PARITY.match(m)]
         for line in mismatches:
             print("  known (cx-8w027.26.1):" if line in known else "  mismatch:", line, flush=True)
+        # The known difference shows all its rows or none (a ratchet on its size).
+        check(len(known) in (0, KNOWN_PARITY_ROWS), f"label parity: {len(known)} known row(s), expected 0 or {KNOWN_PARITY_ROWS} (cx-8w027.26.1)")
         unknown = parity.get("mismatch_count", 1) - len(known)
         check(parity.get("checked", 0) > 0 and unknown == 0 and len(mismatches) == parity.get("mismatch_count", -1),
               f"label parity: {unknown} mismatch(es) in {parity.get('checked')} checks vs stock NSTextField"

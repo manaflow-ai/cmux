@@ -388,7 +388,8 @@ open class ChromeLabel: NSView {
             view.removeFromSuperview()
             return
         }
-        view.isHidden = true
+        // Not `isHidden`: hiding the first responder moves first responder again, inside this change.
+        view.alphaValue = 0
         Task { @MainActor in view.removeFromSuperview() }
     }
 
