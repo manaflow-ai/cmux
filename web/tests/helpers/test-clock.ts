@@ -29,14 +29,16 @@ export function settleOnTestClock<A, E>(
       // Let promise-based work settle before reading the pending timers.
       yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
       if (Option.isSome(yield* Fiber.poll(fiber))) break;
-      const next = Chunk.head(yield* TestClock.sleeps());
-      if (Option.isNone(next)) {
+      // TestClock lists pending sleeps newest first, not in time order.
+      const pending = Chunk.toReadonlyArray(yield* TestClock.sleeps());
+      if (pending.length === 0) {
         if (++idleTurns > IDLE_TURNS) break;
         continue;
       }
-      if (next.value > giveUpAtMs) break;
+      const next = Math.min(...pending);
+      if (next > giveUpAtMs) break;
       idleTurns = 0;
-      yield* TestClock.setTime(next.value);
+      yield* TestClock.setTime(next);
     }
     const elapsedMs = yield* TestClock.currentTimeMillis;
     const done = yield* Fiber.poll(fiber);
