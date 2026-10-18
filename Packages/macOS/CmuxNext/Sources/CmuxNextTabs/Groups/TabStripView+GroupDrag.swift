@@ -8,7 +8,10 @@ extension TabStripView {
     func beginGroupDrag(_ press: TabStripGroupState.Press) {
         let group = press.groupID
         let chipID = TabID.groupChip(group)
-        guard let chip = motion[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        guard var chip = placed[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        // The block is lifted where its chip shows now (a move may be in flight).
+        if let shown = shownMaxX(chipID) { chip.x = shown - max(0, chip.width) }
+        placed[chipID] = chip
         groups.holdTask?.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
         let local = convert(press.start, to: tabsClip)
@@ -16,10 +19,10 @@ extension TabStripView {
         groups.drag = TabStripGroupState.Drag(
             groupID: group,
             memberIDs: members,
-            grabOffset: contentX - chip.x.value,
+            grabOffset: contentX - chip.x,
             originalTabIndex: first,
             currentTabIndex: first,
-            blockX: chip.x.value,
+            blockX: chip.x,
             lastPoint: press.start,
             grabY: local.y
         )
@@ -62,10 +65,9 @@ extension TabStripView {
             relayout(animated: !reduceMotion)
         } else {
             for slot in block {
-                if let target = groupDragX(for: slot) { motion[slot.id]?.x.snap(to: target) }
+                if let target = groupDragX(for: slot) { placed[slot.id]?.x = target }
             }
             applyFrames()
-            startAnimating()
         }
     }
 
