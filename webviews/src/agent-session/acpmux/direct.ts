@@ -638,8 +638,8 @@ export class AcpmuxDirectClient {
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
   /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
-  /// names the options it runs now), then each newer config update. A replayed update at or before
-  /// it is history and never takes the current options back (a chat moved from Low to High).
+  /// names the options it runs now), then each newer config update. A replayed update before it is
+  /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -1688,7 +1688,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
-      if (!Array.isArray(update.configOptions) || (event.seq && event.seq <= this.configSeq)) return;
+      // The event at attach's own lastSeq may be newer than the options it names (acpmux numbers the
+      // event before it writes them): only events before it are history.
+      if (!Array.isArray(update.configOptions) || (event.seq && event.seq < this.configSeq)) return;
       this.summary = { ...this.summary, configOptions: update.configOptions };
       if (event.seq) this.configSeq = event.seq;
       return;
