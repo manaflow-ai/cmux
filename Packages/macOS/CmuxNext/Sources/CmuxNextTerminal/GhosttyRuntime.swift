@@ -120,6 +120,7 @@ public final class GhosttyRuntime {
         guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
         configuredBackgroundOpacity = opacity
         adoptedDuringReload = false
+        applyColorTransitionToSurfaces()
         ghostty_app_update_config(app, fresh)
         // Ghostty answers with CONFIG_CHANGE on this thread: the config it
         // applied carries the light/dark variant, `fresh` does not (it
