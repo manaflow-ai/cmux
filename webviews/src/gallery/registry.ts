@@ -23,7 +23,9 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
   }));
 
 /** The shell's store: every entry loads on its own. */
-export const entryStore = createEntryStore(entrySources);
+export const entryStore = createEntryStore(entrySources, { eager: false });
+
+/** Resolve one frame's entry without starting every lazy gallery module. */
 
 // The live dev server (dev-server/galleryLive.ts) names the entry files a save changed; each loads
 // again on its own, so a fixed file recovers in place with no page reload.

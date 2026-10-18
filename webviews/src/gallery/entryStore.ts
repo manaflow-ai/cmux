@@ -71,12 +71,15 @@ function track<T>(promise: Promise<T>): TrackedPromise<T> {
 
 export type EntryStore = ReturnType<typeof createEntryStore>;
 
-export function createEntryStore(sources: readonly EntrySource[]) {
+export function createEntryStore(sources: readonly EntrySource[], options: { eager?: boolean } = {}) {
   const listeners = new Set<() => void>();
   const states = new Map<string, EntryState>();
   let snapshot: readonly EntryState[] = [];
   const publish = () => {
-    snapshot = sources.map((source) => states.get(source.path)!);
+    snapshot = sources.flatMap((source) => {
+      const state = states.get(source.path);
+      return state ? [state] : [];
+    });
     for (const listener of listeners) listener();
   };
 
@@ -113,7 +116,15 @@ export function createEntryStore(sources: readonly EntrySource[]) {
     return promise;
   };
 
-  for (const source of sources) void start(source);
+  const ensure = (paths?: readonly string[]) => {
+    for (const source of sources) {
+      if (paths && !paths.includes(source.path)) continue;
+      if (!states.has(source.path)) void start(source);
+    }
+    publish();
+  };
+
+  if (options.eager !== false) ensure();
   publish();
 
   return {
@@ -133,11 +144,12 @@ export function createEntryStore(sources: readonly EntrySource[]) {
       if (changed) publish();
     },
     /** Resolves once no entry is loading (failed ones count as settled). */
-    async settled(): Promise<readonly EntryState[]> {
+    async settled(paths?: readonly string[]): Promise<readonly EntryState[]> {
+      ensure(paths);
       for (;;) {
-        const current = snapshot;
+        const current = paths ? snapshot.filter((state) => paths.includes(state.path)) : snapshot;
         await Promise.allSettled(current.map((state) => state.promise));
-        if (snapshot.every((state) => state.status !== "loading")) return snapshot;
+        if (current.every((state) => state.status !== "loading")) return paths ? current : snapshot;
       }
     },
   };
