@@ -183,7 +183,8 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     let exit = format!("{:?}", exits[0].1.exit);
     assert!(exit.contains("owner-gone"), "the exit record is not an owner-gone end: {exit}");
 
-    // The next owner reads a host loss, not a process end: the tab stays.
+    // The next owner reads a host loss, not a process end: the tab stays and
+    // its terminal respawns under a new incarnation (cx-6so.49).
     harness.restart();
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
@@ -191,27 +192,18 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
             &harness.socket,
             serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
         );
-        // A host loss of a `run` terminal leaves it exited, its tab dead.
-        if resolved["lifecycle"] == "exited" {
+        if resolved["lifecycle"] == "running" && resolved["surface"].as_u64().is_some() {
             break;
         }
-        assert!(Instant::now() < deadline, "the orphan end was not recorded: {resolved}");
+        assert!(Instant::now() < deadline, "the orphan-ended terminal did not respawn: {resolved}");
         std::thread::sleep(Duration::from_millis(25));
     }
-    let settle = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < settle {
-        let tree = request(&harness.socket, serde_json::json!({"id":9,"cmd":"list-workspaces"}));
-        let kept = tree["workspaces"].as_array().unwrap().iter().any(|workspace| {
-            workspace["name"] == "orphan"
-                && first_tab(workspace).is_some_and(|tab| {
-                    tab["dead"] == true
-                        && tab["end"]["kind"] == "host_lost"
-                        && tab["end"]["detail"] == "owner-gone"
-                })
-        });
-        assert!(kept, "the next owner detached the orphan-ended terminal's tab: {tree}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let tree = request(&harness.socket, serde_json::json!({"id":9,"cmd":"list-workspaces"}));
+    let kept = tree["workspaces"].as_array().unwrap().iter().any(|workspace| {
+        workspace["name"] == "orphan"
+            && first_tab(workspace).is_some_and(|tab| tab["dead"] == false)
+    });
+    assert!(kept, "the next owner did not keep the orphan-ended terminal's tab live: {tree}");
 }
 
 #[test]
