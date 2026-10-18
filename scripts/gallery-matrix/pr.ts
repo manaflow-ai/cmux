@@ -106,6 +106,12 @@ const evidenceReceipt = (dir: string, label: string, manifest?: string, captureM
   };
 };
 
+export function requiredReportArgs(outcomes: boolean): readonly string[] {
+  return outcomes
+    ? ["out", "pr"]
+    : ["base", "head", "head-manifest", "capture-manifest", "base-sha", "head-sha", "out", "pr"];
+}
+
 export function comparisonReceipt(
   base: EvidenceReceipt | undefined,
   head: EvidenceReceipt | undefined,
@@ -226,9 +232,7 @@ if (import.meta.main) {
       branch: { type: "string" },
     },
   });
-  const required = values.outcomes
-    ? (["out", "pr"] as const)
-    : (["base", "head", "head-manifest", "capture-manifest", "out", "pr"] as const);
+  const required = requiredReportArgs(Boolean(values.outcomes));
   for (const name of required) if (!values[name]) throw new Error(`--${name} is required`);
   const out = values.out!;
   mkdirSync(out, { recursive: true });

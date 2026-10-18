@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertRunRevision, assertScenarioParity, comparisonReceipt } from "./pr";
+import { assertRunRevision, assertScenarioParity, comparisonReceipt, requiredReportArgs } from "./pr";
 import { scenarioFingerprint } from "./scenario";
 
 test("PR reports reject a matrix captured from the wrong head", () => {
@@ -19,6 +19,12 @@ test("PR reports reject a matrix captured from the wrong head", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("normal PR reports require exact base and head SHAs", () => {
+  expect(requiredReportArgs(false).includes("base-sha")).toBe(true);
+  expect(requiredReportArgs(false).includes("head-sha")).toBe(true);
+  expect(requiredReportArgs(true)).toEqual(["out", "pr"]);
 });
 
 test("PR reports reject a matrix captured with different scenario controls", () => {
