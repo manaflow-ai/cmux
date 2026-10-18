@@ -219,14 +219,13 @@
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
   --acpmux-row-gap: 4px;
-  --acpmux-row-group-gap: 10px;
+  --acpmux-row-group-gap: 12px;
   --acpmux-row-icon-gap: 4px;
-  --acpmux-row-edge: 10px;
-  /* Measured rail: one 28px control with 7px above and below (28 + 7 + 7 = 42). */
-  min-height: 42px;
+  --acpmux-row-edge: 12px;
+  min-height: 52px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
-  padding-block: 4px;
+  padding-block: 6px;
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }

@@ -197,8 +197,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-shell-glyph {
   position: absolute;
-  left: 14px;
-  top: 10px;
+  left: 16px;
+  top: 15px;
   font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
@@ -207,10 +207,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 38px;
+  min-height: 45px;
   max-height: calc(22px * 8 + 23px);
   margin: 0;
-  padding: 10px 14px 6px 30px;
+  padding: 15px 16px 8px 32px;
   border: 0;
   outline: 0;
   background: transparent;
