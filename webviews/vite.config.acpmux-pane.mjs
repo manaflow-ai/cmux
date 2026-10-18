@@ -57,10 +57,34 @@ export default defineConfig({
         });
         // A pane render error the page posts (PaneBoundary.tsx), appended to a log a session can read.
         server.middlewares.use("/__cmux-pane-error", (request, response) => {
-          let body = "";
-          request.on("data", (chunk) => (body += chunk));
+          if (request.method !== "POST") {
+            response.statusCode = 405;
+            response.end();
+            return;
+          }
+          if (request.headers["sec-fetch-site"] !== "same-origin") {
+            response.statusCode = 403;
+            response.end();
+            return;
+          }
+          const chunks = [];
+          let bytes = 0;
+          request.on("data", (chunk) => {
+            bytes += chunk.length;
+            if (bytes > 20000) {
+              response.statusCode = 413;
+              response.end();
+              request.destroy();
+              return;
+            }
+            chunks.push(chunk);
+          });
           request.on("end", () => {
-            fs.appendFileSync(path.join(os.tmpdir(), "cmux-pane-errors.log"), body.slice(0, 20000) + "\n");
+            if (bytes > 20000) return;
+            fs.appendFileSync(
+              path.join(os.tmpdir(), "cmux-pane-errors.log"),
+              Buffer.concat(chunks).toString("utf8") + "\n",
+            );
             response.statusCode = 204;
             response.end();
           });

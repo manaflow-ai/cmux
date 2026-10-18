@@ -1,5 +1,5 @@
 // The live-render lab keeps page requests inside the card until the reader confirms.
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -61,6 +61,9 @@ const { ChatSessionContext } = await import("../src/agent-session/acpmux/convers
 const PAGE = "<title>Interactive page</title><p>Ready</p>";
 
 let testSession = 0;
+let now = Date.now();
+const clock = spyOn(Date, "now").mockImplementation(() => now);
+afterAll(() => clock.mockRestore());
 beforeEach(() => {
   testSession++;
 });
@@ -118,7 +121,8 @@ async function draw(
   return { frame, target, replies, request };
 }
 
-function click(text: string) {
+function click(text: string, settled = true) {
+  if (settled) now += 501;
   const button = [...host.querySelectorAll("button")].find((button) => button.textContent === text)!;
   expect(button).toBeDefined();
   act(() => button.click());
@@ -200,9 +204,16 @@ test("text, URLs, method names and request rate are bounded", async () => {
   expect(opened).toEqual([]);
 });
 
-test("https links wait for Open, and prefill calls the pane hook", async () => {
+test("https links and prefill wait for their pane confirmation", async () => {
   const { request } = await draw();
   request("prefill", { text: "Before the draft" });
+  expect(prefilled).toEqual([]);
+  expect(host.querySelector(".acpmux-render-confirm")?.textContent).toContain("Before the draft");
+  expect([...host.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    "Edit in prompt",
+    "Cancel",
+  ]);
+  click("Edit in prompt");
   expect(prefilled).toEqual(["Before the draft"]);
   request("openLink", { url: "https://example.com/path" });
   expect(opened).toEqual([]);
@@ -321,6 +332,9 @@ test("copy uses the pane clipboard helper and reports success", async () => {
     await act(async () => {
       card.request("copy", { text: "A copied choice" });
     });
+    expect(copies).toEqual([]);
+    expect(host.querySelector(".acpmux-render-confirm")?.textContent).toContain("A copied choice");
+    await act(async () => click("Copy"));
     expect(copies).toEqual(["A copied choice"]);
     expect(host.querySelector(".acpmux-render-note")?.textContent).toBe("Copied");
     expect(card.replies.at(-1)?.ok).toBe(true);
@@ -560,19 +574,29 @@ test("saved card values evict the oldest entry after 200 cards", async () => {
 
 test("the live frame reports body content height even when the root has a tall viewport", async () => {
   const { renderBridgeScript } = await import("../src/agent-session/acpmux/conversation/renderFrameDoc");
-  const child = new JSDOM(renderBridgeScript("light", "body{margin:12px}"));
+  const child = new JSDOM(
+    renderBridgeScript("light", "body{margin:12px;padding:3px}") +
+      '<p>First</p><p>Second</p><aside style="position:absolute">Overlay</aside>',
+  );
   try {
     const win = child.window;
     const messages: Record<string, unknown>[] = [];
     const observers: (() => void)[] = [];
     let height = 220;
     Object.defineProperty(win.document.documentElement, "scrollHeight", { get: () => 600 });
-    Object.defineProperty(win.document.body, "scrollHeight", { get: () => height });
+    Object.defineProperty(win.document.body, "scrollHeight", { get: () => 600 });
+    win.document.querySelector("p")!.getBoundingClientRect = () =>
+      ({ top: 15, bottom: 15 + height / 2, height: height / 2 }) as DOMRect;
+    win.document.querySelectorAll("p")[1]!.getBoundingClientRect = () =>
+      ({ top: 15 + height / 2 - 2, bottom: 15 + height, height: height / 2 + 2 }) as DOMRect;
+    win.document.querySelector("aside")!.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 5000, height: 5000 }) as DOMRect;
     const observe = class {
       constructor(callback: () => void) {
         observers.push(callback);
       }
       observe() {}
+      disconnect() {}
     };
     // oxlint-disable-next-line typescript/no-implied-eval -- Execute the generated frame bridge against its DOM.
     new Function(
@@ -592,10 +616,10 @@ test("the live frame reports body content height even when the root has a tall v
       win.getComputedStyle.bind(win),
     );
     win.dispatchEvent(new win.Event("DOMContentLoaded"));
-    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 244 });
+    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 250 });
     height = 24;
     observers.forEach((callback) => callback());
-    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 48 });
+    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 54 });
   } finally {
     child.window.close();
   }
@@ -730,3 +754,161 @@ test("a long confirmation expands fully and resets for the next draft", async ()
     }
   }
 });
+
+test("confirmation clicks wait 500ms after appearance and every replacement, including the same text", async () => {
+  const card = await draw();
+  card.request("sendPrompt", { text: "Draft" });
+  click("Send", false);
+  expect(sent).toEqual([]);
+  now += 499;
+  click("Edit in prompt", false);
+  click("Cancel", false);
+  expect(prefilled).toEqual([]);
+  expect(host.querySelector(".acpmux-render-confirm")).not.toBeNull();
+  now += 1;
+  card.request("prefill", { text: "Draft" }, undefined, "replacement");
+  click("Edit in prompt", false);
+  expect(prefilled).toEqual([]);
+  click("Edit in prompt");
+  expect(prefilled).toEqual(["Draft"]);
+});
+
+test.each([false, true])("a pending request freezes frame height, panel=%s", async (panel) => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  act(() => root!.render(<RenderCard call={{ html: PAGE }} panel={panel} />));
+  const frame = host.querySelector("iframe")!;
+  const receive = (data: Record<string, unknown>) =>
+    act(() => {
+      dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: frame.contentWindow, data }));
+    });
+  receive({ type: "cmux-render-content-size", height: 240 });
+  receive({ type: "cmux-render-request", id: "freeze", method: "copy", params: { text: "Keep still" } });
+  receive({ type: "cmux-render-content-size", height: 800 });
+  expect(frame.style.height).toBe("240px");
+  click("Cancel");
+  expect(frame.style.height).toBe("800px");
+});
+
+test("turning live on replaces a frame already running under the Run gate", async () => {
+  dom.reconfigure({ url: "cmux-agent://pane/index.html" });
+  try {
+    await draw();
+    const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+    document.documentElement.setAttribute("data-lab-live-render", "off");
+    act(() => root!.render(<RenderCard call={{ html: PAGE }} />));
+    click("Run");
+    const old = host.querySelector("iframe")!;
+    document.documentElement.setAttribute("data-lab-live-render", "on");
+    act(() => root!.render(<RenderCard call={{ html: PAGE }} />));
+    const frame = host.querySelector("iframe")!;
+    expect(frame === old).toBe(false);
+    expect(frame.src).toBe(old.src);
+    const messages: { html: string }[] = [];
+    frame.contentWindow!.postMessage = (data) => messages.push(data);
+    void act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: frame.contentWindow,
+          data: { type: "cmux-render-ready" },
+        }),
+      ),
+    );
+    expect(messages[0]?.html).toContain("cmux-render-stream-ready");
+  } finally {
+    dom.reconfigure({ url: "http://127.0.0.1:4276/" });
+  }
+});
+
+test("pane updates keep the bridge identity and invoke the latest callbacks", async () => {
+  await draw();
+  const { memo, useContext } = await import("react");
+  const { RenderBridgeContext, useRenderBridge } =
+    await import("../src/agent-session/acpmux/conversation/RenderBridgeContext");
+  let renders = 0;
+  let bridge: NonNullable<React.ContextType<typeof RenderBridgeContext>>;
+  const calls: string[] = [];
+  const Consumer = memo(function Consumer() {
+    renders++;
+    bridge = useContext(RenderBridgeContext)!;
+    return null;
+  });
+  function Pane({ version }: { version: string }) {
+    const value = useRenderBridge({
+      prefill: (text) => {
+        calls.push(version + ":prefill:" + text);
+      },
+      send: (text) => {
+        calls.push(version + ":send:" + text);
+      },
+      openLink: (url) => {
+        calls.push(version + ":open:" + url);
+      },
+    });
+    return (
+      <RenderBridgeContext.Provider value={value}>
+        <Consumer />
+      </RenderBridgeContext.Provider>
+    );
+  }
+  act(() => root!.render(<Pane version="old" />));
+  const original = bridge!;
+  act(() => root!.render(<Pane version="new" />));
+  expect(renders).toBe(1);
+  expect(bridge! === original).toBe(true);
+  bridge!.prefill("draft");
+  void bridge!.send("prompt");
+  bridge!.openLink("https://example.com");
+  expect(calls).toEqual(["new:prefill:draft", "new:send:prompt", "new:open:https://example.com"]);
+});
+
+test.each(["body{min-height:100vh}", "html,body{height:100%}", "canvas{position:absolute}"])(
+  "viewport pages stay visible without margin feedback: %s",
+  async (css) => {
+    const { renderBridgeScript } = await import("../src/agent-session/acpmux/conversation/renderFrameDoc");
+    const child = new JSDOM(renderBridgeScript("light", "body{margin:4px 0}" + css) + "<canvas></canvas>");
+    try {
+      const win = child.window;
+      const messages: { height: number }[] = [];
+      const observers: (() => void)[] = [];
+      let viewport = 0;
+      Object.defineProperty(win, "innerHeight", { get: () => viewport });
+      Object.defineProperty(win.document.body, "scrollHeight", { get: () => viewport });
+      win.document.body.getBoundingClientRect = () => ({ top: 4, bottom: viewport + 4, height: viewport }) as DOMRect;
+      const canvas = win.document.querySelector("canvas")!;
+      canvas.getBoundingClientRect = () => ({ top: 4, bottom: viewport + 4, height: viewport }) as DOMRect;
+      // oxlint-disable-next-line typescript/no-implied-eval -- Run the frame's actual measurement with modeled viewport geometry.
+      new Function(
+        "window",
+        "document",
+        "parent",
+        "addEventListener",
+        "ResizeObserver",
+        "getComputedStyle",
+        win.document.querySelector("script")!.textContent,
+      )(
+        win,
+        win.document,
+        { postMessage: (data: { height: number }) => messages.push(data) },
+        win.addEventListener.bind(win),
+        class {
+          constructor(callback: () => void) {
+            observers.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        win.getComputedStyle.bind(win),
+      );
+      win.dispatchEvent(new win.Event("DOMContentLoaded"));
+      expect(messages.at(-1)?.height).toBe(120);
+      for (let round = 0; round < 10; round++) {
+        viewport = messages.at(-1)!.height;
+        observers.forEach((callback) => callback());
+      }
+      expect(messages.at(-1)?.height).toBe(120);
+    } finally {
+      child.window.close();
+    }
+  },
+);

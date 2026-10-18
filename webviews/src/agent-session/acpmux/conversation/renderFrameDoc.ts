@@ -34,19 +34,40 @@ export function renderBridgeScript(theme: string, css: string): string {
         set: function (value) { return request('state.set', { value: value }); }
       }
     };
-    // The root's scrollHeight has a viewport floor. Measure the body so a short page can shrink.
+    // Viewport-sized bodies cannot measure their own frame. Follow their in-flow children.
     function size() {
       var body = document.body;
       if (!body) return;
       var style = getComputedStyle(body);
-      var height = Math.max(body.getBoundingClientRect().height, body.scrollHeight)
-        + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+      var top = Infinity, bottom = -Infinity;
+      var children = Array.from(body.children).filter(function (child) {
+        return !/^(SCRIPT|STYLE|LINK|META|TEMPLATE)$/.test(child.tagName);
+      });
+      children.forEach(function (child) {
+        var position = getComputedStyle(child).position;
+        if (position === 'absolute' || position === 'fixed') return;
+        var rect = child.getBoundingClientRect();
+        if (!rect.height) return;
+        top = Math.min(top, rect.top); bottom = Math.max(bottom, rect.bottom);
+      });
+      var content = bottom > top ? bottom - top : 0;
+      var margins = (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+      var height = content + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) + margins;
+      if (!content && (children.length || body.textContent.trim())) height = Math.max(120, height);
+      if (Math.ceil(height) === Math.ceil(window.innerHeight + margins)) return;
       parent.postMessage({ type: 'cmux-render-content-size', height: Math.ceil(height) }, '*');
     }
     function observe() {
-      new ResizeObserver(size).observe(document.body);
-      new ResizeObserver(size).observe(document.documentElement);
-      size();
+      var observer = new ResizeObserver(size);
+      function children() {
+        observer.disconnect();
+        observer.observe(document.body);
+        observer.observe(document.documentElement);
+        Array.from(document.body.children).forEach(function (child) { observer.observe(child); });
+        size();
+      }
+      new window.MutationObserver(children).observe(document.body, { childList: true, subtree: true });
+      children();
     }
     if (document.readyState === 'loading') addEventListener('DOMContentLoaded', observe, { once: true });
     else observe();

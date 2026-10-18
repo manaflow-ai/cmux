@@ -48,7 +48,8 @@ export function renderStreamScript(): string {
       });
       if (!done) page.querySelectorAll('*').forEach(function (node) {
         Array.from(node.attributes).forEach(function (attr) {
-          if (/^on/i.test(attr.name) || /^\\s*javascript:/i.test(attr.value)) node.removeAttribute(attr.name);
+          var url = attr.value.replace(/[\\t\\n\\r]/g, '').replace(/^[\\x00-\\x20]+/, '');
+          if (/^on/i.test(attr.name) || /^javascript:/i.test(url)) node.removeAttribute(attr.name);
         });
       });
       var styles = Array.from(page.head.querySelectorAll('style, link[rel="stylesheet"]'));

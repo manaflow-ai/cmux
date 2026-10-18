@@ -4,7 +4,7 @@ import { RenderBridgeContext } from "./RenderBridgeContext";
 import { renderState, saveRenderState } from "./renderState";
 
 type Reply = (ok: boolean, value?: unknown) => void;
-type Pending = { method: "sendPrompt" | "openLink"; text: string; reply: Reply };
+type Pending = { method: "sendPrompt" | "openLink" | "prefill" | "copy"; text: string; reply: Reply };
 
 export function useRenderRequests(key: string) {
   const bridge = useContext(RenderBridgeContext);
@@ -67,18 +67,7 @@ export function useRenderRequests(key: string) {
           return reply(false, "invalid url");
         }
       }
-      if (method === "copy") {
-        void copyTextResult(text).then((ok) => {
-          setCopied(ok);
-          reply(ok, ok ? null : "copy failed");
-        });
-        return;
-      }
-      if (!bridge) return reply(false, "unavailable");
-      if (method === "prefill") {
-        bridge.prefill(text);
-        return reply(true, null);
-      }
+      if (method !== "copy" && !bridge) return reply(false, "unavailable");
       held.current?.reply(false, "replaced");
       held.current = { method, text, reply };
       setPending(held.current);
@@ -88,16 +77,23 @@ export function useRenderRequests(key: string) {
   const confirm = (edit: boolean) => {
     const ask = pending;
     // A replacement that has not drawn yet cannot borrow the previous strip's click.
-    if (!ask || held.current !== ask || !bridge) return;
+    if (!ask || held.current !== ask || (ask.method !== "copy" && !bridge)) return;
     held.current = undefined;
     setPending(undefined);
-    if (edit) {
-      bridge.prefill(ask.text);
+    if (ask.method === "copy") {
+      void copyTextResult(ask.text).then((ok) => {
+        setCopied(ok);
+        ask.reply(ok, ok ? null : "copy failed");
+      });
+      return;
+    }
+    if (edit || ask.method === "prefill") {
+      bridge!.prefill(ask.text);
       ask.reply(true, null);
       return;
     }
     try {
-      const result = ask.method === "sendPrompt" ? bridge.send(ask.text) : bridge.openLink(ask.text);
+      const result = ask.method === "sendPrompt" ? bridge!.send(ask.text) : bridge!.openLink(ask.text);
       void Promise.resolve(result).then(
         (value) => ask.reply(value !== false, value === false ? "unavailable" : null),
         () => ask.reply(false, "unavailable"),

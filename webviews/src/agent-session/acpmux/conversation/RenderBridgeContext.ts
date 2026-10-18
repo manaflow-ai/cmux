@@ -1,6 +1,6 @@
-import { createContext } from "react";
+import { createContext, useMemo, useRef, type ContextType } from "react";
 
-/// Pane actions available to a render, with sends and links confirmed in the pane first.
+/// Pane actions available to a render, confirmed in the pane first.
 export const RenderBridgeContext = createContext<
   | {
       prefill(text: string): void;
@@ -9,3 +9,17 @@ export const RenderBridgeContext = createContext<
     }
   | undefined
 >(undefined);
+
+/// Streaming updates keep the same bridge while its actions read the pane's latest callbacks (Lucas 2026-10-18).
+export function useRenderBridge(bridge: NonNullable<ContextType<typeof RenderBridgeContext>>) {
+  const latest = useRef(bridge);
+  latest.current = bridge;
+  return useMemo(
+    () => ({
+      prefill: (text: string) => latest.current.prefill(text),
+      send: (text: string) => latest.current.send(text),
+      openLink: (url: string) => latest.current.openLink(url),
+    }),
+    [],
+  );
+}

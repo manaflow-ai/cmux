@@ -203,7 +203,7 @@ import {
 import { configureLabs, useLab } from "./labs";
 import { PlanProgress } from "./PlanProgress";
 import { useShortcutsHelp } from "./ShortcutsHelp";
-import { RenderBridgeContext } from "./conversation/RenderBridgeContext";
+import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridgeContext";
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
@@ -4884,11 +4884,11 @@ function AcpmuxPane() {
     });
     return held;
   };
-  const renderBridge = {
+  const renderBridge = useRenderBridge({
     prefill: (text: string) => composerHandle.current?.restore(text, []),
-    send: (text: string) => sendComposerPrompt(text),
+    send: sendComposerPrompt,
     openLink: openPreview,
-  };
+  });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <RenderBridgeContext.Provider value={renderBridge}>

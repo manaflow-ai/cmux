@@ -259,6 +259,14 @@ test("the runtime preserves growing nodes, strips partial scripts, then executes
     expect(paragraph?.textContent).toBe("First second");
     expect(win.document.querySelector("style")).toBe(style);
     expect(win.document.querySelector("img")?.hasAttribute("onerror")).toBe(false);
+    await send(
+      '<a href="&#1;java&#10;script:alert(1)">Newline</a><a href="java&#9;scr&#13;ipt:alert(1)">Tabs</a><a href="https://example.com">Safe</a>',
+    );
+    expect([...win.document.querySelectorAll("a")].map((node) => node.getAttribute("href"))).toEqual([
+      null,
+      null,
+      "https://example.com",
+    ]);
     await send("<h2>Rewritten</h2>");
     expect(win.document.querySelector("p")).toBeNull();
     const final =
