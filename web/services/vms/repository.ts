@@ -690,12 +690,12 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   /**
    * Claim a paused row for a re-pause after an unexpected wake. True only for
    * the one caller that finds the row still paused and unclaimed within
-   * `ttlMs`, so overlapping status crons pause and record a wake once.
+   * `ttlMs`, so overlapping status crons pause and record a wake once. The
+   * claim time is the database's clock, so callers' clocks cannot disagree.
    */
   readonly claimUnexpectedWakeRepause?: (input: {
     readonly id: string;
     readonly providerVmId: string;
-    readonly nowMs: number;
     readonly ttlMs: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
@@ -3841,18 +3841,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 
   claimUnexpectedWakeRepause: (input) =>
     dbEffect("claimUnexpectedWakeRepause", async () => {
+      const nowMs = sql`(extract(epoch from now()) * 1000)::bigint`;
       const claimed = await cloudDb()
         .update(cloudVms)
         .set({
           providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
-            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${input.nowMs}::bigint)`,
+            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
         })
         .where(
           and(
             eq(cloudVms.id, input.id),
             eq(cloudVms.providerVmId, input.providerVmId),
             eq(cloudVms.status, "paused"),
-            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${input.nowMs - input.ttlMs}::bigint`,
+            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${nowMs} - ${input.ttlMs}::bigint`,
           ),
         )
         .returning({ id: cloudVms.id });

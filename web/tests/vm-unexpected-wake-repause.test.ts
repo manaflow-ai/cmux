@@ -75,7 +75,8 @@ function fixture(input: {
         ? Effect.fail(new VmDatabaseError({ operation: "findUserVm", cause: new Error("db down") }))
         : Effect.succeed(reread);
     },
-    claimUnexpectedWakeRepause: ({ id, nowMs, ttlMs }) => Effect.sync(() => {
+    claimUnexpectedWakeRepause: ({ id, ttlMs }) => Effect.sync(() => {
+      const nowMs = Date.now();
       if ((claims.get(id) ?? 0) >= nowMs - ttlMs) return false;
       claims.set(id, nowMs);
       return true;

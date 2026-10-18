@@ -140,6 +140,7 @@ import {
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  UNEXPECTED_WAKE_CLAIM_METADATA_KEY,
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
@@ -3564,11 +3565,17 @@ function settleUnexpectedWakes(
   return Effect.gen(function* () {
     if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
     if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
+    // Wakes past the cap stay paused rows for the next run to find again.
+    let woken = 0;
     return yield* Effect.forEach(
       firstPass,
-      (outcome, index) => outcome === "unexpected_wake"
-        ? repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane)
-        : Effect.succeed(outcome),
+      (outcome, index) => {
+        if (outcome !== "unexpected_wake") return Effect.succeed(outcome);
+        woken += 1;
+        return woken > UNEXPECTED_WAKE_REPAUSE_LIMIT
+          ? Effect.succeed("skipped" as const)
+          : repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane);
+      },
       { concurrency: 10 },
     );
   });
@@ -3604,7 +3611,6 @@ function repauseUnexpectedWake(
       const claimed = yield* repo.claimUnexpectedWakeRepause({
         id: current.id,
         providerVmId,
-        nowMs: Date.now(),
         ttlMs: UNEXPECTED_WAKE_CLAIM_TTL_MS,
       }).pipe(Effect.either);
       if (claimed._tag === "Left") return yield* relabel(current);
@@ -4052,6 +4058,7 @@ function preflightResumeIfSuspended(
         if (!recorded) {
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
+        yield* resumeIfRepauseClaimed(repo, providers, vm, providerVmId);
       }
       return false;
     }
@@ -4074,6 +4081,33 @@ function preflightResumeIfSuspended(
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
     return true;
   });
+}
+
+/**
+ * The status cron may be pausing this woken machine again. Its post-pause
+ * re-read gives the machine back when it sees `running`, but the write above
+ * can land after that read. While a claim is fresh, resume here too; resuming
+ * a running machine is a no-op. The row is re-read after the write so a claim
+ * taken while this open ran counts as well.
+ */
+function resumeIfRepauseClaimed(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const current = yield* readWokenRow(repo, vm, providerVmId);
+    const row = current._tag === "Right" && current.right ? current.right : vm;
+    if (!hasFreshRepauseClaim(row, Date.now())) return;
+    yield* resumeUntilRunning(providers, row, providerVmId);
+  });
+}
+
+function hasFreshRepauseClaim(vm: CloudVmRow, nowMs: number): boolean {
+  const metadata = vm.providerMetadata as Record<string, unknown> | null;
+  const claimedAtMs = Number(metadata?.[UNEXPECTED_WAKE_CLAIM_METADATA_KEY]);
+  return Number.isFinite(claimedAtMs) && claimedAtMs >= nowMs - UNEXPECTED_WAKE_CLAIM_TTL_MS;
 }
 
 function withResumeOnSuspendedAfterFailure<A>(

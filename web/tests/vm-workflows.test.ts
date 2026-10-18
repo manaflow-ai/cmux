@@ -6786,22 +6786,36 @@ describe("VM Effect workflows", () => {
       values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim', 'snapshot-test', 'paused')
       returning id
     `;
-    const claim = (nowMs: number) => Effect.runPromise(vmRepositoryLiveShape.claimUnexpectedWakeRepause!({
+    const claim = () => Effect.runPromise(vmRepositoryLiveShape.claimUnexpectedWakeRepause!({
       id: vm.id,
       providerVmId: "provider-vm-wake-claim",
-      nowMs,
       ttlMs: 300_000,
     }));
-    const nowMs = 1_800_000_000_000;
-    expect(await claim(nowMs)).toBe(true);
-    expect(await claim(nowMs + 1_000)).toBe(false);
-    expect(await claim(nowMs + 300_001)).toBe(true);
-    await sql`update cloud_vms set status = 'running' where id = ${vm.id}`;
-    expect(await claim(nowMs + 900_000)).toBe(false);
-    const [row] = await sql<{ status: string; claimedAt: string }[]>`
-      select status, provider_metadata->>'unexpectedWakeClaimAtMs' as "claimedAt" from cloud_vms where id = ${vm.id}
+    // Move the stored claim back in time, as if it had been taken earlier.
+    const ageClaim = (ms: number) => sql!`
+      update cloud_vms
+      set provider_metadata = provider_metadata || jsonb_build_object(
+        'unexpectedWakeClaimAtMs', (provider_metadata->>'unexpectedWakeClaimAtMs')::bigint - ${ms}::bigint)
+      where id = ${vm.id}
     `;
-    expect(row).toEqual({ status: "running", claimedAt: String(nowMs + 300_001) });
+    expect(await claim()).toBe(true);
+    expect(await claim()).toBe(false);
+    await ageClaim(299_000);
+    expect(await claim()).toBe(false);
+    await ageClaim(2_000);
+    expect(await claim()).toBe(true);
+    await sql`update cloud_vms set status = 'running' where id = ${vm.id}`;
+    await ageClaim(900_000);
+    expect(await claim()).toBe(false);
+    // The marker is the database's clock at the last winning claim.
+    const [row] = await sql<{ status: string; claimAgeMs: number }[]>`
+      select status,
+        ((extract(epoch from now()) * 1000)::bigint - (provider_metadata->>'unexpectedWakeClaimAtMs')::bigint)::int as "claimAgeMs"
+      from cloud_vms where id = ${vm.id}
+    `;
+    expect(row?.status).toBe("running");
+    expect(row!.claimAgeMs).toBeGreaterThanOrEqual(900_000);
+    expect(row!.claimAgeMs).toBeLessThan(960_000);
   });
 
   dbTest("cron reconcile skips destroyed rows", async () => {
