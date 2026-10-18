@@ -73,6 +73,7 @@ jobs:
         if: ${{ inputs.deploy_staging == true && (inputs.target || 'staging') == 'staging' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
           VERCEL_PROJECT_ID: prj_804LTAUdOwulMvEfcmfnU8bvGo3T
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
