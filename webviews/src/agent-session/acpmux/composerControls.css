@@ -127,7 +127,7 @@
   inset: 0 auto 0 0;
   width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--agent-text) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
   transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
   will-change: width;
 }
@@ -155,18 +155,32 @@
 }
 .acpmux-effort-thumb {
   position: absolute;
-  top: -2.5px;
+  top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--surface-popup));
   border-radius: 50%;
-  background: var(--agent-text);
-  box-shadow: var(--elevation-1);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
+  box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
   transition: left 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
   will-change: left;
   transform: translateZ(0);
+}
+/* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
+   the same stops and interaction while reducing the thumb's visual weight. */
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-fill {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, transparent);
+}
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-width: 1.5px;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
 /* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
    the recommended level on its own centred line under them: a narrow panel never cuts it. */
@@ -196,10 +210,12 @@
   opacity: 0;
   cursor: default;
 }
-.acpmux-effort-range:focus-visible + .acpmux-effort-thumb,
 .acpmux-effort-track:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb {
-  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 78%, var(--surface-popup));
+  outline-offset: 2px;
+  box-shadow:
+    var(--elevation-1),
+    0 0 0 4px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-effort-track,
