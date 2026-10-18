@@ -9,6 +9,13 @@ import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
+/// Whether the tests run in a virtual machine (`kern.hv_vmm_present`).
+var isVirtualMachine: Bool {
+    var present: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    return sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0 && present == 1
+}
+
 func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-attach-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -80,59 +87,13 @@ func movieHasLocation(_ url: URL) async throws -> Bool {
         || $0.identifier == .quickTimeUserDataLocationISO6709 }
 }
 
-/// Media fixtures encode one at a time. Several suites starting the video
-/// encoder at once crashed the test process (signal 11) on CI's virtual Macs,
-/// which have no hardware encoder.
-actor MediaFixtureGate {
-    static let shared = MediaFixtureGate()
-    private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    /// Waits until no other fixture is encoding.
-    func acquire() async {
-        guard busy else {
-            busy = true
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    /// Lets the next waiting fixture encode.
-    func release() {
-        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
-    }
-
-    /// Runs `body` while holding the gate.
-    static func serially(_ body: () async throws -> Void) async throws {
-        await shared.acquire()
-        do {
-            try await body()
-        } catch {
-            await shared.release()
-            throw error
-        }
-        await shared.release()
-    }
-}
-
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
 /// by its track transform (display size is `height` x `width`).
 func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
-               location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
-               timedLocation: String? = nil,
-               timedIdentifier: AVMetadataIdentifier = .quickTimeMetadataLocationISO6709,
-               subtitle: String? = nil) async throws {
-    try await MediaFixtureGate.serially {
-        try await encodeMovie(at: url, width: width, height: height, frames: frames, fps: fps,
-                              location: location, locationName: locationName, trackLocation: trackLocation,
-                              timedLocation: timedLocation, timedIdentifier: timedIdentifier, subtitle: subtitle)
-    }
-}
-
-private func encodeMovie(at url: URL, width: Int, height: Int, frames: Int, fps: Int32,
-                         location: String?, locationName: String?, trackLocation: String?,
-                         timedLocation: String?, timedIdentifier: AVMetadataIdentifier,
-                         subtitle: String?) async throws {
+                       location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
+                       timedLocation: String? = nil,
+                       timedIdentifier: AVMetadataIdentifier = .quickTimeMetadataLocationISO6709,
+                       subtitle: String? = nil) async throws {
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
     func item(_ identifier: AVMetadataIdentifier, _ value: String) -> AVMutableMetadataItem {
         let item = AVMutableMetadataItem()
@@ -443,10 +404,13 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(dropped.ref.name == "Screen Shot.jpg")
         #expect(dropped.ref.width == 12 && dropped.ref.height == 8)
 
-        // HEIF only where ImageIO can write it (to make the test input).
+        // HEIF only where ImageIO can write it (to make the test input), and
+        // not in a virtual machine: there ImageIO lists HEIF as writable, but
+        // encoding it without the hardware HEVC encoder crashed the test
+        // process (signal 11) shortly after on CI's macOS 15 VMs.
         let heifType = try #require(UTType("public.heif"))
         let writable = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
-        if writable.contains(heifType.identifier) {
+        if writable.contains(heifType.identifier), !isVirtualMachine {
             let heif = try makeImage(type: heifType, width: 16, height: 16, alpha: false)
             let photo = try await store.prepareAttachment(data: heif, typeIdentifier: heifType.identifier)
             #expect(photo.ref.mimeType == "image/jpeg")
