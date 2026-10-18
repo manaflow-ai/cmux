@@ -172,6 +172,24 @@ on:
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
+      # Keep the workflow eligible for every cmux-next product and CI input.
+      # The router still selects the exact tier; this list only decides whether
+      # the workflow starts at all.
+      - Packages/macOS/**
+      - scripts/cmux-next/**
+      - scripts/whats-new/**
+      - tests/**
+      - .github/workflows/**
+      - .github/actions/**
+      - Native/**
+      - TunnelExtension/**
+      - cmuxTests/**
+      - cmuxUITests/**
+      - CLI/**
+      - daemon/**
+      - cmux-tui/**
+      - Assets.xcassets/**
+      - Resources/**
   push:
     branches: [main, feat-cmux-next]
     paths:
