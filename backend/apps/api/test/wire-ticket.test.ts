@@ -34,8 +34,12 @@ const person = async (tag: string) => {
   return { token, user: userIdFor(testEnv.STACK_PROJECT_ID, sub) }
 }
 
-const mint = async (token?: string) => {
-  const r = await worker.fetch("https://api.test/v1/wire/ticket", { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} })
+const mint = async (token?: string, scope?: string) => {
+  const r = await worker.fetch("https://api.test/v1/wire/ticket", {
+    method: "POST",
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(scope ? { "content-type": "application/json" } : {}) },
+    ...(scope ? { body: JSON.stringify({ scope }) } : {}),
+  })
   return { status: r.status, body: (await r.json()) as { ticket?: string; expires_at?: number } }
 }
 
@@ -120,6 +124,21 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     // A's ticket with B's legacy bearer beside it still opens A's socket, never B's.
     const forA2 = await mint(a.token)
     expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${forA2.body.ticket}, bearer.${b.token}`))).toBe(a.user)
+  })
+
+  it("a ticket opens only the socket scope it was minted for, and is spent by a refused try", async () => {
+    const a = await person("scope")
+    const feed = await mint(a.token, "feed")
+    expect(feed.status).toBe(200)
+    await expectRefused(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${feed.body.ticket}`))
+    // The refused try spent it: the right socket refuses it too.
+    await expectRefused(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${feed.body.ticket}`))
+    expect(await welcomeUser(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${(await mint(a.token, "feed")).body.ticket}`))).toBe(a.user)
+    // A ticket minted without a scope is a user-socket ticket (the scope before tickets were bound).
+    await expectRefused(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${(await mint(a.token)).body.ticket}`))
+    expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${(await mint(a.token)).body.ticket}`))).toBe(a.user)
+    // An unknown scope mints nothing.
+    expect((await mint(a.token, "pair")).status).toBe(400)
   })
 
   it("minting needs the Authorization header", async () => {
