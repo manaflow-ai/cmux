@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
+import { inDO } from "./team-ssh-support.ts"
 import { expect, it } from "vitest"
 import { bindMessage, checkProof, TeamVmBinds, type BindProof } from "../src/team-vm-bind.ts"
 
@@ -8,7 +8,7 @@ const b64u = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(
 
 it("binds a public VM allocation only after its actual signed instance is verified", async () => {
   const stub = ns.get(ns.idFromName("team_00000000000000811000"))
-  await runInDurableObject(stub, async (owner) => {
+  await inDO(stub, async (owner) => {
     const binds = new TeamVmBinds(owner.sqlStore), now = Date.now()
     const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
     const key = await crypto.subtle.exportKey("jwk", pair.publicKey)
