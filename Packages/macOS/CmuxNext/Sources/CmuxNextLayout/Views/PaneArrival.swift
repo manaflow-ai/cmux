@@ -56,6 +56,12 @@ struct PaneArrival: Equatable {
         guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
               var arrival = of(target: target, previous: before, next: after) ?? docking(pane, target: target, from: old, to: new)
         else { return [:] }
+        // A split should be one synchronized reposition: the existing pane and
+        // divider travel on the move spring while the new pane is already at
+        // its final geometry and fades in. Seeding the new pane as a zero-size
+        // sliver makes the content resize after the reflow, which reads as a
+        // second animation and leaves a visible lag behind Cmd-D.
+        arrival.seed = target
         if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
     }
