@@ -162,9 +162,8 @@
 .acpmux-newtab>*{width:100%}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
-/* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box lifts on hover as the browser omnibar does (Palette.hoverFill: the composer hover step), not while it has the keyboard, and eases with the hover token both ways. */
+/* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
-@media (prefers-reduced-motion:no-preference){.acpmux-newtab-box{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
 .acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
 .acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
