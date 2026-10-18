@@ -1852,6 +1852,11 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         run: scripts/cmux-next/build-web-bundles.sh --force
 
+      # Restore identical tracked inputs before Cargo sees the committed inspector page.
+      - name: Replay persistent NEXT source times before Rust helpers
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        run: python3 scripts/ci/nightly_build_state.py replay
+
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
       # every dependency from scratch on each nightly: about 150 s of the
       # serial build path (2026-10-09). Their target dirs keep the dependency
