@@ -98,11 +98,15 @@ def main() -> int:
         ("ctrl+cmd+9", bottom_right, "9 focuses the last pane"),
     ]
     failures = 0
-    for combo, expected, name in cases:
-        got = _press(c, combo, expected)
-        ok = got == expected
-        failures += 0 if ok else 1
-        print(f"{'PASS' if ok else 'FAIL'} {name}: {combo} -> {got} (want {expected})")
+    try:
+        for combo, expected, name in cases:
+            got = _press(c, combo, expected)
+            ok = got == expected
+            failures += 0 if ok else 1
+            print(f"{'PASS' if ok else 'FAIL'} {name}: {combo} -> {got} (want {expected})")
+    finally:
+        # Later tests expect the unbound default.
+        c.set_shortcut("pane_digits", "default")
 
     c.close_workspace(workspace)
     print(f"RESULT {len(cases) - failures}/{len(cases)}")

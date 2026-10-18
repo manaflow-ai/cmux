@@ -94,25 +94,29 @@ def main() -> int:
     check("ctrl+cmd+e is unbound by default", _focused_terminal(c))
     c.set_shortcut("focus_sidebar", "ctrl+cmd+e")
 
-    c.simulate_shortcut("ctrl+cmd+e")
-    time.sleep(0.5)
-    check("ctrl+cmd+e moves focus off the terminal", bool(_settle(lambda: not _focused_terminal(c))))
+    try:
+        c.simulate_shortcut("ctrl+cmd+e")
+        time.sleep(0.5)
+        check("ctrl+cmd+e moves focus off the terminal", bool(_settle(lambda: not _focused_terminal(c))))
 
-    c.simulate_shortcut("down")
-    _settle(lambda: _selected(c) == ws3)
-    check("down selects the next workspace", _selected(c) == ws3, f"got={_selected(c)} want={ws3}")
-    time.sleep(0.5)
-    check("the sidebar keeps focus after down", not _focused_terminal(c))
+        c.simulate_shortcut("down")
+        _settle(lambda: _selected(c) == ws3)
+        check("down selects the next workspace", _selected(c) == ws3, f"got={_selected(c)} want={ws3}")
+        time.sleep(0.5)
+        check("the sidebar keeps focus after down", not _focused_terminal(c))
 
-    c.simulate_shortcut("up")
-    time.sleep(0.4)
-    c.simulate_shortcut("up")
-    _settle(lambda: _selected(c) == ws1)
-    check("up twice selects two workspaces back", _selected(c) == ws1, f"got={_selected(c)} want={ws1}")
+        c.simulate_shortcut("up")
+        time.sleep(0.4)
+        c.simulate_shortcut("up")
+        _settle(lambda: _selected(c) == ws1)
+        check("up twice selects two workspaces back", _selected(c) == ws1, f"got={_selected(c)} want={ws1}")
 
-    c.simulate_shortcut("return")
-    check("return focuses the selected workspace's terminal", bool(_settle(lambda: _focused_terminal(c))))
-    check("return keeps the selection", _selected(c) == ws1)
+        c.simulate_shortcut("return")
+        check("return focuses the selected workspace's terminal", bool(_settle(lambda: _focused_terminal(c))))
+        check("return keeps the selection", _selected(c) == ws1)
+    finally:
+        # Later tests expect the unbound default.
+        c.set_shortcut("focus_sidebar", "default")
 
     for wsid in created:
         try:
