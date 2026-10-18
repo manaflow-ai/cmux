@@ -305,7 +305,7 @@ final class CEFRuntime {
         self.layout = layout
 
         let pump = CEFMessagePump(
-            work: { [weak self] in CEFStartSteps.shared.pump { self?.shim?.doWork() } },
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
             safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
         )
         self.pump = pump

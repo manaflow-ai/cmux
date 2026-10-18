@@ -10,8 +10,9 @@
 /// and while a step still runs the deadline waits for the step's end (the
 /// lifecycle signal, never a poll). A request that waited only on its own
 /// work still times out at its deadline. ``maxCredit`` bounds what one
-/// request gets back, so a step that never ends does not hold a request
-/// forever.
+/// request gets back, also while a step still runs, so a step that never
+/// ends (a hung CefInitialize, a modal run loop inside Chromium's work)
+/// holds a request at most that much longer.
 public final class MainThreadEngineStart: Sendable {
     public static let shared = MainThreadEngineStart()
 
@@ -53,19 +54,31 @@ public final class MainThreadEngineStart: Sendable {
 
     public var isRunning: Bool { state.withLock { $0.activeSince != nil } }
 
-    /// Returns when no step runs (at once when none does), or when the task
-    /// is cancelled.
-    public func waitUntilIdle() async {
+    /// `deadline` moved out by the step time since `mark`, at most ``maxCredit``.
+    public func movedDeadline(_ deadline: ContinuousClock.Instant, countingFrom mark: Duration) -> ContinuousClock.Instant {
+        deadline + min(max(total - mark, .zero), Self.maxCredit)
+    }
+
+    /// Returns when no step runs (at once when none does), at `limit`, or
+    /// when the task is cancelled.
+    public func waitUntilIdle(until limit: ContinuousClock.Instant) async {
         let id = state.withLock { state -> Int? in
             guard state.activeSince != nil else { return nil }
             state.nextWaiter += 1
             return state.nextWaiter
         }
         guard let id else { return }
+        let bound = Task { [weak self] in
+            // wakeup-allow: one-shot bound of a wait for a step's end, cancelled when the step ends
+            do { try await Task.sleep(until: limit, clock: .continuous) } catch { return }
+            self?.state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
+        }
+        defer { bound.cancel() }
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 let resumeNow = state.withLock { state -> Bool in
-                    guard state.activeSince != nil, !Task.isCancelled else { return true }
+                    // A bound that fired before this waiter was stored found nothing to resume.
+                    guard state.activeSince != nil, !Task.isCancelled, ContinuousClock.now < limit else { return true }
                     state.waiters[id] = continuation
                     return false
                 }
@@ -85,9 +98,9 @@ public final class MainThreadEngineStart: Sendable {
         while true {
             // wakeup-allow: one-shot request deadline, cancelled when the request answers
             try await Task.sleep(until: target, clock: .continuous)
-            await waitUntilIdle()
+            await waitUntilIdle(until: deadline + Self.maxCredit)
             try Task.checkCancellation()
-            let moved = deadline + min(max(total - mark, .zero), Self.maxCredit)
+            let moved = movedDeadline(deadline, countingFrom: mark)
             guard moved > .now else { return }
             target = moved
         }

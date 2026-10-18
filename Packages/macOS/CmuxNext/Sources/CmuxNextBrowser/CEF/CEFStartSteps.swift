@@ -24,18 +24,22 @@ final class CEFStartSteps {
     /// The first browser window's `create_window` call.
     func createWindow(_ body: () -> Int32) -> Int32 {
         guard !firstWindowRequested else { return body() }
-        firstWindowRequested = true
-        firstWindowPending = true
         let started = MainThreadEngineStart.shared.run(body)
-        if started != 1 { firstWindowPending = false }
+        firstWindowRequested = started == 1
+        firstWindowPending = started == 1
         return started
     }
 
-    /// The first window exists (OnAfterCreated) or its creation failed.
+    /// A window exists (OnAfterCreated for a create_window request, also one
+    /// whose tab closed meanwhile).
     func firstWindowEnded() { firstWindowPending = false }
 
-    /// One run of the external message pump.
-    func pump(_ work: () -> Void) {
+    /// One run of the external message pump. `windowPending`: a
+    /// create_window request still waits for its window; when none does
+    /// (its creation ended without OnAfterCreated: a crash, shutdown) the
+    /// first window's step ends too.
+    func pump(windowPending: Bool, _ work: () -> Void) {
+        if !windowPending { firstWindowPending = false }
         if firstWindowPending { MainThreadEngineStart.shared.run(work) } else { work() }
     }
 }

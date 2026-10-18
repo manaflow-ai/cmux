@@ -14,13 +14,14 @@ public struct ControlDeadline: Sendable {
         method: String,
         deadline: ContinuousClock.Instant,
         startsTerminal: Bool = false,
+        countingFrom mark: Duration? = nil,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let limit = max(deadline - .now, .zero)
         let timeout = startsTerminal ? ControlError.terminalStartTimeout(method, after: limit) : ControlError.timeout(method, after: limit)
-        // Main-thread time in Chromium's start does not count (MainThreadEngineStart).
+        // Main-thread time in Chromium's start after `mark` does not count (MainThreadEngineStart).
         let engineStart = MainThreadEngineStart.shared
-        let mark = engineStart.total
+        let mark = mark ?? engineStart.total
         let race = Race<T>()
         return try await withCheckedThrowingContinuation { continuation in
             race.begin(continuation)

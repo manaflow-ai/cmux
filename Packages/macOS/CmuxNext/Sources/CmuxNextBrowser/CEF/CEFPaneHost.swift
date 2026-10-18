@@ -239,8 +239,8 @@ final class CEFPaneHost {
     }
 
     func windowCreated(browser: Int32, request: Int32) {
-        guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         CEFStartSteps.shared.firstWindowEnded()
+        guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser

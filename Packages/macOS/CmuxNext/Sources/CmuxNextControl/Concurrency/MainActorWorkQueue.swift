@@ -114,14 +114,15 @@ public final class MainActorWorkQueue: Sendable {
         connection: ControlConnectionID = .inProcess,
         method: String,
         deadline: ContinuousClock.Instant,
+        countingFrom mark: Duration? = nil,
         _ work: @escaping @MainActor @Sendable () throws -> T
     ) async throws -> T {
         let now = ContinuousClock.now
         let timeout = ControlError.timeout(method, after: max(deadline - now, .zero))
-        // Main-thread time in Chromium's start does not count (MainThreadEngineStart):
-        // an item queued behind CefInitialize runs when it ends.
+        // Main-thread time in Chromium's start after `mark` does not count
+        // (MainThreadEngineStart): an item queued behind CefInitialize runs when it ends.
         let engineStart = MainThreadEngineStart.shared
-        let mark = engineStart.total
+        let mark = mark ?? engineStart.total
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             let item = MainActorWorkItem(
                 connection: connection,
