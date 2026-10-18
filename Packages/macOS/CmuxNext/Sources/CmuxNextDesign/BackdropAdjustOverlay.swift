@@ -1,9 +1,12 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Placing a background by hand (backgrounds plan phase 6): over the window, with its content
 /// faded so the art shows, a drag moves the picture, scrolling or pinching zooms it, Reset goes
-/// back to the automatic framing and Done (or Escape, or Return) ends. Each change is saved in
-/// ``BackdropPlacementStore`` at once, so every window showing the picture follows.
+/// back to the automatic framing and Done (or Escape, or Return) ends. The arrow keys nudge it
+/// (Shift: further), + and - zoom, 0 resets. Each change is saved in ``BackdropPlacementStore``
+/// at once, so every window showing the picture follows. One overlay at a time, app-wide; it
+/// ends by itself when its window shows another background.
 @MainActor
 public final class BackdropAdjustOverlay: NSView {
     private let backdrop: WindowMaterialView
@@ -13,6 +16,10 @@ public final class BackdropAdjustOverlay: NSView {
     private var lastDrag: NSPoint?
     /// The window's content views this faded, and their opacity before.
     private var faded: [(NSView, CGFloat)] = []
+    /// Fades views the window adds while placing (a page, a toast).
+    private var subviewsObservation: NSKeyValueObservation?
+    /// The one overlay placing now, in any window.
+    private static weak var active: BackdropAdjustOverlay?
     private let bar = NSVisualEffectView()
 
     /// The content fades to this while placing, so the art shows through.
@@ -21,17 +28,34 @@ public final class BackdropAdjustOverlay: NSView {
     /// Starts placing the picture `window` shows; false when it shows none it can place (no
     /// picture, a video). A second call while placing keeps the first.
     @discardableResult
-    public static func begin(in window: NSWindow) -> Bool {
-        guard let content = window.contentView, let backdrop = WindowMaterialView.backdrop(of: window),
+    public static func begin(in window: NSWindow?) -> Bool {
+        guard let window, let content = window.contentView, let backdrop = WindowMaterialView.backdrop(of: window),
               let adjustable = backdrop.adjustable else { return false }
-        if content.subviews.contains(where: { $0 is BackdropAdjustOverlay }) { return true }
+        if let active, active.window === window, active.id == adjustable.id { return true }
+        active?.done()
         let overlay = BackdropAdjustOverlay(backdrop: backdrop, id: adjustable.id, imageSize: adjustable.imageSize,
                                             placement: adjustable.current, frame: content.bounds)
-        overlay.faded = content.subviews.filter { $0 !== backdrop }.map { ($0, $0.alphaValue) }
-        for (view, _) in overlay.faded { view.alphaValue = fadedContentAlpha }
+        for view in content.subviews where view !== backdrop { overlay.fade(view) }
         content.addSubview(overlay, positioned: .above, relativeTo: nil)
+        overlay.subviewsObservation = content.observe(\.subviews, options: [.new]) { [weak overlay] content, _ in
+            let added = content.subviews.map(ObjectIdentifier.init)
+            MainDelivery().run { overlay?.fadeAdded(added) }
+        }
         window.makeFirstResponder(overlay)
+        active = overlay
         return true
+    }
+
+    private func fade(_ view: NSView) {
+        guard view !== self, view !== backdrop, !faded.contains(where: { $0.0 === view }) else { return }
+        faded.append((view, view.alphaValue))
+        view.alphaValue = Self.fadedContentAlpha
+    }
+
+    /// Fades the window's views that came in since (by identity, read on the main actor).
+    private func fadeAdded(_ added: [ObjectIdentifier]) {
+        guard let content = superview else { return }
+        for view in content.subviews where added.contains(ObjectIdentifier(view)) { fade(view) }
     }
 
     /// The overlay `window` shows, if it is placing (tests).
@@ -71,7 +95,7 @@ public final class BackdropAdjustOverlay: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    required init?(coder: NSCoder) { nil }
 
     override public var acceptsFirstResponder: Bool { true }
 
@@ -83,13 +107,16 @@ public final class BackdropAdjustOverlay: NSView {
         return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
     }
 
-    /// Moves the picture by `dx`, `dy` points (y up), as a drag does.
+    /// Moves the picture by `dx`, `dy` points (y up), as a drag does. The center stays where the
+    /// picture still covers the window, so a drag past an edge has no dead travel to undo.
     public func move(dx: CGFloat, dy: CGFloat) {
-        let size = shownSize
+        let size = shownSize, view = backdrop.bounds.size
         guard size.width > 0, size.height > 0 else { return }
         // The picture follows the pointer: the point at the center moves the other way.
-        save(BackdropUserPlacement(centerX: placement.centerX - dx / size.width, centerY: placement.centerY + dy / size.height,
-                                   zoom: placement.zoom))
+        let middleX = backdrop.visibleMiddle, middleY = view.height / 2
+        let x = min(max(placement.centerX - dx / size.width, (middleX - view.width + size.width) / size.width), middleX / size.width)
+        let y = min(max(placement.centerY + dy / size.height, (middleY - view.height + size.height) / size.height), middleY / size.height)
+        save(BackdropUserPlacement(centerX: x, centerY: y, zoom: placement.zoom))
     }
 
     /// Zooms by `factor` (above 1 closer), as a pinch or a scroll does.
@@ -99,8 +126,27 @@ public final class BackdropAdjustOverlay: NSView {
     }
 
     private func save(_ new: BackdropUserPlacement) {
+        // The window shows another background now: nothing of this one to save.
+        guard backdrop.adjustable?.id == id else { return done() }
         placement = new
         backdrop.placements.set(new, for: id)
+    }
+
+    override public func keyDown(with event: NSEvent) {
+        let step: CGFloat = event.modifierFlags.contains(.shift) ? 50 : 10
+        switch event.specialKey {
+        case .leftArrow?: move(dx: -step, dy: 0)
+        case .rightArrow?: move(dx: step, dy: 0)
+        case .upArrow?: move(dx: 0, dy: step)
+        case .downArrow?: move(dx: 0, dy: -step)
+        default:
+            switch event.charactersIgnoringModifiers {
+            case "+", "=": zoom(by: 1.1)
+            case "-", "_": zoom(by: 1 / 1.1)
+            case "0": reset()
+            default: super.keyDown(with: event)
+            }
+        }
     }
 
     override public func mouseDown(with event: NSEvent) { lastDrag = event.locationInWindow }
@@ -131,8 +177,10 @@ public final class BackdropAdjustOverlay: NSView {
 
     /// Ends placing: the content comes back and the placement stays saved.
     @objc public func done() {
+        subviewsObservation = nil
         for (view, alpha) in faded { view.alphaValue = alpha }
         faded = []
+        if Self.active === self { Self.active = nil }
         let window = window
         removeFromSuperview()
         window?.makeFirstResponder(window?.contentView)

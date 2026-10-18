@@ -134,7 +134,7 @@ public final class HomeNativeTranscriptView: NSView {
         binding.stop()
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     #if DEBUG

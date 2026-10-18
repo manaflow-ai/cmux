@@ -55,12 +55,23 @@ import Testing
         store.set(placed, for: "starryNight")
         #expect(changes.value == 1, "an unchanged placement announced a change")
         #expect(store.placement(for: "starryNight") == placed && store.placement(for: "other") == nil)
-        // Saved off the main actor; a new store reads it back.
-        let deadline = Date().addingTimeInterval(5)
-        while BackdropPlacementStore(file: file).placement(for: "starryNight") == nil, Date() < deadline { usleep(20_000) }
+        // Saved in order off the main actor; a new store reads the last one back.
+        let later = BackdropUserPlacement(centerX: 0.7, centerY: 0.2, zoom: 3)
+        for step in 0..<20 { store.set(.init(centerX: Double(step) / 20, centerY: 0.5, zoom: 1), for: "starryNight") }
+        store.set(later, for: "starryNight")
+        store.flush()
+        #expect(BackdropPlacementStore(file: file).placement(for: "starryNight") == later, "an older save landed last")
+        store.set(placed, for: "starryNight")
+        store.flush()
         #expect(BackdropPlacementStore(file: file).placement(for: "starryNight") == placed)
+        // A file that does not read is kept beside, not lost.
+        let broken = FileManager.default.temporaryDirectory.appendingPathComponent("placement-\(UUID().uuidString).json")
+        try Data("{not json".utf8).write(to: broken)
+        #expect(BackdropPlacementStore(file: broken).placement(for: "any") == nil)
+        #expect(FileManager.default.fileExists(atPath: broken.appendingPathExtension("unreadable").path))
+        let before = changes.value
         store.set(nil, for: "starryNight")
-        #expect(store.placement(for: "starryNight") == nil && changes.value == 2)
+        #expect(store.placement(for: "starryNight") == nil && changes.value == before + 1)
     }
 }
 

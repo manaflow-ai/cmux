@@ -312,7 +312,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         WindowTitlebar.performDoubleClick(in: window)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     public override func layout() {
         super.layout()

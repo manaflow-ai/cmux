@@ -48,7 +48,10 @@ import Testing
             #expect(error.code == "cmux.settings.backdrop.in_use")
         }
         current = nil
+        // Its hand placement goes with it.
+        BackdropPlacementStore.shared.set(.init(centerX: 0.3, centerY: 0.5, zoom: 2), for: own)
         #expect(try await call("remove", ["id": .string(own)])["bytes"]?.doubleValue == 0)
+        #expect(BackdropPlacementStore.shared.placement(for: own) == nil, "a removed picture kept its placement")
         await #expect(throws: PageError.self) { try await call("nothing", [:]) }
     }
 

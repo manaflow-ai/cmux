@@ -67,7 +67,7 @@ final class DividerHandleView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
