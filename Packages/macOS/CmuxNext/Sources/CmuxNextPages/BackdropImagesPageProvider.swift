@@ -1,5 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextSettings
+import CmuxNextCompat
 public import Foundation
 
 /// The person's own backgrounds on the Settings page (backgrounds plan phase 3), beside the

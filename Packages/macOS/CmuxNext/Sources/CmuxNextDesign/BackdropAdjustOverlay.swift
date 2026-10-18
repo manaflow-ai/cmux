@@ -41,6 +41,8 @@ public final class BackdropAdjustOverlay: NSView {
             let added = content.subviews.map(ObjectIdentifier.init)
             MainDelivery().run { overlay?.fadeAdded(added) }
         }
+        // Brought forward: from a separate Settings window, the keys and pointer come here.
+        window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(overlay)
         active = overlay
         return true
@@ -114,8 +116,10 @@ public final class BackdropAdjustOverlay: NSView {
         guard size.width > 0, size.height > 0 else { return }
         // The picture follows the pointer: the point at the center moves the other way.
         let middleX = backdrop.visibleMiddle, middleY = view.height / 2
-        let x = min(max(placement.centerX - dx / size.width, (middleX - view.width + size.width) / size.width), middleX / size.width)
-        let y = min(max(placement.centerY + dy / size.height, (middleY - view.height + size.height) / size.height), middleY / size.height)
+        // Covering keeps the image's origin in [view - size, 0], so the center point lies in
+        // [middle / size, (middle - view + size) / size].
+        let x = min(max(placement.centerX - dx / size.width, middleX / size.width), (middleX - view.width + size.width) / size.width)
+        let y = min(max(placement.centerY + dy / size.height, middleY / size.height), (middleY - view.height + size.height) / size.height)
         save(BackdropUserPlacement(centerX: x, centerY: y, zoom: placement.zoom))
     }
 
