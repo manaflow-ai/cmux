@@ -82,7 +82,36 @@ fn workspace_extra(
     if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
         fields.insert("agent_folder".into(), json!(path));
     }
+    workspace_name_extra(connection, workspace_id, &mut fields)?;
     Ok(fields)
+}
+
+/// `workspace-name-source-v1`: who chose the name and its revision (a
+/// decimal string, like a tab's), read from the one stored row.
+fn workspace_name_extra(
+    connection: &Connection,
+    workspace_id: &str,
+    fields: &mut Map<String, Value>,
+) -> anyhow::Result<()> {
+    let provenance = connection
+        .query_row(
+            "SELECT w.name_source, w.name_revision
+             FROM resource_workspaces AS rw
+             JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
+             WHERE rw.public_id = ?1",
+            [workspace_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    if let Some((source, revision)) = provenance {
+        let (source, revision) =
+            crate::workspace_registry::workspace_name_store::stored_name_provenance(
+                &source, revision,
+            )?;
+        fields.insert("name_source".into(), json!(source));
+        fields.insert("name_revision".into(), json!(revision.to_string()));
+    }
+    Ok(())
 }
 
 fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String, Value>> {
