@@ -55,7 +55,7 @@ function go({ entry, variant, search }: Address, replace = false): void {
   } as never);
 }
 
-const TEAM_FEED_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/";
+const TEAM_FEED_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:8443/feed/";
 
 /** Small, durable handoff actions: copy the exact shell route and jump to the shared review feed. */
 function GalleryLinks({ address }: { address: Address }) {
