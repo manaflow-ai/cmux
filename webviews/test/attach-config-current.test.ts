@@ -112,3 +112,12 @@ test("an attached chat shows the effort it runs now, not the one its history sta
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(shownEffort()).toBe("medium");
 });
+
+// Review of #21685: acpmux numbers a config update's event before it writes the session's options,
+// so an attach in between names the old options with that event as its last. The event at the
+// attach's own lastSeq is newer than or as new as the options it names: it applies.
+test("an attach that names the old options with the change as its last event shows the change", async () => {
+  const daemon = fakeDaemon("medium", [userEvent(1, "hi"), configEvent(2, "high")]);
+  const { shownEffort } = await connect(daemon);
+  expect(shownEffort()).toBe("high");
+});
