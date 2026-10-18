@@ -1046,6 +1046,33 @@ class FreezeRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
+    def test_multiple_freeze_tokens_cover_disjoint_lines(self):
+        window = "FREEZE: docs/first/ token=token-a\nFREEZE: docs/second/ token=token-b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/first/a.md", "docs/second/b.md"),
+                extra_args=("--freeze-token", "token-a", "--freeze-token", "token-b"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_valid_and_invalid_freeze_tokens_refuse_before_merge(self):
+        window = "FREEZE: docs/first/ token=token-a\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/first/a.md",),
+                extra_args=("--freeze-token", "token-a", "--freeze-token", "stale-token"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("not a current WINDOW token", result.stderr)
+
+    def test_comma_grant_accepts_either_freeze_holder(self):
+        window = "FREEZE: docs/shared/ token=token-a,token-b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, window, ("docs/shared/a.md",), extra_args=("--freeze-token", "token-b"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
     def test_override_does_not_lift_a_freeze(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker = self.run_with_window(
@@ -1252,6 +1279,14 @@ class ReleaseMailRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(len(mails), 1, names)
             self.assertIn("subject: RELEASE PKG: #42 landed " + MERGED_SHA, mails[0])
+
+    def test_duplicate_window_tokens_mail_one_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(
+                directory, ("--window-token", "c0dec0de1234", "--window-token", "c0dec0de1234"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(len(mails), 1, names)
 
     def test_a_token_that_is_not_current_refuses_before_merging(self):
         with tempfile.TemporaryDirectory() as directory:
