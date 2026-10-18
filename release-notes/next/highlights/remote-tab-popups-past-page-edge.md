@@ -1,4 +1,5 @@
-title: Remote browser tab popups are no longer cut off at the page edge
+title: Remote browser tab popups no longer get cut off
 category: fixed
+action: remote.openBrowserTab | Open Remote Browser Tab
 
-In a remote browser tab, a date picker, a suggestion list or an extension popup now shows in its own small window above the page. A popup near the page edge, or in a page shorter than the popup, shows in full. It moves with the window, and it never takes the keyboard from the page.
+In a remote browser tab, date pickers, suggestion lists and extension popups now show in full, even near the page edge. They move with the window and never take the keyboard from the page.

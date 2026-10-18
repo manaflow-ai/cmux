@@ -1,4 +1,5 @@
-title: Remote browser tabs show datalist suggestions and extension popups
+title: Remote browser tabs show field suggestions and popups
 category: improved
+action: remote.openBrowserTab | Open Remote Browser Tab
 
-In a remote browser tab, typing in a field with suggestions (an `<input list>`) now shows the suggestion list, and a click on a suggestion fills the field. Extension popups also show over the page. The browser engine moves to CEF cmux.21.
+In a remote browser tab, a field with a suggestion list now shows it, and a click on a suggestion fills the field. Extension popups also show over the page.
