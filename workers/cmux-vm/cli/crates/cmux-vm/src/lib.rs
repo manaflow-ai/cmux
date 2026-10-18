@@ -434,7 +434,9 @@ async fn dispatch(
             out.vm(&vm)
         }
         Command::Resize(args) => {
-            let vm_id = parse_key::<types::VmId>(&args.vm_id)?;
+            let vm_id = args.vm_id.parse::<types::VmId>().map_err(|error| {
+                CliError::usage(format!("invalid VM id {:?}: {error}", args.vm_id))
+            })?;
             let body: types::ResizeVmRequest = request_body(json!({ "resources": {
                 "vcpus": args.vcpus, "memoryMib": args.memory_mib, "diskMib": args.disk_mib,
             }}))?;
@@ -729,7 +731,7 @@ where
         .map_err(|e| CliError::usage(format!("invalid --idempotency-key {key:?}: {e}")))
 }
 
-/// A fresh idempotency key for one create or fork.
+/// A fresh idempotency key for one create, fork or resize.
 ///
 /// The randomness comes from the standard library's `RandomState`, whose
 /// SipHash keys are seeded from the OS once per process and advanced for each

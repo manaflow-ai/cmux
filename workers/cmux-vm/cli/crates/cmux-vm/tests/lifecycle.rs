@@ -1307,6 +1307,14 @@ async fn resize_rejects_invalid_or_missing_resource_axes_without_http() {
     ] {
         let out = cli(&server, &args).await;
         assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        if args[1] == "private-provider-reference" {
+            assert!(out.stderr.contains("invalid VM id"), "{}", out.stderr);
+            assert!(
+                !out.stderr.contains("invalid --idempotency-key"),
+                "{}",
+                out.stderr
+            );
+        }
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }
