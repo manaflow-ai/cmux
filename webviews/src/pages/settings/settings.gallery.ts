@@ -202,10 +202,7 @@ Object.assign(variants, {
           '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263a32"/><path d="M0 180L108 58L186 180Z" fill="#6fa06c"/><path d="M128 180L233 38L320 180Z" fill="#9bcf8d"/></svg>',
         ),
     },
-    steps: [
-      wait('[data-card="backdrop"]'),
-      { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" },
-    ],
+    steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
     note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
   }),
   "backdrops-empty": variant("appearance", {
