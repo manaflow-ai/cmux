@@ -20,6 +20,7 @@ extension TabContentCache {
             return nil
         }
         entry.confirm(validity: validity, target: target, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
+        onTerminalConfirmed?(tab, daemon) // the one confirm point: this task's or a presenter's
         return entry
     }
 
@@ -30,9 +31,7 @@ extension TabContentCache {
             for await surface in ObservationStream({ [weak tab] in tab?.surface }) {
                 guard let self, let entry, let tab, let daemon, let surface else { return }
                 guard !ProvisionalTab.isProvisional(surface: surface) else { continue }
-                guard self.terminals[tab.id] === entry else { return }
-                _ = self.terminal(for: tab, daemon: daemon)
-                self.onTerminalConfirmed?(tab)
+                if self.terminals[tab.id] === entry { _ = self.terminal(for: tab, daemon: daemon) }
                 return
             }
         }
