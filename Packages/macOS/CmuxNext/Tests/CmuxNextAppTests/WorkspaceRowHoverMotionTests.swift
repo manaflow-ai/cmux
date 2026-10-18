@@ -63,6 +63,7 @@ struct WorkspaceRowHoverMotionTests {
             #expect(!Self.keyPaths(under: view.layer).contains("opacity"), "the \(name) should show immediately")
         }
         #expect(!Self.keyPaths(under: row.title.layer).contains("locations"), "the title fade should not delay hover entry")
+        #expect(!Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill should show immediately")
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")
         let slots = Self.controls(row).map { $0.1.frame }
 
