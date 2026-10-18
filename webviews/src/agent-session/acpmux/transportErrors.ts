@@ -10,6 +10,7 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
   "transport.mode_not_confirmed": "transport.modeNotConfirmed",
+  "transport.full_access_off": "transport.fullAccessOff",
 };
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the

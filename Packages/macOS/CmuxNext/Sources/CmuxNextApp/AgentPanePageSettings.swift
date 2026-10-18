@@ -109,5 +109,7 @@ final class AgentPanePageSettings {
         sidebarPreviewVariant.push(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
+        // `sessions.allowFullAccess`, read per frame by the transport: a change applies at the next mode switch.
+        view.model.transport.allowsFullAccess = { [weak self] in self?.settings?.snapshot.sessions.allowsFullAccess ?? true }
     }
 }
