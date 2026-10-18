@@ -73,7 +73,8 @@ public final class AgentPaneNewTabFrame {
                 guard size != .zero, before.0, self.image(size: size, appearance: appearance) == nil else { return }
                 // One page frame first: an answer handed to the page before this is drawn by then.
                 await withCheckedContinuation { done in redraw.afterNextFrame { done.resume() } }
-                guard let snapshot = try? await view.webView.takeSnapshot(configuration: nil),
+                guard view.window != nil, !view.isHiddenOrHasHiddenAncestor, view.isDescendant(of: host), host.bounds.size == size,
+                      let snapshot = try? await view.webView.takeSnapshot(configuration: nil), snapshot.size == size,
                       takenAt == self.generation, self.shows(view.model) == before else { return }
                 self.frame = (snapshot, size, appearance, takenAt)
             }

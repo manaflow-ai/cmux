@@ -401,7 +401,12 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
-        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
+        model.onChatsPage = { [weak self] query in
+            let answer = await self?.pageChats.page?(query)
+            // A New Tab page on screen gives the frame of the list it draws now.
+            if let self, let view = views[resolve(provisional)], let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            return answer
+        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)

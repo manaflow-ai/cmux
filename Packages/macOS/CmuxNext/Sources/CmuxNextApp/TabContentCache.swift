@@ -42,6 +42,7 @@ final class TabContentCache {
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
     var pageThumbnailVersions: [String: Int] = [:]
+    var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
     /// deadline use the shared 30 s test configuration.
