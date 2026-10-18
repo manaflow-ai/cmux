@@ -1575,8 +1575,9 @@ final class RowCell: UICollectionViewCell {
     /// (layer time). A still scene (--typing-phase) keeps them at rest. macOS only (no iOS reference).
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        // cmux: no breathing under Reduce Motion (cx-sya4n).
-        guard Springs.typingStillPhase == nil, !MessagesLabHomeView.reducesMotion else { return }
+        guard Springs.typingStillPhase == nil else { return }
+        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).

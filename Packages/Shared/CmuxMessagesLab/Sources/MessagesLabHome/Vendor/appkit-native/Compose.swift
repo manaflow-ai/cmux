@@ -186,7 +186,8 @@ final class FieldTextView: NSTextView {
     /// not depend on the blink's phase at the grab (Messages' still references show it solid).
     static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
 
-    private func startBlink() {
+    // cmux: not private, so a Reduce Motion change restarts or stills the blink (cx-sya4n).
+    func startBlink() {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1

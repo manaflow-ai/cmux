@@ -54,17 +54,16 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1564,7 +1575,8 @@
-     /// (layer time). A still scene (--typing-phase) keeps them at rest. macOS only (no iOS reference).
+@@ -1565,6 +1576,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
--        guard Springs.typingStillPhase == nil else { return }
-+        // cmux: no breathing under Reduce Motion (cx-sya4n).
-+        guard Springs.typingStillPhase == nil, !MessagesLabHomeView.reducesMotion else { return }
+         guard Springs.typingStillPhase == nil else { return }
++        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
++        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1663,7 +1675,8 @@
+@@ -1663,7 +1676,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

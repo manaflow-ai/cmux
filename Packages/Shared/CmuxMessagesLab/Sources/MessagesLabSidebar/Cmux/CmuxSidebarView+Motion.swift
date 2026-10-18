@@ -1,19 +1,57 @@
 import AppKit
 import os
 
-/// cmux (cx-sya4n: Austin gets headaches from blinking lights; nothing loops under
-/// Reduce Motion): the vendored list's typing bubble reads this.
+/// cmux (cx-sya4n: blinking lights give a teammate headaches; nothing loops under Reduce
+/// Motion): the vendored list's typing bubble reads this.
 extension CmuxSidebarView {
     /// The host's Reduce Motion pin (cmux-next mirrors `Motion.reduceMotionOverride`, the
-    /// tests' pin); nil reads the system setting.
+    /// tests' pin); nil reads the system setting. A change posts `reduceMotionDidChange`.
     nonisolated public static var reduceMotionOverride: Bool? {
         get { reduceMotionPin.withLock { $0 } }
-        set { reduceMotionPin.withLock { $0 = newValue } }
+        set {
+            let changed = reduceMotionPin.withLock { pin in
+                defer { pin = newValue }
+                return pin != newValue
+            }
+            if changed { NotificationCenter.default.post(name: reduceMotionDidChange, object: nil) }
+        }
     }
     nonisolated private static let reduceMotionPin = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+    /// Posted when `reduceMotionOverride` changes.
+    nonisolated public static let reduceMotionDidChange = Notification.Name("MessagesLabSidebar.reduceMotionDidChange")
 
     /// Reduce Motion: the typing bubble's dots stand still.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at
+    /// once on the main thread (a test's pin change applies before it returns), else on the main
+    /// queue's next turn.
+    func observeReduceMotion() -> [any NSObjectProtocol] {
+        let apply: @Sendable (Notification) -> Void = { [weak self] _ in
+            if Thread.isMainThread {
+                // main-proof: guarded by Thread.isMainThread above
+                MainActor.assumeIsolated { self?.applyReduceMotion() }
+            } else {
+                // main-proof: DispatchQueue.main runs its blocks on the main thread
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.applyReduceMotion() } }
+            }
+        }
+        return [
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil, using: apply),
+            NotificationCenter.default.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
+        ]
+    }
+
+    /// Stills (or restarts) every typing bubble in the list.
+    func applyReduceMotion() {
+        var layers: [CALayer] = layer.map { [$0] } ?? []
+        while let layer = layers.popLast() {
+            if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
+            layers += layer.sublayers ?? []
+        }
     }
 }

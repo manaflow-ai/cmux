@@ -10,7 +10,13 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -187,7 +190,8 @@
+@@ -183,11 +186,13 @@
+     /// not depend on the blink's phase at the grab (Messages' still references show it solid).
+     static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
+ 
+-    private func startBlink() {
++    // cmux: not private, so a Reduce Motion change restarts or stills the blink (cx-sya4n).
++    func startBlink() {
          if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
          caretLayer.removeAnimation(forKey: "blink")
          caretLayer.opacity = 1
@@ -20,7 +26,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -424,6 +428,7 @@
+@@ -424,6 +429,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -28,7 +34,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -940,11 +945,11 @@
+@@ -940,11 +946,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

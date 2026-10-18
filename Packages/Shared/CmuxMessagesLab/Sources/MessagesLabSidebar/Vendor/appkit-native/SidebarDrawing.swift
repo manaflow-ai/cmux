@@ -662,7 +662,8 @@ final class SidebarTypingLayer: CALayer {
     private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
         if let ph = stillPhase {
-            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
+            // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
+            for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
             return
         }
         let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
