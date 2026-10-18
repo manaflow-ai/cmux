@@ -4,7 +4,10 @@
 // (WebKitTab+Navigations.swift). Chromium's own default lets a file: page
 // show any local image. The shim cancels the rest in its resource request
 // handler (shim_client.mm); main-frame navigations are not subresources and
-// keep their own rules. No CEF dependency, so the test compiles it alone
+// keep their own rules. The check reads the URL's path and does not resolve
+// symlinks: a link inside the folder that points out of it is followed. Such a
+// link is already on the user's disk, and a file: page cannot read back what
+// it shows. No CEF dependency, so the test compiles it alone
 // (scripts/cmux-next/test-local-file-scope-cpp.sh,
 // schemas/local-file-scope/vectors.json).
 #pragma once
@@ -83,13 +86,34 @@ inline LocalFilePath ParseLocalFilePath(const std::string& url) {
   return out;
 }
 
+// Whether `url` names no folder a file: request could be judged against: an
+// unknown document (empty: no frame, or only about: frames up the chain, as
+// in a popup a file: page writes into), or an about:, data:, filesystem: or
+// blob: document, which can inherit a file: page's origin.
+inline bool LocalFileUnplacedDocument(const std::string& url) {
+  static const char* const kSchemes[] = {"about:", "data:", "filesystem:", "blob:"};
+  if (url.empty()) return true;
+  for (const char* scheme : kSchemes) {
+    size_t i = 0;
+    while (scheme[i] && i < url.size() &&
+           std::tolower(static_cast<unsigned char>(url[i])) == scheme[i]) {
+      ++i;
+    }
+    if (!scheme[i]) return true;
+  }
+  return false;
+}
+
 // Whether a file: subresource or subframe request from `document_url` loads.
-// A request that is not file:, or one from a document that is not file:, is
-// left to Chromium (true): Chromium already refuses file: loads from web
-// pages. A file: document loads only files under its own folder on the same
-// host.
+// A request that is not file: is left to Chromium (true), and so is one from
+// a web document (http, https, an extension page), which Chromium refuses
+// itself. A document that names no folder (LocalFileUnplacedDocument) loads
+// no file. A file: document loads only files under its own folder on the
+// same host.
 inline bool LocalFileSubresourceAllowed(const std::string& document_url, const std::string& request_url) {
-  if (!LocalFileSchemeURL(request_url) || !LocalFileSchemeURL(document_url)) return true;
+  if (!LocalFileSchemeURL(request_url)) return true;
+  if (LocalFileUnplacedDocument(document_url)) return false;
+  if (!LocalFileSchemeURL(document_url)) return true;
   LocalFilePath document = ParseLocalFilePath(document_url);
   LocalFilePath request = ParseLocalFilePath(request_url);
   if (!document.valid || !request.valid || document.host != request.host) return false;

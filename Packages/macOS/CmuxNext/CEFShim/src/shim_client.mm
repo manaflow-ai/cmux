@@ -88,7 +88,9 @@ class LocalFileRefusal : public CefResourceRequestHandler {
 
 // The URL of the document a request loads into: a subframe's parent for a
 // subframe navigation, otherwise the frame itself. An about:blank or
-// about:srcdoc frame shares its parent's origin, so its parent decides.
+// about:srcdoc frame shares its parent's origin, so its parent decides; with
+// no such parent (a popup a page wrote into) the URL is "", which the policy
+// refuses.
 std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request) {
   if (request->GetResourceType() == RT_SUB_FRAME) frame = frame->GetParent();
   while (frame) {
@@ -196,8 +198,10 @@ class Client : public CefClient,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
-    if (frame && LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
-        !LocalFileSubresourceAllowed(RequestDocumentURL(frame, request), url)) {
+    // A request with no frame (a worker, a CefURLRequest) has no folder to
+    // judge it by: its file: loads are refused.
+    if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
+        !LocalFileSubresourceAllowed(frame ? RequestDocumentURL(frame, request) : std::string(), url)) {
       static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
       return refusal;
     }
