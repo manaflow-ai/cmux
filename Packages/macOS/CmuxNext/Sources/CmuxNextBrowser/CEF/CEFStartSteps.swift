@@ -34,6 +34,9 @@ final class CEFStartSteps {
         return try body()
     }
 
+    /// A sub-step of the start (`cef_initialize`, `ready_hooks`): timed only.
+    func timed<T>(_ name: String, _ body: () -> T) -> T { mark(name, body) }
+
     /// `CefInitialize` (main thread).
     func initialize<E: Error>(_ body: () throws(E) -> Void) throws(E) {
         try mark("initialize") { () throws(E) in try MainThreadEngineStart.shared.run(body) }
