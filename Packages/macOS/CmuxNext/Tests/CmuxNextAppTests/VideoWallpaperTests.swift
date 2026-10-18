@@ -137,13 +137,17 @@ import Testing
         players.releaseIfUnseen(url)
         #expect(players.isReleased(url) && player.items().isEmpty, "a video no one can see keeps its decoder")
         #expect(players.count == 1, "the released player left the shared set")
-        // Seen again: the same player, new items, back at the second it held, not at the start.
+        // Seen again, held still (Low Power) so a restart from 0 cannot pass by playing up to the
+        // mark: the same player, new items, back at the second it held.
+        h.video.lowPowerOverride = true
         h.video.visibleOverride = true
         #expect(!players.isReleased(url) && !player.items().isEmpty, "the video does not come back when seen again")
         #expect(h.video.playerLayer.player === player, "the window's layer lost its player")
         #expect(try await eventually { !players.isRestoring(url) }, "the restored item never became ready")
-        #expect(try await eventually { player.currentTime().seconds >= 0.95 },
-                "the video restarted at \(player.currentTime().seconds)s, not at the second it held")
+        #expect(try await eventually { player.currentTime().seconds > 0.95 }, "the restored video never sought back")
+        let resumed = player.currentTime().seconds
+        #expect(!h.video.isPlaying && resumed > 0.95 && resumed < 1.05, "the video came back at \(resumed)s, not at the second it held")
+        h.video.lowPowerOverride = false
         #expect(h.video.isPlaying)
     }
 
