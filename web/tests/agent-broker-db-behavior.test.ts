@@ -35,6 +35,7 @@ function repo(): typeof BrokerRepository {
 }
 
 function envelope(tenantId: string, hostClass: string, effectKey = `effect-${randomUUID()}`): AgentBrokerEnvelope {
+  hostClass = `test:${tenantId}:${hostClass}`;
   const payload = { operation: "build", hostClass };
   return {
     protocolVersion: AGENT_BROKER_PROTOCOL_VERSION,
@@ -64,10 +65,10 @@ describe("durable agent broker repository", () => {
         requestDigest: requestDigest(conflictingPayload),
       })).rejects.toBeInstanceOf(repo().AgentBrokerIdempotencyConflictError);
 
-      const leaseA = await repo().claimJob({ workerId: "huge-blue-a", hostClass: "huge-blue", ttlMs: 5_000, now: new Date("2026-10-17T10:00:02.000Z") });
+      const leaseA = await repo().claimJob({ workerId: "huge-blue-a", hostClass: firstEnvelope.hostClass, ttlMs: 5_000, now: new Date("2026-10-17T10:00:02.000Z") });
       expect(leaseA?.job.id).toBe(first.id);
       if (!leaseA) throw new Error("first claim did not return a lease");
-      const leaseB = await repo().claimJob({ workerId: "huge-blue-b", hostClass: "huge-blue", ttlMs: 5_000, now: new Date("2026-10-17T10:00:08.000Z") });
+      const leaseB = await repo().claimJob({ workerId: "huge-blue-b", hostClass: firstEnvelope.hostClass, ttlMs: 5_000, now: new Date("2026-10-17T10:00:08.000Z") });
       expect(leaseB?.leaseGeneration).toBe(leaseA.leaseGeneration + 1);
       if (!leaseB) throw new Error("expired lease was not reclaimed");
       await expect(repo().completeJob({ jobId: first.id, leaseToken: leaseA.leaseToken, leaseGeneration: leaseA.leaseGeneration, result: { stale: true }, now: new Date("2026-10-17T10:00:09.000Z") })).rejects.toBeInstanceOf(repo().AgentBrokerLeaseConflictError);
@@ -85,7 +86,7 @@ describe("durable agent broker repository", () => {
     const tenantId = `broker-fail-${randomUUID()}`;
     try {
       const job = await repo().enqueueJob(envelope(tenantId, "freestyle-vm"));
-      const lease = await repo().claimJob({ workerId: "freestyle-worker", hostClass: "freestyle-vm" });
+      const lease = await repo().claimJob({ workerId: "freestyle-worker", hostClass: job.hostClass });
       if (!lease) throw new Error("claim did not return a lease");
       const failed = await repo().failJob({ jobId: job.id, leaseToken: lease.leaseToken, leaseGeneration: lease.leaseGeneration, error: "provider unavailable" });
       expect(failed.status).toBe("failed");
@@ -135,7 +136,7 @@ describe("durable agent broker repository", () => {
     try {
       const first = await repo().enqueueJob(envelope(tenantId, "freestyle-vm", "exact-first"));
       const second = await repo().enqueueJob(envelope(tenantId, "freestyle-vm", "exact-second"));
-      const lease = await repo().claimJobById({ jobId: second.id, workerId: "exact-worker", hostClass: "freestyle-vm" });
+      const lease = await repo().claimJobById({ jobId: second.id, workerId: "exact-worker", hostClass: second.hostClass });
       expect(lease?.job.id).toBe(second.id);
       expect((await repo().getJob(first.id, tenantId)).status).toBe("queued");
       if (!lease) throw new Error("exact claim did not return a lease");

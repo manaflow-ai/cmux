@@ -125,7 +125,8 @@ describe("remote broker and VM host leases on a live database", () => {
     const tenantId = `remote-broker-${randomUUID()}`;
     const hosts = ["huge-blue", "freestyle-vm", "mac-mini"] as const;
     try {
-      for (const [index, hostClass] of hosts.entries()) {
+      for (const [index, host] of hosts.entries()) {
+        const hostClass = `test:${tenantId}:${host}`;
         const envelope = brokerEnvelope(tenantId, hostClass, `broker-effect-${hostClass}-${randomUUID()}`);
         const first = await brokerRepository.enqueueJob(envelope, new Date(`2026-10-17T10:00:0${index}.000Z`));
         const replay = await brokerRepository.enqueueJob(envelope);
