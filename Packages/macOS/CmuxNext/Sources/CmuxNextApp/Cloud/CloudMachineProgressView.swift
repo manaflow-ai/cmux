@@ -23,7 +23,7 @@ final class CloudMachineProgressView: NSView {
     private let elapsedLabel = ChromeLabel(labelWithString: "")
     private let stepsStack = NSStackView()
     private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
-    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let typingLabel = ChromeLabel(wrappingLabelWithString: "")
     private let retryButton = ThemedDefaultButton()
     private let copyButton = ThemedBezelButton()

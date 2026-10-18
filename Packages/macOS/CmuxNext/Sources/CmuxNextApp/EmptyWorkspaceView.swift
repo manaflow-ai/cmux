@@ -18,7 +18,7 @@ final class EmptyWorkspaceView: NSView {
     }
 
     private let titleLabel = ChromeLabel(labelWithString: EmptyWorkspaceStrings.title)
-    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

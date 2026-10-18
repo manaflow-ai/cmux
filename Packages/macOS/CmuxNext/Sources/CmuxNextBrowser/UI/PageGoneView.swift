@@ -11,7 +11,7 @@ final class PageGoneView: NSView {
     private let symbol = NSImageView()
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
-    private let codeLabel = ChromeLabel(labelWithString: "")
+    private let codeLabel = NSTextField(labelWithString: "")
     private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
     private let density = DensityBinding()
 

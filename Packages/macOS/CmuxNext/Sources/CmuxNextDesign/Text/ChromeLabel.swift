@@ -15,7 +15,7 @@ public import AppKit
 open class ChromeLabel: NSTextField {
     /// The text color, masked by ``glyphs``.
     private let fill = CALayer()
-    private let glyphs = LabelGlyphLayer()
+    private let glyphs = CALayer()
     /// What ``glyphs`` shows now; a different one draws them again.
     private var drawn: Ink?
 
@@ -27,7 +27,11 @@ open class ChromeLabel: NSTextField {
         cell?.truncatesLastVisibleLine = true
     }
 
-    override open var wantsUpdateLayer: Bool { true }
+    /// A selectable or editable field draws the stock way (its field editor shows the text while
+    /// it is in use), so it keeps all of `NSTextField`; only its color does not blend.
+    override open var wantsUpdateLayer: Bool { !isSelectable && !isEditable }
+    override open var isSelectable: Bool { didSet { inkModeDidChange() } }
+    override open var isEditable: Bool { didSet { inkModeDidChange() } }
 
     // Each of these changes the glyphs or their color: `updateLayer` sorts out which.
     override open var stringValue: String { didSet { needsDisplay = true } }
@@ -50,7 +54,6 @@ open class ChromeLabel: NSTextField {
                                                  "hidden": NSNull()]
             fill.actions = still
             glyphs.actions = still
-            glyphs.label = self
             fill.mask = glyphs
             layer.addSublayer(fill)
         }
@@ -58,8 +61,6 @@ open class ChromeLabel: NSTextField {
         // for `draw(_:)`: dynamic colors resolve the way the field's own drawing resolved them.
         layer.backgroundColor = drawsBackground ? backgroundColor?.cgColor : nil
         fill.backgroundColor = textColor?.cgColor
-        // A selectable label being selected: the field editor draws the text.
-        fill.isHidden = currentEditor() != nil
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds || glyphs.contentsScale != scale {
             fill.frame = layer.bounds
@@ -71,17 +72,13 @@ open class ChromeLabel: NSTextField {
                       truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
         if ink != drawn {
             drawn = ink
-            glyphs.setNeedsDisplay()
+            glyphs.contents = glyphImage(ink)
         }
     }
 
-    override open func becomeFirstResponder() -> Bool {
-        defer { needsDisplay = true }
-        return super.becomeFirstResponder()
-    }
-
-    override open func textDidEndEditing(_ notification: Notification) {
-        super.textDidEndEditing(notification)
+    private func inkModeDidChange() {
+        fill.isHidden = !wantsUpdateLayer
+        if !wantsUpdateLayer { drawn = nil }
         needsDisplay = true
     }
 
@@ -99,29 +96,30 @@ open class ChromeLabel: NSTextField {
         return text
     }
 
-    /// Draws the glyph coverage: a copy of the field's cell, in black, without a background.
-    fileprivate func drawGlyphs(in ctx: CGContext, flipped: Bool) {
-        guard let drawn, drawn.text.length > 0, let ink = cell?.copy() as? NSTextFieldCell else { return }
-        ink.drawsBackground = false
-        ink.textColor = .black
-        ink.attributedStringValue = drawn.text
-        ctx.saveGState()
-        defer { ctx.restoreGState() }
-        // The field draws in flipped coordinates; a layer context is unflipped unless its
-        // geometry is.
-        if !flipped {
-            ctx.translateBy(x: 0, y: bounds.height)
-            ctx.scaleBy(x: 1, y: -1)
-        }
+    /// The glyph coverage, upright: a copy of the field's cell drawn in black without a
+    /// background, at the backing scale.
+    private func glyphImage(_ ink: Ink) -> CGImage? {
+        let width = Int((ink.size.width * ink.scale).rounded(.up)), height = Int((ink.size.height * ink.scale).rounded(.up))
+        guard ink.text.length > 0, width > 0, height > 0, let cell = cell?.copy() as? NSTextFieldCell,
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        cell.drawsBackground = false
+        cell.textColor = .black
+        cell.attributedStringValue = ink.text
+        // The field draws in flipped coordinates, top row first.
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: ink.scale, y: -ink.scale)
         // What AppKit enables for label text (a transparent layer leaves it off).
         ctx.setAllowsFontSmoothing(true)
         ctx.setShouldSmoothFonts(true)
         ctx.setAllowsAntialiasing(true)
         ctx.setShouldAntialias(true)
         NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-        ink.draw(withFrame: bounds, in: self)
+        cell.draw(withFrame: NSRect(origin: .zero, size: ink.size), in: self)
+        NSGraphicsContext.restoreGraphicsState()
+        return ctx.makeImage()
     }
 
     /// What the glyphs show (not their color).
@@ -134,16 +132,5 @@ open class ChromeLabel: NSTextField {
         var alignment: NSTextAlignment
         var truncates: Bool
         var wraps: Bool
-    }
-}
-
-/// ``ChromeLabel``'s glyph coverage: the mask of its fill layer.
-nonisolated private final class LabelGlyphLayer: CALayer {
-    weak var label: ChromeLabel?
-
-    override func draw(in ctx: CGContext) {
-        let flipped = contentsAreFlipped()
-        // main-proof: AppKit displays the layers of a view tree on the main thread, in its commit.
-        MainActor.assumeIsolated { label?.drawGlyphs(in: ctx, flipped: flipped) }
     }
 }

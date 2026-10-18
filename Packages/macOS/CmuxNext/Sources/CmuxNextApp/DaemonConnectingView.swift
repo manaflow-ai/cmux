@@ -14,7 +14,7 @@ import CmuxNextWakeups
 final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = ChromeLabel(labelWithString: "")
-    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
