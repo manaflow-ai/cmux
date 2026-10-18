@@ -104,6 +104,9 @@ sandbox=""
 if [ -n "${CMUX_HYGIENE_SANDBOX:-}" ]; then
   sandbox="$(abs_dir "$CMUX_HYGIENE_SANDBOX")"
   [ -n "$sandbox" ] && is_temp_dir "${sandbox%/*}" || unsafe sandbox "$CMUX_HYGIENE_SANDBOX"
+  if [ "$mode" = apply ] && [ "${CMUX_HYGIENE_SANDBOX_APPLY:-}" != 1 ]; then
+    echo "--apply under CMUX_HYGIENE_SANDBOX needs CMUX_HYGIENE_SANDBOX_APPLY=1 (tests only)" >&2; exit 2
+  fi
 fi
 
 tmp_dir="$(abs_dir "$tmp_dir")"
@@ -184,8 +187,8 @@ else
 fi
 
 # Mount points other than /, from `mount`: Linux "SRC on X type T (opts)" or
-# macOS "SRC on X (opts)", split at the first " on /" so a target containing
-# " on " stays whole. Only the kernel's \040, \011 and \134 escapes are
+# macOS "SRC on X (opts)". A line with more than one " on /" is ambiguous
+# and counts as unparsable. Only the kernel's \040, \011 and \134 escapes are
 # decoded. Any line that does not parse, a target with an escaped newline, or
 # an empty list leaves no mount evidence, and then nothing is deleted.
 mount_evidence=0
@@ -195,6 +198,7 @@ if mount_out="$(mount 2>/dev/null)"; then
     {
       i = index($0, " on /"); if (!i) { bad = 1; next }
       t = substr($0, i + 4)
+      if (index(t, " on /")) { bad = 1; next }
       if (t ~ / type [^ ]+ \([^()]*\)$/) sub(/ type [^ ]+ \([^()]*\)$/, "", t)
       else if (t ~ / \([^()]*\)$/) sub(/ \([^()]*\)$/, "", t)
       else { bad = 1; next }
@@ -211,9 +215,37 @@ else
   : > "$mounts_file"
 fi
 
-# True when a listed path equals the path or lies under it.
+# Mounts nested inside home, the temp dir or a root. A bind mount of the same
+# filesystem shares its device, so find -xdev and rm's mount guard would both
+# cross it: nothing under one of these is ever removed.
+nested_mounts_file="$state_dir/nested-mounts"
+: > "$nested_mounts_file"
+while IFS= read -r m; do
+  if strictly_under "$m" "$home_dir" || strictly_under "$m" "$tmp_dir"; then
+    printf '%s\n' "$m" >> "$nested_mounts_file"; continue
+  fi
+  for root in "${roots[@]}"; do
+    strictly_under "$m" "$root" && { printf '%s\n' "$m" >> "$nested_mounts_file"; break; }
+  done
+done < "$mounts_file"
+
+# A sandbox needs mount evidence and must not itself be a mount point.
+if [ -n "$sandbox" ]; then
+  [ "$mount_evidence" = 1 ] || unsafe sandbox "$sandbox (no mount evidence)"
+  grep -q -F -x -e "$sandbox" "$mounts_file" && unsafe sandbox "$sandbox (mount point)"
+fi
+
+# True when a listed path equals the path or lies under it. The path goes
+# through the environment: awk -v would interpret backslashes in it.
 listed_under() {
-  awk -v p="$1" '$0 == p || index($0, p "/") == 1 { found = 1; exit } END { exit !found }' "$2"
+  HYGIENE_PATH="$1" awk 'BEGIN { p = ENVIRON["HYGIENE_PATH"] }
+    $0 == p || index($0, p "/") == 1 { found = 1; exit } END { exit !found }' "$2"
+}
+
+# True when the path lies strictly under a listed path.
+listed_above() {
+  HYGIENE_PATH="$1" awk 'BEGIN { p = ENVIRON["HYGIENE_PATH"] }
+    index(p, $0 "/") == 1 { found = 1; exit } END { exit !found }' "$2"
 }
 
 # True when a process holds the path, or anything under it, open, when a
@@ -273,6 +305,7 @@ refusal_reason() {
   [ -n "$rm_flags" ] || { echo "no-mount-guard"; return; }
   grep -q -F -x -e "$path" "$mounts_file" && { echo "mount-point"; return; }
   listed_under "$path" "$mounts_file" && { echo "contains-mount"; return; }
+  listed_above "$path" "$nested_mounts_file" && { echo "under-mount"; return; }
   [ -e "$path/.git" ] && { echo "repository-root"; return; }
   git_tracked "$path" && { echo "git-tracked"; return; }
   in_use "$path" && { echo "in-use"; return; }
