@@ -336,7 +336,7 @@ export function NewTabScreen(props: Props) {
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     // A switch whose rows have not rendered yet: Return takes the new mode's row.
-    const switched = liveMode.current !== mode && !shell;
+    const switched = liveMode.current !== mode && !shell && !steppedSinceSwitch.current;
     const fresh = switched ? screenRows(text, { omnibar, home, mode: liveMode.current, ...(ask ? { ask } : {}) }) : [];
     const row = switched
       ? fresh[defaultSelection(fresh, liveMode.current)]
@@ -451,9 +451,12 @@ export function NewTabScreen(props: Props) {
   // The mode the keys act on before the transition commits (Tab twice, or Tab then Return, fast).
   // chooseMode is the only writer of both, so this is never behind `mode`.
   const liveMode = useRef(mode);
+  // An arrow after a switch picks from the rows on screen, even before the switch's rows render.
+  const steppedSinceSwitch = useRef(false);
   const chooseMode = (next: ScreenMode) => {
     touch();
     liveMode.current = next;
+    steppedSinceSwitch.current = false;
     modeSwitch.current?.setAttribute("data-mode", next);
     startTransition(() => {
       setMode(next);
@@ -480,12 +483,14 @@ export function NewTabScreen(props: Props) {
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     const step = listStep(event);
-    if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
-      // Tab and Shift-Tab flip Search | Ask in place, as the switch's hint says; the field keeps focus.
+    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      // Tab flips Search | Ask in place, as the switch's hint says; the field keeps focus.
+      // Shift-Tab still moves focus, so the keyboard can leave the field.
       event.preventDefault();
       chooseMode(liveMode.current === "ask" ? "search" : "ask");
     } else if (step && rows.length) {
       event.preventDefault();
+      steppedSinceSwitch.current = true;
       setSelected(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
@@ -583,6 +588,7 @@ export function NewTabScreen(props: Props) {
               placeholder={shell ? t("composer.shellPlaceholder") : placeholder}
               value={text}
               aria-controls="nt-rows"
+              aria-describedby={shell ? undefined : "nt-mode-hint"}
               aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
               spellCheck={!shell}
               autoCapitalize="off"
@@ -602,9 +608,14 @@ export function NewTabScreen(props: Props) {
               // in the field on a press (focusFromRow), so a click here never takes the caret away.
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
-                <span className="nt-mode-hint" aria-hidden="true">
+                {/* The field's description, so a screen reader hears the key too. */}
+                <span id="nt-mode-hint" className="nt-mode-hint">
                   {nt("mode.hint")}
                 </span>
+                {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
+                <output className="ui-sr-only" aria-live="polite">
+                  {nt(mode === "search" ? "mode.search" : "mode.ask")}
+                </output>
                 <span className="nt-mode-track">
                   <span className="nt-mode-thumb" aria-hidden="true" />
                   <button

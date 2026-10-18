@@ -434,8 +434,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  align-self: center;
-  margin-left: auto;
+  /* On the field's first line, as the prompt glyph: the row is top-aligned so it stays there as
+     the draft grows. */
+  align-self: flex-start;
+  height: var(--text-title--line-height);
+  margin-top: 16px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   user-select: none;

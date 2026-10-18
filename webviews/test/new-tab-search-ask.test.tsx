@@ -140,12 +140,12 @@ test("Tab switches to Search without leaving the field, and Return searches", as
   expect(calls).toEqual([["search", "ff"]]);
 });
 
-test("Shift-Tab and a click on Ask switch back, and Return asks", async () => {
+test("a second Tab and a click on Ask switch back, and Return asks", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
   await type(field, "ff");
   await key(field, "Tab");
-  await key(field, "Tab", true);
+  await key(field, "Tab");
   expect(pressed()).toEqual(["ask"]);
   await key(field, "Tab");
   await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode [data-mode="ask"]')!.click());
@@ -153,4 +153,18 @@ test("Shift-Tab and a click on Ask switch back, and Return asks", async () => {
   expect(selected()).toBe("Ask Claude Code");
   await key(field, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
+});
+
+// Review (PR 21817): Shift-Tab still moves focus, so the keyboard can leave the field; the field
+// names the key, and the mode Tab switched to is announced.
+test("Shift-Tab leaves the mode alone and is not consumed", async () => {
+  const field = await render([]);
+  await type(field, "ff");
+  const event = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  await act(async () => void field.dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+  expect(pressed()).toEqual(["ask"]);
+  expect(window.document.getElementById(field.getAttribute("aria-describedby")!)?.textContent).toBe("Tab to switch");
+  await key(field, "Tab");
+  expect(host.querySelector(".nt-mode output")?.textContent).toBe("Search");
 });
