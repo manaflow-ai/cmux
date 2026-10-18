@@ -769,9 +769,18 @@ vp_flagged_files() {
   sed 's/\x1b\[[0-9;]*m//g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
 }
 merged_head_checks() {
-  local repo_dir tmp merged base_sha head_sha status=0 output bun
+  local repo_dir tmp merged base_sha head_sha status=0 output bun changed_path
   local swift_changed=0 web_changed=0
-  grep -q '^Packages/macOS/CmuxNext/' <<<"$changed" && swift_changed=1
+  local -a swift_file_args=()
+  # The god-file checker supports repeatable --file arguments. Restrict the
+  # merged-head check to changed Swift files: source files still select their
+  # entire module inside check-no-godfiles.sh, preserving extension/type
+  # accounting without rescanning unrelated modules for every small PR.
+  while IFS= read -r changed_path; do
+    [[ "$changed_path" =~ ^Packages/macOS/CmuxNext/(Sources|Tests)/.+\.swift$ ]] || continue
+    swift_changed=1
+    swift_file_args+=(--file "$changed_path")
+  done <<<"$changed"
   grep -q '^webviews/' <<<"$changed" && web_changed=1
   [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
   # Trust concerns the reviewed source, not whether its branch is in our repo.
@@ -807,10 +816,23 @@ merged_head_checks() {
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
   fi
   if [ "$swift_changed" -eq 1 ]; then
+    # --file silently ignores paths absent from the merged checkout. Refuse
+    # instead so deleted/renamed Swift paths cannot make the scoped guard a
+    # false green result.
+    for ((i = 1; i < ${#swift_file_args[@]}; i += 2)); do
+      changed_path="${swift_file_args[i]}"
+      if [ ! -f "$merged/$changed_path" ]; then
+        git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
+        rm -rf "$tmp"
+        refuse \
+          "not merged: changed Swift path $changed_path is missing from the merged head of $ref" \
+          'repair the rename or deletion metadata, then retry the exact head'
+      fi
+    done
     git -C "$repo_dir" show "$base_sha:scripts/cmux-next/check-no-godfiles.sh" > "$merged/scripts/cmux-next/check-no-godfiles.sh"
     git -C "$repo_dir" show "$base_sha:scripts/cmux-next/godfile-baseline.tsv" > "$merged/scripts/cmux-next/godfile-baseline.tsv"
     if ! output=$(bash "$merged/scripts/cmux-next/check-no-godfiles.sh" --only swift --base "$base_sha" \
-        "$merged/Packages/macOS/CmuxNext" 2>&1); then
+        "${swift_file_args[@]}" "$merged/Packages/macOS/CmuxNext" 2>&1); then
       status=1
       printf '%s\n' "$output" | grep -E 'FAIL|god|split' | sed 's/^/  /' >&2 || true
       printf 'not merged: the merged head of %s fails the Swift god-file check\n' "$ref" >&2
