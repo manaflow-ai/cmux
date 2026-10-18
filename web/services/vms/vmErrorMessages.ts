@@ -149,6 +149,29 @@ export async function vmRouteDeadlineCopy(kind: "inProgress" | "providerTimeout"
   };
 }
 
+/** Localized copy for a provider capacity refusal (routeHelpers vmProviderCapacityResponse). */
+export async function vmProviderCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("providerCapacity", locale);
+}
+
+/** Localized copy for a machine-state conflict (routeHelpers vmStateConflictResponse). */
+export async function vmStateConflictCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("stateConflict", locale);
+}
+
+async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${key}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized guidance when the provider account's network rule capacity is exhausted. */
 export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
@@ -260,6 +283,37 @@ export async function vmGoLimitCopy(
     namespace: "vmErrors.goLimit",
   }) as unknown as (key: string) => string;
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
+}
+
+/**
+ * Localized copy for a used-up Pro or Max allowance. The reset date is the
+ * end of the billing period, shown as a UTC calendar date.
+ */
+export async function vmPlanBudgetCopy(
+  locale: Locale,
+  values: {
+    readonly resource: "compute" | "storage";
+    readonly planId: "pro" | "max";
+    readonly included: number;
+    readonly used: number;
+    readonly requested: number;
+    readonly resetsAt: Date;
+  },
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.planBudget",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  const resetDate = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(values.resetsAt);
+  const plan = values.planId === "max" ? "Max" : "Pro";
+  const args = { plan, included: values.included, used: values.used, requested: values.requested, resetDate };
+  const upgrade = values.planId === "pro" ? "Upgrade" : "";
+  return {
+    title: t(`${values.resource}Title`, args),
+    message: t(`${values.resource}Message`, args),
+    action: t(`${values.resource}Action${upgrade}`, args),
+  };
 }
 
 /**

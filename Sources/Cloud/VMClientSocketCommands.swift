@@ -387,16 +387,22 @@ extension TerminalController {
                     "displayName": stored ?? NSNull(),
                 ]
             }
-        case "vm.pause", "vm.resume":
+        case "vm.pause", "vm.resume", "vm.restart":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "\(method) requires `id`. Run `cmux vm ls` to find one.")
             }
             let resume = method == "vm.resume"
+            let restart = method == "vm.restart"
             return v2CloudCall(id: id, method: method, params: params) {
-                let status = resume
-                    ? try await VMClient.shared.resume(id: vmId)
-                    : try await VMClient.shared.pause(id: vmId)
-                if !resume {
+                let status: String
+                if restart {
+                    status = try await VMClient.shared.restart(id: vmId)
+                } else if resume {
+                    status = try await VMClient.shared.resume(id: vmId)
+                } else {
+                    status = try await VMClient.shared.pause(id: vmId)
+                }
+                if !resume && !restart {
                     await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
                 }
                 return ["id": vmId, "status": status]

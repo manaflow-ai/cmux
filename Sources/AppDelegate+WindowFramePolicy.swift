@@ -1,6 +1,15 @@
 import AppKit
 
 extension AppDelegate {
+    /// Display reconfiguration must leave windows on inactive Spaces to
+    /// AppKit. Applying a frame to one of those windows can move it onto the
+    /// currently visible Space while macOS is restoring the display topology.
+    nonisolated static func shouldReconcileWindowAfterScreenChange(
+        isOnActiveSpace: Bool
+    ) -> Bool {
+        isOnActiveSpace
+    }
+
     nonisolated static func shouldPreserveAccessibleFrame(
         frame: CGRect,
         targetDisplay: SessionDisplayGeometry

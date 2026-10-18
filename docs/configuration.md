@@ -361,7 +361,7 @@ instead and inserts what the command prints.
   against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
-  (the `~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>` path cmux picked;
+  (the `/tmp/cmux-drop-<uuid>.<ext>` path cmux picked;
   see below), `CMUX_UPLOAD_DESTINATION`,
   `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
   (newline-separated; the last three are unset when the session has none). The
@@ -372,32 +372,31 @@ instead and inserts what the command prints.
 **First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
 unchanged, so other hosts are untouched.
 
-### The remote path is yours to create
+### The custom command owns the upload
 
-`CMUX_UPLOAD_REMOTE_PATH` starts with `~/` and names a file in a directory that
-does not exist yet. The built-in transport creates that directory with mode
-`0700` before it copies, sets the file to `0600`, deletes files older than a day
-and trims the directory when it passes 200 MB. cmux does none of that for a
-custom command, so a command that writes to the path has to create the directory
-first. A bare `scp` to it fails with `No such file or directory`:
+`CMUX_UPLOAD_REMOTE_PATH` is an absolute path under `/tmp`, with a random name
+and a lowercased file extension. Its parent already exists, so a command can
+copy to it without creating a session directory:
 
 ```sh
-dir=$(dirname "$CMUX_UPLOAD_REMOTE_PATH")
-ssh "$CMUX_UPLOAD_DESTINATION" "umask 077; mkdir -p \"\$HOME/${dir#\~/}\"" &&
-  scp "$CMUX_UPLOAD_LOCAL_PATH" "$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH"
+scp "$CMUX_UPLOAD_LOCAL_PATH" "$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH"
 ```
 
-The example reaches the host with the settings in your own ssh configuration. A
-session that was opened with a port, an identity file or `-o` options hands them
-to the command as `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE` and
-`CMUX_UPLOAD_SSH_OPTIONS`, and a command for such a host has to pass them to
-both `ssh` and `scp`. `scp` copies over SFTP by default. Use `scp -O` if the
-server does not support the `expand-path@openssh.com` extension (OpenSSH
-`sftp-server` added it in 8.7). It copies over the legacy protocol and lets the
-remote shell expand the leading `~`.
+The example uses your ssh configuration. If the session supplies
+`CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE` or `CMUX_UPLOAD_SSH_OPTIONS`,
+the command must pass those settings to its transport as needed.
 
-Cleaning up old files there is also the command's job. A command that stores
-the file somewhere else can ignore the path and print where it put the file.
+The command owns file permissions and cleanup. For sensitive files, use a
+private destination and set appropriate permissions through your upload tool.
+A command that stores the file somewhere else can ignore the suggested path
+and print where it put the file. cmux does not open an extra SSH connection
+before running the command, so authentication wrappers and non-SSH upload
+services can work independently.
+
+The built-in transport uses a private per-session directory under
+`~/.cache/cmux/paste`, creates it with mode `0700`, sets uploaded files to `0600`,
+and removes old or excess files. These directory and cleanup rules apply to
+built-in uploads; custom commands manage their own destinations.
 
 ### How the command's output is used
 
