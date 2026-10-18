@@ -72,6 +72,11 @@ export function ThreadMinimap({
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, scrollTop, viewportHeight);
   const active = hovered ?? current;
   const turn: MinimapTurn | undefined = hovered === undefined ? undefined : turns[hovered];
+  // Keep the rail's absolute geometry, but mount only a small window around the viewport and the
+  // active tick. Long transcripts otherwise create thousands of DOM nodes on every scroll.
+  const tickStart = Math.max(0, Math.min(onScreen.first, active) - 100);
+  const tickEnd = Math.min(turns.length, Math.max(onScreen.last, active) + 101);
+  const renderedTurns = useMemo(() => turns.slice(tickStart, tickEnd), [turns, tickStart, tickEnd]);
 
   const intend = preview.hover;
   const close = useCallback(() => {
@@ -161,7 +166,8 @@ export function ThreadMinimap({
   };
   const focusTick = (index: number) => {
     const next = Math.max(0, Math.min(turns.length - 1, index));
-    root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
+    hover(next, true);
+    requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus());
   };
 
   if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
@@ -190,36 +196,39 @@ export function ThreadMinimap({
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
         }}
       >
-        {turns.map((entry, index) => (
-          <Tick
-            key={entry.key}
-            index={index}
-            top={index * pitch}
-            pitch={pitch}
-            width={Math.max(
-              tickWidth(hovered === undefined ? undefined : index - hovered),
-              index === current ? TICK_CURRENT_WIDTH : 0,
-            )}
-            tone={
-              hovered === index
-                ? "active"
-                : hovered === undefined && index >= onScreen.first && index <= onScreen.last
-                  ? "current"
-                  : "rest"
-            }
-            tabbable={index === active}
-            current={index === current}
-            label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
-              index: index + 1,
-              count: turns.length,
-              prompt: entry.prompt,
-            })}
-            onJump={jump}
-            onFocusTick={hover}
-            onMove={focusTick}
-            last={turns.length - 1}
-          />
-        ))}
+        {renderedTurns.map((entry, offset) => {
+          const index = tickStart + offset;
+          return (
+            <Tick
+              key={entry.key}
+              index={index}
+              top={index * pitch}
+              pitch={pitch}
+              width={Math.max(
+                tickWidth(hovered === undefined ? undefined : index - hovered),
+                index === current ? TICK_CURRENT_WIDTH : 0,
+              )}
+              tone={
+                hovered === index
+                  ? "active"
+                  : hovered === undefined && index >= onScreen.first && index <= onScreen.last
+                    ? "current"
+                    : "rest"
+              }
+              tabbable={index === active}
+              current={index === current}
+              label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
+                index: index + 1,
+                count: turns.length,
+                prompt: entry.prompt,
+              })}
+              onJump={jump}
+              onFocusTick={hover}
+              onMove={focusTick}
+              last={turns.length - 1}
+            />
+          );
+        })}
         {turn && (
           <div
             ref={popover}
