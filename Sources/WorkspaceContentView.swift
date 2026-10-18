@@ -241,15 +241,18 @@ struct WorkspaceContentView: View {
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
-                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-                let isSelectedInPane = selectedTab?.id == tab.id
+                // This content builder only needs selection identity. Building a
+                // full Tab snapshot also reads its title and icon metadata, which
+                // subscribes pane content to unrelated tab-bar changes.
+                let selectedTabId = workspace.bonsplitController.selectedTabId(inPane: paneId)?.id
+                let isSelectedInPane = selectedTabId == tab.id
                 let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
-                    selectedTabId: selectedTab?.id.uuid,
+                    selectedTabId: selectedTabId,
                     tabIds: workspace.bonsplitController.tabIds(inPane: paneId).map(\.uuid)
                 ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
-                    paneHasSelectedTab: selectedTab != nil,
+                    paneHasSelectedTab: selectedTabId != nil,
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocusedPanel,
                     isFallbackInPane: isFallbackInPane
