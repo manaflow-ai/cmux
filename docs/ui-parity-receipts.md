@@ -176,3 +176,9 @@ measurements.
   optimizer completes, then replace this blocker with new hashes.
 - **Native boundary:** this packet verifies the gallery journey and browser feel. Native workspace
   switch timing remains warning-only and is tracked by the existing async receipt workflow.
+
+- **Lazy-stage follow-up (`ad73781dff67`):** the stage loader now keeps the full browse registry cold
+  and imports the canonical New Tab entry directly, so a frame does not settle every gallery module.
+  Focused gallery-play checks pass. A fresh local Vite smoke run still spent its bounded window in
+  dependency optimization before `galleryReady`; therefore no new PNG hashes are claimed here.
+  The previously captured four receipts remain the valid visual evidence for the pre-follow-up head.
