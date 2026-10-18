@@ -219,8 +219,7 @@ extension TabStripView {
         CATransaction.setDisableActions(true)
         if let move {
             let generation = move.generation
-            // main-proof: CATransaction.h: the completion block is called on the main thread
-            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.moveEnded(generation) } }
+            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.moveEnded(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
         defer { CATransaction.commit() }
         let tabHeight = min(metrics.tabHeight, bounds.height)
