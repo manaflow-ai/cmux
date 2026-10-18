@@ -1873,16 +1873,20 @@ jobs:
             --skip DialogFadeTests --skip TooltipSurfaceTests \
             --skip PaletteSettingsScopeTests \
             --skip SwitchToColdTabTypeAheadTests \
+            --skip SidebarSpacePagingTests \
+            --skip TabCloseWidthChangeTests \
             --skip CloudBringBackTests \
             --skip CloudMoveTests
 
       # AppKit's motion/transparency overrides are process-global, and the
-      # hibernation probe has a short main-actor deadline. Run each affected
-      # suite in its own one-test-process invocation so another suite cannot
-      # clear an override while a fade is being dismissed or delay WebKit's
-      # page-busy callback. This is CI harness isolation; product behavior is
-      # unchanged. Keep the invocations sequential to preserve the single
-      # shared GUI session on the owned runner.
+      # hibernation probe has a short main-actor deadline. The sidebar paging
+      # and tab-strip close probes also depend on a stable animation process.
+      # Run each affected suite in its own one-test-process invocation so
+      # another suite cannot clear an override while a fade is being dismissed,
+      # delay WebKit's page-busy callback, or leave a pending spring in the
+      # next test. This is CI harness isolation; product behavior is unchanged.
+      # Keep the invocations sequential to preserve the single shared GUI
+      # session on the owned runner.
       - name: Run process-global visual and hibernation suites
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests') || contains(env.SWIFT_TARGETS, 'CmuxNextDesignTests')) }}
         timeout-minutes: 20
@@ -1901,10 +1905,42 @@ jobs:
             TooltipSurfaceTests \
             PaletteSettingsScopeTests \
             SwitchToColdTabTypeAheadTests \
-            CloudBringBackTests \
+            SidebarSpacePagingTests \
+            TabCloseWidthChangeTests \
             CloudMoveTests; do
             echo "Running isolated Swift Testing suite: $suite"
             ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter "$suite"
+          done
+
+      # Cloud bring-back starts two daemons and an app action registry for every
+      # case. A suite-level process can retain a timed-out action or daemon task
+      # after one case completes, so keep every case in a fresh test process.
+      # This preserves each case's three-minute suite time limit and its exact
+      # 60-second action deadline; it only removes cross-case process state.
+      - name: Run cloud bring-back cases in fresh processes
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) }}
+        timeout-minutes: 20
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
+        run: |
+          set -euo pipefail
+          for test in \
+            CloudBringBackTests.aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed \
+            CloudBringBackTests.aRevokeThatFailsIsTriedAgainUntilItIsDone \
+            CloudBringBackTests.aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt \
+            CloudBringBackTests.aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt \
+            CloudBringBackTests.aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly \
+            CloudBringBackTests.aSyncConflictKeepsTheMachineTabAndShowsTheConflict \
+            CloudBringBackTests.anOutdatedMachineIsNamedAndTheChatStaysOnIt \
+            CloudBringBackTests.updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack \
+            CloudBringBackTests.aGuardRefusalKeepsTheMachineTabWithAClearMessage \
+            CloudBringBackTests.aGuardRefusalOffersAskFirstThenBringsTheChatBack \
+            CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch \
+            CloudBringBackTests.aSyncPullThatThrowsKeepsTheBringBackRetryable; do
+            echo "Running isolated Swift Testing case: $test"
+            ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter "$test"
           done
 
       # Each isolated step below runs when its suites' target is selected and
