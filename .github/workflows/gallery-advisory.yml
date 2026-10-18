@@ -66,7 +66,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
-          set -u
+          set -euo pipefail
           evidence="$RUNNER_TEMP/gallery-advisory"
           base_sha=$(git merge-base "origin/$BASE_REF" HEAD)
           git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
@@ -110,11 +110,12 @@ jobs:
             mkdir -p "$out"
             if [ -d "$gallery" ]; then
               bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" \
-                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0 || true
+                --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0
             else
-              echo '[]' > "$out/results.json"
+              echo "Missing $stage gallery build; advisory capture failed." >&2
+              exit 1
             fi
-            test -f "$out/results.json" || echo '[]' > "$out/results.json"
+            test -f "$out/results.json"
           done
 
           mkdir -p "$evidence/diff"
@@ -123,7 +124,7 @@ jobs:
             --out "$evidence/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$base_sha" \
             --artifact-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
           jq -r '.[] | [.status, .entry, .variant, .theme, .engine] | @tsv' \
-            "$evidence/diff/outcomes.json" > "$evidence/summary.tsv" || true
+            "$evidence/diff/outcomes.json" > "$evidence/summary.tsv"
           {
             echo "Captured advisory receipt for $HEAD_SHA (base $base_sha)."
             echo "Sample: up to 16 states, dark/light themes, narrow component width, Chromium."
