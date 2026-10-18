@@ -130,4 +130,11 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     /// preview starting or ending) or its grid size changed.
     public var fullSwap: UInt64
     public var fullResize: UInt64
+
+    /// Every counter by its `debug.surfaces` name.
+    public var byName: [String: UInt64] {
+        ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
+         "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
+         "full_swap": fullSwap, "full_resize": fullResize]
+    }
 }
