@@ -150,6 +150,14 @@ import Testing
         #expect(detector.reference(inToken: "owner/#12", repositorySlug: slug) == nil)
     }
 
+    @Test func ownersAllowOnlyLettersDigitsAndHyphens() {
+        #expect(detector.reference(inToken: "github.com/foo#1", repositorySlug: slug) == nil)
+        #expect(detector.reference(inToken: "my_org/repo#12", repositorySlug: slug) == nil)
+        #expect(detector.reference(inToken: "my.org/repo#12", repositorySlug: slug) == nil)
+        #expect(detector.reference(inToken: "manaflow-ai/cmux.app#12", repositorySlug: nil)?.repositorySlug
+            == "manaflow-ai/cmux.app")
+    }
+
     @Test func slugDropsATrailingGitSuffix() {
         #expect(detector.reference(inToken: "manaflow-ai/cmux.git#12", repositorySlug: nil)?.repositorySlug
             == "manaflow-ai/cmux")
