@@ -704,8 +704,12 @@ class Gate:
             # The switch draws on the first frame after its intent: within one refresh plus its own apply.
             refresh = switch_frames.get("refresh_ms") or (report.get("frames_probe") or {}).get("refresh_ms") or FRAME_BUDGET_MS
             late = [frame for apply, frame in pairs if frame > apply + refresh * 1.25]
-            check(not late, f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, "
-                            f"next frame p99 {p99(frames):.2f} ms)", scenario)
+            what = f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, next frame p99 {p99(frames):.2f} ms)"
+            # The relaunch phases gate counters; their first show of a restored page is timed, not gated.
+            if scenario == "tabs":
+                check(not late, what, scenario)
+            elif late:
+                warn(what, scenario)
 
     def split(self, scenario="split"):
         app = self.app
