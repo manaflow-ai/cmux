@@ -84,10 +84,13 @@ def vertical_dividers(window):
 
 
 def cols(value):
+    """Columns of a "COLSxROWS" grid; None when the grid is missing (no frame drawn yet)."""
+    if value is None:
+        return None
     try:
         return int(str(value).split("x")[0])
     except ValueError:
-        return 0
+        return None
 
 
 def terminals():
@@ -173,22 +176,28 @@ try:
     # fits the pane on the same frame); the owner's grid equals a fit of that step or one of the --lag
     # steps before it (one grid in flight and its echo) and changes during the drag; after the drag
     # drawn, fit and owner grids agree.
-    misses, lagged, distinct = [], [], []
+    misses, lagged, distinct, previews, undrawn = [], [], [], [], []
     for pane in range(min(len(s["fit"]) for s in report["steps"])):
         fits = [s["fit"][pane] for s in report["steps"]]
         grids = [s["grid"][pane] for s in report["steps"]]
         drawn = [s["drawn"][pane] for s in report["steps"]]
         for i, (fit, shown) in enumerate(zip(fits, drawn)):
-            if shown != fit:
+            if shown is None:
+                undrawn.append({"pane": pane, "step": i})
+            elif shown != fit:
                 misses.append({"pane": pane, "step": i, "drawn": shown, "fit": fit, "grid": grids[i]})
+        # Samples where the owner had not answered yet and the frame still fit: the preview drew them.
+        previews.append(sum(1 for fit, grid, shown in zip(fits, grids, drawn) if grid != fit and shown == fit))
         for i, grid in enumerate(grids):
             # The grid sent can be a fit between two samples: within the range of the recent fits.
             recent = fits[max(0, i - opts.lag):i + 1]
-            if not min(recent) <= grid <= max(recent):
+            if grid is None or None in recent or not min(recent) <= grid <= max(recent):
                 lagged.append({"pane": pane, "step": i, "grid": grid, "recent_fits": recent})
         distinct.append(len(set(grids)))
     settled = [p for p in report["after"] if not p[1] == p[2] == p[3]]
     report["misses"] = misses
+    report["undrawn"] = undrawn
+    report["preview_steps"] = previews
     report["owner_lagged"] = lagged
     report["unsettled_after"] = settled
     report["distinct_grids"] = distinct
@@ -196,8 +205,8 @@ try:
     report["worst_frame_ms"] = stats.get("max_ms") or 0
     frames_ok = isinstance(stats, dict) and "error" not in stats and (stats.get("frames") or 0) > 0 \
         and report["worst_frame_ms"] <= opts.hitch_ms
-    ok = bool(distinct) and not misses and not lagged and not settled and len(report["after"]) >= 2 \
-        and min(distinct) > 5 and frames_ok
+    ok = bool(distinct) and not misses and not undrawn and not lagged and not settled \
+        and len(report["after"]) >= 2 and min(distinct) > 5 and min(previews) > 0 and frames_ok
 finally:
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
@@ -209,7 +218,8 @@ finally:
     teardown.end()
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
-print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "owner_lagged", "unsettled_after",
+print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "undrawn", "preview_steps",
+                                              "owner_lagged", "unsettled_after",
                                               "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
 print("frames drag:", json.dumps(report.get("frames"))[:600])

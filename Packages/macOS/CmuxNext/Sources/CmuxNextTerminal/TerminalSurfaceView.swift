@@ -297,9 +297,10 @@ public final class TerminalSurfaceView: NSView {
     /// Until the owner announces the view's grid, Ghostty draws the locked
     /// grid reflowed to the view's grid (render only); a view whose grid the
     /// owner does not apply draws the locked grid, cropped or padded.
-    func updateReflowPreview() {
+    /// `reporting`: this call reports a new grid to the owner.
+    func updateReflowPreview(reporting: Bool = false) {
         guard let surface else { return }
-        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid ?? false)
+        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled
         ghostty_surface_set_reflow_preview(surface, enabled)
@@ -320,8 +321,6 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
-        // Before set_size, so the frame of the new size already reflows.
-        updateReflowPreview()
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
         let size = ghostty_surface_size(surface)
         publish(size: size)
@@ -329,7 +328,11 @@ public final class TerminalSurfaceView: NSView {
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        guard let report = geometry.viewSized(desired, force: forceReport) else { return }
+        let report = geometry.viewSized(desired, force: forceReport)
+        // In the same main-thread turn as set_size: the frame of the new size
+        // draws at the next display pass, already reflowed.
+        updateReflowPreview(reporting: report != nil)
+        guard let report else { return }
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }
