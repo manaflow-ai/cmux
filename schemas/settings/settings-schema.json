@@ -295,7 +295,10 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.backgroundVideo",
+              "appearance.backgroundVideoOnBattery",
+              "appearance.backgroundAvoidPanes"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -11301,6 +11304,192 @@
     },
     {
       "accepts" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.play",
+            "text" : "Play"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.whenActive",
+            "text" : "Only While cmux Is Active"
+          },
+          "value" : "whenActive"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.still",
+            "text" : "Still Picture"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideo.help",
+        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideo",
+      "keywords" : [
+        "video",
+        "wallpaper",
+        "aerial",
+        "motion",
+        "play",
+        "pause",
+        "battery"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideo"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideo",
+        "text" : "Video Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "play",
+        "pause"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.play",
+            "text" : "Keep Playing"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.pause",
+            "text" : "Pause"
+          },
+          "value" : "pause"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery.help",
+        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideoOnBattery",
+      "keywords" : [
+        "video",
+        "battery",
+        "power",
+        "energy"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideoOnBattery"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery",
+        "text" : "On Battery"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundAvoidPanes.help",
+        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundAvoidPanes",
+      "keywords" : [
+        "painting",
+        "crop",
+        "subject",
+        "framing",
+        "sidebar",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundAvoidPanes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundAvoidPanes",
+        "text" : "Keep Paintings Clear of Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "#1a2B3c",
         "#1A2B3C80",
         "1a2b3c"
@@ -22249,6 +22438,79 @@
     },
     {
       "accepts" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPictures",
+        "text" : "Chief Pictures"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPictureMotion.help",
+        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPictureMotion",
+      "keywords" : [
+        "chief",
+        "avatar",
+        "picture",
+        "gif",
+        "animation",
+        "motion"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPictureMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPictureMotion",
+        "text" : "Animated Pictures"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -25205,7 +25467,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "a74d98bf2720d5abde1e8aff3e83a7ed0d9175328cbbd7ae9bff8b9baa74c46d",
+  "schema_hash" : "8344a0ba03713ae0349d5a37587df81da49b73740197e0a1db934d62efdcd1ea",
   "sections" : [
     {
       "id" : "general",
