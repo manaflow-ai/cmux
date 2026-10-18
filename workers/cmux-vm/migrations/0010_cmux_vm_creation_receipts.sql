@@ -7,7 +7,5 @@ ALTER TABLE cmux_vm.resources ADD COLUMN IF NOT EXISTS creation_key TEXT
 ALTER TABLE cmux_vm.resources ADD COLUMN IF NOT EXISTS creation_receipt JSONB
   CONSTRAINT resources_creation_receipt_check CHECK (
     (creation_key IS NULL AND creation_receipt IS NULL) OR
-    (creation_key IS NOT NULL AND creation_receipt IS NOT NULL AND jsonb_typeof(creation_receipt) = 'object' AND creation_receipt ->> 'id' = cmux_id)
+    (creation_key IS NOT NULL AND creation_receipt IS NOT NULL AND jsonb_typeof(creation_receipt) = 'object' AND creation_receipt ? 'id' AND creation_receipt ->> 'id' = cmux_id)
   );
--- A caller may reuse a key after retention. The newest allocation wins; an active journal takes precedence.
-CREATE INDEX IF NOT EXISTS resources_creation_key_idx ON cmux_vm.resources (tenant_id, creation_key, created_at DESC, cmux_id DESC) WHERE creation_key IS NOT NULL;

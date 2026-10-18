@@ -95,6 +95,8 @@ export const SNAPSHOT_ENDPOINTS = [
 
 /** Endpoints that act on the tenant rather than one VM. */
 export const TENANT_ENDPOINTS = [
+  { name: "getVmCreation", method: "GET", template: "/v1/vm-creations/by-key", scope: "vm:read" },
+  { name: "reconcileVmCreation", method: "POST", template: "/v1/vm-creations/by-key/reconcile", scope: "vm:write" },
   { name: "createVm", method: "POST", template: "/v1/vms", scope: "vm:write" },
   { name: "listVms", method: "GET", template: "/v1/vms", scope: "vm:read" },
   { name: "listVmImages", method: "GET", template: "/v1/vm-images", scope: "vm:read" },

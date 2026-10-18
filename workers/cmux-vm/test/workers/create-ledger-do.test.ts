@@ -3,7 +3,7 @@ import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
 import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
-import { TenantId } from "../../src/lib/ids.ts";
+import { TenantId, VmId } from "../../src/lib/ids.ts";
 
 it("persists recovery identity and retained quota through the real SQLite-backed Durable Object RPC", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), id = env.TENANT_LIMITS.idFromName(tenant), first = env.TENANT_LIMITS.get(id);
@@ -40,11 +40,14 @@ it("decodes retained creation evidence and settles it after lease expiry across 
   const now = Date.now(), vmId = "vm_00000000000000000000000001";
   await stub.begin("creation", "request", now);
   await stub.reserve("vm", 1, 0, now, "held");
-  expect(await stub.advance("creation", { phase: "creating", vmId, reservationId: "held", context: "opaque", createdBy: "service:team-vm" }, now + 1)).toBe(true);
+  expect(await stub.advance("creation", { phase: "creating", vmId, reservationId: "held", context: "opaque", createdBy: "service:team-vm", intent: {
+    receipt: { id: VmId.make(vmId), displayName: "team", labels: { role: "team-vm" }, idleTimeoutSeconds: 300 },
+    createdAt: new Date(now).toISOString(), floors: { vcpus: 4 }, probe: { provider: "provider-digest", environment: "test", request: "request-digest" },
+  } }, now + 1)).toBe(true);
   expect(await stub.settleCreation("creation", "wrong", now + IDEMPOTENCY_TTL_MS)).toBe(false);
   const layer = durableObjectLimitsLayer(env.TENANT_LIMITS);
   const limits = await Effect.runPromise(Effect.provide(TenantLimits, layer));
-  expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toMatchObject({ phase: "creating", vmId });
+  expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toMatchObject({ phase: "creating", vmId, intent: { receipt: { id: vmId }, floors: { vcpus: 4 } } });
   expect(await stub.settleCreation("creation", vmId, now + IDEMPOTENCY_TTL_MS)).toBe(true);
   expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toEqual({ phase: "done", vmId });
   expect(await stub.reserve("vm", 1, 0, now + IDEMPOTENCY_TTL_MS + 1, "free")).toMatchObject({ ok: true });

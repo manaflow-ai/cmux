@@ -13,7 +13,7 @@ const setup = async (options: HarnessOptions = {}) => {
   t.setBootImages(JSON.stringify([{ id: "team-agent", revision: "v1", displayName: "Team agent", snapshotId: snapshot.id, services: ["team-vm"] }]));
   const token = await t.addServiceKey({ id: "team-vm", labels: { role: "team-vm" }, scopes: ["vm:read", "vm:write", "vm:network"] });
   const headers = (key = token, tenant = "team_alpha") => ({ authorization: `Bearer ${key}`, "x-cmux-team-id": tenant, "idempotency-key": KEY });
-  const create = () => t.request("/v1/vms", headers(), { method: "POST", body: { displayName: "persistent team", labels: { role: "team-vm", cmux_next_team: "logical-team" }, image: { id: "team-agent", revision: "v1" }, idleTimeoutSeconds: 300, initialNetwork: { publicEgress: true } } });
+  const create = (resources?: { readonly vcpus: number }) => t.request("/v1/vms", headers(), { method: "POST", body: { displayName: "persistent team", labels: { role: "team-vm", cmux_next_team: "logical-team" }, image: { id: "team-agent", revision: "v1" }, idleTimeoutSeconds: 300, initialNetwork: { publicEgress: true }, ...(resources === undefined ? {} : { resources }) } });
   const status = (key = token, tenant = "team_alpha") => t.request("/v1/vm-creations/by-key", headers(key, tenant));
   const reconcile = (key = token, tenant = "team_alpha") => t.request("/v1/vm-creations/by-key/reconcile", headers(key, tenant), { method: "POST" });
   return { ...t, token, create, status, reconcile, headers };
@@ -24,7 +24,9 @@ it("reports a retained create without provider I/O, then reconciles the same VM 
   expect((await t.create()).status).toBe(503);
   const before = t.upstreamRequests.length;
   const pending = await t.status(); expect(pending.status).toBe(200);
-  expect(await pending.json()).toMatchObject({ state: "pending" });
+  const pendingBody: unknown = await pending.json();
+  expect(pendingBody).toMatchObject({ state: "pending" });
+  expect(JSON.stringify(pendingBody)).not.toMatch(/baked-image|upstreamId|provider|reservationId|cmux_create|probe|context/);
   expect(t.upstreamRequests).toHaveLength(before);
   t.setBilling("team_alpha", false);
   t.setBootImages("[]");
@@ -78,12 +80,16 @@ it("can reconcile through a rotated service key while retaining the original ser
   expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
 });
 
-it("keeps an absent or conflicting provider result pending instead of allocating a replacement", async () => {
+it.each(["tenant", "request", "source", "actor", "slug"])("keeps absent or conflicting provider %s evidence from allocating a replacement", async (field) => {
   const t = await setup(); t.recordFault.before = 1;
   expect((await t.create()).status).toBe(503);
   const machine = [...t.upstream.vms.values()][0]!;
-  machine.metadata["cmux_tenant"] = "team_bravo";
-  expect((await t.reconcile()).status).toBe(503);
+  if (field === "tenant") machine.metadata["cmux_tenant"] = "team_bravo";
+  if (field === "request") machine.metadata["cmux_create"] = "foreign-intent";
+  if (field === "source") machine.snapshotId = "foreign-source";
+  if (field === "actor") machine.metadata["cmux_actor"] = "service:other";
+  if (field === "slug") machine.slug = "foreign-slug";
+  expect((await t.reconcile()).status).toBe(field === "slug" ? 200 : 503);
   t.upstream.vms.clear();
   const absent = await t.reconcile(); expect(absent.status).toBe(200);
   expect(await absent.json()).toMatchObject({ state: "pending" });
@@ -97,5 +103,31 @@ it("refuses a changed provider context before sending a reconciliation request",
   const before = t.upstreamRequests.length;
   t.setProviderConfig("https://changed-provider.test", "changed-test-key");
   expect((await t.reconcile()).status).toBe(503);
+  expect(t.upstreamRequests).toHaveLength(before);
+});
+
+
+it("keeps undersized allocations pending without growing them", async () => {
+  const t = await setup(); t.recordFault.before = 1;
+  expect((await t.create({ vcpus: 8 })).status).toBe(503);
+  const machine = [...t.upstream.vms.values()][0]!;
+  machine.resources.cpu = 4;
+  const before = t.upstreamRequests.length;
+  expect(await (await t.reconcile()).json()).toMatchObject({ state: "pending" });
+  expect(t.resources).toHaveLength(0);
+  expect(t.upstreamRequests.slice(before).every((r) => r.method === "GET")).toBe(true);
+  machine.resources.cpu = 8;
+  expect(await (await t.reconcile()).json()).toMatchObject({ state: "committed" });
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+});
+
+it("requires a bounded original key and never treats an unknown key as create permission", async () => {
+  const t = await setup();
+  const before = t.upstreamRequests.length;
+  for (const [method, path] of [["GET", "/v1/vm-creations/by-key"], ["POST", "/v1/vm-creations/by-key/reconcile"]]) {
+    expect((await t.request(path!, { authorization: `Bearer ${t.token}`, "x-cmux-team-id": "team_alpha" }, { method })).status).toBe(400);
+  }
+  expect((await t.status()).status).toBe(404);
+  expect((await t.reconcile()).status).toBe(404);
   expect(t.upstreamRequests).toHaveLength(before);
 });

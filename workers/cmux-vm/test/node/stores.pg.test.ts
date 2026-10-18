@@ -1,3 +1,4 @@
+import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 /**
  * The SQL stores against the real migration on an in-process Postgres
  * (PGlite). No network database is involved.
@@ -16,7 +17,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../..
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const migration = `${migration1}\n${migration2}\n${creationReceipts}`;
+const migration = `${migration1}\n${migration2}\n${creationReceipts}\n${creationReceiptIndex}`;
 
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 

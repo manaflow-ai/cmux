@@ -1,3 +1,5 @@
+import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
+import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 /**
  * The device address store (bead cx-wb5.45) against migrations 0001-0009 on
  * an in-process Postgres (PGlite): a live device's published public IPv6
@@ -22,7 +24,7 @@ import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -70,7 +72,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of BEFORE) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 
