@@ -327,6 +327,12 @@ export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
 /** Longer than one cron run, so an overlapping run cannot claim the same wake. */
 const UNEXPECTED_WAKE_CLAIM_TTL_MS = 5 * 60 * 1000;
+/**
+ * Woken machines one cron run re-pauses; the rest wait for the next run, ten
+ * minutes later. The 120 s confirmation plus two waves of ten at about 75 s
+ * each stays inside the route's 300 s `maxDuration`.
+ */
+export const UNEXPECTED_WAKE_REPAUSE_LIMIT = 20;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
