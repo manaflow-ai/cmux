@@ -199,3 +199,7 @@ test("comparison receipts verify freshness only when the observed live head matc
   expect(comparisonReceipt(base, head, undefined, { base: "base-sha", head: "head-sha" }, "head-sha").freshness).toMatchObject({ status: "verified", observedSha: "head-sha" });
   expect(comparisonReceipt(base, head, undefined, { base: "base-sha", head: "head-sha" }, "other-sha").freshness).toMatchObject({ status: "mismatch", observedSha: "other-sha" });
 });
+
+test("comparison receipt construction fails closed without head identities", () => {
+  expect(() => comparisonReceipt(undefined, undefined, undefined, { base: "", head: "head-a" })).toThrow(/exact base and head SHAs/);
+});

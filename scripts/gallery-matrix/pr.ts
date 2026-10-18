@@ -119,6 +119,7 @@ export function comparisonReceipt(
   heads: { base: string; head: string },
   liveHeadSha?: string,
 ) {
+  if (!heads.base || !heads.head) throw new Error("comparison receipt requires exact base and head SHAs");
   const fingerprints = [base?.scenarioFingerprint, head?.scenarioFingerprint, repeat?.scenarioFingerprint].filter(Boolean);
   if (new Set(fingerprints).size > 1) throw new Error("comparison receipt scenario fingerprint mismatch");
   const input = [base?.captureId, head?.captureId, repeat?.captureId, heads.base, heads.head].join("|");
