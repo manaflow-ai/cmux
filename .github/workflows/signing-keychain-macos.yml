@@ -77,6 +77,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Parse every scripts/ci shell script with /bin/bash
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
