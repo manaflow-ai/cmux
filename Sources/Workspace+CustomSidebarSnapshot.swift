@@ -113,6 +113,17 @@ extension Workspace {
                 status = "ended"
                 stateSince = nil
             }
+            let lifecycle = Self.customSidebarAgentLifecycle(
+                sessionID: record.sessionID,
+                currentSessionID: panelId.flatMap {
+                    service.registry.liveSessionSnapshot(surfaceID: $0.uuidString)?.sessionID
+                },
+                sessionAliases: [record.hookStoreLookupSessionID],
+                state: record.state,
+                agentSource: record.agentKind.sourceName,
+                panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] } ?? [:],
+                lifecycleSessionIDs: panelId.flatMap { agentLifecycleSessionIDsByPanelId[$0] } ?? [:]
+            )
             agents.append(
                 CustomSidebarAgentSnapshot(
                     sessionId: record.sessionID,
@@ -135,12 +146,44 @@ extension Workspace {
                             startedAt: child.startedAt,
                             endedAt: child.endedAt
                         )
-                    }
+                    },
+                    lifecycle: lifecycle
                 )
             )
             if agents.count >= Self.customSidebarAgentLimit { break }
         }
         return agents
+    }
+
+    /// Returns the custom-sidebar wire value for the lifecycle recorded on an
+    /// agent's hosting panel.
+    nonisolated static func customSidebarAgentLifecycle(
+        sessionID: String,
+        currentSessionID: String?,
+        sessionAliases: [String] = [],
+        state: ChatAgentState,
+        agentSource: String,
+        panelLifecycles: [String: AgentHibernationLifecycleState] = [:],
+        lifecycleSessionIDs: [String: String] = [:]
+    ) -> String? {
+        // A lifecycle belongs to the currently bound session. Avoid exposing
+        // a newer session's panel state on an ended or superseded record.
+        if case .ended = state { return nil }
+        guard currentSessionID == sessionID else { return nil }
+
+        let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
+        guard let lifecycleSessionID = lifecycleSessionIDs[key],
+              lifecycleSessionID == sessionID || sessionAliases.contains(lifecycleSessionID) else {
+            return nil
+        }
+        guard let lifecycle = panelLifecycles[key] else { return nil }
+        switch lifecycle {
+        case .unknown: return "unknown"
+        case .running: return "running"
+        case .backgroundWorkPending: return "background_work_pending"
+        case .needsInput: return "needs_input"
+        case .idle: return "idle"
+        }
     }
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {

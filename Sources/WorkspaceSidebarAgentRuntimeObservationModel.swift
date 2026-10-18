@@ -17,6 +17,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    /// Session identity for journal-backed lifecycle entries. Other sidebar
+    /// producers intentionally leave entries unowned so custom projections can
+    /// fail closed instead of attaching their state to a later agent session.
+    @ObservationIgnored
+    private(set) var agentLifecycleSessionIDsByPanelId: [UUID: [String: String]] = [:]
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
@@ -74,6 +79,34 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        notifyChanged()
+    }
+
+    /// Records or removes the session that owns one panel lifecycle key.
+    func setAgentLifecycleSessionID(_ sessionID: String?, key: String, panelId: UUID) {
+        if let sessionID, !sessionID.isEmpty {
+            guard agentLifecycleSessionIDsByPanelId[panelId]?[key] != sessionID else { return }
+            agentLifecycleSessionIDsByPanelId[panelId, default: [:]][key] = sessionID
+        } else {
+            guard agentLifecycleSessionIDsByPanelId[panelId]?[key] != nil else { return }
+            agentLifecycleSessionIDsByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleSessionIDsByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleSessionIDsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+        notifyChanged()
+    }
+
+    /// Removes lifecycle ownership metadata for one panel.
+    func clearAgentLifecycleSessionIDs(panelId: UUID) {
+        guard agentLifecycleSessionIDsByPanelId.removeValue(forKey: panelId) != nil else { return }
+        notifyChanged()
+    }
+
+    /// Removes lifecycle ownership metadata for every panel.
+    func clearAllAgentLifecycleSessionIDs() {
+        guard !agentLifecycleSessionIDsByPanelId.isEmpty else { return }
+        agentLifecycleSessionIDsByPanelId.removeAll()
         notifyChanged()
     }
 

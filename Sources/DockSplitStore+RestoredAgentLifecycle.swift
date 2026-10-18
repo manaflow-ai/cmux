@@ -307,13 +307,20 @@ extension DockSplitStore {
         return didReplaceRuntime
     }
 
+    /// Stores a Dock panel lifecycle and its optional owning agent session.
     func setAgentLifecycle(
         key: String,
         panelId: UUID,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil
     ) {
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             $0.agentLifecycleStates[key] = lifecycle
+            if let sessionID, !sessionID.isEmpty {
+                $0.agentLifecycleSessionIDs[key] = sessionID
+            } else {
+                $0.agentLifecycleSessionIDs.removeValue(forKey: key)
+            }
         }
     }
 
@@ -338,6 +345,7 @@ extension DockSplitStore {
         var didClear = false
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
+            $0.agentLifecycleSessionIDs.removeValue(forKey: key)
         }
         return didClear
     }
@@ -382,6 +390,7 @@ extension DockSplitStore {
             || !runtime.agentPIDs.isEmpty
             || !runtime.agentPIDKeys.isEmpty
             || !runtime.agentLifecycleStates.isEmpty
+            || !runtime.agentLifecycleSessionIDs.isEmpty
         if shouldKeep {
             agentRuntimeByPanelId[panelId] = runtime
         } else {
@@ -419,6 +428,9 @@ extension DockSplitStore {
         if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDKeys.remove(key) != nil { didChange = true }
         if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
+            didChange = true
+        }
+        if runtime.agentLifecycleSessionIDs.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
         if clearStatus,
