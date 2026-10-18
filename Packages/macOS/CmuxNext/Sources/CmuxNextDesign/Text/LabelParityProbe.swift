@@ -28,7 +28,10 @@ public struct LabelParityProbe {
         ("13r", .systemFont(ofSize: 13)), ("11r", .systemFont(ofSize: 11)), ("12m", .systemFont(ofSize: 12, weight: .medium)),
     ]
     private static let lineCounts: [Int?] = [nil, 1, 2, 0]
-    private static let lineBreaks: [NSLineBreakMode?] = [nil, .byTruncatingTail, .byWordWrapping]
+    /// nil: the factory's; `wrapsTruncating`: a truncating mode, then wrapping turned on (a
+    /// wrapped text whose last line truncates).
+    private static let lineBreaks: [NSLineBreakMode?] = [nil, .byTruncatingTail, .byWordWrapping, wrapsTruncating]
+    private static let wrapsTruncating = NSLineBreakMode.byTruncatingMiddle
     private static let preferredWidths: [CGFloat] = [0, 140]
     private static let widths: [CGFloat] = [70, 220]
 
@@ -54,7 +57,15 @@ public struct LabelParityProbe {
                                 let stock = Self.stock(factory, text: text, font: font)
                                 let label = Self.chrome(factory, text: text, font: font)
                                 if let lines { stock.maximumNumberOfLines = lines; label.maximumNumberOfLines = lines }
-                                if let lineBreak { stock.lineBreakMode = lineBreak; label.lineBreakMode = lineBreak }
+                                if lineBreak == Self.wrapsTruncating {
+                                    stock.lineBreakMode = .byTruncatingTail
+                                    stock.cell?.wraps = true
+                                    label.lineBreakMode = .byTruncatingTail
+                                    label.wraps = true
+                                } else if let lineBreak {
+                                    stock.lineBreakMode = lineBreak
+                                    label.lineBreakMode = lineBreak
+                                }
                                 stock.preferredMaxLayoutWidth = preferred
                                 label.preferredMaxLayoutWidth = preferred
                                 stock.textColor = .black
@@ -129,10 +140,6 @@ public struct LabelParityProbe {
             stock.frame = NSRect(x: 10, y: 10, width: width, height: height)
             label.frame = NSRect(x: 10, y: 150, width: width, height: height)
             let at = "w\(Int(width))"
-            differ("\(at).intrinsic.w", stock.intrinsicContentSize.width, label.intrinsicContentSize.width)
-            differ("\(at).intrinsic.h", stock.intrinsicContentSize.height, label.intrinsicContentSize.height)
-            differ("\(at).baseline.first", stock.firstBaselineOffsetFromTop, label.firstBaselineOffsetFromTop)
-            differ("\(at).baseline.last", stock.lastBaselineOffsetFromBottom, label.lastBaselineOffsetFromBottom)
             let inks = (Self.ink(cached: stock), Self.ink(cached: label))
             row["\(at).ink.stock"] = "\(inks.0)"
             row["\(at).ink.label"] = "\(inks.1)"
@@ -142,8 +149,43 @@ public struct LabelParityProbe {
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"
             report.checked += 1
-            if (layered.amount > 0) != (inks.0.amount > 0) || inks.0.amount > 0 && abs(layered.amount / inks.0.amount - 1) > 0.2 {
-                note("\(name) \(at) layer render: stock \(inks.0) label layer \(layered)", into: &report)
+            if !Self.same(layered, inks.1) { note("\(name) \(at) layer render: label \(inks.1) label layer \(layered)", into: &report) }
+        }
+        // Auto Layout, as the app's labels sit: pinned at the top left in a box of each width,
+        // the trailing edge at most the box's (the label hugs its text) or equal (it fills).
+        for width in Self.widths {
+            for fills in [false, true] {
+                let at = "auto\(Int(width))\(fills ? "fill" : "hug")"
+                let frames = [stock as NSView, label].map { view -> NSRect in
+                    let box = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 200))
+                    root.addSubview(box)
+                    defer { box.removeFromSuperview() }
+                    view.removeFromSuperview()
+                    view.translatesAutoresizingMaskIntoConstraints = false
+                    box.addSubview(view)
+                    NSLayoutConstraint.activate([
+                        view.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                        view.topAnchor.constraint(equalTo: box.topAnchor),
+                        fills ? view.trailingAnchor.constraint(equalTo: box.trailingAnchor)
+                            : view.trailingAnchor.constraint(lessThanOrEqualTo: box.trailingAnchor),
+                    ])
+                    box.layoutSubtreeIfNeeded()
+                    // The second pass a wrapping label's width change asks for.
+                    box.layoutSubtreeIfNeeded()
+                    let frame = view.frame
+                    view.removeFromSuperview()
+                    view.translatesAutoresizingMaskIntoConstraints = true
+                    root.addSubview(view)
+                    return frame
+                }
+                differ("\(at).w", frames[0].width, frames[1].width)
+                differ("\(at).h", frames[0].height, frames[1].height)
+                if fills {
+                    stock.frame = NSRect(x: 10, y: 10, width: frames[0].width, height: frames[0].height)
+                    label.frame = NSRect(x: 10, y: 150, width: frames[1].width, height: frames[1].height)
+                    differ("\(at).baseline.first", stock.firstBaselineOffsetFromTop, label.firstBaselineOffsetFromTop)
+                    differ("\(at).baseline.last", stock.lastBaselineOffsetFromBottom, label.lastBaselineOffsetFromBottom)
+                }
             }
         }
         // A label field is not an accessibility element itself: its cell is (AXStaticText).
@@ -156,6 +198,9 @@ public struct LabelParityProbe {
         report.checked += 1
         if stockAX != labelAX { note("\(name) ax: stock \(stockAX) label \(labelAX)", into: &report) }
         let frames = (cell?.accessibilityFrame() ?? .zero, label.accessibilityFrame())
+        let screens = [stock, label].map { $0.window?.convertToScreen($0.convert($0.bounds, to: nil)) ?? .zero }
+        differ("ax.frame.dx", frames.0.minX - screens[0].minX, frames.1.minX - screens[1].minX)
+        differ("ax.frame.dy", frames.0.minY - screens[0].minY, frames.1.minY - screens[1].minY)
         differ("ax.frame.w", frames.0.width, frames.1.width)
         differ("ax.frame.h", frames.0.height, frames.1.height)
     }
@@ -178,7 +223,9 @@ public struct LabelParityProbe {
     private static func same(_ a: Ink, _ b: Ink) -> Bool {
         if a.amount == 0 || b.amount == 0 { return a.amount == b.amount }
         let edges = [a.box.minX - b.box.minX, a.box.minY - b.box.minY, a.box.maxX - b.box.maxX, a.box.maxY - b.box.maxY]
-        return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.03
+        // A cached image of a stock field redraws its text with smoothing on a clear ground (about
+        // 12% heavier than on screen); a ChromeLabel's image is its on-screen glyphs.
+        return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.15
     }
 
     private static func ink(cached view: NSView) -> Ink {
@@ -196,7 +243,9 @@ public struct LabelParityProbe {
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Ink(box: .null, amount: 0) }
-        ctx.scaleBy(x: scale, y: scale)
+        // Layers are flipped; Core Graphics is not (as TabSnapshotRenderer draws).
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: scale, y: -scale)
         layer.render(in: ctx)
         guard let image = ctx.makeImage() else { return Ink(box: .null, amount: 0) }
         return ink(image)

@@ -77,7 +77,7 @@ import Testing
         #expect(texts.contains { $0.stringValue.contains("3845050") }, "the card names the build: \(texts.map(\.stringValue))")
         for text in texts where !text.stringValue.isEmpty {
             // The text's own size, with the label's insets.
-            let needed = ceil((text as? NSTextField)?.cell?.cellSize.width ?? text.intrinsicContentSize.width)
+            let needed = ceil((text as? NSTextField)?.cell?.cellSize.width ?? (text as? ChromeLabel)?.naturalSize.width ?? text.intrinsicContentSize.width)
             #expect(needed <= text.frame.width + 0.5,
                     "\"\(text.stringValue)\" needs \(needed) pt and has \(text.frame.width) pt at a \(Metrics.sidebarWidth) pt sidebar")
         }

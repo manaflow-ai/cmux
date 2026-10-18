@@ -93,14 +93,14 @@ open class ChromeLabel: NSView {
         self.init(frame: .zero)
         apply(LabelDefaults.label)
         stringValue = string
-        frame.size = intrinsicSize(width: nil)
+        frame.size = naturalSize
     }
 
     public convenience init(wrappingLabelWithString string: String) {
         self.init(frame: .zero)
         apply(LabelDefaults.wrapping)
         stringValue = string
-        frame.size = intrinsicSize(width: nil)
+        frame.size = naturalSize
     }
 
     public convenience init(font: NSFont) {
@@ -151,54 +151,67 @@ open class ChromeLabel: NSView {
         return text
     }
 
-    /// Measured layouts by width (nil: unbounded); dropped on any text change.
+    /// Measured layouts by text width (nil: unbounded); dropped on any text or scale change.
     private var measured: [CGFloat: LabelText.Metrics] = [:]
 
+    /// Pixels per point for rounding widths, as the field rounds them.
+    private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+
+    /// The text laid out with `width` points for its lines (nil: unbounded).
     func metrics(width: CGFloat?) -> LabelText.Metrics {
         let key = width ?? -1
         if let known = measured[key] { return known }
-        let value = LabelText.measure(inkText(color: nil), font: font, shape: shape, width: width)
+        let value = LabelText.measure(inkText(color: nil), font: font, shape: shape, width: width, scale: scale)
         if measured.count >= 8 { measured.removeAll() }
         measured[key] = value
         return value
     }
 
-    /// The width a wrapping label lays out at for its intrinsic size; nil: one line, unbounded.
-    private var measureWidth: CGFloat? {
-        guard shape.isMultiline else { return nil }
+    /// The left and right 2 pt of the frame are the text's padding, outside the alignment rect
+    /// (as a label field's): the intrinsic size and the baselines are of the text itself.
+    override open var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: LabelText.padding, bottom: 0, right: LabelText.padding) }
+
+    /// A wrapping label with more than one line breaks its lines at its preferred width, else at
+    /// its current width (its intrinsic height follows the width layout gives it); nil: one line.
+    private var wrapWidth: CGFloat? {
+        guard maximumNumberOfLines != 1 else { return nil }
         if preferredMaxLayoutWidth > 0 { return preferredMaxLayoutWidth }
-        return bounds.width > 0 ? bounds.width : nil
+        let current = bounds.width - LabelText.padding * 2
+        return shape.isMultiline && current > 0 ? current : nil
     }
 
-    private func intrinsicSize(width: CGFloat?) -> NSSize { metrics(width: width).size }
-
     override open var intrinsicContentSize: NSSize {
-        let size = intrinsicSize(width: measureWidth)
-        // A wrapping label without a preferred width takes the width its layout gives it.
-        if shape.isMultiline, preferredMaxLayoutWidth <= 0 { return NSSize(width: NSView.noIntrinsicMetric, height: size.height) }
+        let width = wrapWidth
+        let size = metrics(width: width).size
+        // A wrapping label is as wide as the width it breaks its lines at.
+        if shape.isMultiline, let width { return NSSize(width: width, height: size.height) }
         return size
     }
 
-    override open var firstBaselineOffsetFromTop: CGFloat { metrics(width: measureWidth).firstBaseline }
-    override open var lastBaselineOffsetFromBottom: CGFloat { metrics(width: measureWidth).lastBaselineFromBottom }
+    override open var firstBaselineOffsetFromTop: CGFloat { metrics(width: wrapWidth).firstBaseline }
+    override open var lastBaselineOffsetFromBottom: CGFloat { metrics(width: wrapWidth).lastBaselineFromBottom }
 
-    /// The intrinsic size; a wrapping label keeps its width (or its preferred width).
+    /// The frame of the text on one line per paragraph, padding included (a field's `sizeToFit`).
     open func sizeToFit() {
-        setFrameSize(intrinsicSize(width: measureWidth))
+        setFrameSize(naturalSize)
     }
 
-    /// The text's own size, as a label cell's `cellSize`: one line unbounded, a wrapping label at
-    /// its preferred (or current) width. Unlike ``intrinsicContentSize`` it always has a width.
-    public var naturalSize: NSSize { intrinsicSize(width: measureWidth) }
+    /// The frame the text needs on one line per paragraph, padding included: a label field cell's
+    /// `cellSize`. Unlike ``intrinsicContentSize`` it is in frame terms.
+    public var naturalSize: NSSize { frameSize(metrics(width: nil).size) }
 
-    /// The size of the text laid out at `width` (a wrapping label's height at that width).
-    public func size(forWidth width: CGFloat) -> NSSize { intrinsicSize(width: width) }
+    /// The frame the text needs in a frame `width` wide: a field cell's `cellSize(forBounds:)`.
+    public func size(forWidth width: CGFloat) -> NSSize {
+        frameSize(metrics(width: shape.isMultiline ? max(width - LabelText.padding * 2, 0) : nil).size)
+    }
+
+    private func frameSize(_ text: NSSize) -> NSSize { NSSize(width: text.width + LabelText.padding * 2, height: text.height) }
 
     override open func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width, changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
-        if widthChanged, shape.isMultiline, preferredMaxLayoutWidth <= 0 { invalidateIntrinsicContentSize() }
+        if widthChanged, shape.isMultiline, preferredMaxLayoutWidth <= 0, maximumNumberOfLines != 1 { invalidateIntrinsicContentSize() }
         endSelection()
         needsDisplay = true
     }
@@ -271,6 +284,8 @@ open class ChromeLabel: NSView {
 
     override open func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        measured.removeAll()
+        invalidateIntrinsicContentSize()
         needsDisplay = true
     }
 
@@ -333,6 +348,12 @@ open class ChromeLabel: NSView {
     // MARK: Accessibility (a static text element, as a label field)
 
     override open func isAccessibilityElement() -> Bool { true }
+
+    /// As a label field's cell reports it: 1 pt in from each side, 1 pt out at top and bottom.
+    override open func accessibilityFrame() -> NSRect {
+        guard let window else { return super.accessibilityFrame() }
+        return window.convertToScreen(convert(bounds.insetBy(dx: 1, dy: -1), to: nil))
+    }
     override open func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override open func accessibilityValue() -> Any? { stringValue }
     override open func accessibilityNumberOfCharacters() -> Int { content.length }
