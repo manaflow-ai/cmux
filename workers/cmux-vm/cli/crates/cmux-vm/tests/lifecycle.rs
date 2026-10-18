@@ -1472,3 +1472,35 @@ async fn retire_refuses_ordinary_pause_wrong_id_and_incomplete_receipts() {
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn retire_interactive_confirmation_requires_the_exact_vm_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/retire")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"id": VM_ID, "state": "stopped", "retired": true})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+    let mut refused = Tty {
+        answer: "wrong-vm",
+        asked: 0,
+    };
+    let out = cli_with_prompt(&["retire", VM_ID], &env, &mut refused).await;
+    assert_eq!(out.code, exit::CANCELLED, "{}", out.stderr);
+    assert!(out.stderr.contains("nothing was retired"));
+    assert!(server.received_requests().await.unwrap().is_empty());
+    let mut accepted = Tty {
+        answer: VM_ID,
+        asked: 0,
+    };
+    let out = cli_with_prompt(&["--json", "retire", VM_ID], &env, &mut accepted).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(accepted.asked, 1);
+    assert_eq!(json_stdout(&out)["retired"], true);
+}

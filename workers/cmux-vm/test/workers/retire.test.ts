@@ -56,6 +56,16 @@ it("keeps service label restrictions at the owner", async () => {
   expect(t.upstreamRequests).toHaveLength(0);
 });
 
+it("refuses malformed ids and a deleted upstream VM without mutating another resource", async () => {
+  const t = await harness(), owned = t.addVm("team_alpha");
+  const key = await t.addKey("team_alpha", ["vm:write"]);
+  expect((await retire(t, key, "private-provider-reference")).status).toBe(404);
+  expect(t.upstreamRequests).toHaveLength(0);
+  t.upstream.vms.delete(owned.upstreamId);
+  expect((await retire(t, key, owned.vmId)).status).toBe(404);
+  expect(t.upstreamRequests.map((call) => call.method)).toEqual(["GET"]);
+});
+
 it("allows retiring existing resources after the plan lapses", async () => {
   const t = await harness(), owned = t.addVm("team_alpha");
   const key = await t.addKey("team_alpha", ["vm:write"]);
