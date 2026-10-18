@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Render a reviewed motion receipt from real ``debug.window_record`` frames.
 
-The receipt deliberately keeps the UI visible for the whole clip.  It holds
-the first real frame briefly with a compact BEFORE overlay, plays the captured
+The receipt deliberately keeps the UI visible for the whole clip. It holds
+the first real frame briefly with a compact BEFORE marker, plays the captured
 frames at their recorded cadence, then holds the last real frame with an AFTER
-overlay.  Full state IDs remain in ``receipt.json``; the video shows short
-prefixes so the labels do not cover the interaction.
+marker. Full state IDs remain in ``receipt.json``; the video only shows the
+phase and its boundary time.
 
 Example::
 
@@ -13,9 +13,9 @@ Example::
       --out out/pane-split.mp4 --head 6093928e570f \
       --before-ms 600 --after-ms 1800
 
-This renderer uses Quick Look only to rasterize the small SVG overlays.  It is
-the same macOS environment used by the tagged app recorder, and fails clearly
-when the overlay or ffmpeg prerequisites are unavailable.
+The marker is rasterized from a small SVG with a keyed matte. It is cropped to
+the normalized 1280x800 canvas before compositing, so it cannot stretch into a
+card or tint the app pixels.
 """
 
 from __future__ import annotations
@@ -69,17 +69,17 @@ def first_last(frames: list[Path]) -> tuple[Path, Path]:
     return first, last
 
 
-def overlay_svg(path: Path, title: str, detail: str, timing: str) -> None:
-    # A tiny neutral chip keeps the phase legible without turning the receipt
-    # into a presentation slide. Full state IDs stay in receipt.json.
+def overlay_svg(path: Path, title: str, timing: str, accent: str) -> None:
+    """Write a tiny phase marker on a matte that can be keyed out safely."""
     safe = lambda text: (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                          .replace('"', "&quot;"))
-    # qlmanage flattens transparent SVGs onto white.  Use a chroma-key matte
-    # so the rasterized overlay cannot replace the real UI with a white card.
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800">
-      <rect width="1280" height="800" fill="#ff00ff"/>
-      <rect x="20" y="20" width="220" height="34" rx="17" fill="#151515" fill-opacity="0.72" stroke="white" stroke-opacity="0.22"/>
-      <text x="36" y="42" font-family="Verdana, sans-serif" font-size="14" font-weight="bold" fill="white">{safe(title)} · {safe(timing)}</text>
+    # qlmanage renders into a square bitmap and scales an SVG to fit it. Use
+    # an 800x500 source so the top 1280x800 crop maps 1:1 to the output UI.
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500">
+      <rect width="800" height="500" fill="#000000"/>
+      <rect x="680" y="470" width="108" height="15" rx="7" fill="#151515"/>
+      <rect x="680" y="470" width="2" height="15" fill="{accent}"/>
+      <text x="686" y="480" font-family="Helvetica, sans-serif" font-size="7" font-weight="bold" fill="white">{safe(title)} | {safe(timing)}</text>
     </svg>'''
     path.write_text(svg, encoding="utf-8")
 
@@ -87,6 +87,7 @@ def overlay_svg(path: Path, title: str, detail: str, timing: str) -> None:
 def rasterize(svg: Path, into: Path) -> Path:
     if shutil.which("qlmanage") is None:
         raise SystemExit("motion-receipt: qlmanage is required to rasterize overlays")
+    into.mkdir(parents=True, exist_ok=True)
     run(["qlmanage", "-t", "-s", "1280", "-o", str(into), str(svg)])
     png = into / f"{svg.name}.png"
     if not png.is_file():
@@ -94,21 +95,31 @@ def rasterize(svg: Path, into: Path) -> Path:
     return png
 
 
-def encode_hold(frame: Path, seconds: float, out: Path, fps: int) -> None:
-    # Keep the app pixels clean. Phase labels and IDs live in receipt.json and
-    # the PR comment; putting a generated SVG over the UI makes the evidence
-    # harder to judge and can tint the whole frame on macOS Quick Look.
+def encode_hold(frame: Path, seconds: float, out: Path, fps: int, marker: Path) -> None:
     run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-loop", "1", "-i", str(frame),
-         "-t", f"{seconds:.3f}", "-vf", "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black",
-         "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
+         "-i", str(marker), "-t", f"{seconds:.3f}",
+         "-filter_complex", "[0:v]scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black[ui];"
+         "[1:v]crop=1280:800:0:0,format=rgba,colorkey=0x000000:0.05:0.05[marker];[ui][marker]overlay=0:0:format=auto[v]",
+         "-map", "[v]", "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
 
 
-def encode_transition(frames: Path, count: int, out: Path, fps: int) -> None:
-    run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-framerate", str(fps),
-         "-i", str(frames / "frame-%05d.jpg"),
-         "-t", f"{count / fps:.3f}",
-         "-vf", "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black",
-         "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
+def encode_transition(frames: Path, times: list[float], out: Path, fps: int, marker: Path, scratch: Path) -> float:
+    """Encode frames with recorder timestamps, retaining slow gaps."""
+    paths = [frames / f"frame-{index:05d}.jpg" for index in range(len(times))]
+    concat = scratch / "transition.ffconcat"
+    with concat.open("w", encoding="utf-8") as stream:
+        for index, path in enumerate(paths):
+            stream.write(f"file '{path.resolve()}'\n")
+            duration = (times[index + 1] - times[index]) if index + 1 < len(times) else 1 / fps
+            stream.write(f"duration {max(duration, 1 / fps):.9f}\n")
+        stream.write(f"file '{paths[-1].resolve()}'\n")
+    duration = times[-1] + 1 / fps
+    run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(concat),
+         "-loop", "1", "-i", str(marker), "-t", f"{duration:.3f}",
+         "-filter_complex", "[0:v]scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black[ui];"
+         "[1:v]crop=1280:800:0:0,format=rgba,colorkey=0x000000:0.05:0.05[marker];[ui][marker]overlay=0:0:format=auto[v]",
+         "-map", "[v]", "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
+    return duration
 
 
 def main() -> int:
@@ -140,13 +151,29 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="cmux-motion-receipt-") as scratch_name:
         scratch = Path(scratch_name)
-        transition_ms = len(frames) / args.fps * 1000
+        frames_json = args.frames / "frames.json"
+        if frames_json.is_file():
+            times = json.loads(frames_json.read_text(encoding="utf-8")).get("times") or []
+            if len(times) != len(frames) or any(float(b) <= float(a) for a, b in zip(times, times[1:])):
+                raise SystemExit("motion-receipt: frames.json timestamps must be strictly increasing and match frames")
+            times = [float(value) for value in times]
+        else:
+            times = [index / args.fps for index in range(len(frames))]
+        transition_seconds = times[-1] + 1 / args.fps
+        transition_ms = transition_seconds * 1000
         after_start_ms = args.before_ms + transition_ms
         total_ms = after_start_ms + args.after_ms
         before_mp4, transition_mp4, after_mp4 = (scratch / name for name in ("before.mp4", "transition.mp4", "after.mp4"))
-        encode_hold(first, args.before_ms / 1000, before_mp4, args.fps)
-        encode_transition(args.frames, len(frames), transition_mp4, args.fps)
-        encode_hold(last, args.after_ms / 1000, after_mp4, args.fps)
+        markers = []
+        for name, title, timing, accent in (("before.svg", "BEFORE", "0.0s", "#54a0ff"),
+                                             ("motion.svg", "MOTION", f"{args.before_ms / 1000:.1f}s", "#f2b84b"),
+                                             ("after.svg", "AFTER", f"{after_start_ms / 1000:.1f}s", "#62d890")):
+            svg = scratch / name
+            overlay_svg(svg, title, timing, accent)
+            markers.append(rasterize(svg, scratch / (name + ".out")))
+        encode_hold(first, args.before_ms / 1000, before_mp4, args.fps, markers[0])
+        encode_transition(args.frames, times, transition_mp4, args.fps, markers[1], scratch)
+        encode_hold(last, args.after_ms / 1000, after_mp4, args.fps, markers[2])
         concat = scratch / "concat.txt"
         concat.write_text("\n".join(f"file '{p}'" for p in (before_mp4, transition_mp4, after_mp4)) + "\n")
         # Do not stream-copy the three independently encoded segments. Their
@@ -167,7 +194,7 @@ def main() -> int:
     inspected = json.loads(probe.stdout)
     actual_duration = float((inspected.get("format") or {}).get("duration") or 0)
     actual_frames = int(((inspected.get("streams") or [{}])[0]).get("nb_frames") or 0)
-    expected_duration = (args.before_ms + len(frames) / args.fps * 1000 + args.after_ms) / 1000
+    expected_duration = (args.before_ms + transition_ms + args.after_ms) / 1000
     expected_frames = round(expected_duration * args.fps)
     if actual_frames < expected_frames - 1 or abs(actual_duration - expected_duration) > 1 / args.fps:
         raise SystemExit(f"motion-receipt: output shortened: expected={expected_duration:.3f}s/{expected_frames}f "
@@ -179,9 +206,12 @@ def main() -> int:
         "before_hold_ms": args.before_ms,
         "transition_frames": len(frames),
         "transition_fps": args.fps,
+        "recorded_times_s": times,
+        "transition_duration_ms": transition_ms,
         "after_hold_ms": args.after_ms,
-        "after_start_ms": args.before_ms + len(frames) / args.fps * 1000,
-        "labels": "sidecar-only; video intentionally contains clean app pixels",
+        "after_start_ms": args.before_ms + transition_ms,
+        "labels": "in-video phase markers: BEFORE/MOTION/AFTER; full state IDs remain in receipt.json",
+        "marker_bounds_px": {"x": 1088, "y": 752, "width": 173, "height": 24},
         "output_duration_s": actual_duration,
         "output_frames": actual_frames,
         "before_state_id": before,

@@ -60,6 +60,41 @@ def action(name, **params):
     return rpc("action.run", {"action": name, **params})
 
 
+def surface_panes():
+    """Return the current terminal panes with text/readiness metadata."""
+    report = rpc("debug.surfaces", {"text": True, "includeText": True}) or {}
+    return {pane.get("pane"): pane
+            for window in report.get("windows") or []
+            for pane in window.get("panes") or []
+            if pane.get("pane")}
+
+
+def split_right_with_visible_after():
+    """Split once, then make the new pane visually falsifiable before the hold.
+
+    A pane ID and geometry alone are insufficient evidence: a freshly attached
+    terminal can still be blank in the window recording. Seed a deterministic
+    sentinel and wait for the terminal surface to report it, so the AFTER
+    frame proves both layout and usable content.
+    """
+    before = set(surface_panes())
+    reply = action("splitRight")
+    new_pane = wait(lambda: next((pane for pane in surface_panes()
+                                  if pane not in before), None), 10, 0.1)
+    if not new_pane:
+        return {"error": "splitRight created no observable new pane", "reply": reply}
+    sentinel = "CMUX_RECEIPT_READY"
+    sent = action("terminal.sendText", target=f"pane:{new_pane}",
+                  args={"text": f"printf '{sentinel}\\n'\r"})
+    ready = wait(lambda: sentinel in str((surface_panes().get(new_pane) or {}).get("text") or ""), 10, 0.1)
+    if not ready:
+        return {"error": "new pane did not render the deterministic sentinel",
+                "pane": new_pane, "reply": reply, "send": sent,
+                "surface": surface_panes().get(new_pane)}
+    return {"reply": reply, "pane": new_pane, "send": sent,
+            "after_visible_text": sentinel}
+
+
 def wait(check, seconds, step=0.25):
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -81,6 +116,10 @@ def record(surface, name, trigger, seconds=None):
     reply = trigger()
     time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
+    with open(os.path.join(directory, "trigger.json"), "w") as handle:
+        json.dump({"surface": surface, "scenario": name, "record_started": started,
+                   "trigger_reply": reply, "recorded_frames": frames}, handle, indent=2)
+        handle.write("\n")
     print(f"{surface}/{name}: {frames} frames; record={json.dumps(started)[:100]} reply={json.dumps(reply)[:160]}", flush=True)
     time.sleep(0.4)  # test harness: settle before the next scenario
 
@@ -146,7 +185,7 @@ def panes():
     action("workspace.newAtBottom")
     time.sleep(1.0)  # test harness: the workspace settles
     save_layout("panes")
-    record("panes", "split-right", lambda: action("splitRight"))
+    record("panes", "split-right", split_right_with_visible_after)
     record("panes", "split-down", lambda: action("splitDown"))
     record("panes", "close", lambda: action("closePane"))
     record("panes", "equalize", lambda: action("equalizeSplits"))

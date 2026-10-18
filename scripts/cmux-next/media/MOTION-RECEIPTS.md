@@ -7,17 +7,22 @@ make the reviewable MP4. The MP4 must show the real UI for the entire clip:
 2. Every recorded transition frame at the recorder cadence.
 3. A readable hold of the last captured frame labeled `AFTER` (1.8s by default).
 
-The video is intentionally clean: do not burn labels, cards, state IDs, or
-debug colors into the app pixels. The phase labels, timing, and full state IDs
-belong in `receipt.json` and the PR comment. This keeps the motion itself
-reviewable instead of turning the clip into a debug slide.
+The video has only a compact bottom-right phase marker (`BEFORE`, `MOTION`, or
+`AFTER` plus its boundary time). Do not burn cards, state IDs, or full-frame
+debug colors into the app pixels. Full state IDs and the exact recorder
+timestamps belong in `receipt.json` and the PR comment. The marker must persist
+through the whole AFTER hold so a player that pauses on the final frame still
+shows which state is being reviewed.
 
 Before publishing, inspect at least three extracted frames: the before hold,
-the middle of the real transition, and the after hold. The after frame must be
-the final real UI frame, not a card or a blank fallback. Reject the receipt if
-the first and last frames are identical, if either is suspiciously small, or if
-the metadata does not prove a state change. Publish the MP4 and its GIF only
-after those checks pass.
+the middle of the real transition, and the after hold, plus one frame from the
+last second. The after frame must be the final real UI frame, not a card or a
+blank fallback. For pane actions, require the new pane's `debug.surfaces` text
+to be connected and non-empty (seed a deterministic `pane-ready` line when
+needed). Reject the receipt if the first and last frames are identical, if
+either is suspiciously small, if frame timestamps are missing or compressed,
+or if the metadata does not prove a state change. Publish the MP4 and its GIF
+only after those checks pass.
 
 Example:
 
