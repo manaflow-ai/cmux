@@ -22,7 +22,7 @@
 //!   http(s) pages are kept. Pages without an engine reopen as
 //!   daemon-rendered browsers, so the app passes its engine.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::OptionalExtension;
 use serde_json::json;
@@ -286,8 +286,12 @@ impl Mux {
         )
     }
 
-    /// Restore one member `here`: in its own pane while that is live, else
-    /// in `pane` (at its end) when the user acted from one.
+    /// Restore one member `here`. With no pane named, as closed history
+    /// reopens a tab. With `pane` (the one the user acted from): back in its
+    /// own pane while that is still in its workspace and screen, else at the
+    /// end of `pane`, and nowhere else. When both are gone by the time the
+    /// member reopens, it is refused (`resource.not_found`) and stays in the
+    /// stash; it never opens in the active pane instead.
     pub(super) fn restore_member_here(
         self: &Arc<Self>,
         actor: &Actor,
@@ -295,36 +299,40 @@ impl Mux {
         pane: Option<&str>,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
-        let member = self.placed_in(member, pane);
-        self.reopen_closed_tab(actor, &member, reopened)
-    }
-
-    /// `member` as `here` restores it: in its own pane while that is live,
-    /// else in `pane` (at its end) when the user acted from one.
-    fn placed_in(&self, member: &Value, pane: Option<&str>) -> Value {
-        let Some(pane) = pane else { return member.clone() };
-        let own_pane_live = self.with_state(|state| {
-            member["pane_id"].as_str().and_then(|own| pane_by_public_id(state, own)).is_some()
-        });
-        if own_pane_live {
-            return member.clone();
-        }
-        // A reopen takes a member's pane only while it sits in the member's
-        // workspace and screen, so the member names the target pane's.
-        let place = self.with_state(|state| {
-            let (workspace, screen) = state.screen_of(pane_by_public_id(state, pane)?)?;
-            let workspace = &state.workspaces[workspace];
-            Some((workspace.public_id.to_string(), workspace.screens[screen].public_id.to_string()))
-        });
-        let mut placed = member.clone();
-        placed["pane_id"] = json!(pane);
-        placed["workspace_id"] = json!(place.as_ref().map(|(workspace, _)| workspace));
-        placed["screen_id"] = json!(place.as_ref().map(|(_, screen)| screen));
-        placed["index"] = Value::Null;
-        if let Some(object) = placed.as_object_mut() {
-            object.remove("split");
-        }
-        placed
+        let Some(pane) = pane else { return self.reopen_closed_tab(actor, member, reopened) };
+        let tab = &member["screens"][0]["tabs"][0];
+        let (target, own) = self
+            .with_state(|state| {
+                super::closed_pane_split::home_pane(state, member, &HashMap::new())
+                    .map(|own| (own, true))
+                    .or_else(|| pane_by_public_id(state, pane).map(|named| (named, false)))
+            })
+            .ok_or_else(|| state_not_found("pane", pane))?;
+        // Back in its own pane, at its recorded index (a pinned tab takes
+        // the place its pin gives it); in the named pane, at the end.
+        let index = member["index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .filter(|_| own && tab["pinned"].as_bool() != Some(true));
+        let created = match index {
+            Some(index) => tab_strip::tab_slot::scoped(target, index, || {
+                self.reopen_tab_record(actor, target, tab, true)
+            }),
+            None => self.reopen_tab_record(actor, target, tab, true),
+        };
+        // An explicit pane that closed meanwhile fails the creation.
+        let surface = created.map_err(|error| {
+            if self.with_state(|state| state.panes.contains_key(&target)) {
+                error
+            } else {
+                state_not_found("pane", pane)
+            }
+        })?;
+        let (workspace, screen) = self.public_screen_of_pane(target)?;
+        reopened.note_workspace(workspace);
+        reopened.screens.push(screen);
+        reopened.note_tab(member, self.public_tab_of(surface)?);
+        Ok(())
     }
 
     /// One new workspace named after the stash holding `restore` in order.
