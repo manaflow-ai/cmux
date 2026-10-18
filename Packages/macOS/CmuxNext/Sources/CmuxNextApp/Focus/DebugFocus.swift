@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextSettings
+import CmuxNextFocus
 
 /// `debug.focus`: per window, the coordinator state next to what AppKit,
 /// Ghostty and the layout actually show, and whether they agree
@@ -64,7 +65,7 @@ enum DebugFocus {
                 "resolved_tab": resolved.tab.map(JSONValue.string) ?? .null,
                 "overlays": .array(state.overlays.map { .string($0.rawValue) }),
                 "expectation": state.expectation.map { .string(String(describing: $0.key)) } ?? .null,
-                "dragging": .bool(state.drag != nil),
+                "dragging": .bool(state.isDragging),
                 "browser_focus_mode": .array(state.browserFocusMode.sorted().map(JSONValue.string)),
                 "window_key": .bool(state.windowKey),
                 "sidebar_hidden": .bool(state.sidebarHidden),

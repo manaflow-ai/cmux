@@ -2792,6 +2792,23 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
+      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
+      # trap (runs 39014131817, 39014922771). Parse every script this job can
+      # run before any signing or notarization. An unsigned resume builds an
+      # older tree: the checker and the workflow come from the signing control
+      # (this run's commit), the scripts from the build tree.
+      - name: Parse signing and notarize scripts with /bin/bash 3.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          checker=scripts/ci/check-bash32-parse.sh
+          workflow="$PWD/.github/workflows/nightly.yml"
+          if [ -d .nightly-signing-control ]; then
+            checker=.nightly-signing-control/$checker
+            workflow="$PWD/.nightly-signing-control/.github/workflows/nightly.yml"
+          fi
+          CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -3845,6 +3862,12 @@ jobs:
         if: github.ref_name == 'nightly-next'
         shell: bash
         run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
+      # trap (runs 39014131817, 39014922771). Parse every script this job can
+      # run before any signing or notarization.
+      - name: Parse signing and notarize scripts with /bin/bash 3.2
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -5044,6 +5067,13 @@ jobs:
         if: steps.order.outputs.skip != 'true'
         shell: bash
         run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
+      # trap (runs 39014131817, 39014922771). Parse every script this job can
+      # run before any signing or notarization.
+      - name: Parse signing and notarize scripts with /bin/bash 3.2
+        if: steps.order.outputs.skip != 'true'
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
       - name: Select Xcode
         if: steps.order.outputs.skip != 'true'

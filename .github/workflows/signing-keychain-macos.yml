@@ -15,6 +15,10 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   pull_request:
     paths:
@@ -24,6 +28,10 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_bash32_parse_guard.sh
+      - scripts/*.sh
+      - scripts/cmux-next/*.sh
+      - .github/workflows/nightly.yml
       - .github/workflows/signing-keychain-macos.yml
   workflow_dispatch:
 
@@ -75,11 +83,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Parse every scripts/ci shell script with /bin/bash
-        run: |
-          set -euo pipefail
-          /bin/bash --version | head -1
-          failed=0
-          while IFS= read -r -d '' script; do
-            /bin/bash -n "$script" || { echo "::error file=$script::does not parse under /bin/bash 3.2"; failed=1; }
-          done < <(git ls-files -z 'scripts/ci/*.sh' 'scripts/ci/**/*.sh')
-          exit "$failed"
+        run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
+
+      - name: Parse guards fail on a script bash 3.2 cannot parse
+        run: /bin/bash tests/test_bash32_parse_guard.sh
