@@ -74,7 +74,7 @@
 .acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}@media (hover:hover) and (pointer:fine){.acpmux-picker-button:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
-.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:active,.acpmux-effort .acpmux-picker-button:active,.acpmux-access .acpmux-picker-button:active{background:var(--acpmux-pill-press,color-mix(in srgb,var(--agent-text) 22%,transparent))}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}
+.acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}.acpmux-model .acpmux-picker-button:focus-visible,.acpmux-effort .acpmux-picker-button:focus-visible,.acpmux-access .acpmux-picker-button:focus-visible{background:var(--acpmux-pill-open,color-mix(in srgb,var(--agent-text) 16%,transparent));box-shadow:inset 0 0 0 1px var(--acpmux-pill-edge,color-mix(in srgb,var(--agent-text) 24%,transparent))}
 .acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
 .acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;cursor:default;white-space:nowrap}
 .acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
@@ -84,6 +84,9 @@
 .acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:var(--acpmux-pill-fill,color-mix(in srgb,var(--agent-text) 6%,transparent))}
+/* A pill pressed or open keeps the hover step and no edge: no brighter press tone that flashes on a click (Leo 2026-10-18). */
+.acpmux-model .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-effort .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-access .acpmux-picker-button:is(:active,[aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
+@media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
@@ -161,7 +164,6 @@
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box lifts on hover as the browser omnibar does (Palette.hoverFill: the composer hover step), not while it has the keyboard, and eases with the hover token both ways. */
 .acpmux-newtab-switch{cursor:default}
-.acpmux-newtab-box:hover:not(:focus-within){background:var(--acpmux-composer-hover)}
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-box{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
 .acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:15px}
