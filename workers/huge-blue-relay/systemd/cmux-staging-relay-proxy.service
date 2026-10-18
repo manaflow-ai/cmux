@@ -1,0 +1,13 @@
+[Unit]
+Description=Huge Blue staging authenticated relay
+After=cmux-staging-relay.service
+Requires=cmux-staging-relay.service
+[Service]
+EnvironmentFile=%h/Projects/cmux-huge-blue-relay/staging.env
+WorkingDirectory=%h/Projects/cmux-huge-blue-relay
+ExecStart=/usr/local/bin/bun workers/huge-blue-relay/main.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+[Install]
+WantedBy=default.target
