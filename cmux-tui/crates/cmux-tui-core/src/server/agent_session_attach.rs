@@ -400,7 +400,9 @@ impl Refusal {
                 "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
             Self::ReadOnly => "this agent session attachment is read-only",
-            Self::ModeConflict => "this connection already has the same surface attached in another mode",
+            Self::ModeConflict => {
+                "this connection already has the same surface attached in another mode"
+            }
         }
     }
 
