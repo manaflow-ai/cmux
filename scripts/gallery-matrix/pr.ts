@@ -84,6 +84,7 @@ const evidenceReceipt = (dir: string, label: string, manifest?: string, captureM
     if (captureManifest) throw new Error(`${label} matrix has no capture receipt`);
     return undefined;
   }
+  if (receipt.schemaVersion !== 1) throw new Error(`${label} matrix has unsupported capture receipt schema`);
   if (!receipt.captureId || !receipt.scenario?.fingerprint) {
     if (captureManifest) throw new Error(`${label} matrix has malformed capture receipt`);
     return undefined;

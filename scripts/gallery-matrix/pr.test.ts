@@ -73,9 +73,25 @@ test("PR reports reject failed or partial capture receipts", () => {
     );
     writeFileSync(
       join(results, "receipt.json"),
-      JSON.stringify({ captureId: "failed", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 1, fingerprint: "0".repeat(64) }, results: { count: 0, expected: 1, status: "partial" }, quality: "fail" }),
+      JSON.stringify({ schemaVersion: 1, captureId: "failed", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 1, fingerprint: "0".repeat(64) }, results: { count: 0, expected: 1, status: "partial" }, quality: "fail" }),
     );
     expect(() => assertRunRevision(results, "head-a", "head", manifest)).toThrow(/not complete quality evidence/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PR reports reject unsupported capture receipt schemas", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-receipt-schema-"));
+  const manifest = join(root, "manifest.json");
+  const results = join(root, "results");
+  try {
+    const cases = [{ id: "head", path_or_url: "frame.html", params: { entry: "head" } }];
+    writeFileSync(manifest, JSON.stringify(cases));
+    mkdirSync(results);
+    writeFileSync(join(results, "results.json"), JSON.stringify([{ id: "head", params: { entry: "head" }, revision: { sha: "head-a", source: "src/head.gallery.tsx" } }]));
+    writeFileSync(join(results, "receipt.json"), JSON.stringify({ schemaVersion: 2, captureId: "future", scenario: { count: 1, fingerprint: "0".repeat(64) }, results: { count: 1, expected: 1, status: "complete" }, quality: "pass" }));
+    expect(() => assertRunRevision(results, "head-a", "head", manifest)).toThrow(/unsupported capture receipt schema/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -168,7 +184,7 @@ test("PR receipt validation accepts equivalent manifest ordering", () => {
     writeFileSync(manifest, JSON.stringify(ordered));
     mkdirSync(results);
     writeFileSync(join(results, "results.json"), JSON.stringify(ordered.map((item) => ({ id: item.id, params: item.params, revision: { sha: "head-a", source: `src/${item.id}.gallery.tsx` } }))));
-    writeFileSync(join(results, "receipt.json"), JSON.stringify({ captureId: "ordered", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 2, fingerprint: scenarioFingerprint(reversed) }, results: { count: 2, expected: 2, status: "complete" }, quality: "pass", revisions: { shas: ["head-a"], sources: ["src/a.gallery.tsx", "src/b.gallery.tsx"] } }));
+    writeFileSync(join(results, "receipt.json"), JSON.stringify({ schemaVersion: 1, captureId: "ordered", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 2, fingerprint: scenarioFingerprint(reversed) }, results: { count: 2, expected: 2, status: "complete" }, quality: "pass", revisions: { shas: ["head-a"], sources: ["src/a.gallery.tsx", "src/b.gallery.tsx"] } }));
     expect(() => assertRunRevision(results, "head-a", "head", manifest)).not.toThrow();
   } finally {
     rmSync(root, { recursive: true, force: true });
