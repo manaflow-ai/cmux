@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWorkspaceRepair
 import Observation
 
 /// The content area of one window for one workspace: a `LayoutRootView`

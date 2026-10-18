@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 import Observation
 import os
@@ -35,9 +35,9 @@ import os
 /// A failed first terminal is kept in `failures` and shown with a retry,
 /// not refilled by itself on that connection (cx-tzlqb).
 @MainActor @Observable
-final class EmptyWorkspaceRepair {
+public final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
-    enum FirstTerminal: Equatable {
+    public enum FirstTerminal: Equatable {
         /// This app is running create-workspace + create-terminal
         /// (`populating`); the count of nested callers.
         case populating(Int)
@@ -52,14 +52,14 @@ final class EmptyWorkspaceRepair {
 
     /// Creates the first terminal of `key` (`create-terminal`, which adds the
     /// first screen and pane). Returns the new surface. Tests replace it.
-    @ObservationIgnored var create: @MainActor (WorkspaceKey) async throws -> SurfaceID?
+    @ObservationIgnored public var create: @MainActor (WorkspaceKey) async throws -> SurfaceID?
     /// Closes `key`, a workspace whose last tab closed. Tests replace it.
-    @ObservationIgnored var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
+    @ObservationIgnored public var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
     /// Why `key` lost its last pane. Tests replace it.
-    @ObservationIgnored var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause
+    @ObservationIgnored public var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause
     /// Whether commands can run now. Tests replace it.
-    @ObservationIgnored var canCreate: @MainActor () -> Bool
-    private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    @ObservationIgnored public var canCreate: @MainActor () -> Bool
+    public private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
     /// Why a workspace's first terminal failed, until a pane shows or New.
     private(set) var failures: [WorkspaceKey: String] = [:]
     /// Each failure's connection epoch: a reconnect lifts the refill hold.
@@ -69,7 +69,7 @@ final class EmptyWorkspaceRepair {
     /// The last emptied workspaces and what this app did with each (closed,
     /// or kept with a new terminal), newest last, for `debug.windows`: a
     /// workspace that disappears is always explained.
-    @ObservationIgnored private(set) var decisions: [(key: WorkspaceKey, cause: EmptiedWorkspaceCause)] = []
+    @ObservationIgnored public private(set) var decisions: [(key: WorkspaceKey, cause: EmptiedWorkspaceCause)] = []
     /// Workspaces seen with a pane, with the connection epoch they were seen
     /// on: one seen on the current connection that has no pane now had its
     /// last tab closed.
@@ -81,44 +81,34 @@ final class EmptyWorkspaceRepair {
     @ObservationIgnored private var everPopulated: Set<WorkspaceKey> = []
     /// The daemon store's connection epoch. Tests replace it.
     /// Explicit New may create the chat page; crash recovery still creates a terminal.
-    @ObservationIgnored var createFirst: (@MainActor (WorkspaceKey) async throws -> SurfaceID?)?
+    @ObservationIgnored public var createFirst: (@MainActor (WorkspaceKey) async throws -> SurfaceID?)?
 
-    @ObservationIgnored var epoch: @MainActor () -> Int
+    @ObservationIgnored public var epoch: @MainActor () -> Int
     /// Whether the store holds a live snapshot. The launch snapshot's
     /// provisional tree was not seen on any connection, so a workspace it
     /// shows with a pane must not count as emptied when the live tree shows
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
-    @ObservationIgnored var isLive: @MainActor () -> Bool
+    @ObservationIgnored public var isLive: @MainActor () -> Bool
     @ObservationIgnored private var observation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
-    init(daemon: DaemonService) {
-        create = { [weak daemon] key in
-            guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
-            let cwd = daemon.defaultCwd
-            return try await connection.createTerminal(in: key, cwd: cwd).surface
-        }
-        canCreate = { [weak daemon] in
-            guard let daemon, daemon.store.isLoaded else { return false }
-            if case .connected = daemon.store.connectionState { return true }
-            return false
-        }
-        epoch = { [weak daemon] in daemon?.store.connectionEpoch ?? 0 }
-        isLive = { [weak daemon] in daemon?.store.isLoaded ?? false }
-        cause = { [weak daemon] key in
-            // When the registry cannot be read, keep the workspace: a
-            // needless repair costs one terminal, a needless close loses
-            // the user's workspace.
-            guard let connection = daemon?.connection, let terminals = try? await connection.listTerminals() else { return .terminalLost }
-            return EmptiedWorkspaceCause.from(terminals, workspace: key)
-        }
-        close = { [weak daemon] key in
-            guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
-            // No tab is left, so no terminal to end here.
-            try await WorkspaceClose.close(key, terminals: [], on: connection)
-        }
-        observe(daemon.store)
+    /// The daemon-facing closures come from the App (`init(daemon:)`), which
+    /// owns the connection and the workspace close path.
+    public init(store: DaemonStore,
+                create: @escaping @MainActor (WorkspaceKey) async throws -> SurfaceID?,
+                close: @escaping @MainActor (WorkspaceKey) async throws -> Void,
+                cause: @escaping @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause,
+                canCreate: @escaping @MainActor () -> Bool,
+                epoch: @escaping @MainActor () -> Int,
+                isLive: @escaping @MainActor () -> Bool) {
+        self.create = create
+        self.close = close
+        self.cause = cause
+        self.canCreate = canCreate
+        self.epoch = epoch
+        self.isLive = isLive
+        observe(store)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -234,7 +224,7 @@ final class EmptyWorkspaceRepair {
     /// last tab closed is closed; a previously populated workspace whose host
     /// died is refilled. A genuinely new empty workspace is left alone for
     /// `WorkspaceContentController` to render its actions.
-    func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
+    public func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
         guard let key = workspace.key, isLive(), !Self.isHome(workspace) else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
         if let failed = failureEpochs[key], failed != epoch() { clearFailure(key) }
@@ -245,7 +235,7 @@ final class EmptyWorkspaceRepair {
     /// Creates the first tab after an explicit New action.
     /// The state claim makes repeated key presses idempotent while the daemon
     /// delta is still in flight.
-    func createFirstTab(_ key: WorkspaceKey, created: @escaping @MainActor (SurfaceID) -> Void = { _ in }) {
+    public func createFirstTab(_ key: WorkspaceKey, created: @escaping @MainActor (SurfaceID) -> Void = { _ in }) {
         guard states[key] == nil, canCreate() else { return }
         clearFailure(key)
         createTab(key, create: createFirst ?? create, created: created)
@@ -269,24 +259,24 @@ final class EmptyWorkspaceRepair {
     /// Whether `key` is about to change by itself: its first terminal is on
     /// its way (this app's create, or a repair) or it is being closed. An
     /// empty workspace that is settling is not waiting for the user.
-    func isSettling(_ key: WorkspaceKey) -> Bool { states[key] != nil }
+    public func isSettling(_ key: WorkspaceKey) -> Bool { states[key] != nil }
 
     /// Why `key`'s first terminal did not start, while it is still empty.
-    func failure(_ key: WorkspaceKey) -> String? { failures[key] }
+    public func failure(_ key: WorkspaceKey) -> String? { failures[key] }
 
     /// `key` is emptied on purpose (its tabs are moving to another
     /// workspace) and will close: no repair until `endClosing`.
-    func beginClosing(_ key: WorkspaceKey) { states[key] = .closing }
+    public func beginClosing(_ key: WorkspaceKey) { states[key] = .closing }
 
     /// The move failed (the tabs stayed): repairs apply again.
-    func endClosing(_ key: WorkspaceKey) {
+    public func endClosing(_ key: WorkspaceKey) {
         if states[key] == .closing { states[key] = nil }
     }
 
     /// A person's first tab in an existing empty workspace (Cmd-T): a failure
     /// releases it with its reason; `populating` would leave it `.closing`
     /// (blank, every later Cmd-T dropped, cx-tzlqb).
-    func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
+    public func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
         states[key] = .awaitingPane
         clearFailure(key)
         do {
@@ -302,7 +292,7 @@ final class EmptyWorkspaceRepair {
     /// workspace stays owned until the store shows its pane, because
     /// `body` returns with the create-terminal reply, before the delta. On
     /// failure the workspace is never repaired (its creator closes it).
-    func populating<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async rethrows -> T {
+    public func populating<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async rethrows -> T {
         if case .populating(let count) = states[key] { states[key] = .populating(count + 1) } else { states[key] = .populating(1) }
         do {
             let value = try await body()
@@ -315,7 +305,7 @@ final class EmptyWorkspaceRepair {
     }
 
     /// `WorkspaceCreation` could not close `key` after its terminal failed.
-    func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
+    public func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
 
     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
         failures[key] = String(describing: error)
