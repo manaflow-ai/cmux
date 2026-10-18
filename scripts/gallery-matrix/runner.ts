@@ -44,11 +44,12 @@ export function captureReceipt(
   expectedResults?: number,
 ): CaptureReceipt {
   const expected = expectedResults ?? cases.length * new Set(results.map((result) => result.engine).filter(Boolean)).size;
+  const declaredSources = new Map(cases.map((item) => [item.id, item.params?.source]));
   const identities = new Set(results.map((result) => `${String(result.id ?? "")}:${String(result.engine ?? "")}`));
   const complete = results.length === expected && identities.size === expected && expected > 0;
   const provenanceComplete = results.every((result) => {
     const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
-    const declaredSource = cases.find((item) => item.id === result.id)?.params?.source ?? (result.params as Record<string, unknown> | undefined)?.source;
+    const declaredSource = declaredSources.get(String(result.id)) ?? (result.params as Record<string, unknown> | undefined)?.source;
     return typeof revision?.sha === "string" && revision.sha.length > 0 && typeof revision.source === "string" && revision.source.length > 0 && (declaredSource === undefined || declaredSource === revision.source);
   });
   const observedShas = new Set(results.map((result) => (result.revision as { sha?: unknown } | undefined)?.sha).filter((sha): sha is string => typeof sha === "string" && sha.length > 0));
