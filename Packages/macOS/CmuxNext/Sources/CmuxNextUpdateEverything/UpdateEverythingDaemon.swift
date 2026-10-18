@@ -12,7 +12,8 @@ import Foundation
 /// CLIs and threads (the logic lives in the daemon), the wait for a replaced daemon, and the
 /// confirmation and result toast. The App only finds the services.
 @MainActor
-public enum UpdateEverythingDaemon {
+public struct UpdateEverythingDaemon {
+    public init() {}
     /// How long a machine may take to answer again after its update, or to reconnect at launch.
     public static let reconnectLimit: Duration = .seconds(180)
 

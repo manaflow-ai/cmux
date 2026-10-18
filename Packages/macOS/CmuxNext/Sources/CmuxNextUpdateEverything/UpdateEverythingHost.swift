@@ -46,7 +46,8 @@ public struct UpdateEverythingHost: Sendable {
 /// update, asks once, then updates the machines and the app last. A run the app relaunched in the
 /// middle of finishes at the next launch, once the machines reconnect.
 @MainActor
-public enum UpdateEverything {
+public struct UpdateEverything {
+    public init() {}
     public static let actionID: ActionID = "updates.updateEverything"
 
     /// Binds the action and starts the launch's one check for a run to finish.

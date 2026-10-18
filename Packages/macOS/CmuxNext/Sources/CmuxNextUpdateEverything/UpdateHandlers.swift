@@ -7,7 +7,8 @@ public import CmuxNextUpdater
 /// switch are disabled, with the reason, where they cannot run. (Out of CmuxNextApp, with Update
 /// Everything, for its size cap.)
 @MainActor
-public enum UpdateHandlers {
+public struct UpdateHandlers {
+    public init() {}
     public static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", invoke: { _ in _ = openWhatsNew() })
