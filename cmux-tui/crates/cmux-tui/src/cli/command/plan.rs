@@ -30,7 +30,9 @@ pub(in crate::cli) enum ResponseView {
 impl ResponseView {
     pub(in crate::cli) fn project(self, result: Value) -> Value {
         match self {
-            Self::Full => result,
+            // wire/agent_roster.rs shapes the roster once it has the
+            // terminals' titles and folders.
+            Self::Full | Self::AgentRoster(_) => result,
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -95,6 +97,17 @@ impl super::CommandPlan {
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::TerminalProgramStatus;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `agent list`: the `agent.list` request printed as a ranked roster.
+    pub(super) fn agent_roster(self, view: AgentRosterView) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentRoster(view);
                 Self::Protocol(plan)
             }
             other => other,

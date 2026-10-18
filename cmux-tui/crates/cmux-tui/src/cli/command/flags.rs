@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `agent list`: only the agents waiting on the person.
+    "needs-me",
     // `agent message release`: the person's decision on a held message.
     "approve",
     "decline",
