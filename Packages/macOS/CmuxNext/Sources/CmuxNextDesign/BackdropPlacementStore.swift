@@ -26,8 +26,10 @@ public final class BackdropPlacementStore {
     public static let shared = BackdropPlacementStore(file: BackdropArtDownloads.defaultFolder.map {
         $0.deletingLastPathComponent().appendingPathComponent("background-placement.json")
     })
-    /// Posted (object: the store) after a placement changes.
+    /// Posted (object: the store, userInfo `id`: the background) after a placement changes.
     public static let didChange = Notification.Name("BackdropPlacementStore.didChange")
+    /// Saves run one at a time in order, so an older placement never lands after a newer one.
+    private nonisolated static let writes = DispatchQueue(label: "cmux.backdrop-placement.save")
 
     private let file: URL?
     private var placements: [String: BackdropUserPlacement]
@@ -36,8 +38,17 @@ public final class BackdropPlacementStore {
     public init(file: URL?) {
         self.file = file
         // concurrency-allow: one small JSON file read once, when the first window asks
-        placements = file.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? JSONDecoder().decode([String: BackdropUserPlacement].self, from: $0) } ?? [:]
+        let data = file.flatMap { try? Data(contentsOf: $0) }
+        if let data, let read = try? JSONDecoder().decode([String: BackdropUserPlacement].self, from: data) {
+            placements = read
+        } else {
+            placements = [:]
+            // A file that does not read is kept beside, not overwritten by the next save.
+            if let file, data != nil {
+                // concurrency-allow: one rename of a small unreadable file, once
+                try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("unreadable"))
+            }
+        }
     }
 
     public func placement(for id: String) -> BackdropUserPlacement? { placements[id] }
@@ -46,13 +57,17 @@ public final class BackdropPlacementStore {
     public func set(_ placement: BackdropUserPlacement?, for id: String) {
         guard placements[id] != placement else { return }
         placements[id] = placement
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        NotificationCenter.default.post(name: Self.didChange, object: self, userInfo: ["id": id])
         guard let file, let data = try? JSONEncoder().encode(placements) else { return }
-        // task-owner: one atomic file write; a later write replaces it
-        Task.detached {
+        Self.writes.async {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: file, options: .atomic)
         }
+    }
+
+    /// Waits for every save queued so far (tests).
+    public func flush() {
+        Self.writes.sync {}
     }
 }
 

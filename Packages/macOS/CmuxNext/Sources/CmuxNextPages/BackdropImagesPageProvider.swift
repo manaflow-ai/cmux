@@ -32,7 +32,7 @@ public final class BackdropImagesPageProvider: PageProvider {
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
                 reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) },
-                adjust: @escaping @MainActor () -> Bool = BackdropImagesPageProvider.adjustFrontWindow) {
+                adjust: @escaping @MainActor () -> Bool = { false }) {
         self.adjust = adjust
         self.images = images
         self.use = use
@@ -63,6 +63,8 @@ public final class BackdropImagesPageProvider: PageProvider {
             }
             let images = images
             try await Task.detached { try images.remove(selection) }.value
+            // Its hand placement goes with it.
+            BackdropPlacementStore.shared.set(nil, for: selection.id)
             return try await usage()
         case Self.prefix + "reveal":
             if params["id"] != nil, case .file(let path) = try own(params) {
@@ -95,14 +97,6 @@ public final class BackdropImagesPageProvider: PageProvider {
         let images = images
         let bytes = await Task.detached { images.usage() }.value
         return ["bytes": .number(Double(bytes))]
-    }
-
-    /// Places the picture in the frontmost window that shows one, and brings it forward.
-    public static func adjustFrontWindow() -> Bool {
-        guard let window = NSApp.orderedWindows.first(where: { $0.isVisible && WindowMaterialView.backdrop(of: $0)?.adjustable != nil }),
-              BackdropAdjustOverlay.begin(in: window) else { return false }
-        window.makeKeyAndOrderFront(nil)
-        return true
     }
 
     private static func error(_ refused: BackdropUserImages.ImportError) -> PageError {

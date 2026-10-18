@@ -173,10 +173,12 @@ public final class WindowMaterialView: NSView {
         resignedKey = false
         guard let window else { return updateInactiveTint() }
         keyObservers.append(NotificationCenter.default.addObserver(forName: BackdropPlacementStore.didChange, object: nil, queue: .main) { [weak self] note in
-            let store = note.object as AnyObject?
+            let store = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let id = note.userInfo?["id"] as? String
             // main-proof: the observer runs on the main queue (queue: .main)
             MainActor.assumeIsolated {
-                guard let self, store === self.placements else { return }
+                // Only this view's store, and only the background it shows.
+                guard let self, store == ObjectIdentifier(self.placements), id == nil || id == self.shownID else { return }
                 self.updateArtCrop()
             }
         })
@@ -227,6 +229,10 @@ public final class WindowMaterialView: NSView {
         let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = shown?.followsAppearance == true && loadedDark != dark
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped {
+            // Placing a picture by hand ends when the window shows another background.
+            if let window, loadedSelection != backdrop.selection || loadedArt != backdrop.art {
+                BackdropAdjustOverlay.current(in: window)?.done()
+            }
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
@@ -305,6 +311,12 @@ public final class WindowMaterialView: NSView {
         let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 48])
         let dim = CIFilter(name: "CIColorControls", parameters: [kCIInputBrightnessKey: -0.18, kCIInputSaturationKey: 0.9])
         return [blur, dim].compactMap { $0 }
+    }
+
+    /// The x of the middle of the span the art keeps clear of the panes, in this view's points.
+    var visibleMiddle: CGFloat {
+        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        return (visible.minX + visible.maxX) / 2 * bounds.width
     }
 
     /// The id of the background shown (an art work or a file), nil for none.

@@ -53,6 +53,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const [linking, setLinking] = useState(false);
   const [usage, setUsage] = useState<number | null>(null);
   const [adjustRefused, setAdjustRefused] = useState(false);
+  const shownBackground = rows.get(BACKGROUND_KEY)?.value;
+  // A refusal was about the background shown then; another one may be placed.
+  useEffect(() => setAdjustRefused(false), [shownBackground]);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
