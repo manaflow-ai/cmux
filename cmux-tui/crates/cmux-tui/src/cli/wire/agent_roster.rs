@@ -2,13 +2,17 @@
 //! limited, counted by state, and joined with their terminals' titles and
 //! folders. The daemon's rows are unchanged; only the CLI shapes them.
 
+use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::io::BufReader;
 
+use cmux_tui_core::platform::transport;
+use cmux_tui_core::resource::ResourceOperation;
 use ratatui::buffer::CellWidth;
 use serde_json::{Map, Value, json};
 
-use super::super::command::{AgentRosterView, AgentSort};
+use super::super::command::{AgentRosterView, AgentSort, RequestPlan, ResponseView};
 use super::{append_table_row, human_cell, sanitize_human_cell};
 
 /// The states in the order the counts line names them.
@@ -16,6 +20,56 @@ const STATES: [&str; 5] = ["blocked", "working", "idle", "done", "unknown"];
 
 /// The widest TITLE cell, in characters, ellipsis included.
 const MAX_TITLE: usize = 48;
+
+/// `agent list`: the rows ranked, counted and joined with the session's
+/// terminals, read on the same connection. Without that read (an older
+/// daemon or a refused read) the rows have no title or folder. Any other
+/// command's result is returned as it is.
+pub(super) fn with_terminals(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    plan: &RequestPlan,
+    result: Value,
+) -> Value {
+    let ResponseView::AgentRoster(view) = plan.view else { return result };
+    let route = plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+    let terminals = super::super::resolve::read(reader, ResourceOperation::TerminalList, route)
+        .ok()
+        .and_then(|terminals| terminals.as_array().cloned())
+        .unwrap_or_default();
+    shape(result, &terminals, view, unix_ms())
+}
+
+/// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
+/// `terminals` every session's terminals.
+pub(in crate::cli) fn across(view: ResponseView, agents: Value, terminals: &[Value]) -> Value {
+    match view {
+        ResponseView::AgentRoster(view) => shape(agents, terminals, view, unix_ms()),
+        _ => agents,
+    }
+}
+
+/// `--jsonl` prints one agent per line; the counts are in `--json`.
+pub(super) fn json_lines<'a>(plan: &RequestPlan, result: &'a Value) -> Cow<'a, Value> {
+    match (plan.view, result.get("agents")) {
+        (ResponseView::AgentRoster(_), Some(agents)) => Cow::Borrowed(agents),
+        _ => Cow::Borrowed(result),
+    }
+}
+
+/// The human roster for `agent list`, `None` for any other command.
+pub(super) fn human_view(plan: &RequestPlan, result: &Value) -> Option<Cow<'static, Value>> {
+    if !matches!(plan.view, ResponseView::AgentRoster(_)) || result.get("agents").is_none() {
+        return None;
+    }
+    let home = std::env::var("HOME").ok();
+    Some(Cow::Owned(Value::String(human(result, home.as_deref()))))
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+}
 
 /// The printed roster: `{"agents":[...],"counts":{...}}`. Each agent keeps
 /// every daemon field and gains `age_ms` (since its `updated_at_ms`) and,

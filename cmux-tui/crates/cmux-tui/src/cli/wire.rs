@@ -11,7 +11,7 @@ use cmux_tui_core::resource::{
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
+use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -482,7 +482,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    let result = agent_roster_result(reader, plan, result);
+                    let result = agent_roster::with_terminals(reader, plan, result);
                     return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -610,50 +610,11 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
-        // One line per agent; the counts are in `--json`.
-        OutputMode::JsonLines if matches!(plan.view, ResponseView::AgentRoster(_)) => {
-            std::borrow::Cow::Owned(result.get("agents").cloned().unwrap_or_else(|| result.clone()))
-        }
+        OutputMode::JsonLines => agent_roster::json_lines(plan, &result),
         _ => std::borrow::Cow::Borrowed(&result),
     };
     let code = print_success(&shown, global.output);
     if code == 0 { success_exit_code(plan, &result) } else { code }
-}
-
-/// `agent list`: the rows ranked, counted and joined with the session's
-/// terminals, read on the same connection. Without that read (an older
-/// daemon or a refused read) the rows have no title or folder.
-fn agent_roster_result(
-    reader: &mut BufReader<Box<dyn transport::Stream>>,
-    plan: &RequestPlan,
-    result: Value,
-) -> Value {
-    let ResponseView::AgentRoster(view) = plan.view else { return result };
-    let route = plan.params.as_object().map(super::resolve::route).unwrap_or_default();
-    let terminals = super::resolve::read(
-        reader,
-        cmux_tui_core::resource::ResourceOperation::TerminalList,
-        route,
-    )
-    .ok()
-    .and_then(|terminals| terminals.as_array().cloned())
-    .unwrap_or_default();
-    agent_roster::shape(result, &terminals, view, unix_ms())
-}
-
-/// [`agent_roster_result`] for `--all-sessions`: `agents` is the joined
-/// rows, `terminals` every session's terminals.
-pub(super) fn agent_roster_across(view: ResponseView, agents: Value, terminals: &[Value]) -> Value {
-    match view {
-        ResponseView::AgentRoster(view) => agent_roster::shape(agents, terminals, view, unix_ms()),
-        _ => agents,
-    }
-}
-
-fn unix_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// A printed result that exits 1: a `terminal <id> screen wait` timeout
@@ -671,12 +632,8 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 /// personal` adds an ORDER column (the row's place in the returned order),
 /// because INDEX stays the session order.
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
-    if matches!(plan.view, ResponseView::AgentRoster(_)) && result.get("agents").is_some() {
-        let home = std::env::var("HOME").ok();
-        return std::borrow::Cow::Owned(Value::String(agent_roster::human(
-            result,
-            home.as_deref(),
-        )));
+    if let Some(roster) = agent_roster::human_view(plan, result) {
+        return roster;
     }
     let personal = matches!(
         &plan.operation,
@@ -1044,6 +1001,7 @@ mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;
+pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
 

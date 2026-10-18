@@ -12,6 +12,7 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_list;
 mod agent_message_cmd;
 mod browser;
 mod bulk_close;
@@ -1371,54 +1372,7 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        ["list"] => {
-            let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
-            }
-            // `--needs-me` is the daemon's blocked filter.
-            if flags.boolean("needs-me") {
-                match params.get("state").and_then(Value::as_str) {
-                    None | Some("blocked") => {
-                        params.insert("state".into(), Value::String("blocked".into()));
-                    }
-                    Some(state) => {
-                        return Err(UsageError::new(format!(
-                            "--needs-me lists blocked agents; it conflicts with --state {state}"
-                        )));
-                    }
-                }
-            }
-            let sort = match flags.take("sort").as_deref() {
-                None | Some("needs-me") => AgentSort::NeedsMe,
-                Some("recent") => AgentSort::Recent,
-                Some("none") => AgentSort::None,
-                Some(_) => {
-                    return Err(UsageError::new("--sort must be one of needs-me, recent, none"));
-                }
-            };
-            let limit = match flags.take("limit") {
-                Some(limit) => Some(
-                    limit
-                        .parse::<usize>()
-                        .ok()
-                        .filter(|limit| *limit >= 1)
-                        .ok_or_else(|| UsageError::new("--limit must be a positive integer"))?,
-                ),
-                None => None,
-            };
-            Ok(request(ResourceOperation::AgentList, &selectors, flags, params)?
-                .agent_roster(AgentRosterView { sort, limit }))
-        }
+        ["list"] => agent_list::parse(flags),
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
@@ -4261,47 +4215,6 @@ mod tests {
                 )
                 .is_err(),
                 "accepted noncanonical agent state {noncanonical:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn agent_list_ranks_by_needs_me_by_default() {
-        let list = protocol(&["agent", "list"]);
-        assert_eq!(operation(&list), "agent.list");
-        assert_eq!(list.params.get("state"), None);
-        assert_eq!(list.view, ResponseView::AgentRoster(AgentRosterView::default()));
-    }
-
-    #[test]
-    fn agent_list_takes_sort_limit_and_needs_me() {
-        const TERMINAL: &str = "term_55555555555555555555555555555555";
-        for (sort, expected) in [
-            ("needs-me", AgentSort::NeedsMe),
-            ("recent", AgentSort::Recent),
-            ("none", AgentSort::None),
-        ] {
-            let list = protocol(&["agent", "list", "--sort", sort, "--limit", "5"]);
-            assert_eq!(
-                list.view,
-                ResponseView::AgentRoster(AgentRosterView { sort: expected, limit: Some(5) })
-            );
-        }
-        // --needs-me is the daemon's `state: blocked` filter.
-        let needs_me = protocol(&["agent", "list", "--needs-me", "--terminal", TERMINAL]);
-        assert_eq!(needs_me.params["state"], "blocked");
-        assert_eq!(needs_me.params["terminal_id"], TERMINAL);
-        let both = protocol(&["agent", "list", "--needs-me", "--state", "blocked"]);
-        assert_eq!(both.params["state"], "blocked");
-        for invalid in [
-            &["agent", "list", "--needs-me", "--state", "working"][..],
-            &["agent", "list", "--sort", "oldest"],
-            &["agent", "list", "--limit", "0"],
-            &["agent", "list", "--limit", "many"],
-        ] {
-            assert!(
-                parse(&strings(invalid), super::super::Surface::CmuxTui).is_err(),
-                "accepted {invalid:?}"
             );
         }
     }
