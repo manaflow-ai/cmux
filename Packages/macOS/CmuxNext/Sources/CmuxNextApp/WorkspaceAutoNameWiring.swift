@@ -20,15 +20,38 @@ struct WorkspaceAutoNameWiring {
             terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) })
     }
 
-    /// Variant B's one-time rename (`WorkspaceAutoNamer`) on this Mac's daemon, once settings load.
+    /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
+    /// serves the name-source capability, once settings load.
     func start(settings: SettingsController) {
         let namer = WorkspaceAutoNamer(
-            names: reader, workspaces: { [weak services] in services?.machines.local.store.workspaces ?? [] },
+            names: reader, workspaces: { [weak services] in
+                guard let services else { return [] }
+                return services.machines.daemons.flatMap { daemon in
+                    let identity = daemon.identity
+                    return daemon.store.workspaces.map { workspace in
+                        WorkspaceAutoNamer.Target(
+                            machineID: daemon.machineID,
+                            workspace: workspace,
+                            supportsNameSource: daemon.supports(DaemonCapabilities.shared.workspaceNameSource),
+                            daemonGeneration: identity?.generation,
+                            nameSource: workspace.nameSource,
+                            nameRevision: workspace.nameRevision)
+                    }
+                }
+            },
             selection: { [weak services] workspace, pane in
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
                 return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
             },
-            rename: { [weak services] key, name in services?.machines.local.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) } })
+            rename: { [weak services] target, name in
+                guard let services, target.supportsNameSource, let key = target.workspace.key,
+                      let daemon = services.machines.daemon(machine: target.machineID),
+                      daemon.supports(DaemonCapabilities.shared.workspaceNameSource) else { return }
+                daemon.send("auto-rename workspace") {
+                    _ = try await $0.renameWorkspace(key, to: name, source: .auto,
+                                                      expectedNameRevision: target.nameRevision)
+                }
+            })
         Task { [weak settings] in
             await settings?.waitForLoad(atLeast: 1)
             await namer.run()

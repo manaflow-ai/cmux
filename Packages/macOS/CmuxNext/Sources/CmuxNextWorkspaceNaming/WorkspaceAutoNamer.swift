@@ -3,45 +3,80 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 
 /// Variant B of workspace auto-naming (`workspaces.autoName.variant` =
-/// `persist`, hq#1957): the first time a default-named workspace of this
-/// Mac's daemon has an agent chat in front whose chat has a real title (the
-/// agent's, never its first prompt), it is renamed once through Rename
-/// Workspace's command (`rename-workspace`; the daemon stays the one writer),
-/// so the CLI, the window title and search see the name. Terminal and page
-/// titles stay live sidebar labels. Never again for that workspace, and
-/// never one the user named (`WorkspaceAutoName.persistedName`).
+/// `persist`, hq#1957): the first time a default-named workspace of a
+/// capable local or remote daemon has an agent chat in front whose chat has a
+/// real title (the agent's, never its first prompt), it is renamed once
+/// through Rename Workspace's command (`rename-workspace`; the daemon stays
+/// the one writer), so the CLI, window title and search see the name.
+/// Terminal and page titles stay live sidebar labels. Never again for that
+/// name revision, and never one the user named (`WorkspaceAutoName.persistedName`).
 ///
-/// Event-driven: one app-wide observation of the local store, the chat
+/// Event-driven: one app-wide observation of daemon stores, the chat
 /// titles, the setting and the variant; nothing polls. Process-wide, so two
 /// windows showing one workspace send one rename. A rename changes no
 /// focus or selection.
 @MainActor
 public final class WorkspaceAutoNamer {
+    /// The identity and name state read immediately before an automatic rename.
+    /// A target is supplied by the App so the naming module never conflates a
+    /// workspace with a machine header or routes a remote row to the local daemon.
+    public struct Target {
+        public let machineID: String
+        public let workspace: WorkspaceModel
+        public let supportsNameSource: Bool
+        public let daemonGeneration: DaemonGeneration?
+        public let nameSource: WorkspaceNameSource
+        public let nameRevision: UInt64
+
+        public init(machineID: String, workspace: WorkspaceModel, supportsNameSource: Bool,
+                    daemonGeneration: DaemonGeneration?, nameSource: WorkspaceNameSource,
+                    nameRevision: UInt64) {
+            self.machineID = machineID
+            self.workspace = workspace
+            self.supportsNameSource = supportsNameSource
+            self.daemonGeneration = daemonGeneration
+            self.nameSource = nameSource
+            self.nameRevision = nameRevision
+        }
+    }
+
     /// One rename the rule asks for.
     struct Rename: Equatable, Sendable {
+        var machineID: String
         var workspaceID: String
+        var daemonGeneration: DaemonGeneration?
+        var nameRevision: UInt64
         var name: String
     }
 
     private let names: WorkspaceAutoNameReader
-    /// This Mac's daemon's workspaces (never a remote or Cloud machine's).
-    private let workspaces: @MainActor () -> [WorkspaceModel]
+    /// Every shown daemon workspace. The App supplies machine identity and
+    /// capability state; this keeps local and remote naming on one policy.
+    private let workspaces: @MainActor () -> [Target]
     /// The tab the window showing a workspace selected in a pane, else nil for its default tab.
     private let selection: @MainActor (WorkspaceModel, PaneModel) -> String?
-    /// Sends `rename-workspace` to this Mac's daemon (Rename Workspace's command).
-    private let rename: @MainActor (WorkspaceKey, String) -> Void
-    /// Workspaces this app renamed or asked to rename: never again, even if
-    /// the rename failed or the name went back to a default one.
-    private var renamed: Set<String> = []
+    /// Sends `rename-workspace` with source and revision guards. The App owns
+    /// the connection and must reject missing capabilities without writing.
+    private let rename: @MainActor (Target, String) -> Void
+    /// Targets already submitted in this run. The revision remains part of the
+    /// identity so a later generated title can retry after a stale response.
+    private var submitted: Set<Submission> = []
+
+    private struct Submission: Hashable {
+        var machineID: String
+        var workspaceID: String
+        var daemonGeneration: DaemonGeneration?
+        var nameRevision: UInt64
+    }
 
     /// - Parameters:
     ///   - names: the rule and front-tab reader.
-    ///   - workspaces: the local daemon's workspaces.
+    ///   - workspaces: all daemon workspaces shown by the app.
     ///   - selection: the window's tab selection in a workspace's pane.
     ///   - rename: sends the rename to the local daemon.
     public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [WorkspaceModel],
                 selection: @escaping @MainActor (WorkspaceModel, PaneModel) -> String?,
-                rename: @escaping @MainActor (WorkspaceKey, String) -> Void) {
+                rename: @escaping @MainActor (Target, String) -> Void) {
         self.names = names
         self.workspaces = workspaces
         self.selection = selection
@@ -53,39 +88,48 @@ public final class WorkspaceAutoNamer {
         for await renames in ObservationStream({ self.pending() }) { apply(renames) }
     }
 
-    /// The renames the rule asks for now, among this Mac's daemon's
-    /// workspaces only (a remote or Cloud workspace is never renamed, so two
-    /// Macs on one daemon never race; the Home workspace and app workspaces
-    /// keep their names). Only a default-named workspace whose front tab is
-    /// an agent chat is read further, so a terminal's title ticks or a
-    /// page's loads never wake this.
+    /// The renames the rule asks for now, across local and remote daemon
+    /// workspaces that advertise `workspace-name-source-v1`. A machine header
+    /// is never a target. Only a default-named workspace whose front tab is an
+    /// agent chat is read further, so terminal/page title changes do not write.
     func pending() -> [Rename] {
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
         var renames: [Rename] = []
-        for workspace in workspaces()
-        where workspace.kind != SidebarMapping.homeKind && workspace.app == nil && !renamed.contains(workspace.id)
-            && rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title) {
-            guard let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) }),
+        for target in workspaces() {
+            let workspace = target.workspace
+            let submission = Submission(machineID: target.machineID, workspaceID: workspace.id,
+                                        daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision)
+            guard target.supportsNameSource, workspace.kind != SidebarMapping.homeKind, workspace.app == nil,
+                  !submitted.contains(submission), target.nameSource == .auto,
+                  rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title),
+                  let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) }),
                   front.agentSession != nil,
                   let name = rule.persistedName(name: workspace.name, title: workspace.title, front: names.front(front),
-                                                isLocalMachine: true, alreadyRenamed: false) else { continue }
-            renames.append(Rename(workspaceID: workspace.id, name: name))
+                                                isLocalMachine: target.machineID == DaemonCommandScope.localMachine,
+                                                supportsNameSource: target.supportsNameSource, alreadyRenamed: false) else { continue }
+            renames.append(Rename(machineID: target.machineID, workspaceID: workspace.id,
+                                  daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision, name: name))
         }
         return renames
     }
 
-    /// Sends each rename once, unless the user named the workspace since
-    /// (`confirmsRename` on its current name and title). `rename-workspace`
-    /// takes no expected old name, so a rename the user sends in the same
-    /// instant can still lose to this one.
+    /// Sends each revision once after re-reading the target identity. The
+    /// daemon's source/revision CAS is the final fence: manual names and a
+    /// newer generated result win, even when an older completion returns late.
     func apply(_ renames: [Rename]) {
         let rule = names.rule
-        for candidate in renames where !renamed.contains(candidate.workspaceID) {
-            renamed.insert(candidate.workspaceID)
-            guard let workspace = workspaces().first(where: { $0.id == candidate.workspaceID }), let key = workspace.key,
-                  rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title) else { continue }
-            rename(key, candidate.name)
+        for candidate in renames {
+            let submission = Submission(machineID: candidate.machineID, workspaceID: candidate.workspaceID,
+                                        daemonGeneration: candidate.daemonGeneration, nameRevision: candidate.nameRevision)
+            guard !submitted.contains(submission),
+                  let target = workspaces().first(where: { $0.machineID == candidate.machineID && $0.workspace.id == candidate.workspaceID }),
+                  let key = target.workspace.key, target.daemonGeneration == candidate.daemonGeneration,
+                  target.nameRevision == candidate.nameRevision,
+                  target.nameSource == .auto, target.supportsNameSource,
+                  rule.confirmsRename(currentName: target.workspace.name, currentTitle: target.workspace.title) else { continue }
+            submitted.insert(submission)
+            rename(target, candidate.name)
         }
     }
 }

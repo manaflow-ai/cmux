@@ -85,8 +85,10 @@ struct WorkspaceAutoNameTests {
     // MARK: Persist (variant B): only a generated chat title, once, on this Mac, never a user-named workspace
 
     private static func persisted(_ front: WorkspaceAutoName.Front?, name: String = "workspace-3", title: String? = nil,
-                                  local: Bool = true, alreadyRenamed: Bool = false, rule: WorkspaceAutoName = persist) -> String? {
-        rule.persistedName(name: name, title: title, front: front, isLocalMachine: local, alreadyRenamed: alreadyRenamed)
+                                  local: Bool = true, supportsNameSource: Bool = false, alreadyRenamed: Bool = false,
+                                  rule: WorkspaceAutoName = persist) -> String? {
+        rule.persistedName(name: name, title: title, front: front, isLocalMachine: local,
+                           supportsNameSource: supportsNameSource, alreadyRenamed: alreadyRenamed)
     }
 
     private static let titledChat = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
@@ -124,7 +126,11 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
     }
 
-    @Test func persistNeverRenamesAnotherMachinesWorkspace() {
+    @Test func persistNamesARemoteWorkspaceWhenTheDaemonSupportsNameSource() {
+        #expect(Self.persisted(Self.titledChat, local: false, supportsNameSource: true) == "Fix the sidebar drag")
+    }
+
+    @Test func persistSkipsAnOlderRemoteDaemonWithoutNameSource() {
         #expect(Self.persisted(Self.titledChat, local: false) == nil)
     }
 

@@ -42,13 +42,15 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     }
 
     /// The name to write to the daemon once (variant `persist`), or nil to
-    /// write nothing: only a front chat's generated title, only for a
-    /// workspace of this Mac's daemon (`isLocalMachine`; a remote or Cloud
-    /// workspace is never renamed, so two Macs never race). `alreadyRenamed`:
-    /// this app renamed (or asked to rename) the workspace before, so it
-    /// never does again.
-    public func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool, alreadyRenamed: Bool) -> String? {
-        guard enabled, variant == .persist, isLocalMachine, !alreadyRenamed, !Self.isUserNamed(name: name, title: title) else { return nil }
+    /// write nothing: only a front chat's generated title, and only for a
+    /// daemon that supports the name-source protocol. The local daemon is
+    /// accepted for compatibility with older callers; remote daemons must set
+    /// `supportsNameSource`. `alreadyRenamed` prevents repeat submissions in
+    /// one app run.
+    public func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool,
+                              supportsNameSource: Bool = false, alreadyRenamed: Bool) -> String? {
+        guard enabled, variant == .persist, (isLocalMachine || supportsNameSource), !alreadyRenamed,
+              !Self.isUserNamed(name: name, title: title) else { return nil }
         // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
         // page's title is transient, so those stay live labels.
         guard case let .chat(_, _, generatedTitle)? = front else { return nil }
