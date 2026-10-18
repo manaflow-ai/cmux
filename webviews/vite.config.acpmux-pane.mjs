@@ -1,6 +1,8 @@
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 import {
@@ -52,6 +54,16 @@ export default defineConfig({
           response.setHeader("Cache-Control", "no-store");
           response.setHeader("Referrer-Policy", "no-referrer");
           response.end(RENDER_FRAME_DOC);
+        });
+        // A pane render error the page posts (PaneBoundary.tsx), appended to a log a session can read.
+        server.middlewares.use("/__cmux-pane-error", (request, response) => {
+          let body = "";
+          request.on("data", (chunk) => (body += chunk));
+          request.on("end", () => {
+            fs.appendFileSync(path.join(os.tmpdir(), "cmux-pane-errors.log"), body.slice(0, 20000) + "\n");
+            response.statusCode = 204;
+            response.end();
+          });
         });
       },
     },
