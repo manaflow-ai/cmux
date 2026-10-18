@@ -5,6 +5,26 @@ import { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransiti
 
 export { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision };
 
+export type ClaimedRunAttempt = {
+  readonly runId: string;
+  readonly userId: string;
+  readonly ownerTeamId: string | null;
+  readonly attemptId: string;
+  readonly ordinal: number;
+  readonly variant: Record<string, unknown>;
+  readonly spec: Record<string, unknown>;
+  readonly checkpoint: Record<string, unknown> | null;
+  readonly retainedUntil: Date | null;
+  readonly cleanupState: string | null;
+  readonly leaseId: string;
+  readonly leaseUntil: Date;
+  readonly workerId: string;
+};
+
+export type RunAttemptWorkerResult =
+  | { readonly status: "idle" }
+  | { readonly status: "succeeded" | "failed" | "cancelled"; readonly runId: string; readonly attemptId: string; readonly applied: boolean };
+
 const DEFAULT_LEASE_MS = 60_000;
 const MAX_LEASE_MS = 15 * 60_000;
 type CloudTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
@@ -42,18 +62,55 @@ export async function claimNextRunAttempt(input: {
   readonly workerId: string;
   readonly leaseMs?: number;
   readonly now?: Date;
+  readonly runId?: string;
+  readonly ownerUserId?: string;
+  readonly ownerTeamId?: string;
 }): Promise<ClaimedRunAttempt | null> {
   const now = input.now ?? new Date();
   const leaseUntil = new Date(now.getTime() + boundedLeaseMs(input.leaseMs));
   const leaseId = randomUUID();
   return await cloudDb().transaction(async (tx) => {
+    // Choose a run without locking first. The per-run advisory lock is always
+    // acquired before an attempt row lock, matching cancellation/completion.
+    const candidates = await tx.execute(sql`
+      select a.run_id::text, a.id::text
+      from run_attempts a
+      join runs r on r.id = a.run_id
+      where r.status in ('queued', 'running')
+        and r.spec is not null
+        ${input.runId ? sql`and a.run_id = ${input.runId}::uuid` : sql``}
+        ${input.ownerUserId ? sql`and r.user_id = ${input.ownerUserId}` : sql``}
+        ${input.ownerTeamId ? sql`and r.owner_team_id = ${input.ownerTeamId}` : sql``}
+        and a.cancel_requested_at is null
+        and (
+          a.status = 'queued'
+          or (a.status = 'running' and (a.lease_until is null or a.lease_until <= ${now}))
+        )
+      order by a.created_at asc, a.ordinal asc, a.id asc
+      limit 1
+    `) as readonly Record<string, unknown>[];
+    const candidate = candidates[0];
+    if (!candidate) return null;
+    const runId = rowString(candidate, "run_id");
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${runId}`}, 0))`);
     const rows = await tx.execute(sql`
       with candidate as (
-        select a.id
+        select a.id, r.user_id, r.owner_team_id, r.spec
         from run_attempts a
         join runs r on r.id = a.run_id
-        where r.status in ('queued', 'running')
+        where a.run_id = ${runId}::uuid
+          and r.status in ('queued', 'running')
+          and r.spec is not null
+          ${input.runId ? sql`and a.run_id = ${input.runId}::uuid` : sql``}
+          ${input.ownerUserId ? sql`and r.user_id = ${input.ownerUserId}` : sql``}
+          ${input.ownerTeamId ? sql`and r.owner_team_id = ${input.ownerTeamId}` : sql``}
           and a.cancel_requested_at is null
+          and (
+            select count(*) from run_attempts active
+            where active.run_id = a.run_id
+              and active.status = 'running'
+              and active.lease_until > ${now}
+          ) < r.max_concurrent
           and (
             a.status = 'queued'
             or (a.status = 'running' and (a.lease_until is null or a.lease_until <= ${now}))
@@ -72,15 +129,23 @@ export async function claimNextRunAttempt(input: {
       from candidate
       where a.id = candidate.id
       returning a.run_id::text, a.id::text, a.ordinal, a.variant,
-        a.lease_id::text, a.lease_until, a.worker_id
+        a.lease_id::text, a.lease_until, a.worker_id,
+        a.checkpoint, a.retained_until, a.cleanup_state,
+        candidate.user_id, candidate.owner_team_id, candidate.spec
     `) as readonly Record<string, unknown>[];
     const row = rows[0];
     if (!row) return null;
     const claimed = {
       runId: rowString(row, "run_id"),
+      userId: rowString(row, "user_id"),
+      ownerTeamId: typeof row.owner_team_id === "string" ? row.owner_team_id : null,
       attemptId: rowString(row, "id"),
       ordinal: Number(row.ordinal),
       variant: rowRecord(row, "variant"),
+      spec: rowRecord(row, "spec"),
+      checkpoint: row.checkpoint && typeof row.checkpoint === "object" && !Array.isArray(row.checkpoint) ? row.checkpoint as Record<string, unknown> : null,
+      retainedUntil: row.retained_until ? rowDate(row, "retained_until") : null,
+      cleanupState: typeof row.cleanup_state === "string" ? row.cleanup_state : null,
       leaseId: rowString(row, "lease_id"),
       leaseUntil: rowDate(row, "lease_until"),
       workerId: rowString(row, "worker_id"),
@@ -101,16 +166,19 @@ export async function renewRunAttemptLease(input: {
 }): Promise<boolean> {
   const now = input.now ?? new Date();
   const leaseUntil = new Date(now.getTime() + boundedLeaseMs(input.leaseMs));
-  const rows = await cloudDb().execute(sql`
-    update run_attempts
-    set lease_until = ${leaseUntil}, updated_at = ${now}
-    where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
-      and status = 'running' and lease_id = ${input.leaseId}::uuid
-      and lease_until > ${now}
-      and cancel_requested_at is null
-    returning id
-  `) as readonly Record<string, unknown>[];
-  return rows.length > 0;
+  return await cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${input.runId}`}, 0))`);
+    const rows = await tx.execute(sql`
+      update run_attempts
+      set lease_until = ${leaseUntil}, updated_at = ${now}
+      where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
+        and status = 'running' and lease_id = ${input.leaseId}::uuid
+        and lease_until > ${now}
+        and cancel_requested_at is null
+      returning id
+    `) as readonly Record<string, unknown>[];
+    return rows.length > 0;
+  });
 }
 
 /**
@@ -125,6 +193,9 @@ export async function finishRunAttempt(input: {
   readonly status: Exclude<RunAttemptTerminalStatus, "cancelled">;
   readonly providerVmId?: string | null;
   readonly result?: Record<string, unknown>;
+  readonly checkpoint?: Record<string, unknown> | null;
+  readonly cleanupState?: string | null;
+  readonly retainedUntil?: Date | null;
   readonly error?: string | null;
   readonly now?: Date;
 }): Promise<boolean> {
@@ -147,21 +218,29 @@ async function transitionRunAttempt(input: {
   readonly status: RunAttemptTerminalStatus;
   readonly providerVmId?: string | null;
   readonly result?: Record<string, unknown>;
+  readonly checkpoint?: Record<string, unknown> | null;
+  readonly cleanupState?: string | null;
+  readonly retainedUntil?: Date | null;
   readonly error?: string | null;
   readonly now?: Date;
 }): Promise<boolean> {
   const now = input.now ?? new Date();
   return await cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${input.runId}`}, 0))`);
     const rows = await tx.execute(sql`
       update run_attempts
       set status = ${input.status}::run_attempt_status,
           provider_vm_id = coalesce(${input.providerVmId ?? null}, provider_vm_id),
           result = coalesce(${input.result ? JSON.stringify(input.result) : null}::jsonb, result),
+          checkpoint = coalesce(${input.checkpoint ? JSON.stringify(input.checkpoint) : null}::jsonb, checkpoint),
+          cleanup_state = coalesce(${input.cleanupState ?? null}, cleanup_state),
+          retained_until = coalesce(${input.retainedUntil ?? null}, retained_until),
           error = ${input.error?.slice(0, 1_000) ?? null},
           finished_at = ${now}, lease_until = null, updated_at = ${now}
       where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
         and status = 'running' and lease_id = ${input.leaseId}::uuid
         and lease_until > ${now}
+        and ${input.status === "cancelled" ? sql`true` : sql`cancel_requested_at is null`}
         ${input.status === "cancelled" ? sql`` : sql`and exists (select 1 from runs where id = ${input.runId}::uuid and status <> 'cancelled')`}
       returning id
     `) as readonly Record<string, unknown>[];
@@ -193,7 +272,7 @@ export async function cancelRun(input: { readonly runId: string; readonly now?: 
   return await cloudDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${input.runId}`}, 0))`);
     const runRows = await tx.execute(sql`select status from runs where id = ${input.runId}::uuid for update`) as readonly Record<string, unknown>[];
-    if (runRows.length === 0 || runRows[0]?.status === "cancelled") return false;
+    if (runRows.length === 0 || (runRows[0]?.status !== "queued" && runRows[0]?.status !== "running")) return false;
     const queued = await tx.execute(sql`
       update run_attempts set status = 'cancelled', finished_at = ${now}, updated_at = ${now}
       where run_id = ${input.runId}::uuid and status = 'queued'
@@ -212,11 +291,62 @@ export async function cancelRun(input: { readonly runId: string; readonly now?: 
   });
 }
 
+/**
+ * Finishes cancellation for workers that disappeared after a cancellation
+ * request. Each turn handles a bounded number and uses the same run-before-
+ * attempt lock order as claim/finish, so cleanup can safely run concurrently.
+ */
+export async function reconcileCancelledRunAttempts(input: { readonly limit?: number; readonly now?: Date } = {}): Promise<number> {
+  const limit = Math.max(1, Math.min(Math.trunc(input.limit ?? 100), 500));
+  const now = input.now ?? new Date();
+  let reconciled = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const changed = await cloudDb().transaction(async (tx) => {
+      const candidates = await tx.execute(sql`
+        select a.run_id::text, a.id::text
+        from run_attempts a
+        where a.status = 'running'
+          and a.cancel_requested_at is not null
+          and (a.lease_until is null or a.lease_until <= ${now})
+        order by a.cancel_requested_at asc, a.id asc
+        limit 1
+      `) as readonly Record<string, unknown>[];
+      const candidate = candidates[0];
+      if (!candidate) return false;
+      const runId = rowString(candidate, "run_id");
+      const attemptId = rowString(candidate, "id");
+      // Acquire the run fence before the attempt mutation so cancellation and
+      // terminal callbacks share lock order.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${runId}`}, 0))`);
+      const rows = await tx.execute(sql`
+        update run_attempts
+        set status = 'cancelled', finished_at = ${now}, lease_id = null,
+            lease_until = null, worker_id = null, updated_at = ${now}
+        where run_id = ${runId}::uuid and id = ${attemptId}::uuid
+          and status = 'running' and cancel_requested_at is not null
+        returning id
+      `) as readonly Record<string, unknown>[];
+      if (rows.length === 0) return false;
+      await appendRunEvent(tx, runId, attemptId, "attempt.cancelled", { reason: "worker_lease_expired" });
+      return true;
+    });
+    if (!changed) break;
+    reconciled += 1;
+  }
+  return reconciled;
+}
+
 /** One bounded worker turn. Provider lifecycle is supplied by the caller. */
 export async function runOneRunAttempt(input: {
   readonly workerId: string;
   readonly leaseMs?: number;
-  readonly execute: (attempt: ClaimedRunAttempt) => Promise<{ readonly providerVmId?: string | null; readonly result?: Record<string, unknown> }>;
+  readonly execute: (attempt: ClaimedRunAttempt) => Promise<{
+    readonly providerVmId?: string | null;
+    readonly result?: Record<string, unknown>;
+    readonly checkpoint?: Record<string, unknown> | null;
+    readonly cleanupState?: string | null;
+    readonly retainedUntil?: Date | null;
+  }>;
 }): Promise<RunAttemptWorkerResult> {
   const claimed = await claimNextRunAttempt(input);
   if (!claimed) return { status: "idle" };
