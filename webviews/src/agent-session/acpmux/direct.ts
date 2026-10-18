@@ -6,6 +6,9 @@ import type {
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
   AcpmuxBackgroundTask,
+  AcpmuxProcess,
+  AcpmuxProcessTail,
+  AcpmuxProcessState,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -612,6 +615,8 @@ export class AcpmuxDirectClient {
   >();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
+  /// The selected chat's local background processes, separate from transcript events.
+  private processes = new Map<string, AcpmuxProcess>();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
   /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
@@ -973,6 +978,7 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
+    this.processes.clear();
     this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
     this.firstSeq = undefined;
@@ -1076,6 +1082,7 @@ export class AcpmuxDirectClient {
       });
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
+    else if (notification.method === "_acpmux/process_update") this.applyProcess(notification.params?.process);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
     // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
@@ -1246,6 +1253,90 @@ export class AcpmuxDirectClient {
   stopSubagent(subagentSessionId: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);
+  }
+
+  /** Lists the local background processes for a chat. Older daemons may reject this optional extension. */
+  async listProcesses(sessionId = this.selectedSessionId): Promise<AcpmuxProcess[]> {
+    const result = await this.request("_acpmux/process/list", sessionId ? { sessionId } : {});
+    const processes = Array.isArray(result?.processes)
+      ? result.processes.flatMap((value: unknown) => {
+          const process = normalizeProcess(value, sessionId);
+          return process ? [process] : [];
+        })
+      : [];
+    if (sessionId !== this.selectedSessionId) return processes;
+    this.processes = new Map(processes.map((process) => [process.id, process]));
+    for (const process of processes) this.setProcessRow(process);
+    this.emit("processes");
+    return processes;
+  }
+
+  /** Reads a process's output from the daemon's bounded base64 tail. */
+  async tailProcess(processId: string, fromByte?: number, maxBytes?: number): Promise<AcpmuxProcessTail> {
+    const result = await this.request("_acpmux/process/tail", {
+      processId,
+      ...(fromByte === undefined ? {} : { fromByte }),
+      ...(maxBytes === undefined ? {} : { maxBytes }),
+    });
+    return {
+      data: typeof result?.data === "string" ? result.data : "",
+      fromByte: Number(result?.fromByte ?? 0),
+      nextByte: Number(result?.nextByte ?? 0),
+      eof: result?.eof === true,
+    };
+  }
+
+  /** Asks the owning harness to stop a background process. Its terminal state arrives via update. */
+  killProcess(processId: string, signal?: "term" | "kill"): Promise<unknown> {
+    return this.request("_acpmux/process/kill", {
+      processId,
+      ...(signal ? { signal } : {}),
+    });
+  }
+
+  private processTask(process: AcpmuxProcess): AcpmuxBackgroundTask {
+    const state: AcpmuxBackgroundTask["state"] =
+      process.state === "running"
+        ? "running"
+        : process.state === "failed"
+          ? "failed"
+          : process.state === "exited"
+            ? "completed"
+            : "stopped";
+    return {
+      toolCallId: process.toolCallId,
+      command: process.command,
+      state,
+      processId: process.id,
+      ...(process.reason ? { reason: process.reason } : {}),
+      ...(process.detail ? { detail: process.detail } : {}),
+      ...(process.outputBytes === undefined ? {} : { outputBytes: process.outputBytes }),
+      ...(process.exitCode === undefined ? {} : { exitCode: process.exitCode }),
+      onTail: () => this.tailProcess(process.id),
+      onStop: () => this.killProcess(process.id),
+    };
+  }
+
+  private setProcessRow(process: AcpmuxProcess): void {
+    if (process.sessionId !== this.selectedSessionId) return;
+    const id = `process-${process.id}`;
+    const existing = this.rows.get(id);
+    this.rows.set(id, {
+      id,
+      version: (existing?.version ?? 0) + 1,
+      at: process.endedAt ?? process.startedAt,
+      kind: "backgroundTask",
+      backgroundTask: this.processTask(process),
+    });
+  }
+
+  private applyProcess(value: unknown): void {
+    const process = normalizeProcess(value);
+    if (!process) return;
+    this.processes.set(process.id, process);
+    if (process.sessionId !== this.selectedSessionId) return;
+    this.setProcessRow(process);
+    this.emitInFrame("processes");
   }
 
   /// Reads the selected session's durable composer draft from acpmux.
@@ -1458,6 +1549,10 @@ export class AcpmuxDirectClient {
             item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
         );
     }
+    // Background processes are local state rather than transcript events. Read them on every
+    // attach so reconnects and session switches show running rows immediately; old daemons simply
+    // reject this optional extension.
+    await this.listProcesses(sessionId).catch(() => undefined);
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
       try {
@@ -1996,6 +2091,7 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       rows: this.rows.sorted(),
+      processes: [...this.processes.values()],
       subagentViews: this.subagents.views(),
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);
@@ -3104,6 +3200,43 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
         : undefined;
   if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
   return { reason, harness: data.harness, folder: data.folder };
+}
+
+const PROCESS_STATES: readonly AcpmuxProcessState[] = ["running", "exited", "failed", "killed", "lost"];
+
+/** Normalizes `_acpmux/process/list` and `_acpmux/process_update` payloads at the wire boundary. */
+function normalizeProcess(value: unknown, fallbackSessionId?: string): AcpmuxProcess | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id : "";
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : fallbackSessionId ?? "";
+  const state = PROCESS_STATES.find((candidate) => candidate === raw.state);
+  if (!id || !sessionId || !state || typeof raw.toolCallId !== "string") return undefined;
+  const startedAt = Number(raw.startedAt);
+  if (!Number.isFinite(startedAt)) return undefined;
+  const stringField = (key: string) =>
+    typeof raw[key] === "string" && raw[key] ? (raw[key] as string) : undefined;
+  const numberField = (key: string) => (Number.isFinite(Number(raw[key])) ? Number(raw[key]) : undefined);
+  return {
+    id,
+    sessionId,
+    ...(stringField("subagentSessionId") ? { subagentSessionId: stringField("subagentSessionId") } : {}),
+    toolCallId: String(raw.toolCallId),
+    taskId: stringField("taskId") ?? "",
+    harness: stringField("harness") ?? "",
+    command: stringField("command") ?? "",
+    cwd: stringField("cwd") ?? "",
+    startedAt,
+    ...(numberField("endedAt") === undefined ? {} : { endedAt: numberField("endedAt") }),
+    state,
+    ...(numberField("exitCode") === undefined ? {} : { exitCode: numberField("exitCode") }),
+    ...(stringField("signal") ? { signal: stringField("signal") } : {}),
+    ...(stringField("reason") ? { reason: stringField("reason") } : {}),
+    ...(stringField("detail") ? { detail: stringField("detail") } : {}),
+    origin: stringField("origin") ?? "background",
+    ...(numberField("outputBytes") === undefined ? {} : { outputBytes: numberField("outputBytes") }),
+    ...(stringField("outputFile") ? { outputFile: stringField("outputFile") } : {}),
+  };
 }
 
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.

@@ -1,4 +1,4 @@
-import React, { type ReactNode } from "react";
+import React, { useState, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
 import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
@@ -188,13 +188,7 @@ export function SummaryBody({
       <SummarySection
         title={t("summary.backgroundTasks")}
         items={summary.backgroundTasks}
-        row={(task) => (
-          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
-            <Icon name="terminal" size={ROW_ICON} row />
-            <span className="acpmux-summary-text">{task.command}</span>
-            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
-          </li>
-        )}
+        row={(task) => <BackgroundTaskSummaryRow key={task.id} task={task} />}
       />
       <SummarySection
         title={t("summary.scheduled")}
@@ -208,5 +202,63 @@ export function SummaryBody({
         )}
       />
     </>
+  );
+}
+
+function BackgroundTaskSummaryRow({ task }: { task: SummaryBackgroundTask }) {
+  const t = useT();
+  const [output, setOutput] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <li className="acpmux-summary-row" data-state={task.state}>
+      <Icon name="terminal" size={ROW_ICON} row />
+      <span className="acpmux-summary-text">{task.command}</span>
+      <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
+      {task.onTail && (
+        <button
+          type="button"
+          className="acpmux-summary-action"
+          disabled={busy}
+          onClick={() => {
+            if (output !== undefined) {
+              setOutput(undefined);
+              return;
+            }
+            setBusy(true);
+            void task
+              .onTail!()
+              .then((tail) => {
+                try {
+                  const bytes = Uint8Array.from(atob(tail.data), (char) => char.charCodeAt(0));
+                  setOutput(new TextDecoder().decode(bytes));
+                } catch {
+                  setOutput(tail.data);
+                }
+              })
+              .catch(() => setOutput(t("shell.failed")))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {output === undefined ? t("shell.showAll") : t("shell.showLess")}
+        </button>
+      )}
+      {task.state === "running" && task.onStop && (
+        <button
+          type="button"
+          className="acpmux-summary-action"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void task
+              .onStop!()
+              .catch(() => undefined)
+              .finally(() => setBusy(false));
+          }}
+        >
+          {t("shell.stop")}
+        </button>
+      )}
+      {output !== undefined && <pre className="acpmux-summary-output">{output}</pre>}
+    </li>
   );
 }

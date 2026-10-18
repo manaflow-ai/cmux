@@ -49,6 +49,11 @@ turns an agent edit into a failed tool call.
 
 ## Area instructions
 
+For Codex Desktop parity work, read [the parity contract](docs/cmux-next/codex-desktop-parity.md)
+before editing. Preserve the groups vocabulary, host-aware deeplinks, and live
+background-process actions together; do not land a visual-only row or a local-only
+link path.
+
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).

@@ -2,7 +2,7 @@
 // opened, the files it wrote, its subagents, the wakeups it scheduled and the web pages it
 // read. The summary card lists them (SummaryCard.tsx, SummaryBody.tsx).
 import { turnFiles, type TurnFile } from "../diff";
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import type { AcpmuxActivity, AcpmuxBackgroundTask, AcpmuxProcessTail, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -16,6 +16,11 @@ export type SummaryBackgroundTask = {
   id: string;
   command: string;
   state: "running" | "completed" | "failed" | "stopped";
+  processId?: string;
+  detail?: string;
+  outputBytes?: number;
+  onTail?: () => Promise<AcpmuxProcessTail>;
+  onStop?: () => Promise<unknown>;
 };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
@@ -156,7 +161,23 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
   const endedOnly = ends
     .filter((end) => !seen.has(end.toolCallId))
     .map((end): SummaryBackgroundTask => ({ id: end.toolCallId, command: end.command, state: end.state }));
-  return [...launched, ...endedOnly];
+  const live = rows.flatMap((row): SummaryBackgroundTask[] => {
+    const task: AcpmuxBackgroundTask | undefined = row.backgroundTask;
+    if (!task?.processId) return [];
+    return [
+      {
+        id: task.processId,
+        command: task.command,
+        state: task.state,
+        processId: task.processId,
+        ...(task.detail ? { detail: task.detail } : {}),
+        ...(task.outputBytes === undefined ? {} : { outputBytes: task.outputBytes }),
+        ...(task.onTail ? { onTail: task.onTail } : {}),
+        ...(task.onStop ? { onStop: task.onStop } : {}),
+      },
+    ];
+  });
+  return [...launched, ...endedOnly, ...live];
 }
 
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {

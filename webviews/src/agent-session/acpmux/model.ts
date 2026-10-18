@@ -14,12 +14,50 @@ import type { ComposerAttachment } from "./attachments";
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
 
+/** A background process reported by acpmux's local process registry. */
+export type AcpmuxProcessState = "running" | "exited" | "failed" | "killed" | "lost";
+
+export type AcpmuxProcess = {
+  id: string;
+  sessionId: string;
+  subagentSessionId?: string;
+  toolCallId: string;
+  taskId: string;
+  harness: string;
+  command: string;
+  cwd: string;
+  startedAt: number;
+  endedAt?: number;
+  state: AcpmuxProcessState;
+  exitCode?: number;
+  signal?: string;
+  reason?: string;
+  detail?: string;
+  origin: "background" | "auto_backgrounded" | string;
+  outputBytes?: number;
+  outputFile?: string;
+};
+
+export type AcpmuxProcessTail = {
+  data: string;
+  fromByte: number;
+  nextByte: number;
+  eof: boolean;
+};
+
 /** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
 export type AcpmuxBackgroundTask = {
   toolCallId: string;
   command: string;
-  state: "completed" | "failed" | "stopped";
+  state: "running" | "completed" | "failed" | "stopped";
   reason?: string;
+  processId?: string;
+  detail?: string;
+  outputBytes?: number;
+  exitCode?: number;
+  /** Local actions are attached only to live process rows; replayed transcript rows omit them. */
+  onTail?: () => Promise<AcpmuxProcessTail>;
+  onStop?: () => Promise<unknown>;
 };
 
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
@@ -199,6 +237,8 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /** Background processes owned by the selected chat, including running tasks. */
+  processes?: AcpmuxProcess[];
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
