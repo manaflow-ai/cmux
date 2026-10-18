@@ -1,7 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 import Foundation
-import Observation
+public import Observation
 import os
 
 /// The one owner of what happens to a workspace with no pane.
