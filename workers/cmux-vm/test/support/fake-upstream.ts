@@ -43,7 +43,9 @@ export type UpstreamOperation =
   | "read"
   | "write"
   | "dir"
-  | "resize";
+  | "resize"
+  | "listTlsRules"
+  | "replaceTlsRule";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
@@ -76,6 +78,7 @@ const conflict = (message: string) => Response.json({ code: "CONFLICT", message 
 export function makeFakeUpstream(apiKey: string) {
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
+  const tlsRules = new Map<string, Record<string, unknown>>();
   const files = new Map<string, Uint8Array>();
   const calls: UpstreamCall[] = [];
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
@@ -121,10 +124,29 @@ export function makeFakeUpstream(apiKey: string) {
           snapshotId: typeof snapshotId === "string" ? snapshotId : null,
         };
         vms.set(created.id, created);
+        const tls = read("tls");
+        const inline = typeof tls === "object" && tls !== null && "rules" in tls && Array.isArray(tls.rules) ? tls.rules : [];
+        for (const value of inline) {
+          if (typeof value !== "object" || value === null) continue;
+          const id = `tls-${crypto.randomUUID()}`;
+          tlsRules.set(id, { ...value, id, protocol: "http", source: { vmId: created.id } });
+        }
         return Response.json(vmBody(created), { status: 201 });
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
+      case "listTlsRules":
+        // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
+        return Response.json({ rules: [...tlsRules.values()], totalCount: tlsRules.size });
+      case "replaceTlsRule": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/tls/".length));
+        if (!tlsRules.has(id)) return notFound();
+        const body: unknown = await request.json();
+        if (typeof body !== "object" || body === null) return new Response(null, { status: 400 });
+        const updated = { ...body, id };
+        tlsRules.set(id, updated);
+        return Response.json(updated);
+      }
       case "delete":
         if (vm === undefined) return notFound();
         vms.delete(vm.id);
@@ -232,6 +254,8 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
+    if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
@@ -278,6 +302,7 @@ export function makeFakeUpstream(apiKey: string) {
     snapshots,
     files,
     calls,
+    tlsRules,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];
