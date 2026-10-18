@@ -291,6 +291,49 @@ describe("create", () => {
   });
 });
 
+describe("capture recovery", () => {
+  it("adopts a capture whose response was lost instead of capturing changed source contents", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const key = await h.addKey(TENANT_A, ["snapshot:write"]);
+    const headers = { ...bearer(key), "idempotency-key": "lost-capture" };
+    h.upstream.faults.lostSnapshotResponses = 1;
+    expect((await create(vmId, headers)).status).toBe(503);
+    expect(h.upstream.snapshots.size).toBe(1);
+    const retry = await create(vmId, headers);
+    expect(retry.status).toBe(201);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+    expect(h.upstream.snapshots.size).toBe(1);
+    expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(1);
+  });
+
+  it("replays the committed snapshot after the source VM has been deleted", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const key = await h.addKey(TENANT_A, ["snapshot:write", "vm:write"]);
+    const headers = { ...bearer(key), "idempotency-key": "deleted-capture-source" };
+    const first = await create(vmId, headers);
+    expect(first.status).toBe(201);
+    expect((await h.request(`/v1/vms/${vmId}`, bearer(key), { method: "DELETE" })).status).toBe(204);
+    const retry = await create(vmId, headers);
+    expect(retry.status).toBe(201);
+    expect(await retry.json()).toEqual(await first.json());
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+
+  it("keeps an uncertain capture's snapshot quota reserved", async () => {
+    const limited = await makeHarness({ maxSnapshots: 1 });
+    try {
+      const { vmId } = limited.addVm(TENANT_A);
+      const key = await limited.addKey(TENANT_A, ["snapshot:write"]);
+      limited.upstream.faults.lostSnapshotResponses = 1;
+      const capture = (idempotency: string) => limited.request(`/v1/vms/${vmId}/snapshots`,
+        { ...bearer(key), "idempotency-key": idempotency }, { method: "POST", body: {} });
+      expect((await capture("uncertain")).status).toBe(503);
+      expect((await capture("different")).status).toBe(429);
+      expect(limited.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+    } finally { await limited.dispose(); }
+  });
+});
+
 describe("read, list and delete", () => {
   it("gets an owned snapshot with live retention fields", async () => {
     const { vmId } = h.addVm(TENANT_A);

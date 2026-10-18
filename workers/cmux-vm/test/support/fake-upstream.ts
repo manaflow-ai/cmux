@@ -82,7 +82,7 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
-  const faults = { lostCreateResponses: 0 };
+  const faults = { lostCreateResponses: 0, lostSnapshotResponses: 0 };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -205,6 +205,7 @@ export function makeFakeUpstream(apiKey: string) {
           autoDeleteSeconds: typeof auto === "number" ? auto : null,
         };
         snapshots.set(snapshot.id, snapshot);
+        if (faults.lostSnapshotResponses > 0) { faults.lostSnapshotResponses--; throw new TypeError("lost provider snapshot response"); }
         return Response.json({ snapshotId: snapshot.id, sourceVmId: vm.id, snapshot: { id: snapshot.id, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" } });
       }
       case "deleteSnapshot": {
