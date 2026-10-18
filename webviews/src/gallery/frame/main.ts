@@ -17,6 +17,7 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import "./frame.css";
+import revision from "virtual:cmux-gallery/revision";
 
 installGalleryClock();
 
@@ -112,6 +113,7 @@ root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 root.dataset.gallerySource = entryState?.path ?? "";
 root.dataset.galleryEntryVersion = String(entryState?.version ?? "");
+root.dataset.galleryRevision = revision.sha;
 
 // An experiment's arm (the compare view's cells, the matrix runner's experiment cases): the page
 // reads it through experimentArm(), and the harness controls every Web Animation it starts.
@@ -158,6 +160,7 @@ function markReady(): void {
       width: widthPx(env.width, entry.widths),
       source: entryState?.path,
       version: entryState?.version,
+      revision: revision.sha,
     },
     "*",
   );
