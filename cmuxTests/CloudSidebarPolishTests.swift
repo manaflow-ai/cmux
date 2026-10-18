@@ -25,10 +25,13 @@ struct CloudSidebarPolishTests {
         // Actions follow the carried code, never the display text.
         operation.refusalCode = nil
         #expect(!operation.hitMachineLimit)
-        for plan in ["free", "go", "pro", "unknown"] {
+        for plan in ["free", "go", "unknown"] {
             #expect(MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
         }
-        for plan in ["max", "Team", " founders "] {
+        // Pro already has the most machines any plan sells: Max raises the
+        // machine sizes and shared pool, not the machine count, and the
+        // service sends no upgrade for a paid plan at its machine limit.
+        for plan in ["pro", "max", "Team", " founders "] {
             #expect(!MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
         }
     }

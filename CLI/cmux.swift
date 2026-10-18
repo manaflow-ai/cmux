@@ -112,6 +112,9 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Restart-stable panel identity carried by the managed terminal environment.
+    /// Runtime surface IDs are re-minted when a session is restored.
+    var stableSurfaceId: String? = nil
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
@@ -399,6 +402,8 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
+    private let stableSurfaceId: String?
+    private let environmentSurfaceId: UUID?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -419,6 +424,10 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.environmentSurfaceId = processEnv["CMUX_SURFACE_ID"].flatMap(UUID.init(uuidString:))
+        self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"].flatMap { value in
+            UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))?.uuidString
+        }
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -2055,6 +2064,14 @@ final class ClaudeHookSessionStore {
     ) {
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
+            // PID/TTY routing can replace stale inherited runtime IDs. Carry a
+            // stable ID only when it belongs to the resolved runtime surface.
+            if let stableSurfaceId, let environmentSurfaceId,
+               UUID(uuidString: surfaceId) == environmentSurfaceId {
+                record.stableSurfaceId = stableSurfaceId
+            } else if record.surfaceId.caseInsensitiveCompare(surfaceId) != .orderedSame {
+                record.stableSurfaceId = nil
+            }
             record.surfaceId = surfaceId
         }
         if let cwd = normalizeOptional(cwd) {
@@ -4621,9 +4638,7 @@ final class SocketClient {
             "method": method,
             "params": params
         ]
-        guard JSONSerialization.isValidJSONObject(request),
-              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
-              let requestLine = String(data: requestData, encoding: .utf8) else {
+        guard let requestLine = try? ControlRequestLine.encode(request) else {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
@@ -6564,6 +6579,9 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
+        if command == "automation" {
+            try validateAutomationArgumentsBeforeSocket(commandArgs)
+        }
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
@@ -23513,13 +23531,16 @@ struct CMUXCLI {
     /// Rejects arguments a command doesn't accept, before it contacts the app,
     /// so a typo can't fall through to a different request. A value option
     /// needs a value that isn't another `--` flag (`--name=value` works too);
-    /// everything after `--` counts as a positional.
+    /// everything after `--` counts as a positional. Commands whose
+    /// positionals are free text and that have no single-dash options pass
+    /// `singleDashWordsArePositionals` so `-5C` stays text.
     func rejectUnexpectedArguments(
         _ args: [String],
         commandName: String,
         valueOptions: Set<String>,
         flags: Set<String> = [],
-        maxPositionals: Int
+        maxPositionals: Int,
+        singleDashWordsArePositionals: Bool = false
     ) throws {
         var positionals = 0
         var pastTerminator = false
@@ -23549,7 +23570,7 @@ struct CMUXCLI {
                 if flags.contains(arg) {
                     continue
                 }
-                if arg.hasPrefix("-"), arg.count > 1 {
+                if arg.hasPrefix("--") || (!singleDashWordsArePositionals && arg.hasPrefix("-") && arg.count > 1) {
                     let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),
@@ -29766,7 +29787,6 @@ struct CMUXCLI {
                 return
             }
 
-            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
             if parsed.hasFlag("-h") {
@@ -29782,14 +29802,18 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if parsed.hasFlag("-h"),
-               let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
-                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                    direction = anchoredTarget.direction
-                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
-                }
+            var target: (workspaceId: String, paneId: String?, surfaceId: String)
+            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
+               let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                direction = anchoredTarget.direction
+                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+            } else {
+                // Resolve an ordinary target only after attempting the managed
+                // layout anchor. This lets a stale -t pane/surface fall back to
+                // the live leader when a teammate was closed outside the shim.
+                target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             }
 
             // tmux semantics: the new pane takes focus unless -d ("don't focus
@@ -30402,10 +30426,12 @@ struct CMUXCLI {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     try withLockedTmuxCompatStore { store in
                         let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let existingMainPaneWidth = store.mainVerticalLayouts[workspaceId]?.mainPaneWidthFraction
                         let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                         store.mainVerticalLayouts[workspaceId] = MainVerticalState(
                             mainSurfaceId: callerSurface,
-                            lastColumnSurfaceId: seedColumn
+                            lastColumnSurfaceId: seedColumn,
+                            mainPaneWidthFraction: existingMainPaneWidth
                         )
                     }
                 }
@@ -31397,6 +31423,14 @@ struct CMUXCLI {
                     color: "#8E8E93",
                     pid: claudePid
                 )
+                // `claude --worktree` starts the session outside the shell's
+                // directory; the pane follows the session from here on.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
             }
             printClaudeHookAck()
 
@@ -31513,6 +31547,14 @@ struct CMUXCLI {
                     printClaudeHookAck()
                     return
                 }
+
+                // A worktree entered or left during the turn shows up here.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
 
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
@@ -31792,6 +31834,12 @@ struct CMUXCLI {
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                 store: sessionStore,
                 telemetry: telemetry
+            )
+            reportClaudeHookPaneDirectory(
+                hookCwd: hookCwd,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
             )
             try setClaudeStatus(
                 client: client,
@@ -32288,6 +32336,18 @@ struct CMUXCLI {
                         "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
                         client: client
                     )
+                    // The shell re-reports only a directory it has not sent,
+                    // so hand the pane back to where Claude was launched.
+                    // `/clear` ends a session but Claude keeps running, and
+                    // the next SessionStart reports its cwd again.
+                    let endReason = normalizedHookValue(parsedInput.object?["reason"] as? String)
+                    if !relayOrigin, endReason?.lowercased() != "clear" {
+                        restoreClaudeLaunchPaneDirectory(
+                            workspaceId: workspaceId,
+                            surfaceId: cleanupSurfaceId,
+                            client: client
+                        )
+                    }
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -36067,9 +36127,21 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        var command: String
+        if kind == "claude" {
+            command = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: resumeCommandParts,
+                quote: cliShellQuote
+            )
+        } else if kind == "antigravity" {
+            command = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: resumeCommandParts,
+                kind: kind,
+                quote: cliShellQuote
+            )
+        } else {
+            command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        }
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -36193,8 +36265,6 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
-        guard !selected.isEmpty else { return [:] }
-
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -36206,6 +36276,16 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR"
         ]
         var resolved = selected
+        if kind == "antigravity" {
+            resolved.merge(
+                AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                    kind: kind,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            ) { _, captured in captured }
+        }
+        guard !selected.isEmpty || !resolved.isEmpty else { return [:] }
         if kind == "claude" {
             let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
             if !preservedClaudeKeys.isEmpty {
@@ -36827,7 +36907,7 @@ function isTUIProcessServerContext(ctx) {
 const CMUX_SESSION_SERVER_SCOPES_KEY = Symbol.for("cmux.session.server.scopes");
 
 export default {
-  id: "cmux.server",
+  id: "cmux.session",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
     // Every loader in one plugin scope receives the same ctx. OpenCode keeps
@@ -36926,7 +37006,9 @@ export default {
         try validateOpenCodeTUIPluginDirectory(in: configDir)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
-        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n" + (try bundledOpenCodePluginSource())
+        let feedSource = try bundledOpenCodePluginSource()
+        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n"
+            + feedSource.replacingOccurrences(of: "id: \"cmux.feed\"", with: "id: \"cmux.server\"")
         try serverSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
         try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
         try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: openCodeTUIPluginOwnershipURL(in: configDir), atomically: true, encoding: .utf8)
@@ -38553,6 +38635,12 @@ export default {
                 ?? normalizedHookValue(env["PWD"])
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        if def.name == "codex",
+           codexHookIsInternalSession(input: input, cwd: hookCwd, environment: env) {
+            telemetry.breadcrumb("codex-hook.internal-session-suppressed")
+            print("{}")
+            return
+        }
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
             guard !relayOrigin else { return nil }
             return mapped?.pid ?? inferredPID
@@ -39711,8 +39799,7 @@ export default {
                             "wait_timeout_seconds": 0,
                         ],
                     ]
-                    if let data = try? JSONSerialization.data(withJSONObject: frame),
-                       let line = String(data: data, encoding: .utf8) {
+                    if let line = try? ControlRequestLine.encode(frame) {
                         sendBestEffortFeedTelemetry(
                             socketPath: client.socketPath,
                             line: line,
@@ -42012,9 +42099,7 @@ export default {
                 "wait_timeout_seconds": 0,
             ],
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8)
-        else { return }
+        guard let line = try? ControlRequestLine.encode(frame) else { return }
         // Deliberately NO native-approval-prompt clear on this lane: the
         // wrapper-injected codex hooks that reach it (`hooks codex
         // post-tool-use`) run as fire-and-forget nohup workers with no
@@ -44603,8 +44688,7 @@ export default {
         }
 
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
-            let payload = try JSONSerialization.data(withJSONObject: request)
-            let line = String(data: payload, encoding: .utf8) ?? "{}"
+            let line = try ControlRequestLine.encode(request)
             // Codex-style agents block in their own approval UI while this
             // (telemetry) event is their only signal, so the permission-prompt
             // notification — and the clear once execution proceeds — ride
@@ -44748,8 +44832,7 @@ export default {
                 ]
             }
         }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
+        let line = try ControlRequestLine.encode(request)
         let response: String
         do {
             response = try activeClient.send(
@@ -45753,49 +45836,26 @@ export default {
         \(c7)  ::\(reset)
         """
 
-        // List factory defaults from the shared CmuxSettings table and display
-        // names, so a changed default updates this screen. Welcome describes a
-        // fresh install and never reads the user's settings; the last line
-        // points at where rebound shortcuts are shown.
-        let formatter = ShortcutDisplayFormatter()
-        func defaultKeys(_ action: ShortcutAction) -> String {
-            formatter.displayString(action.defaultShortcut ?? .unbound)
-        }
-        let welcomeActions: [ShortcutAction] = [
-            .newTab,
-            .newSurface,
-            .goToWorkspace,
-            .toggleSidebar,
-            .toggleRightSidebar,
-            .splitRight,
-            .splitDown,
-            .commandPalette,
-            .renameWorkspace,
-            .openBrowser,
-            .jumpToUnread,
-            .toggleUnread,
-        ]
-        let keyColumnWidth = 20
-        var shortcutLines = ["  \(bold)Default shortcuts\(reset)", ""]
-        for action in welcomeActions {
-            let keys = defaultKeys(action)
-            let padding = String(repeating: " ", count: max(1, keyColumnWidth - keys.count))
-            shortcutLines.append("  \(bold)\(keys)\(reset)\(padding)\(subdued)\(action.displayName)\(reset)")
-        }
-        shortcutLines.append("")
-        shortcutLines.append(
-            "  \(subdued)Rebound something? Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to see or change your keys"
-                + " (Settings > Keyboard Shortcuts).\(reset)"
-        )
-        shortcutLines.append(
-            "  \(subdued)Press \(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
-                + " or use File > Command Palette… for everything else.\(reset)"
-        )
+        let shortcuts = """
+          \(bold)Shortcuts\(reset)
+          \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
+          \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
+          \(bold)\u{2318}P\(reset)\(subdued)                  \(String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…"))\(reset)
+          \(bold)\u{2318}B\(reset)\(subdued)                  \(String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"))\(reset)
+          \(bold)\u{2318}\u{2325}B\(reset)\(subdued)                 \(String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"))\(reset)
+          \(bold)\u{2318}D\(reset)\(subdued)                  \(String(localized: "shortcut.splitRight.label", defaultValue: "Split Right"))\(reset)
+          \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 \(String(localized: "shortcut.splitDown.label", defaultValue: "Split Down"))\(reset)
+          \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 \(String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"))\(reset)
+          \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 \(String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace"))\(reset)
+          \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
+          \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 \(String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread"))\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 \(String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread"))\(reset)
+        """
 
         print()
         print(logo)
         print()
-        print(shortcutLines.joined(separator: "\n"))
+        print(shortcuts)
         print()
         print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
         print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
@@ -45803,6 +45863,7 @@ export default {
         print("  \(bold)Email\(reset)\(subdued)               founders@cmux.com\(reset)")
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()
     }

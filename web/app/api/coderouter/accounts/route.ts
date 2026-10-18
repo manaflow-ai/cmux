@@ -11,6 +11,7 @@ import {
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
 import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import { isCoderouterViewOpenRequest } from "../../../../services/coderouter/viewAnalytics";
 import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
@@ -47,18 +48,21 @@ async function handleGet(request: Request): Promise<Response> {
     timing("serialize", serializeMs),
     timing("total", performance.now() - startedAt),
   ].join(", ");
-  captureCoderouterEvent({
-    event: "coderouter_account_status_viewed",
-    teamId: resolved.teamId,
-    properties: {
-      source: "native_api",
-      account_count: result.accounts.length,
-      account_error_count: result.accounts.filter(
-        (account) => "usageError" in account && Boolean(account.usageError),
-      ).length,
-      duration_ms: Math.round(performance.now() - startedAt),
-    },
-  });
+  // Clients poll this list; only the request that opened the view counts.
+  if (isCoderouterViewOpenRequest(request)) {
+    captureCoderouterEvent({
+      event: "coderouter_account_status_viewed",
+      teamId: resolved.teamId,
+      properties: {
+        source: "native_api",
+        account_count: result.accounts.length,
+        account_error_count: result.accounts.filter(
+          (account) => "usageError" in account && Boolean(account.usageError),
+        ).length,
+        duration_ms: Math.round(performance.now() - startedAt),
+      },
+    });
+  }
   addCoderouterBreadcrumb("status", "Account status loaded", {
     account_count: result.accounts.length,
     duration_ms: Math.round(performance.now() - startedAt),

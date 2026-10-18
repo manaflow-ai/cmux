@@ -1079,10 +1079,14 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 
 @MainActor
 @discardableResult
+/// - Parameter fileReadAccessURL: For a file URL, the directory to grant the
+///   page read access to instead of the file's own directory (a browser REPL
+///   session's pinned root, `BrowserReplFileSandbox.withPinnedFileAccess`).
 func browserLoadRequest(
     _ request: URLRequest,
     in webView: WKWebView,
-    trustedInternalNavigation: Bool = false
+    trustedInternalNavigation: Bool = false,
+    fileReadAccessURL: URL? = nil
 ) -> WKNavigation? {
     guard let url = request.url else { return nil }
     let policy = BrowserURLAllowlistPolicy(defaults: .standard)
@@ -1098,7 +1102,7 @@ func browserLoadRequest(
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        guard let readAccessURL = fileReadAccessURL ?? browserReadAccessURL(forLocalFileURL: url) else { return nil }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
@@ -2113,8 +2117,14 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Kept so a pane of another team re-persists its own team, not the selection.
     var restoredCloudTeamID: String?
 
-    /// The workspace ID this panel belongs to
-    private(set) var workspaceId: UUID
+    /// The workspace ID this panel belongs to. A browser REPL session
+    /// that may not use the tab in its new workspace leaves it.
+    private(set) var workspaceId: UUID {
+        didSet {
+            guard workspaceId != oldValue else { return }
+            BrowserReplTabAttachments.shared.panelDidChangeWorkspace(id)
+        }
+    }
     private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
@@ -2141,6 +2151,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
+    /// Geolocation and offline emulation set by `browser.geolocation.set` /
+    /// `browser.offline.set`; follows the tab across web view replacements
+    /// the same way automation init scripts do.
+    let browserEmulation = BrowserWebKitEmulationController()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
@@ -2223,6 +2237,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
 
+    /// Set for a pane opened to show a sidebar resource (a Cloud browser, display or
+    /// port). It is blank while it connects, but it is not a new tab to type into,
+    /// so focusing it never auto-focuses the address bar.
+    var opensLinkedContent = false
+
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
@@ -2244,6 +2263,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
+            SurfaceCatalog.shared.cloudBrowserDocumentDidChange(self)
             applyConfiguredWebViewBackground()
             mobileBrowserStreamStateDidChange(markDirty: true)
         }
@@ -2319,6 +2339,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var pageTitle: String = "" {
         didSet {
             guard oldValue != pageTitle else { return }
+            SurfaceCatalog.shared.cloudBrowserDocumentDidChange(self)
             mobileBrowserStreamStateDidChange(markDirty: true)
         }
     }
@@ -3337,7 +3358,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
-        BrowserReplTabAttachments.shared.attachment(for: id)?.instrumentCurrentWebView()
+        BrowserReplTabAttachments.shared.webViewDidBind(webView, panelID: id)
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
@@ -3876,7 +3897,6 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.replAttachment = {
             BrowserReplTabAttachments.shared.attachment(for: panelID)
         }
-        dlDelegate.refreshScriptedDownloadRouting()
         dlDelegate.savePanelParentWindow = { [weak self] in
             self.flatMap { browserInteractiveModalHostWindow(for: $0.webView) }
         }
@@ -4291,8 +4311,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
-        // A browser REPL session's proxy store keeps the proxy it was given.
-        if BrowserReplProxyStores.owns(webView.configuration.websiteDataStore) { return }
+        // A live browser REPL session's proxy store keeps the proxy it was
+        // given; once the session ends the store is the browser's again.
+        if BrowserReplProxyStores.shared.owns(webView.configuration.websiteDataStore) { return }
 
         if cloudBrowserMachineID != nil {
             if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {
@@ -5655,6 +5676,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func navigate(
         to url: URL,
         recordTypedNavigation: Bool = false,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         var url = url
@@ -5699,6 +5721,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             trustedInternalNavigation: true,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5728,6 +5751,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
         trustedInternalNavigation: Bool = false,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         guard let url = request.url else {
@@ -5756,6 +5780,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         let routesThroughSSHTui = owningWorkspaceRoutesThroughSSHTui
         if routesThroughSSHTui, let serviceURL = sshLoopbackServiceURL(for: url) {
+            // A pinned file load is granted its read access now or not at
+            // all: a later load would not be under the session's check.
+            if fileReadAccessURL != nil {
+                onNavigationStarted?(nil)
+                return nil
+            }
             // Every entry point (history, restore, heal, page links) lands here.
             // A loopback URL belongs to the SSH host: hand it to that machine's
             // forward, or wait for the machine, never this Mac's same-port service.
@@ -5772,6 +5802,12 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil, !routesThroughSSHTui {
+            // A pinned file load is granted its read access now or not at
+            // all: a later load would not be under the session's check.
+            if fileReadAccessURL != nil {
+                onNavigationStarted?(nil)
+                return nil
+            }
             queueRemoteNavigation(request, recordTypedNavigation: recordTypedNavigation,
                                   preserveRestoredSessionHistory: preserveRestoredSessionHistory,
                                   onNavigationStarted: onNavigationStarted)
@@ -5782,6 +5818,7 @@ final class BrowserPanel: Panel, ObservableObject {
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5842,6 +5879,7 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil,
         skipsAppSessionBootstrap: Bool = false
     ) -> WKNavigation? {
@@ -5906,11 +5944,34 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             clearTrustedLocalFileDocumentIfNeeded(for: originalURL)
         }
-        let startedNavigation = browserLoadRequest(
-            effectiveRequest,
-            in: webView,
-            trustedInternalNavigation: trustedInternalNavigation
-        )
+        let startedNavigation: WKNavigation?
+        if originalURL.isFileURL, fileReadAccessURL == nil,
+           let sessionID = BrowserReplTabAttachments.shared.fileLoadSession(panelID: id, url: originalURL) {
+            // A file of a browser REPL session's directories, loaded without
+            // the driver (a crashed process's recovery, a restore, a reload):
+            // read access to the session's pinned root, checked and granted
+            // while no REPL rename can run, never the file's parent directory
+            // as a link swapped in would resolve it. A refused file loads nothing.
+            startedNavigation = try? BrowserReplPolicyBoard.shared.withPinnedFileAccess(
+                originalURL.absoluteString,
+                sessionID: sessionID,
+                in: webView
+            ) { readAccess in
+                browserLoadRequest(
+                    effectiveRequest,
+                    in: webView,
+                    trustedInternalNavigation: trustedInternalNavigation,
+                    fileReadAccessURL: readAccess
+                )
+            }
+        } else {
+            startedNavigation = browserLoadRequest(
+                effectiveRequest,
+                in: webView,
+                trustedInternalNavigation: trustedInternalNavigation,
+                fileReadAccessURL: fileReadAccessURL
+            )
+        }
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
@@ -5933,7 +5994,10 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool,
         onNavigationStarted: ((WKNavigation?) -> Void)?
     ) -> Bool {
+        // A tab a browser REPL session drives never receives the signed-in
+        // app session: the session could read the user's account pages.
         guard !isClosingWebViewLifecycle,
+              BrowserReplTabAttachments.shared.attachment(for: id)?.isAttached != true,
               cloudBrowserMachineID == nil,
               cloudAccess.model == nil,
               !usesRemoteWorkspaceProxy,
@@ -8005,6 +8069,7 @@ extension BrowserPanel {
     }
 
     func shouldSuppressOmnibarAutofocus() -> Bool {
+        if opensLinkedContent { return true }
         if let until = suppressOmnibarAutofocusUntil {
             return Date() < until
         }
@@ -8719,11 +8784,18 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
+    /// Running downloads by id, so a REPL session that leaves can cancel its own.
+    private var runningDownloads: [String: RunningDownload] = [:]
+    /// Downloads of a REPL session that ended with it
+    /// (``discardSessionDownloads(_:)``): removed when WebKit ends them,
+    /// never saved for the user.
+    private var discardedDownloadIDs: Set<String> = []
     private let activeDownloadsLock = NSLock()
-    // CmuxWebView reads this flag synchronously from a WebKit callback. Keep
-    // the callback independent of Swift's MainActor executor while publishing
-    // the actor-owned REPL decision as one atomic snapshot.
-    private let scriptedDownloadRoutingState = OSAllocatedUnfairLock(initialState: false)
+
+    private final class RunningDownload {
+        weak var download: WKDownload?
+        init(_ download: WKDownload) { self.download = download }
+    }
     var onDownloadStarted: ((String, String) -> Void)?
     var onDownloadReadyToSave: ((String, String) -> Void)?
     var onDownloadSaved: ((String, URL, Bool, String) -> Void)?
@@ -8735,16 +8807,22 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     /// temporary directory and are reported to the session.
     var replAttachment: (@MainActor () -> BrowserReplTabAttachment?)?
 
-    @MainActor
-    func refreshScriptedDownloadRouting() {
-        let routed = replAttachment?()?.routesToSessions(.download) == true
-        scriptedDownloadRoutingState.withLock { $0 = routed }
-    }
-
     /// Scripted `data:` downloads of a tab whose downloads go to a REPL
     /// session come here as WebKit downloads, so the session sees them.
+    /// Read live on the main actor (``BrowserScriptedDownloadRouting``), so
+    /// it is the attachment's routing at the moment of the download, with no
+    /// snapshot to keep in step and no executor check.
+    @MainActor
     var routesScriptedDownloadsThroughWebKit: Bool {
-        scriptedDownloadRoutingState.withLock { $0 }
+        replAttachment?()?.routesToSessions(.download) == true
+    }
+
+    /// Binds the frame that asked for a scripted download to it, so a REPL
+    /// session judges the document that wrote a `data:` download; one with
+    /// no such record fails closed under a domain policy.
+    @MainActor
+    func scriptedDownloadStarted(_ download: WKDownload, url: URL, initiator: WKFrameInfo) {
+        BrowserReplTabAttachment.claimScriptedDownload(download, url: url, initiator: initiator)
     }
 
     static let tempDir: URL = {
@@ -8756,7 +8834,29 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
+        runningDownloads[state.downloadID] = RunningDownload(download)
         activeDownloadsLock.unlock()
+    }
+
+    /// Ends the downloads `ids`, which went to a REPL session that is leaving
+    /// the tab (``BrowserReplSessionDownloads/sessionLeft(_:)``): each still
+    /// running is cancelled, and its file, partial or whole, is removed when
+    /// WebKit ends it. A session's download never goes on to the user's
+    /// download location or save panel once its session is gone.
+    func discardSessionDownloads(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        activeDownloadsLock.lock()
+        discardedDownloadIDs.formUnion(ids)
+        let downloads = ids.compactMap { runningDownloads[$0]?.download }
+        activeDownloadsLock.unlock()
+        for download in downloads { download.cancel(nil) }
+    }
+
+    /// Whether download `id` ended with its REPL session; forgets it.
+    private func takeDiscarded(_ id: String) -> Bool {
+        activeDownloadsLock.lock()
+        defer { activeDownloadsLock.unlock() }
+        return discardedDownloadIDs.remove(id) != nil
     }
 
     func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload) {
@@ -8774,10 +8874,17 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         return filename
     }
 
+    private func storedState(for download: WKDownload) -> DownloadState? {
+        activeDownloadsLock.lock()
+        defer { activeDownloadsLock.unlock() }
+        return activeDownloads[ObjectIdentifier(download)]
+    }
+
     private func removeState(for download: WKDownload) -> DownloadState? {
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
         suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        if let state { runningDownloads.removeValue(forKey: state.downloadID) }
         activeDownloadsLock.unlock()
         return state
     }
@@ -8879,18 +8986,89 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+        // The session whose input started the navigation this download came
+        // from, bound to the download when WebKit made it, and every place
+        // the request went, the response's URL last.
+        let starter = BrowserReplTabAttachment.downloadStarter(of: download)
+        var source = BrowserReplTabAttachment.downloadSource(of: download)
+        if let url = response.url { source.went(to: url.absoluteString) }
+        // The download's state, its REPL route and the session's record of
+        // it are made in one main-thread turn, before WebKit gets the
+        // destination: a session's teardown (on the main thread) runs either
+        // before, and the route sees it gone, or after, and cancels the
+        // download it recorded. Never a download in between that the
+        // teardown misses and the finish then saves for the user.
         notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename, downloadID)
-            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, suggestedFilename: safeFilename)
+            guard let self else {
+                completionHandler(nil)
+                return
+            }
+            self.storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+            self.onDownloadStarted?(safeFilename, downloadID)
+            // A tab a REPL session created never keeps a download from a
+            // place the session's domain policy or directories refuse, and
+            // one a session's input started never outlives that session.
+            // The route is decided here, once, and recorded on the download:
+            // its redirects and its end read that record, never the tab's
+            // sessions at that later time.
+            let route = self.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename)
+                ?? BrowserReplTabAttachment.routeWithoutSessions(startedBy: starter)
+            BrowserReplTabAttachment.decideDownloadRoute(route, of: download)
+            let keeps: Bool
+            switch route {
+            case .user, .session: keeps = true
+            case .refused, .cancelled: keeps = false
+            }
+            #if DEBUG
+            cmuxDebugLog("download.decideDestination file=<redacted> keeps=\(keeps)")
+            #endif
+            // No destination cancels the download; its failure removes the state.
+            completionHandler(keeps ? destURL : nil)
         }
-        #if DEBUG
-        cmuxDebugLog("download.decideDestination file=<redacted>")
-        #endif
-        completionHandler(destURL)
+    }
+
+    func download(
+        _ download: WKDownload,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void
+    ) {
+        // A REPL session gets a download only when it may read every place
+        // the request went (BrowserReplDownloadSource).
+        BrowserReplTabAttachment.downloadRedirected(download, to: request.url)
+        // Before WebKit picked the destination the download has no state
+        // yet, but its claim (starter and every place so far, this one last)
+        // is judged now, before the request goes there: a tab a session
+        // created never sends one to a place its policy refuses.
+        guard let downloadID = storedState(for: download)?.downloadID else {
+            let starter = BrowserReplTabAttachment.downloadStarter(of: download)
+            let source = BrowserReplTabAttachment.downloadSource(of: download)
+            notifyOnMain { [weak self] in
+                let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source)
+                    ?? (starter == nil)
+                decisionHandler(allowed ? .allow : .cancel)
+            }
+            return
+        }
+        // After WebKit picked the destination the download's recorded route
+        // decides: a session's download is judged for this place by the
+        // session it went to, and is cancelled when that session is gone.
+        notifyOnMain { [weak self] in
+            let check: BrowserReplDownloadClaim.SessionCheck
+            if case .session(let recipient)? = BrowserReplTabAttachment.downloadClaim(of: download).route {
+                check = self?.replAttachment?()?.downloadRedirectCheck(id: downloadID, to: request.url, recipient: recipient) ?? .gone
+            } else {
+                check = .keeps
+            }
+            let allowed = BrowserReplTabAttachment.downloadFollowsRedirect(download, check)
+            decisionHandler(allowed ? .allow : .cancel)
+        }
     }
 
     func downloadDidFinish(_ download: WKDownload) {
+        // The route recorded when WebKit picked the destination; the end
+        // reads it, never the tab's sessions after the deferred work below.
+        let claim = BrowserReplTabAttachment.downloadClaim(of: download)
         guard let info = removeState(for: download) else {
             #if DEBUG
             cmuxDebugLog("download.finished missing-state")
@@ -8907,12 +9085,36 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             }.value
             let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
 
-            if let attachment = self.replAttachment?(), attachment.keepsDownloadInTemporaryDirectory(id: info.downloadID) {
-                // `download.path()` reads the file where WebKit wrote it; the
-                // session, not a save panel, decides where it goes next.
-                self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
-                attachment.downloadDidFinish(id: info.downloadID, path: info.tempURL.path, error: nil)
+            // A REPL session's download that ended with the session: the
+            // file is removed, never saved for the user.
+            if self.takeDiscarded(info.downloadID) {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadCancelled?(suggestedFilename, true, info.downloadID)
                 return
+            }
+            // `download.path()` reads the file where WebKit wrote it; the
+            // session, not a save panel, decides where it goes next. Every
+            // place it came from is judged again before the session gets it.
+            // A session's download whose session is gone (its teardown took
+            // its record, or the tab's REPL state is gone) is removed.
+            var finish: BrowserReplSessionDownloads.Finish?
+            if case .session? = claim.route {
+                finish = self.replAttachment?()?.downloadDidFinish(id: info.downloadID, path: info.tempURL.path)
+            }
+            switch claim.end(finish) {
+            case .session:
+                self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
+                return
+            case .refused:
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadFailed?(CocoaError(.fileReadNoPermission), true, info.downloadID)
+                return
+            case .cancelled:
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadCancelled?(suggestedFilename, true, info.downloadID)
+                return
+            case .user:
+                break
             }
 
             if filenameResolver.shouldAskWhereToSaveDownloads() {
@@ -8954,13 +9156,20 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         if let info = removeState(for: download) {
             try? FileManager.default.removeItem(at: info.tempURL)
             downloadID = info.downloadID
+            if takeDiscarded(info.downloadID) {
+                // Cancelled because its REPL session left the tab.
+                notifyOnMain { [weak self] in
+                    self?.onDownloadCancelled?(info.suggestedFilename, true, info.downloadID)
+                }
+                return
+            }
         } else {
             downloadID = nil
         }
         notifyOnMain { [weak self] in
             self?.onDownloadFailed?(error, true, downloadID)
             if let downloadID {
-                self?.replAttachment?()?.downloadDidFinish(id: downloadID, path: nil, error: error.localizedDescription)
+                self?.replAttachment?()?.downloadDidFail(id: downloadID, error: error.localizedDescription)
             }
         }
         #if DEBUG
@@ -8984,8 +9193,9 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var closeRequested: ((WKWebView) -> Void)?
 
     /// Geolocation permission (`WKUIDelegatePrivate`). A tab a REPL session
-    /// created answers from the session's granted permissions; every other
-    /// tab is denied, WebKit's behavior when the delegate does not implement this.
+    /// created answers from the session's granted permissions, to an origin
+    /// and frame its domain policy allows; every other request is denied,
+    /// WebKit's behavior when the delegate does not implement this.
     @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
     func _webView(
         _ webView: WKWebView,
@@ -8994,7 +9204,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
         let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
-        decisionHandler(attachment?.grants("geolocation") == true ? .grant : .deny)
+        let request = BrowserReplPermissionRequest(
+            permissions: ["geolocation"],
+            origin: BrowserReplFrameDocument(securityOrigin: origin),
+            frame: BrowserReplFrameDocument(info: frame)
+        )
+        decisionHandler(attachment?.grants(request) == true ? .grant : .deny)
     }
 
     /// Focus leaving the page (`WKUIDelegatePrivate`): Tab or Shift+Tab past
@@ -9017,7 +9232,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decisionHandler: @escaping (Bool) -> Void
     ) {
         let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
-        decisionHandler(attachment?.grants("notifications") == true)
+        let request = BrowserReplPermissionRequest(
+            permissions: ["notifications"],
+            origin: BrowserReplFrameDocument(securityOrigin: securityOrigin)
+        )
+        decisionHandler(attachment?.grants(request) == true)
     }
 
     /// WebKit's beforeunload confirmation (`WKUIDelegatePrivate`). Without a
@@ -9031,7 +9250,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping (Bool) -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "beforeunload", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+           attachment.handleDialog(type: "beforeunload", message: message, defaultValue: nil, frame: frame, respond: { accept, _ in completionHandler(accept) }) {
             return
         }
         completionHandler(true)
@@ -9111,7 +9330,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         // untrusted navigation the URL allowlist and the creating session's
         // domain policy allow (BrowserReplNavigationGuard.popupRoute).
         if let owner, let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id) {
-            switch BrowserReplNavigationGuard.shared.popupRoute(panelID: owner.id, url: navigationAction.request.url) {
+            switch BrowserReplNavigationGuard.shared.popupRoute(
+                panelID: owner.id,
+                url: navigationAction.request.url,
+                opener: navigationAction.browserReplSourceDocument
+            ) {
             case .refused(let reason):
 #if DEBUG
                 cmuxDebugLog("browser.nav.createWebView kind=replPopupRefused reason=\(reason)")
@@ -9134,9 +9357,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 if case .opened(let popup)? = attachment.adoptPopup(request: navigationAction.request, configuration: configuration) {
                     return popup
                 }
-                if attachment.handlePopup(request: navigationAction.request) {
-                    return nil
-                }
+                // The popup opens as the session's tab or, when no tab
+                // can open (for example, the user turned the browser off),
+                // is refused. It never falls through to the user's popup
+                // window, new tab or system browser.
+                _ = attachment.handlePopup(request: navigationAction.request)
+                return nil
             case .inputSession(let sessionID):
                 // A user's tab opened the window for an agent's click: a
                 // background tab for that agent, never a key popup window
@@ -9148,12 +9374,15 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 ) {
                     return popup
                 }
-                if attachment.handlePopup(request: navigationAction.request, forInputSession: sessionID) {
-                    return nil
-                }
+                _ = attachment.handlePopup(request: navigationAction.request, forInputSession: sessionID)
                 return nil
             }
         }
+        // As in the navigation delegate: a tab a browser REPL session drives
+        // hands a window's link to the external browser only when the user
+        // activated it there.
+        // Every external side effect below asks the same decision.
+        let replGuard = BrowserReplNavigationGuard.shared
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,
                navigationAction.targetFrame?.isMainFrame != false,
@@ -9161,14 +9390,16 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                    url: url,
                    webOrigin: AuthEnvironment.appSessionHandoffOrigin
                ),
+               replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .appLink),
                openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
                 return nil
             }
-            switch externalNavigationHandler.openConfiguredExternallyResult(
+            let replAllowsExternalOpen = replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .configuredBrowser)
+            switch replAllowsExternalOpen ? externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-            ) {
+            ) : .notConfigured {
             case .opened:
                 return nil
             case .failed:
@@ -9203,9 +9434,14 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return nil
         }
 
-        // External URL schemes → hand off to macOS, don't create a popup
+        // External URL schemes → hand off to macOS, don't create a popup.
+        // From a tab a browser REPL session drives, only on the user's own
+        // click there.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
+            guard replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .otherApp) else {
+                return nil
+            }
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",
@@ -9366,7 +9602,14 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             case .cameraAndMicrophone: needed = ["camera", "microphone"]
             @unknown default: needed = ["camera", "microphone"]
             }
-            decisionHandler(needed.allSatisfy(attachment.grants) ? .grant : .deny)
+            // Only to an origin and frame the creating session's domain
+            // policy allows: a blocked frame can still be in the tab.
+            let request = BrowserReplPermissionRequest(
+                permissions: needed,
+                origin: BrowserReplFrameDocument(securityOrigin: origin),
+                frame: BrowserReplFrameDocument(info: frame)
+            )
+            decisionHandler(attachment.grants(request) ? .grant : .deny)
             return
         }
         let allowLabel = String(localized: "common.allow", defaultValue: "Allow")
@@ -9403,7 +9646,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping () -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "alert", message: message, defaultValue: nil, respond: { _, _ in completionHandler() }) {
+           attachment.handleDialog(type: "alert", message: message, defaultValue: nil, frame: frame, respond: { _, _ in completionHandler() }) {
             return
         }
         let alert = NSAlert()
@@ -9443,7 +9686,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping (Bool) -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "confirm", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+           attachment.handleDialog(type: "confirm", message: message, defaultValue: nil, frame: frame, respond: { accept, _ in completionHandler(accept) }) {
             return
         }
         let alert = NSAlert()
@@ -9499,6 +9742,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                type: "prompt",
                message: prompt,
                defaultValue: defaultText,
+               frame: frame,
                respond: { accept, text in completionHandler(accept ? (text ?? defaultText ?? "") : nil) }
            ) {
             return

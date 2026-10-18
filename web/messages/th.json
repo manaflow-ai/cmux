@@ -114,6 +114,16 @@
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
+      "computeMessage": "แพ็กเกจ {plan} ของคุณใช้ชั่วโมงประมวลผล {included} ชั่วโมงของรอบการเรียกเก็บเงินนี้หมดแล้ว หนึ่งชั่วโมงประมวลผลคือ 1 vCPU พร้อมหน่วยความจำ 2 GB ทำงานหนึ่งชั่วโมง เครื่องของคุณจะเริ่มทำงานได้อีกครั้งในวันที่ {resetDate}",
+      "computeAction": "เครื่องที่หยุดชั่วคราวจะเก็บไฟล์ไว้ โปรดติดต่อฝ่ายสนับสนุนหากต้องการการประมวลผลเพิ่มก่อนวันที่ {resetDate}",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "ใช้โควตาดิสก์ของ {plan} หมดแล้ว",
+      "storageMessage": "แพ็กเกจ {plan} ของคุณมีดิสก์รวม {included} GB สำหรับเครื่องที่บันทึกไว้ทั้งหมด เครื่องที่บันทึกไว้ใช้ {used} GB และคำขอนี้ต้องการ {requested} GB",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "ทรัพยากร Cloud VM ไม่พอ",
       "memoryMessage": "VM ของคุณใช้ RAM ไปแล้ว {used} จาก {pool} GB VM นี้ต้องใช้ {requested} GB",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "ใช้แพ็กเกจต่อก่อนจึงจะเปลี่ยนได้",
           "granted": "ได้รับจาก cmux ไม่มีอะไรให้เปลี่ยน",
+          "grantedNoCancel": "ได้รับจาก cmux จึงไม่มีอะไรให้ยกเลิก",
+          "paymentFailed": "อัปเดตวิธีการชำระเงินก่อนเปลี่ยนแผน",
+          "foundersLifetime": "Founder's Edition รวม Pro ตลอดชีพ",
           "adminOnly": "เฉพาะผู้ดูแลทีมเท่านั้นที่เปลี่ยนแพ็กเกจได้"
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "เปลี่ยนเป็น {plan} ไหม",
         "upgradeBody": "{plan} เริ่มทันที วันนี้คุณชำระ {amount} สำหรับช่วงที่เหลือของรอบบิลนี้ ตั้งแต่ {date} คุณชำระ {price} ต่อเดือน",
+        "upgradeBodyYearly": "{plan} เริ่มทันที วันนี้คุณชำระ {amount} สำหรับช่วงที่เหลือของรอบบิลนี้ ตั้งแต่ {date} คุณชำระ {price} ต่อปี",
         "downgradeBody": "{plan} เริ่มทันที ส่วนที่ยังไม่ได้ใช้ของแพ็กเกจปัจจุบัน {credit} จะนำไปหักในใบแจ้งหนี้ถัดไป ใบแจ้งหนี้ถัดไปในวันที่ {date} คือ {amount}",
         "confirm": "เปลี่ยนเป็น {plan}",
         "keep": "ใช้แพ็กเกจปัจจุบันต่อ",
@@ -568,6 +582,8 @@
         "title": "ยกเลิก {plan} ไหม",
         "body": "คุณยังใช้ {plan} ได้จนถึง {date} หลังจากนั้นคุณจะเสีย:",
         "bodyNoDate": "คุณยังใช้ {plan} ได้จนสิ้นรอบบิลนี้ หลังจากนั้นคุณจะเสีย:",
+        "foundersBody": "การสมัคร {plan} ของคุณจะสิ้นสุดในวันที่ {date} หลังจากนั้นคุณจะมี Pro ซึ่ง Founder's Edition รวมไว้ตลอดชีพ",
+        "foundersBodyNoDate": "การสมัคร {plan} ของคุณจะสิ้นสุดเมื่อจบรอบการเรียกเก็บเงินนี้ หลังจากนั้นคุณจะมี Pro ซึ่ง Founder's Edition รวมไว้ตลอดชีพ",
         "reasonLabel": "ทำไมจึงยกเลิก (ไม่บังคับ)",
         "otherPlaceholder": "บอกเราเพิ่มเติม (ไม่บังคับ)",
         "confirm": "ยกเลิกแพ็กเกจ",
