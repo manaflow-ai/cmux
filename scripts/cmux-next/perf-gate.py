@@ -21,9 +21,15 @@ warnings only.
                  frame: the grid each terminal renders follows the grid its frame fits within
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
-                 snapshots, 0 sidebar list reloads (I6).
+                 snapshots, 0 sidebar list reloads (I6); each switch shows on the next frame after
+                 its intent (debug.tab_switch; a frame check), its main-thread apply over 4 ms is a
+                 warning. The socket reply also waits for the daemon's confirm: reported, not gated.
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
                  3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
+  relaunch       the app quits and starts again on the same tag, so it restores the grid with
+                 its hidden New Tab pages (state an earlier launch left, as a person's app has);
+                 then tabs and split again in that grid, with the tabs and split budgets (I2,
+                 cx-8w027.20: each restored page re-ran its pane on every split or close anywhere).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -73,7 +79,9 @@ BUDGET = {
 # is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
+# Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
+TAB_APPLY_BUDGET_MS = 4
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
@@ -167,6 +175,12 @@ class App:
             raise SystemExit("perf-gate: the app's debug socket never answered (a Debug build is required)")
         if not wait(lambda: self.panes(), 60):
             raise SystemExit("perf-gate: the first terminal pane never showed")
+
+    def relaunch(self):
+        """Quits the app and starts it again on the same tag: it restores what this launch left."""
+        self.stop()
+        self.teardown = TagTeardown(self.bundle)
+        self.launch()
 
     def stop(self):
         try:
@@ -619,39 +633,75 @@ class Gate:
                 app.action("newTab.page", {}, target=f"pane:{pane}")
         want = columns * rows
         shown = wait(lambda: (lambda p: p if p[0] >= want and p[1] >= want * tabs else None)(app.panes()), 30) or app.panes()
-        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {app.shown_workspace()}", flush=True)
+        self.grid_workspace = app.shown_workspace()
+        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {self.grid_workspace}", flush=True)
         self.grid = shown
         return shown
 
-    def tabs(self):
+    def tabs(self, scenario="tabs"):
         app = self.app
         panes, tabs = getattr(self, "grid", None) or self.build_grid()
-        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", "tabs"):
+        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", scenario):
             return
         # Next Tab really moves the selection (outside the measured window: the reads cost nothing there).
         seen = []
         for _ in range(3):
             app.action("nextSurface")
             seen.append((app.topology().get("focus") or {}).get("tab"))
-        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", "tabs"):
+        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", scenario):
             return
         ops = 40
         app.quiet_counters()
+        # The frame probe keeps the display link ticking, so debug.tab_switch's first tick after a switch is the
+        # next vsync, not a link that starts from idle.
+        app.rpc("debug.frames", {"action": "start"})
+        app.rpc("debug.tab_switch", {"action": "start"})
         latencies = []
         for _ in range(ops):
             start = time.monotonic()
             app.action("nextSurface")
             latencies.append((time.monotonic() - start) * 1000)
         measured = app.quiet_counters()
-        report["phases"]["tabs"] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
-                                    "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1]}
+        own = app.rpc("debug.tab_switch", {"action": "stop"}) or {}
+        switch_frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+        report["phases"][scenario] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                      "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1],
+                                      "latencies_ms": [round(v, 1) for v in latencies]}
         check(not over(measured, BUDGET["tabs"]),
               f"{ops} tab switches at {panes} panes x 3 tabs: {breach_text(over(measured, BUDGET['tabs']), measured['sources']) or 'all 0'}"
-              f" (budget {BUDGET['tabs']})", "tabs")
-        if report["phases"]["tabs"]["latency_p99_ms"] > 50:
-            warn(f"tab switch reply p99 {report['phases']['tabs']['latency_p99_ms']:.1f} ms (over 50 ms)", "tabs")
+              f" (budget {BUDGET['tabs']})", scenario)
+        # The reply also waits for the daemon to confirm the selection and for a frame-paced snapshot publish, so
+        # it is not the switch's cost (cx-8w027.21): the same switch without waiting, and a bare round trip.
+        def timed(call):
+            start = time.monotonic()
+            call()
+            return round((time.monotonic() - start) * 1000, 1)
+        phase = report["phases"][scenario]
+        phase["frames"] = switch_frames
+        if scenario == "tabs":
+            phase["no_wait_ms"] = [timed(lambda: app.rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True,
+                                                                         "origin": "script", "wait": False})) for _ in range(20)]
+            app.settle()
+            phase["ping_ms"] = [timed(lambda: app.rpc("system.ping")) for _ in range(20)]
+        # The gated timing: the app's own time per switch, intent to shown (apply) and to the next display frame.
+        pairs = list(zip(own.get("apply_ms") or [], own.get("frame_ms") or []))
+        phase["apply_ms"], phase["frame_ms"] = ([round(v, 2) for v in values] for values in zip(*pairs)) if pairs else ([], [])
+        if not check(len(pairs) == ops, f"debug.tab_switch timed {len(pairs)} of {ops} switches", scenario):
+            return
+        applies, frames = sorted(phase["apply_ms"]), sorted(phase["frame_ms"])
+        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
+        print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, next frame p50 {frames[ops // 2]:.2f} / "
+              f"p99 {p99(frames):.2f} ms; reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
+        if p99(applies) > TAB_APPLY_BUDGET_MS:
+            warn(f"tab switch apply p99 {p99(applies):.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
+        if self.frames_ok(scenario):
+            # The switch draws on the first frame after its intent: within one refresh plus its own apply.
+            refresh = switch_frames.get("refresh_ms") or (report.get("frames_probe") or {}).get("refresh_ms") or FRAME_BUDGET_MS
+            late = [frame for apply, frame in pairs if frame > apply + refresh * 1.25]
+            check(not late, f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, "
+                            f"next frame p99 {p99(frames):.2f} ms)", scenario)
 
-    def split(self):
+    def split(self, scenario="split"):
         app = self.app
         panes, _ = getattr(self, "grid", None) or self.build_grid()
         pairs = 10
@@ -666,13 +716,66 @@ class Gate:
             landed += bool(split and closed)
         measured = app.quiet_counters()
         if not check(landed == pairs and app.panes()[0] == panes,
-                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", "split"):
+                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", scenario):
             return
         per_pair = {k: round(measured.get(k, 0) / pairs, 2) for k in BUDGET["split"]}
-        report["phases"]["split"] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
+        report["phases"][scenario] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
         breaches = over(measured, BUDGET["split"], pairs)
         check(not breaches, f"{pairs} split+close pairs at {panes} panes: per pair {per_pair} (budget {BUDGET['split']})"
-                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), "split")
+                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), scenario)
+
+    def relaunch(self):
+        """tabs and split again after a relaunch on the same tag, in the grid the app restored."""
+        app = self.app
+        if not getattr(self, "grid", None):
+            self.build_grid()
+        grid, workspace = self.grid, self.grid_workspace
+        pages = self.page_tabs()
+        app.relaunch()
+        app.action("goToWorkspace", {"workspace": workspace})
+        shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
+        if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
+            return
+        # The state under test: the grid's New Tab pages came back (most of them hidden, not shown yet).
+        restored = pages & self.page_tabs()
+        if not check(len(restored) >= grid[0] * 2 and restored == pages,
+                     f"the relaunch restores the grid's {len(pages)} New Tab pages ({len(restored)} came back)", "relaunch"):
+            return
+        # The restore's own work ends before the measured phases: every terminal of the grid runs
+        # again (live, with a terminal id), the tab lists stop changing, and the counters stop moving
+        # for 3 reads in a row. Its cost is the restore's (a bead of its own), not the phases'.
+        start, last, still = time.monotonic(), None, 0
+        while time.monotonic() - start < 60:  # bounded: the restored grid settles
+            now = (self.grid_tabs(), {k: app.counters(reset=False).get(k) for k in App.QUIET_KEYS})
+            live = all(not tab["dead"] and tab["terminal"] for pane in now[0] for tab in pane if tab["kind"] == "terminal")
+            still = still + 1 if live and now == last else 0
+            if still >= 3:
+                break
+            last = now
+            time.sleep(1.0)  # test script: the gap between two reads while the restore settles
+        settled = round(time.monotonic() - start, 1)
+        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3}
+        if still < 3:
+            warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
+        self.tabs("relaunch tabs")
+        self.split("relaunch split")
+
+    def grid_tabs(self):
+        """The shown workspace's tabs per pane: id, kind, dead, terminal id (in order)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return [[{"id": tab.get("id"), "kind": tab.get("kind"), "dead": bool(tab.get("dead")),
+                  "terminal": tab.get("terminal")} for tab in pane.get("tabs") or []]
+                for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []]
+
+    def page_tabs(self):
+        """Tab ids of the shown workspace that are not terminals (the grid's New Tab pages)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return {tab.get("id") for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
+                for tab in pane.get("tabs") or [] if tab.get("kind") != "terminal" and tab.get("id")}
 
     def status(self):
         app = self.app
