@@ -38,7 +38,6 @@ public struct DaemonCapabilities: Sendable {
     /// a daemon lacks them (`DaemonIdentity.supports`).
     public let workspaceGroups = "workspace-groups-v1"
     public let workspaceMetadata = "workspace-metadata-v1"
-    /// Workspace name provenance and revision (`name_source`, `name_revision`).
     public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
