@@ -225,7 +225,7 @@ export default componentEntry<{ initialStrategy?: string }>({
   height: 780,
   widths: { narrow: 520, normal: 860, wide: 1160 },
   anchors: [{ selector: "[data-orchestration-lab]" }],
-  covers: ["agent-session/acpmux/OrchestrationLab.gallery.tsx#OrchestrationLab"],
+  covers: ["agent-session/acpmux/App.tsx#AcpmuxApp"],
   styles: () => import("./OrchestrationLab.gallery.css"),
   load: async () => OrchestrationLab,
   variants: {
