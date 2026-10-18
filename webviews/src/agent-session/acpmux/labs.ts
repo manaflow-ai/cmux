@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
 
 /// Chat features being tried out (Lucas 2026-10-18: generative UI and chat parity), each its own
-/// switch and off by default, so today's chat is untouched until one is turned on:
+/// switch. Only liveRender is on by default (Lucas 2026-10-18):
 /// - `liveRender`: render pages run on their own, can talk back to the chat (window.cmux), take
-///   components, preview pages while they are written, and draw on the dev server too
-///   (conversation/RenderCard.tsx, conversation/RenderPreview.tsx).
+///   components, and draw inline as they are written, on the dev server too
+///   (conversation/RenderCard.tsx).
 /// - `contextMeter`: show the context ring beside the model, with its token details.
 /// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
 /// - `messageTimes`: show a prompt's send time on hover or focus.
@@ -12,8 +12,8 @@ import { useSyncExternalStore } from "react";
 /// - `planProgress`: keep the running plan's current step above the composer.
 /// - `shortcutsHelp`: show the chat's live keys from its menu.
 ///
-/// Turn one on with `"labs": {"liveRender": true}` in `agent-pane/layout.json` (the App pushes the
-/// file to every chat), or in the dev server with `?data-lab-live-render=on`. Each switch is also
+/// Set one with `"labs": {"liveRender": false}` in `agent-pane/layout.json` (the App pushes the
+/// file to every chat), or in the dev server with `?data-lab-live-render=off`. Each enabled switch is
 /// `data-lab-<name>="on"` on `<html>`, for CSS.
 export const LABS = [
   "liveRender",
@@ -25,6 +25,7 @@ export const LABS = [
   "shortcutsHelp",
 ] as const;
 export type Lab = (typeof LABS)[number];
+const defaults: Partial<Record<Lab, boolean>> = { liveRender: true };
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 
@@ -35,13 +36,19 @@ const listeners = new Set<() => void>();
 export function configureLabs(layout: Record<string, unknown> | undefined): void {
   const labs = layout?.labs;
   const next = new Set<Lab>(
-    labs && typeof labs === "object" ? LABS.filter((lab) => (labs as Record<string, unknown>)[lab] === true) : [],
+    LABS.filter((lab) => {
+      const value = labs && typeof labs === "object" ? (labs as Record<string, unknown>)[lab] : undefined;
+      return typeof value === "boolean" ? value : defaults[lab] === true;
+    }),
   );
-  if (next.size === fromLayout.size && [...next].every((lab) => fromLayout.has(lab))) return;
   if (typeof document !== "undefined")
     for (const lab of LABS) {
-      // A dev URL's own `?data-lab-…=on` stays; layout.json only adds and removes its own.
-      if (next.has(lab)) document.documentElement.setAttribute(attribute(lab), "on");
+      // A dev URL can override the default too (Lucas 2026-10-18).
+      const override =
+        typeof location !== "undefined" ? new URLSearchParams(location.search).get(attribute(lab)) : null;
+      if (override === "on" || override === "off") document.documentElement.setAttribute(attribute(lab), override);
+      else if (next.has(lab)) document.documentElement.setAttribute(attribute(lab), "on");
+      else if (defaults[lab]) document.documentElement.setAttribute(attribute(lab), "off");
       else if (fromLayout.has(lab)) document.documentElement.removeAttribute(attribute(lab));
     }
   fromLayout = next;
@@ -50,9 +57,15 @@ export function configureLabs(layout: Record<string, unknown> | undefined): void
 
 /// Whether `lab` is on now: layout.json's, else the page's `data-lab-<name>`.
 export function labOn(lab: Lab): boolean {
-  if (fromLayout.has(lab)) return true;
-  return typeof document !== "undefined" && document.documentElement.getAttribute(attribute(lab)) === "on";
+  const value = typeof document !== "undefined" ? document.documentElement.getAttribute(attribute(lab)) : null;
+  if (value === "on" || value === "off") return value === "on";
+  return fromLayout.has(lab) || defaults[lab] === true;
 }
+
+if (typeof document !== "undefined")
+  for (const lab of LABS)
+    if (defaults[lab] && !document.documentElement.hasAttribute(attribute(lab)))
+      document.documentElement.setAttribute(attribute(lab), "on");
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);

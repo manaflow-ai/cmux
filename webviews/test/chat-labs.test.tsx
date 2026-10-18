@@ -95,7 +95,7 @@ const prompt = (id: string, text = "Hello", at = Date.now()): AcpmuxRow => ({
   version: 1,
 });
 
-test("labs default off and keep the prompt and plain code markup", async () => {
+test("other labs default off and keep the prompt and plain code markup", async () => {
   await draw(<UserBubble row={prompt("off")} text="Hello" />);
   expect(host.innerHTML).toBe('<div class="cv-user__bubble selectable">Hello</div>');
   await draw(<PlainCode code="line" lang="text" />);
@@ -335,6 +335,7 @@ test.each(["messageTimes", "liveRender", "codeWrap", "planProgress", "contextMet
   "%s discards a measured offscreen row height like a fresh transcript",
   async (setting) => {
     const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+    if (setting === "liveRender") act(() => configureLabs({ labs: { liveRender: false } }));
     if (setting === "shared wrap") act(() => configureLabs({ labs: { codeWrap: true } }));
     const text = Array.from({ length: 40 }, (_, n) => `line ${n}`).join("\n");
     const rows = Array.from({ length: 80 }, (_, n) => prompt(`setting-${n}`, text));
@@ -411,7 +412,8 @@ test("Find reopens a prompt for the next occurrence after the reader collapses i
   expect(host.querySelector(".is-clamped")).toBeNull();
 });
 
-test("live render rows leave the card head free of the floating Copy", async () => {
+test("live render rows have no card head or floating Copy", async () => {
+  act(() => configureLabs({ labs: { liveRender: false } }));
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
   const rows: AcpmuxRow[] = [
     {
@@ -438,6 +440,7 @@ test("live render rows leave the card head free of the floating Copy", async () 
   expect(host.querySelector(".acpmux-row__copy")).not.toBeNull();
   act(() => configureLabs({ labs: { liveRender: true } }));
   expect(host.querySelector(".acpmux-render-card") !== null).toBe(true);
+  expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
   expect(host.querySelector(".acpmux-row__copy") === null).toBe(true);
 });
 

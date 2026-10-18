@@ -14,7 +14,6 @@ import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
-import { RenderPreview } from "./RenderPreview";
 import { REACT_MARKER } from "./renderFrameDoc";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
@@ -665,17 +664,12 @@ function Block({
       );
     }
     case "code": {
-      // Keep the card mounted while its inert preview becomes a live page (Lucas 2026-10-18).
-      if (
-        liveRender &&
-        code !== "plain" &&
-        /^(cmux-render|cmux-react)$/i.test(block.lang) &&
-        (!block.open || code === "open")
-      ) {
+      // One frame follows the fence from its first token through completion (Lucas 2026-10-18).
+      if (liveRender && code !== "plain" && /^(cmux-render|cmux-react)$/i.test(block.lang)) {
         const render = renderFence(block.lang, block.code) ?? {
-          html: block.lang.toLowerCase() === "cmux-react" ? REACT_MARKER : block.code,
+          html: block.lang.toLowerCase() === "cmux-react" ? REACT_MARKER + block.code : block.code,
         };
-        return <RenderPreview call={{ ...render, id: rowId ? renderId : undefined }} streaming={!!block.open} />;
+        return <RenderCard call={{ ...render, id: rowId ? renderId : undefined }} streaming={!!block.open} />;
       }
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;

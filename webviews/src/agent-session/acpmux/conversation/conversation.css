@@ -2508,42 +2508,20 @@ pre.cv-math-source {
   margin-top: 0;
 }
 
-/* Live cards keep their controls quiet until the reader points or tabs in (Lucas 2026-10-18). */
+/* Live pages sit directly in the message column (Lucas 2026-10-18). */
 :root[data-lab-live-render="on"] .acpmux-render-card {
+  width: 100%;
   background: transparent;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
-}
-:root[data-lab-live-render="on"] .acpmux-render-card-head {
-  min-height: 32px;
-  padding: 4px 8px 4px 12px;
+  border: 0;
+  border-radius: 0;
   box-shadow: none;
-}
-:root[data-lab-live-render="on"] .acpmux-render-card-title {
-  color: var(--agent-text);
-  font-size: var(--text-body);
-  font-weight: 600;
-}
-:root[data-lab-live-render="on"] .acpmux-render-stop,
-:root[data-lab-live-render="on"] .acpmux-render-open {
-  opacity: 0;
-  pointer-events: none;
-  min-width: 24px;
-  height: 24px;
-}
-:root[data-lab-live-render="on"] .acpmux-render-stop {
-  box-shadow: none;
-  color: var(--agent-muted);
-}
-:root[data-lab-live-render="on"] .acpmux-render-card:hover :is(.acpmux-render-stop, .acpmux-render-open),
-:root[data-lab-live-render="on"] .acpmux-render-card:focus-within :is(.acpmux-render-stop, .acpmux-render-open) {
-  opacity: 1;
-  pointer-events: auto;
 }
 :root[data-lab-live-render="on"] .acpmux-render-confirm {
   flex-wrap: wrap;
   align-items: flex-start;
-  border-top-width: var(--cmux-hairline, 0.5px);
+  padding: 6px 0;
+  border: 0;
+  color: var(--agent-muted);
 }
 :root[data-lab-live-render="on"] .acpmux-render-confirm-text.is-expanded {
   -webkit-line-clamp: unset;

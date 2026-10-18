@@ -4,6 +4,16 @@
 // server's config can load it.
 export const DEV_RENDER_FRAME_PATH = "/__cmux-render-frame";
 
+/// The pane's navigation policy accepts only a different preview origin (Lucas 2026-10-18).
+export function devRenderFrameURL(page: string): string {
+  const url = new URL(page);
+  url.hostname = url.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  url.pathname = DEV_RENDER_FRAME_PATH;
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
+
 /// The dev frame mirrors AgentPaneRenderFrame's document and policy (Lucas 2026-10-18).
 const CDNS = "https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com";
 export const RENDER_POLICY = [
@@ -51,4 +61,3 @@ export const RENDER_FRAME_DOC = `<!doctype html><html><head>${POLICY_META}<meta 
   host.postMessage({ type: "cmux-render-ready" }, "*");
 })();
 </script></head></html>`;
-

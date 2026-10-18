@@ -1,12 +1,5 @@
-// A render card above a turn's answer (renderCall.ts): the agent's HTML, live, in the render frame
-// (`cmux-agent://render/frame`, AgentPaneRenderFrame.swift). The frame is an origin of its own,
-// sandboxed without same-origin, so the HTML cannot reach the pane, its bridge or acpmux; its
-// policy allows no connection. The frame asks for the HTML once it loads and reports its height;
-// the card grows to it, up to a cap a reader can lift. Outside liveRender it waits for Run:
-// the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
-// liveRender lab uses a srcdoc frame on the dev server and allows requests through a small bridge.
-// Outside the lab a dev call stays a plain tool row. Open hands the
-// page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
+// Agent HTML stays in one opaque frame. liveRender streams into its runtime; the lab off
+// keeps the original Run gate and card controls (Lucas 2026-10-18).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
@@ -15,10 +8,10 @@ import { Expand } from "./icons";
 import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 import { isReactRender, reactRenderPage, renderBridgeScript, RENDER_FRAME_DOC } from "./renderFrameDoc";
-import { DEV_RENDER_FRAME_PATH } from "./renderFrameShell";
+import { devRenderFrameURL } from "./renderFrameShell";
 import { useRenderRequests } from "./useRenderRequests";
 import { ChatSessionContext, TranscriptRowContext } from "./viewIdentity";
-import { stopRender, useRenderStopped } from "./renderState";
+import { renderStreamScript } from "./renderStreamRuntime";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
@@ -38,37 +31,78 @@ export const canRender = () => typeof location !== "undefined" && location.proto
 const devServer = () => import.meta.env?.DEV === true && /^https?:$/.test(location.protocol);
 
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
+/// The theme for a page embedded in the chat: no side inset, so it lines up with the reply's text
+/// (Lucas 2026-10-18); a page's own `body` margin still wins.
+const embeddedFrameCSS = () => `${renderFrameCSS()}:where(body){margin:4px 0}`;
+
 export function useRenderFrame(
   html: string,
   live = false,
   request?: (data: Record<string, unknown>, target: Window) => void,
+  streaming = false,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
+  const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
+  const latest = useRef({ html, streaming, request });
+  latest.current = { html, streaming, request };
+  const schedule = useRef<() => void>(() => {});
   useEffect(() => {
+    let booted = false,
+      ready = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let sent: { html: string; done: boolean } | undefined;
+    const flush = () => {
+      timer = undefined;
+      if (!ready) return;
+      const { html, streaming } = latest.current;
+      if (isReactRender(html) && streaming) return;
+      const page = isReactRender(html) ? reactRenderPage(html) : html;
+      const done = !streaming;
+      if (sent?.html === page && sent.done === done) return;
+      frame.current?.contentWindow?.postMessage({ type: "cmux-render-stream", html: page, done }, "*");
+      sent = { html: page, done };
+    };
+    schedule.current = () => {
+      if (ready && timer === undefined) timer = setTimeout(flush, 50);
+    };
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
       if (!target || event.source !== target) return;
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready") {
-        if (live) setHeight(RENDER_FRAME_MIN_HEIGHT);
-        const css = renderFrameCSS();
+      if (message.type === "cmux-render-ready" && !booted) {
+        booted = true;
+        const css = live ? embeddedFrameCSS() : renderFrameCSS();
         const theme = getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light";
-        const page = live && isReactRender(html) ? reactRenderPage(html) : html;
         target.postMessage(
-          { type: "cmux-render", html: live ? "<!doctype html>" + renderBridgeScript(theme, css) + page : page, css },
+          {
+            type: "cmux-render",
+            html: live
+              ? "<!doctype html><html><head>" +
+                renderBridgeScript(theme, css) +
+                renderStreamScript() +
+                "</head><body></body></html>"
+              : latest.current.html,
+            css,
+          },
           "*",
         );
-      } else if (live && message.type === "cmux-render-request") request?.(data as Record<string, unknown>, target);
+      } else if (live && message.type === "cmux-render-stream-ready") {
+        ready = true;
+        schedule.current();
+      } else if (live && message.type === "cmux-render-request")
+        latest.current.request?.(data as Record<string, unknown>, target);
       else if (
         message.type === (live ? "cmux-render-content-size" : "cmux-render-size") &&
         typeof message.height === "number" &&
         Number.isFinite(message.height)
       )
         setHeight(
-          Math.min(EXPANDED_MAX_HEIGHT, Math.max(live ? 48 : RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))),
+          Math.min(
+            live ? 1600 : EXPANDED_MAX_HEIGHT,
+            Math.max(live ? 0 : RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height)),
+          ),
         );
     };
     addEventListener("message", onMessage);
@@ -77,7 +111,7 @@ export function useRenderFrame(
         {
           type: "cmux-render-theme",
           theme: getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light",
-          css: renderFrameCSS(),
+          css: embeddedFrameCSS(),
         },
         "*",
       );
@@ -88,15 +122,26 @@ export function useRenderFrame(
     const scheme = live && typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined;
     scheme?.addEventListener("change", theme);
     return () => {
+      clearTimeout(timer);
+      schedule.current = () => {};
       removeEventListener("message", onMessage);
       observer?.disconnect();
       scheme?.removeEventListener("change", theme);
     };
-  }, [html, live, request]);
+  }, [live]);
+  useEffect(() => schedule.current(), [html, streaming]);
   return { frame, height };
 }
 
-export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: boolean }) {
+export function RenderCard({
+  call,
+  panel = false,
+  streaming = false,
+}: {
+  call: RenderCall;
+  panel?: boolean;
+  streaming?: boolean;
+}) {
   const t = useT();
   const live = useLab("liveRender");
   const open = useContext(ArtifactContext);
@@ -105,83 +150,68 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
   const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
   const key = JSON.stringify([sessionId, identity]);
   const requests = useRenderRequests(key);
-  const { frame, height } = useRenderFrame(call.html, live, requests.request);
+  const { frame, height } = useRenderFrame(call.html, live, requests.request, streaming);
   const [expanded, setExpanded] = useState(false);
-  // Auto-run trades the Run gate for immediacy. A busy loop still blocks the shared web process
-  // (Lucas 2026-10-18); Stop unloads cooperative pages, but cannot interrupt that loop.
   const [ran, setRan] = useState(() => ranRenders.has(call.html));
-  const stopped = useRenderStopped(key);
-  const running = live ? !stopped : ran;
+  const running = live || ran;
   const run = () => {
     ranRenders.add(call.html);
     setRan(true);
-    stopRender(key, false);
   };
+  if (live && streaming && isReactRender(call.html)) return null;
   const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
     <div className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}>
-      <div className="acpmux-render-card-head">
-        <span className="acpmux-render-card-title">{title}</span>
-        {!running && (
-          <button type="button" className="acpmux-review-changes" onClick={run}>
-            {t("render.run")}
-          </button>
-        )}
-        {live && running && (
-          <button
-            type="button"
-            className="acpmux-review-changes acpmux-render-stop"
-            aria-label={t("render.stop")}
-            onClick={() => {
-              requests.cancel();
-              ranRenders.delete(call.html);
-              setRan(false);
-              stopRender(key, true);
-            }}
-          >
-            {t("render.stop")}
-          </button>
-        )}
-        {running && tall && (
-          <button
-            type="button"
-            className="acpmux-review-changes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? t("render.collapse") : t("render.expand")}
-          </button>
-        )}
-        {open && !panel && (
-          <button
-            type="button"
-            className={`cv-iconbtn cv-iconbtn--compact${live ? " acpmux-render-open" : ""}`}
-            aria-label={t("artifact.open")}
-            title={t("artifact.open")}
-            onClick={() =>
-              open({
-                kind: live && isReactRender(call.html) ? "react" : "html",
-                lang: live && isReactRender(call.html) ? "cmux-react" : "html",
-                code: call.html,
-              })
-            }
-          >
-            <Expand />
-          </button>
-        )}
-      </div>
+      {!live && (
+        <div className="acpmux-render-card-head">
+          <span className="acpmux-render-card-title">{title}</span>
+          {!running && (
+            <button type="button" className="acpmux-review-changes" onClick={run}>
+              {t("render.run")}
+            </button>
+          )}
+          {running && tall && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? t("render.collapse") : t("render.expand")}
+            </button>
+          )}
+          {open && !panel && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.open")}
+              title={t("artifact.open")}
+              onClick={() =>
+                open({
+                  kind: "html",
+                  lang: "html",
+                  code: call.html,
+                })
+              }
+            >
+              <Expand />
+            </button>
+          )}
+        </div>
+      )}
       {running && (
         <iframe
-          key={live ? call.html : undefined}
           ref={frame}
           className={panel ? "acpmux-artifact-frame" : "acpmux-render-card-frame"}
-          src={live && !canRender() ? (devServer() ? DEV_RENDER_FRAME_PATH : undefined) : RENDER_FRAME_URL}
+          src={live && !canRender() ? (devServer() ? devRenderFrameURL(location.href) : undefined) : RENDER_FRAME_URL}
           srcDoc={live && !canRender() && !devServer() ? RENDER_FRAME_DOC : undefined}
           title={title}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          style={panel ? undefined : { height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
+          style={
+            panel && !live ? undefined : { height: live || expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }
+          }
         />
       )}
       {live && running && requests.pending && <RenderConfirm key={requests.pending.text} requests={requests} />}

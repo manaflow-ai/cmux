@@ -1,6 +1,6 @@
 import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
 import { labOn } from "./labs";
-import { liveRenderTurn } from "./mockFixture";
+import { liveRenderTurn, liveRenderDemoHTML } from "./mockFixture";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
 import { HANDOFF_OPS } from "./handoff/protocol";
@@ -684,9 +684,21 @@ export class MockAcpmuxSocket {
       msg: { text: prompt, promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
-    const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
+    const demo = !this.script && labOn("liveRender") && /render a demo/i.test(prompt);
+    const html = demo ? liveRenderDemoHTML() : "";
+    const fence = "```cmux-render\n" + html + "\n```";
+    const steps: MockScript["steps"] =
+      this.script?.steps ??
+      (demo
+        ? Array.from({ length: Math.ceil(fence.length / 20) }, (_, index) => ({
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: fence.slice(index * 20, (index + 1) * 20) },
+            },
+          }))
+        : mockTurn(prompt, this.turns));
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) await this.delay(demo ? 30 : 350);
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }

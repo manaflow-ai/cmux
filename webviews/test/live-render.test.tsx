@@ -71,8 +71,7 @@ async function draw(
   sessionId = `live-test-${testSession}`,
 ) {
   act(() => root?.unmount());
-  document.documentElement.toggleAttribute("data-lab-live-render", false);
-  if (live) document.documentElement.setAttribute("data-lab-live-render", "on");
+  document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
   sent.length = prefilled.length = opened.length = 0;
   const { createRoot } = await import("react-dom/client");
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
@@ -125,7 +124,7 @@ function click(text: string) {
   act(() => button.click());
 }
 
-test("lab off keeps dev fences as source, lab on auto-runs an opaque srcdoc frame with Stop", async () => {
+test("lab off keeps dev fences as source, lab on embeds an opaque frame without controls", async () => {
   await draw(false);
   expect(host.querySelector("iframe")).toBeNull();
   expect(host.querySelector(".acpmux-render-card")).toBeNull();
@@ -135,10 +134,12 @@ test("lab off keeps dev fences as source, lab on auto-runs an opaque srcdoc fram
   const doc = new JSDOM(frame!.srcdoc).window.document;
   expect(doc.head.firstElementChild?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
   expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Run")).toBe(false);
-  click("Stop");
-  expect(host.querySelector("iframe")).toBeNull();
-  click("Run");
-  expect(host.querySelector("iframe")).not.toBeNull();
+  expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
+  expect(
+    [...host.querySelectorAll("button")].some((button) =>
+      ["Stop", "Open preview", "Run"].includes(button.textContent!),
+    ),
+  ).toBe(false);
 });
 
 test("another window cannot forge requests, ready or height messages", async () => {
@@ -156,7 +157,7 @@ test("another window cannot forge requests, ready or height messages", async () 
   expect(host.querySelector(".acpmux-render-confirm")).toBeNull();
   expect(prefilled).toEqual([]);
   expect(replies).toEqual([]);
-  expect(frame!.style.height).toBe("120px");
+  expect(frame!.style.height).toBe("0px");
 });
 
 test("sendPrompt waits for Send in the pane; Edit prefills without sending", async () => {
@@ -173,12 +174,12 @@ test("sendPrompt waits for Send in the pane; Edit prefills without sending", asy
   expect(sent).toEqual([]);
 });
 
-test("a new request replaces the pending confirmation; Stop cancels it", async () => {
+test("a new request replaces the pending confirmation; Cancel rejects it", async () => {
   const { request, replies } = await draw();
   request("sendPrompt", { text: "Old" }, undefined, "old");
   request("sendPrompt", { text: "New" }, undefined, "new");
   expect(replies).toContainEqual({ type: "cmux-render-reply", id: "old", ok: false, error: "replaced" });
-  click("Stop");
+  click("Cancel");
   expect(host.querySelector(".acpmux-render-confirm")).toBeNull();
   expect(replies).toContainEqual({ type: "cmux-render-reply", id: "new", ok: false, error: "cancelled" });
   expect(sent).toEqual([]);
@@ -233,13 +234,22 @@ test("component fences and marked tool HTML compile inside the frame with pinned
       new dom.window.MessageEvent("message", { source: target, data: { type: "cmux-render-ready" } }),
     ),
   );
-  const html = replies[0]!.html as string;
+  void act(() =>
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", { source: target, data: { type: "cmux-render-stream-ready" } }),
+    ),
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 65));
+  });
+  const html = replies.find((message) => message.type === "cmux-render-stream")!.html as string;
   const page = new JSDOM(html).window.document;
   expect(page.querySelector("#root")).not.toBeNull();
   expect(html).toContain("react@18.3.1/umd/react.production.min.js");
   expect(html).toContain("react-dom@18.3.1/umd/react-dom.production.min.js");
   expect(html).toContain("@babel/standalone@7.26.4/babel.min.js");
-  expect(html.indexOf("window.cmux")).toBeLessThan(html.indexOf("Babel.transform"));
+  expect(replies[0]!.html as string).toContain("window.cmux");
+  expect(replies[0]!.html as string).not.toContain("Babel.transform");
   const { artifactKind } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
   expect(artifactKind("cmux-react", "function App() {}")).toBe("react");
   await draw(false, "```cmux-react\nfunction App() {}\n```");
@@ -269,7 +279,7 @@ test("the side panel uses the same opaque dev frame for markup and components", 
     expect(frame.srcdoc).toContain("Content-Security-Policy");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.className).toBe("acpmux-artifact-frame");
-    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Stop")).toBe(true);
+    expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
   }
 });
 
@@ -287,10 +297,9 @@ test("the native frame URL stays in use and receives the bridge before marked co
         new dom.window.MessageEvent("message", { source: target, data: { type: "cmux-render-ready" } }),
       ),
     );
-    expect((replies[0]!.html as string).startsWith("<!doctype html><script>")).toBe(true);
-    expect((replies[0]!.html as string).indexOf("window.cmux")).toBeLessThan(
-      (replies[0]!.html as string).indexOf("Babel.transform"),
-    );
+    expect((replies[0]!.html as string).startsWith("<!doctype html><html><head><script>")).toBe(true);
+    expect(replies[0]!.html as string).toContain("window.cmux");
+    expect(replies[0]!.html as string).not.toContain("Babel.transform");
   } finally {
     dom.reconfigure({ url: "http://127.0.0.1:4276/" });
   }
@@ -379,22 +388,9 @@ test("card state stays in its session across remounts", async () => {
   expect(remounted.replies.at(-1)?.value).toEqual({ chosen: "B" });
 });
 
-test("Stop survives a virtual remount until Run, and belongs to its session", async () => {
-  const page = "```cmux-render\n<p>stopped page</p>\n```";
-  await draw(true, page, "stop-a");
-  click("Stop");
-  await draw(true, page, "stop-a");
-  expect(host.querySelector("iframe")).toBeNull();
-  click("Run");
-  expect(host.querySelector("iframe")).not.toBeNull();
-  click("Stop");
-  await draw(true, page, "stop-b");
-  expect(host.querySelector("iframe")).not.toBeNull();
-});
-
-test("a live frame shrinks below its loading height", async () => {
+test("a live frame follows short content and caps tall pages at 1600px", async () => {
   const card = await draw(true, "```cmux-render\n<p>short page</p>\n```");
-  expect(card.frame!.style.height).toBe("120px");
+  expect(card.frame!.style.height).toBe("0px");
   void act(() =>
     dom.window.dispatchEvent(
       new dom.window.MessageEvent("message", {
@@ -403,10 +399,19 @@ test("a live frame shrinks below its loading height", async () => {
       }),
     ),
   );
-  expect(card.frame!.style.height).toBe("48px");
+  expect(card.frame!.style.height).toBe("32px");
+  void act(() =>
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        source: card.target,
+        data: { type: "cmux-render-content-size", height: 5000 },
+      }),
+    ),
+  );
+  expect(card.frame!.style.height).toBe("1600px");
 });
 
-test("untitled tool cards use the page title and component cards use their title comment", async () => {
+test("embedded frames retain accessible titles without a visible heading", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   for (const [html, title] of [
@@ -414,7 +419,8 @@ test("untitled tool cards use the page title and component cards use their title
     ["<!-- cmux-react -->\n// title: Plan picker\nfunction App() { return null; }", "Plan picker"],
   ]) {
     act(() => root!.render(<RenderCard call={{ html }} />));
-    expect(host.querySelector(".acpmux-render-card-title")?.textContent).toBe(title);
+    expect(host.querySelector(".acpmux-render-card-title")).toBeNull();
+    expect(host.querySelector("iframe")?.title).toBe(title);
   }
 });
 
@@ -460,7 +466,7 @@ test.each([
         .map((line) => `  > ${line}`)
         .join("\n"),
   ],
-])("identical cards at %s keep separate state and stop choices", async (name, nested) => {
+])("identical cards at %s keep separate state", async (name, nested) => {
   await draw();
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
   const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
@@ -492,14 +498,10 @@ test.each([
   request(0, "state.set", { value: "first" });
   request(1, "state.get", {});
   expect(replies.at(-1)?.value).toBeNull();
-  click("Stop");
-  expect(host.querySelectorAll("iframe")).toHaveLength(1);
   act(() => root!.unmount());
   const { createRoot } = await import("react-dom/client");
   root = createRoot(host);
   mount(page.replace("identical", "updated"));
-  expect(host.querySelectorAll("iframe")).toHaveLength(1);
-  click("Run");
   expect(host.querySelectorAll("iframe")).toHaveLength(2);
   const remounted = host.querySelector("iframe")!;
   remounted.contentWindow!.postMessage = (data) => replies.push(data);
@@ -514,7 +516,7 @@ test.each([
   expect(replies.at(-1)?.value).toBe("first");
 });
 
-test("a tool card keeps state and Stop when its HTML changes under the same row id", async () => {
+test("a tool card keeps its frame and state when its HTML changes under the same row id", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
@@ -544,12 +546,6 @@ test("a tool card keeps state and Stop when its HTML changes under the same row 
   };
   mount("<p>version one</p>")("state.set", { value: { chosen: "B" } });
   expect(mount("<p>version two</p>")("state.get", {})?.value).toEqual({ chosen: "B" });
-  click("Stop");
-  act(() => root!.render(null));
-  act(() => root!.render(card("<p>version three</p>")));
-  expect(host.querySelector("iframe") === null).toBe(true);
-  click("Run");
-  expect(host.querySelector("iframe") !== null).toBe(true);
 });
 
 test("saved card values evict the oldest entry after 200 cards", async () => {

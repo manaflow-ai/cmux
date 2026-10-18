@@ -623,9 +623,9 @@ export const workedTurn: SeedStep[] = [
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
 
-/// An extra worked turn for the live-render lab, added only by the mock's lab branch.
-export function liveRenderTurn(): SeedStep[] {
-  const html = `<title>Choose an approach</title><style>
+/// The mock streams this same page when asked to render a demo (Lucas 2026-10-18).
+export function liveRenderDemoHTML(): string {
+  return `<title>Choose an approach</title><style>
 .options{display:flex;flex-direction:column}
 .options button{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:var(--cmux-space-2);padding:var(--cmux-space-2);text-align:left;background:transparent;border:0;border-radius:0;box-shadow:none;color:var(--cmux-text)}
 .options button+button{border-top:0.5px solid var(--cmux-border)}
@@ -652,6 +652,11 @@ rows.forEach(row => { row.onclick = () => {
   cmux.sendPrompt('Go with option ' + option + ': ' + row.querySelector('strong').textContent + '.').catch(() => {});
 }; });
 </script>`;
+}
+
+/// An extra worked turn for the live-render lab, added only by the mock's lab branch.
+export function liveRenderTurn(): SeedStep[] {
+  const html = liveRenderDemoHTML();
   const component = `// title: Retry backoff
 function App() {
   const [base, setBase] = React.useState(200);
