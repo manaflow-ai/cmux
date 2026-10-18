@@ -20,6 +20,7 @@ import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
+import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team-vm-api-tenant.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 
@@ -130,6 +131,11 @@ export class TeamDO extends OwnerDO<TeamState> {
       // After the integration push, so a slow SchedulerDO never delays it (review P3).
       await this.syncRunPolicy(now)
     }
+  }
+
+  /** Internal Cloud service routing only: never binds an unknown team or grants VM authority. */
+  async vmApiTenant(entity: string, purpose: VmApiTenantPurpose): Promise<VmApiTenant | null> {
+    return vmApiTenantOf(this.boundEntity() === entity ? this.boundEngine?.currentState : undefined, entity, this.env.STACK_PROJECT_ID, purpose)
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
