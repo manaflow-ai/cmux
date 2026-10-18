@@ -25,8 +25,12 @@ extension ColorTransition {
         let blending = sheet?.animation(forKey: key) != nil || tint?.animation(forKey: key) != nil || overlay != nil
         // Liquid Glass: its tint (the end color) and the old tint's overlay with its opacity on screen.
         let glass = rgb(material.glassTintColor).map(hex) ?? ""
-        let overlayOpacity = overlay.map { String(format: "%.3f", ($0.presentation() ?? $0).opacity) } ?? ""
-        return ["sheet": shown(sheet), "tint": shown(tint), "glassTint": glass, "glassOverlay": shown(overlay),
+        // A blend added in this run loop turn is not on screen yet: its first frame shows its first
+        // keyframe (the old tint, opaque), not the presentation layer the last commit left.
+        let pending = overlay?.animation(forKey: GlassTintBlend.key).map { $0.beginTime == 0 } ?? false
+        let overlayOpacity = overlay.map { String(format: "%.3f", pending ? 1 : ($0.presentation() ?? $0).opacity) } ?? ""
+        let overlayColor = pending ? rgb(overlay?.backgroundColor).map(hex) ?? "" : shown(overlay)
+        return ["sheet": shown(sheet), "tint": shown(tint), "glassTint": glass, "glassOverlay": overlayColor,
                 "glassOverlayOpacity": overlayOpacity, "blending": blending ? "true" : "false",
                 "seconds": String(current.seconds)]
     }
