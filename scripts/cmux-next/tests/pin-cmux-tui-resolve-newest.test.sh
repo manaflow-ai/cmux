@@ -42,11 +42,27 @@ publish() { # <commit> <manifest sha override or empty>
   mkdir -p "$cdn/tree/$k" "$cdn/$1"
   echo "build of $1" > "$cdn/tree/$k/$bin"
   sha "$cdn/tree/$k/$bin" > "$cdn/tree/$k/$bin.sha256"
-  printf '{"key": "%s", "commit": "%s"}\n' "$k" "$1" > "$cdn/tree/$k/source.json"
+  tui_tree=$(git -C "$src" rev-parse "${1}:cmux-tui")
+  printf '{"key": "%s", "cmuxTuiTree": "%s", "commit": "%s"}\n' "$k" "$tui_tree" "$1" > "$cdn/tree/$k/source.json"
   printf '{"commit": "%s", "binaries": {"%s": "%s"}}\n' "$1" "$bin" "${2:-$(sha "$cdn/tree/$k/$bin")}" > "$cdn/$1/manifest.json"
 }
 publish "$published" ""
 publish "$mismatch" "$(printf '0%.0s' {1..64})"
+# A stale publication can retain a key while its source provenance points at a
+# different cmux-tui tree. The resolver must reject it before accepting its
+# commit-addressed manifest and continue to the valid older tree.
+publish "$tip" ""
+published_tui_tree=$(git -C "$src" rev-parse "${published}:cmux-tui")
+python3 - "$cdn/tree/$(key "$tip")/source.json" "$published_tui_tree" <<'PY'
+import json
+import sys
+
+path, tree = sys.argv[1:]
+data = json.load(open(path))
+data["cmuxTuiTree"] = tree
+with open(path, "w") as handle:
+    json.dump(data, handle)
+PY
 
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<STUB
@@ -87,6 +103,8 @@ grep -Eqx "behind=[0-9]+" <<<"$out" && grep -Eqx "behind_hours=[0-9]+" <<<"$out"
   || fail "expected behind= (commits) and behind_hours= lines, got:" "$out"
 grep -q "manifest" <<<"$err" && grep -q "${mismatch:0:12}" <<<"$err" \
   || fail "the manifest sha256 mismatch of ${mismatch:0:12} must be reported:" "$err"
+grep -q "source.json names cmux-tui tree" <<<"$err" && grep -q "stale publication" <<<"$err" \
+  || fail "the stale source tree must be rejected before resolution:" "$err"
 
 # The step summary records the tree and the commit.
 summary="$TMP/summary.md"

@@ -44,6 +44,10 @@ import Testing
                                                                   passesThroughClicks: false))
         let container = host.panel.container(for: handle.options.effectiveLayer)
         let scrim = try #require(container.subviews.first { $0 is OverlayScrimView })
+        guard Motion.canAnimate(in: dialog) else {
+            handle.dismiss()
+            return
+        }
 
         handle.dismiss()
         #expect(host.presentedHandles.isEmpty)

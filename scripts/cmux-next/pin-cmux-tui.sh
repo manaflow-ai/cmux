@@ -1135,8 +1135,11 @@ resolve_exact_tree() {
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
 # daemon come from one commit. A tree more than CMUX_TUI_TREE_MAX_AGE_HOURS
 # (default 24) behind the tip, or none in the window, fails: never ship stale.
+# A publication's source.json must also name the same cmux-tui git tree as the
+# candidate revision. This rejects a key left behind by an older publication
+# after the tree-key inputs changed, before a daemon capability check sees it.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha source_tui_tree candidate_tui_tree tip tip_key behind=0 checked=0 seen=" " distinct=0
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
@@ -1201,6 +1204,12 @@ resolve_newest_published_tree() {
     if [[ "$published_sha" =~ ^[0-9a-f]{64}$ ]] \
       && download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null; then
       commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+      source_tui_tree="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("cmuxTuiTree") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+      candidate_tui_tree="$(git rev-parse -q --verify "$rev:cmux-tui" 2>/dev/null || true)"
+      if [[ -n "$source_tui_tree" && -n "$candidate_tui_tree" && "$source_tui_tree" != "$candidate_tui_tree" ]]; then
+        echo "warning: tree $key (${rev:0:12}) source.json names cmux-tui tree ${source_tui_tree:0:12}, but the candidate revision has ${candidate_tui_tree:0:12}; skipping stale publication" >&2
+        behind=$((behind + 1)); continue
+      fi
     fi
     manifest_sha=""
     if [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" 2>/dev/null; then

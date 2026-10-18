@@ -290,7 +290,10 @@ import Testing
             }
             try await Self.rest(on: buttons[0], presenter, clock)
             let panel = presenter.panel
-            guard Motion.canAnimate(in: panel.surface) else { return }
+            guard Motion.canAnimate(in: panel.surface) else {
+                presenter.dismiss()
+                return
+            }
             let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
             let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
             let want = (reduce ? surface.fill : surface.tint).nsColor.usingColorSpace(.sRGB)

@@ -11,6 +11,7 @@ import AppKit
         let frame = NSRect(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40,
                            width: 240, height: 120)
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.ignoresMouseEvents = true
         defer { window.orderOut(nil) }
         window.orderFrontRegardless()
         return window.screen != nil
@@ -25,6 +26,7 @@ import AppKit
         let window = NSWindow(contentRect: NSRect(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.minY + 40,
                                                    width: 240, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.ignoresMouseEvents = true
         defer { window.orderOut(nil) }
         window.orderFrontRegardless()
         return window.screen != nil && Motion.canAnimate(in: window.contentView)

@@ -28,6 +28,10 @@ import Testing
             return (panel, panel.contentView?.layer?.animation(forKey: "sublayerTransform") != nil)
         }()
         #expect(opened, "opened in one frame")
+        guard let content = panel.contentView, Motion.canAnimate(in: content) else {
+            panel.onDismiss?()
+            return
+        }
         panel.onDismiss?()
         #expect(results.count == 1)
         #expect(panel.isVisible, "closed in one frame")

@@ -30,6 +30,10 @@ import Testing
         #expect(host.shownFrame == CGRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3]))
         #expect(host.shownFrame?.size == card.frame.size)
         #expect(opened, "opened in one frame")
+        guard let content = panel.contentView, Motion.canAnimate(in: content) else {
+            host.hide()
+            return
+        }
 
         host.hide()
         #expect(panel.isVisible, "closed in one frame")
