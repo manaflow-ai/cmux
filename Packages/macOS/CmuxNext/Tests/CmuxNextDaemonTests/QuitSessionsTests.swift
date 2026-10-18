@@ -121,13 +121,15 @@ struct QuitSessionsTests {
     /// End Sessions, Keep Layout on a daemon with
     /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
     /// keeps both panes and the split ratio with dead tabs, and
-    /// `relaunchKeptTabs` restarts a shell in each, in the directory the
-    /// store recorded, without changing the layout. A pinned cmux-tui without the
-    /// capability skips the check.
+    /// `relaunchKeptTabs` restarts a shell in each IN PLACE (`restart-tab`: the
+    /// same tab and terminal ids, no tab added, moved or closed), in the
+    /// directory the store recorded, without changing the layout. A pinned
+    /// cmux-tui without the capabilities skips the check.
     @Test func endKeepLayoutRestartsEachTabInTheSameSplit() async throws {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
-        guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return await h.stop() }
+        guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
+              h.identity.supports(DaemonCapabilities.shared.tabRestart) else { return await h.stop() }
         let other = h.root.appendingPathComponent("other")
         let hosts: Set<Int32>
         let before: DaemonTree
@@ -160,20 +162,49 @@ struct QuitSessionsTests {
             #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
             #expect(keptTabs.allSatisfy { $0.relaunch?.cwd != nil }, "the store's keep-layout records: \(keptTabs.map(\.relaunch))")
             #expect(Self.shape(kept) == Self.shape(before))
-            let first = try await next.relaunchKeptTabs(fallbackCwd: nil)
+            let first = try await next.relaunchKeptTabs()
             #expect(first.relaunched == 2 && first.failures.isEmpty, "\(first.failures)")
-            #expect(try await next.relaunchKeptTabs(fallbackCwd: nil).relaunched == 0, "a second relaunch found kept tabs")
+            // The shell of the second pane runs, in its recorded directory: it echoes $PWD there.
+            let endpoint = try #require(await next.endpoint)
+            let generation = await next.identity?.generation
+            let output = try await Self.run(#"echo "kept:$PWD""#, in: try #require(keptTabs.last), endpoint: endpoint,
+                                            generation: generation, until: "kept:/")
+            #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
+            #expect(try await next.relaunchKeptTabs().relaunched == 0, "a second relaunch restarted a running tab")
             let after = try await next.listWorkspaces()
             #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
             let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
             #expect(tabs.map(\.count) == [1, 1], "\(tabs)")
-            #expect(tabs.flatMap { $0 }.allSatisfy { !$0.dead })
-            #expect(tabs.last?.first?.cwd?.hasSuffix("/other") == true, "\(String(describing: tabs.last?.first?.cwd))")
+            // In place: the kept tabs themselves run again (no new tab took their slot).
+            #expect(tabs.flatMap { $0 }.map(\.tabResourceID) == keptTabs.map(\.tabResourceID), "\(tabs)")
+            #expect(tabs.flatMap { $0 }.map(\.terminalResourceID) == keptTabs.map(\.terminalResourceID), "\(tabs)")
         } catch {
             await BranchDaemonHarness.shutDown(next)
             throw error
         }
         await BranchDaemonHarness.shutDown(next)
+    }
+
+    /// Types `command` into `tab`'s terminal and returns its output up to `sentinel` (bounded: 20 s).
+    static func run(_ command: String, in tab: TabSnapshot, endpoint: DaemonEndpoint, generation: DaemonGeneration?,
+                    until sentinel: String) async throws -> String {
+        let attachment = try await TerminalAttachment.attach(
+            endpoint: endpoint, target: .init(tab: tab, generation: generation),
+            size: CellSize(cols: 200, rows: 50), claimGeometry: true)
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(20))
+            await attachment.detach()
+        }
+        await attachment.write(Data((command + "\r").utf8))
+        var output = ""
+        for await event in attachment.events {
+            guard case .output(let data, _) = event else { continue }
+            output += String(decoding: data, as: UTF8.self)
+            if output.contains(sentinel) { break }
+        }
+        watchdog.cancel()
+        await attachment.detach()
+        return output
     }
 
     /// The first screen's split kind, direction and ratio and its panes'
