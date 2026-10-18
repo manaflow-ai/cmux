@@ -137,13 +137,14 @@ extension TabStripView {
         // A tab's parts at rest again: placed, the parts they no longer need removed.
         for cell in cells.values where (cell.innerPath?.end ?? .infinity) <= now + 0.02 { cell.layoutLayers() }
         // Masks whose path ended come off (or stay, exact, for what still moves).
-        if occlusionEnds.values.contains(where: { $0 <= now + 0.02 }) { updateOcclusion(now: now + 0.02) }
+        if occlusionEnds.values.contains(where: { $0 <= now + 0.02 }) { updateOcclusion(settle: 0.02) }
     }
 
     /// Masks the tabs the selected pill covers now and along every move in flight (`TabOcclusion`).
-    func updateOcclusion(now: CFTimeInterval = CACurrentMediaTime()) {
+    /// `settle`: a path that ends within it counts as ended.
+    func updateOcclusion(settle: CFTimeInterval = 0.001) {
         let selected = model.selectedID.flatMap { dying.contains($0) ? nil : $0 }
-        occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, now: now)
+        occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, settle: settle)
     }
 
     func reveal(_ id: TabID, animated: Bool) {
@@ -293,7 +294,8 @@ extension TabStripView {
             let frame = cellFrame(place, isPinned: isPinned)
             let opacity = Float(min(max(place.alpha, 0), 1))
             var moved = false
-            if let move, frame != cell.frame || opacity != cell.layer.opacity {
+            // A tab the scroll alone moves keeps its place on screen: its scroll part and the rest cancel.
+            if let move, frame != cell.frame || opacity != cell.layer.opacity || abs(scrollPart(isPinned: isPinned)) > 0.01 {
                 // The root moves; its parts follow its width path (`TabCell.retimeInner`), its mask the pill's (`TabOcclusion`).
                 let before = TabStripMove.snapshot(cell.layer, depth: 0, masks: false)
                 let resized = frame.size != cell.frame.size
@@ -323,11 +325,11 @@ extension TabStripView {
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame
-        if let move, let layer = newTabButton.layer, buttonFrom != buttonFrame.origin {
+        // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
+        let buttonEnd = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
+        let scroll = buttonFrame.minX < buttonEnd && buttonFrom.x < buttonEnd ? scrollPart(isPinned: false) : 0
+        if let move, let layer = newTabButton.layer, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
             // A view's layer is in its superview's (flipped or not) coordinates: its position moved as its frame did.
-            // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
-            let end = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
-            let scroll = buttonFrame.minX < end && buttonFrom.x < end ? scrollPart(isPinned: false) : 0
             let delta = CGPoint(x: buttonFrom.x - buttonFrame.minX - scroll, y: buttonFrom.y - buttonFrame.minY)
             if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
                 move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")

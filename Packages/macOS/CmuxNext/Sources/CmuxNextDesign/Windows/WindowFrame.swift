@@ -133,13 +133,18 @@ public nonisolated struct WindowFrame: Sendable {
     /// The frames side by side, one gap apart, at their recorded size.
     public static func writeStrip(_ frames: [WindowFrame], to path: String) {
         guard let first = frames.first else { return }
-        let gap = 4, width = frames.count * (first.width + gap) - gap
-        guard let context = CGContext(data: nil, width: width, height: first.height, bitsPerComponent: 8, bytesPerRow: 0,
+        // Full-scale frames (their own PNGs) make an overview too wide to draw: it shrinks to 16k pixels.
+        let gap = 4, full = frames.count * (first.width + gap) - gap
+        let factor = min(1, 16_384 / Double(max(1, full)))
+        let cell = Double(first.width + gap) * factor
+        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                      bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
+        context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {
             guard let image = frame.image else { continue }
-            context.draw(image, in: CGRect(x: index * (first.width + gap), y: 0, width: frame.width, height: frame.height))
+            context.draw(image, in: CGRect(x: Double(index) * cell, y: 0, width: Double(frame.width) * factor, height: Double(frame.height) * factor))
         }
         if let strip = context.makeImage() { writePNG(strip, to: path) }
     }

@@ -213,7 +213,9 @@ final class TabCell {
     /// The pointer resting on a clipped title scrolls it after the hover
     /// delay; leaving stops it at once (TitleFade, Motion `MotionMarquee`).
     private func updateMarquee() {
-        if isHovered, allowsMarquee, !isLifted, visibility.showsTitle {
+        // Not while the parts follow a moving width (the title's frames are the path's); the rest
+        // layout at the path's end starts it.
+        if isHovered, allowsMarquee, !isLifted, visibility.showsTitle, innerPath == nil {
             titleFade.startMarquee()
         } else {
             titleFade.stopMarquee()
@@ -295,8 +297,10 @@ final class TabCell {
         if path.isExact, let end = path.end, end > now + 0.001 {
             retimeInner(path, now: now, end: end)
         } else {
+            let wasOnPath = innerPath != nil
             endInnerPath()
             layoutParts(slotWidth: bounds.width, onPath: false)
+            if wasOnPath { updateMarquee() }
         }
     }
 

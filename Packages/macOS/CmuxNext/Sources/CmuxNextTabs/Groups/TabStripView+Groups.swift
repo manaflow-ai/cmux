@@ -91,7 +91,7 @@ extension TabStripView {
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
             var moved = false
-            if let move, frame != chip.frame || alpha != chip.layer.opacity {
+            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
                 let before = TabStripMove.snapshot(chip.layer)
                 chip.frame = frame
                 chip.layer.opacity = alpha

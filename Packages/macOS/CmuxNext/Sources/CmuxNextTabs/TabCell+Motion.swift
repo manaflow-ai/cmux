@@ -101,7 +101,9 @@ enum TabOcclusion {
     /// its moves (same transaction) and when the selection changes. Returns, per masked tab, when its
     /// keyframes end (then the strip calls this again: at rest no mask is left).
     @MainActor
-    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, now: CFTimeInterval = CACurrentMediaTime()) -> [TabID: CFTimeInterval] {
+    /// `settle`: a path that ends within it counts as ended (the strip's move completion).
+    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, settle: CFTimeInterval = 0.001) -> [TabID: CFTimeInterval] {
+        let now = CACurrentMediaTime()
         guard let selected, let cover = cells[selected], cover.frame.width > 0 else {
             for cell in cells.values { cell.occlude(visible: nil) }
             return [:]
@@ -119,7 +121,7 @@ enum TabOcclusion {
             }
             let path = Path(cell, now: now)
             let end = max(coverPath.end, path.end)
-            guard end > now + 0.001 else {
+            guard end > now + settle else {
                 cell.occlude(visible: visible(frame: cell.frame, cover: pill(cover.frame)))
                 continue
             }
