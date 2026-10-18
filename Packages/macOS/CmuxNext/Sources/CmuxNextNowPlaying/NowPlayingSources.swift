@@ -40,6 +40,10 @@ public final class NowPlayingSources: NowPlayingSource {
 
     public var nowPlaying: SidebarNowPlaying? { holder?.1 }
 
+    public func run(_ on: Bool) {
+        system?.run(on)
+    }
+
     public func perform(_ command: SidebarNowPlayingCommand) {
         holder?.0.perform(command)
     }

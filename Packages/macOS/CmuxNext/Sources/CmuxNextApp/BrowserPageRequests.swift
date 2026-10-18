@@ -21,10 +21,6 @@ final class BrowserPageRequests: BrowserTabDelegate {
     weak var services: AppServices? {
         didSet {
             nowPlaying.follow(services)
-            systemFollow?.cancel()
-            systemFollow = services.map { services in
-                systemNowPlaying.follow { [weak services] in services?.settings?.snapshot.nowPlaying.enabled ?? false }
-            }
             sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
             // A popup panel's page gets the same rows, acting for its opener's tab.
@@ -60,14 +56,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let sidebarNowPlaying = BrowserTabsNowPlaying()
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
-    /// What other apps play (Spotify, Music), through macOS Now Playing; cmux's own entries left out.
-    let systemNowPlaying = SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(),
-                                            ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }))
-    /// Runs `systemNowPlaying` while the card is on.
-    private var systemFollow: Task<Void, Never>?
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
-    /// else another app that plays.
-    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: systemNowPlaying)
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
+    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

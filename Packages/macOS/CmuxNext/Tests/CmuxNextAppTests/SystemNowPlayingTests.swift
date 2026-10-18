@@ -41,7 +41,8 @@ import Testing
 
     @Test func aFullPayloadIsWhatPlays() throws {
         var feed = SystemNowPlayingFeed()
-        #expect(feed.apply(Self.line(diff: false, Self.spotify)))
+        let applied = feed.apply(Self.line(diff: false, Self.spotify))
+        #expect(applied)
         let report = try #require(feed.report)
         #expect(report.bundleIdentifier == "com.spotify.client" && report.title == "Weightless" && report.artist == "Marconi Union")
         #expect(report.isPlaying && report.duration == 480 && report.elapsed == 60 && report.rate == 1)
@@ -64,8 +65,9 @@ import Testing
         var feed = SystemNowPlayingFeed()
         feed.apply(Self.line(diff: false, Self.spotify))
         let before = feed
-        #expect(!feed.apply(Data("not json".utf8)))
-        #expect(!feed.apply(Data(#"{"type":"error","payload":{}}"#.utf8)))
+        let notJSON = feed.apply(Data("not json".utf8))
+        let notData = feed.apply(Data(#"{"type":"error","payload":{}}"#.utf8))
+        #expect(!notJSON && !notData)
         #expect(feed == before)
     }
 
@@ -103,6 +105,37 @@ import Testing
         #expect(adapter.stops == 1 && source.nowPlaying == nil, "stopping kept the last track")
         adapter.emit(diff: false, Self.spotify)
         #expect(source.nowPlaying == nil, "a line after stopping showed")
+    }
+
+    @Observable final class Flag {
+        var on: Bool
+        init(_ on: Bool) { self.on = on }
+    }
+
+    /// Waits for `condition`, up to two seconds.
+    static func until(_ condition: () -> Bool) async throws {
+        for _ in 0..<200 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    @Test func theAdapterRunsOnlyWhileTheCardIsOn() async throws {
+        let adapter = FakeAdapter()
+        let system = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
+        let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system)
+        let model = SidebarModel()
+        let flag = Flag(false)
+        let feed = model.followNowPlaying(sources, enabled: { flag.on })
+        defer { feed.cancel() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(adapter.starts == 0, "the adapter streams while Now Playing is off")
+        flag.on = true
+        try await Self.until { adapter.starts == 1 }
+        #expect(adapter.starts == 1, "turning Now Playing on with nothing playing started no stream")
+        adapter.emit(diff: false, Self.spotify)
+        try await Self.until { model.nowPlaying?.title == "Weightless" }
+        #expect(model.nowPlaying?.title == "Weightless", "another app's track is not on the card")
+        flag.on = false
+        try await Self.until { adapter.stops == 1 }
+        #expect(adapter.stops == 1 && model.nowPlaying == nil, "turning Now Playing off kept the stream or the card")
     }
 
     @Test func cmuxsOwnEntriesAreLeftOut() {

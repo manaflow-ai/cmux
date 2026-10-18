@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextBrowser
-import CmuxNextCompat
 public import CmuxNextSidebar
 public import Foundation
 public import Observation
@@ -36,7 +35,8 @@ public final class SystemNowPlaying: NowPlayingSource {
         self.labels = labels
     }
 
-    /// Streams Now Playing while `on`; off stops the adapter and forgets what played.
+    /// Streams Now Playing while `on` (the card follows it, `followNowPlaying`); off stops the
+    /// adapter and forgets what played.
     public func run(_ on: Bool) {
         guard on != running, let adapter else { return }
         running = on
@@ -49,11 +49,9 @@ public final class SystemNowPlaying: NowPlayingSource {
         }
     }
 
-    /// Runs the adapter while `enabled` (the App passes `sidebar.nowPlaying.enabled`).
-    public func follow(_ enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
-        Task { [weak self] in
-            for await on in ObservationStream({ enabled() }) { self?.run(on) }
-        }
+    /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries.
+    public static func bundled() -> SystemNowPlaying {
+        SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }))
     }
 
     /// What another app plays, nil while nothing does or cmux itself plays.
