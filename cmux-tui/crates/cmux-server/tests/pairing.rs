@@ -38,6 +38,7 @@ struct Api {
     lose_begin: bool,
     reject_begin: bool,
     wrong_thumbprint: bool,
+    verification_uri: Option<String>,
 }
 
 impl Api {
@@ -49,6 +50,7 @@ impl Api {
             lose_begin: false,
             reject_begin: false,
             wrong_thumbprint: false,
+            verification_uri: Some("https://dashboard.example.test/pair?c=7KQ4M2XD".into()),
         }
     }
 }
@@ -84,7 +86,7 @@ impl Transport for Api {
             return Err(Error::rejected("fixture.rejected"));
         }
         Ok(
-            json!({"code":"7KQ4M2XD","expires_at":body["issued_at"].as_u64().unwrap()+600_000,"thumbprint":if self.wrong_thumbprint { "wrong" } else { &thumb },"collect_secret":SECRET}),
+            json!({"code":"7KQ4M2XD","expires_at":body["issued_at"].as_u64().unwrap()+600_000,"thumbprint":if self.wrong_thumbprint { "wrong" } else { &thumb },"collect_secret":SECRET,"verification_uri":self.verification_uri}),
         )
     }
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited> {
@@ -133,6 +135,41 @@ fn server_pairing_records_only_a_pushed_approval_and_redacts_all_public_results(
     {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+}
+
+#[test]
+fn server_pairing_progress_uses_the_apis_verification_link_and_preserves_it_on_resume() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api =
+        Api::new(vec![Err(Error::unreachable("fixture.lost_wait")), Ok(Waited::Paired(paired()))]);
+    let mut progress = vec![];
+    assert!(run(&path, &api, None, &mut progress).is_err());
+    assert_eq!(progress[0]["verification_uri"], "https://dashboard.example.test/pair?c=7KQ4M2XD");
+    assert_eq!(run(&path, &api, None, &mut progress).unwrap()["state"], "paired");
+    assert_eq!(progress[0], progress[1]);
+    assert_eq!(api.begins.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn server_pairing_progress_omits_invalid_or_missing_verification_links() {
+    for uri in [
+        None,
+        Some("javascript:alert(1)"),
+        Some("https://user:password@dashboard.example.test/pair?c=7KQ4M2XD"),
+        Some("https://dashboard.example.test/pair?c=WRONG"),
+        Some("https://dashboard.example.test/pair?c=7KQ4M2XD&collect=private"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing/identity.json");
+        let api = Api {
+            verification_uri: uri.map(str::to_owned),
+            ..Api::new(vec![Ok(Waited::Paired(paired()))])
+        };
+        let mut progress = vec![];
+        assert_eq!(run(&path, &api, None, &mut progress).unwrap()["state"], "paired");
+        assert!(progress[0].get("verification_uri").is_none());
     }
 }
 
