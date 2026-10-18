@@ -73,6 +73,6 @@ import AppKit
 /// The lifted content of a block drag: a group's header and member rows, or
 /// a workspace and its tab rows.
 final class SidebarLiftBlockView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

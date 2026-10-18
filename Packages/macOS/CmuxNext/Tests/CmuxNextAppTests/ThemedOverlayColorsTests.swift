@@ -118,8 +118,9 @@ import Testing
     }
 
     /// Every read-only text field under `view`.
-    static func labels(in view: NSView) -> [NSTextField] {
-        var found: [NSTextField] = []
+    static func labels(in view: NSView) -> [any ShownText] {
+        var found: [any ShownText] = []
+        if let label = view as? ChromeLabel { found.append(label) }
         if let field = view as? NSTextField, !field.isEditable, !(field is NSSearchField) { found.append(field) }
         for subview in view.subviews { found += labels(in: subview) }
         return found
