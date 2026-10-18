@@ -25,7 +25,7 @@ const created = () => {
   rows.apply(r.writes ?? [])
   const m = rows.get<MachineRow>(TABLE_MACHINE, machine)!.row
   rows.apply([{ table: TABLE_MACHINE, op: "upsert", key: machine, n: 1, row: { ...m, status: "running", host: `host_${"d".repeat(20)}`, transport: "vm-api" } }])
-  return { rows, state: r.state as CloudState }
+  return { rows, state: { ...(r.state as CloudState), pending: {} } }
 }
 
 describe("Cloud transport ownership", () => {
