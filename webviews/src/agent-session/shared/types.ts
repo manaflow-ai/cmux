@@ -61,6 +61,10 @@ export type AgentSessionTheme = {
   /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
   /// `move` spring's timed equivalent (MotionSpring), 0 when movement is instant.
   motion?: { hover: number; hoverOut?: number; focus: number; fadeIn: number; fadeOut: number; move?: number };
+  /// appearance.statusIndicator.animation, `static` also under Reduce Motion (cx-sya4n): sets
+  /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
+  /// marks draw a shape each. Absent means the stylesheet defaults (animated).
+  statusIndicators?: "animated" | "static";
 };
 
 export type AppContext = {
