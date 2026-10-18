@@ -14,8 +14,9 @@ and the bead is not an epic and has no open children. It closes with
 comment with the pull request link: a partial close is worse than none. A closed
 or unknown bead is skipped. Open
 pull requests on feat-cmux-next that name no bead get a task created from
-their title, with the pull request as its external reference, and a GraphQL
-comment links the new bead back to the PR. The board is reached through BEADS_SSH_HOST
+their title, with the pull request as its external reference, and the bead
+line of the PR's status comment links it back (a dispatch of pr-status.yml,
+so the line posts as github-actions and not under this token's account). The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
 State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
@@ -54,13 +55,6 @@ query($q: String!, $after: String) {
       commits(first: 100) { nodes { commit { message } } }
       comments(first: 50) { nodes { body } }
     } }
-  }
-}
-"""
-COMMENT_MUTATION = """
-mutation($subjectId: ID!, $body: String!) {
-  addComment(input: {subjectId: $subjectId, body: $body}) {
-    commentEdge { node { url } }
   }
 }
 """
@@ -148,9 +142,10 @@ def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
     return list(dict.fromkeys(match.lower() for text in texts for match in BEAD_ID.findall(text)))
 
 
-def add_pull_request_comment(pull: dict, body: str) -> None:
-    args = ["gh", "api", "graphql", "-f", f"query={COMMENT_MUTATION}", "-f",
-            f"subjectId={pull['id']}", "-f", f"body={body}"]
+def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
+    """The bead line of the PR's status comment (scripts/ci/pr_status.py)."""
+    args = ["gh", "workflow", "run", "pr-status.yml", "-R", REPO, "--ref", "feat-cmux-next",
+            "-f", f"pr={pull['number']}", "-f", f"bead={bead_id}"]
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode:
         raise BoardUnreachable((result.stderr or result.stdout).strip())
@@ -213,7 +208,7 @@ def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
     bead_id = str(created.get("id") or "").strip()
     if not bead_id:
         return "", f"failed create for #{pull['number']}: bd returned no id"
-    add_pull_request_comment(pull, f"Bead `{bead_id}` created for this PR by the cmux coordinator.")
+    link_bead_on_pull_request(pull, bead_id)
     return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
 
 
