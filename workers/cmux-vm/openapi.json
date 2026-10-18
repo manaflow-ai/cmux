@@ -6144,7 +6144,7 @@
           },
           "missingScope": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "vm:read",
               "vm:write",
               "vm:network",
@@ -7061,7 +7061,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
+              "x-extensible-enum": [
                 "vm:read",
                 "vm:write",
                 "vm:network",
@@ -7155,7 +7155,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
+              "x-extensible-enum": [
                 "vm:read",
                 "vm:write",
                 "vm:network",
