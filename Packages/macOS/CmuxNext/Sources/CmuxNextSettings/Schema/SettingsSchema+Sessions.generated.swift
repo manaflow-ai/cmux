@@ -47,7 +47,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
-                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them."),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."),
                 kind: .toggle,
                 default: .bool(SessionSettings.allowFullAccessDefault),
                 keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
