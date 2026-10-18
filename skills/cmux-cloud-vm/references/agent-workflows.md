@@ -5,9 +5,9 @@ Use the matching recipe after target and capacity authorization in [the skill](.
 The Mac-side `cmux vm` verbs these recipes used (route, run, exec, agent, dev, push,
 pull, tree, open, fork with flags, `cloud domains`) were removed with the Swift CLI.
 Every recipe below starts a terminal on the machine through the app, then works
-inside the machine with its own `cmux`. For a one-off command or file, the app
-actions `cmux cloud exec`, `cmux cloud file-read` and `cmux cloud file-write` also
-work from the Mac ([command reference](commands.md#shell-commands-and-files)).
+inside the machine with its own `cmux`. To run a one-off command or write a file,
+the app actions `cmux cloud exec` and `cmux cloud file-write` also work from the
+Mac; `file-read` shows a file only to the person, so read files inside the machine ([command reference](commands.md#shell-commands-and-files)).
 
 ## 0. Get a terminal on the machine
 

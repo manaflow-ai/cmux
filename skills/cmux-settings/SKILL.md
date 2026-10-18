@@ -16,8 +16,10 @@ path, kind, accepted values, default and whether an agent may set it
 (`agent_settable`). Classic keys such as `app.appearance`, `sidebarAppearance.*`,
 `markdown.*`, `fileEditor.*` and `diffViewer.*` are not cmux-next keys; several
 were renamed (`diffViewer.defaultLayout` is `diff.layout`). `settings set`
-validates values for schema keys, but writes an unknown path raw: it succeeds
-and changes nothing, so look the key up first. Every write prints the `file` it
+validates values for schema keys and refuses retired keys with `removed`. It
+writes any other path without validation. That raw write is how custom actions
+and `shortcuts.bindings.*` are set; any other unknown path succeeds and changes
+nothing, so look the key up first. Every write prints the `file` it
 wrote.
 
 ## Read and change a setting
@@ -64,8 +66,8 @@ first; do not invent keys the schema does not list.
 - Sidebar: `sidebar.density`, `sidebar.groupBy`, `sidebar.minimalMode` (`off | bottom | top | both`).
 - Notifications: `notifications.dockBadge`, `notifications.desktop`, `notifications.attention.*`.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.
-- Diff and files: `diff.layout` (`split | unified`), `diff.wordWrap`, `files.textEditor`.
-- Computer Use: `computerUse.enabled` (off by default), `computerUse.driver`.
+- Diff and files: `diff.layout` (`split | unified`), `diff.wordWrap`, `files.textEditor` (user-only).
+- Computer Use: `computerUse.enabled` (off by default), `computerUse.driver`; both user-only.
 - Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 ## The bundled helper is classic-only

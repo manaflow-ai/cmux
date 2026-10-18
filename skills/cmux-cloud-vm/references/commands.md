@@ -16,8 +16,9 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
 - **Target:** `--target machine:vm-…`. Without it, a machine action applies to the
   focused cloud workspace's machine. `cmux cloud copy-machine-id` copies an id to
   the clipboard.
-- **Results** are action results. `--json` prints the result object; check it
-  rather than assuming stdout carries command output, a tree or a URL.
+- **Results** are action results. No action returns command output, a file, a
+  listing or a URL on stdout, even with `--json`. Read and list actions show
+  their result to the person in an app toast with a Copy button.
 - **Exit codes:** `0` success, `1` action failure, `2` usage, `3` app unreachable.
 
 ## Machine actions
@@ -43,7 +44,7 @@ cmux cloud copy-machine-link --target machine:vm-… --port <n>
 cmux cloud copy-machine-port --target machine:vm-… --port <n>
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
-cmux cloud delete-snapshot --target machine:vm-…
+cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
 
@@ -62,15 +63,18 @@ cmux cloud prepare-scp --target machine:vm-…                   # takes an SSH 
 ```
 
 `cloud exec` and `cloud ssh` start a terminal; read its output inside that
-terminal, not from the action result. Run `cmux action describe "cloud prepare-scp"`
+terminal, not from the action result. `files-list`, `file-read`, `file-stat` and
+`prepare-scp` show their result in an app toast for the person, not to the CLI;
+to read a file or listing yourself, run `cat` or `ls` in a terminal on the
+machine. Run `cmux action describe "cloud prepare-scp"`
 for the public-key argument's flag.
 
 ## Networks, domains and chat moves
 
 ```bash
 cmux cloud network-list
-cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete
-cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key
+cmux cloud firewall-list | firewall-get | firewall-create | firewall-delete   # --path <rule-id>, or JSON for create
+cmux cloud tunnel-attach | tunnel-detach | tunnel-rotate-key                 # --path <network-id>; this Mac
 cmux cloud domain-list
 cmux cloud publication-list
 cmux cloud move          # Move to Cloud: an agent chat tab, optional --machine
@@ -115,7 +119,8 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (the sheet) |
 | `vm exec`, `vm run`, `vm dev`, `vm agent` | `cmux cloud exec --command …`, or open a terminal on the machine and use `cmux workspace current run -- <argv>` or `cmux agent <harness>` there |
 | `vm terminal send\|read\|wait\|wait-exit\|output\|close` from the Mac | the same work with `cmux terminal <term_…> write\|screen read\|screen wait\|process wait\|output read\|close` inside the machine |
-| `vm push\|pull\|upload\|download` | `cmux cloud file-read\|file-write\|prepare-scp`; `cmux env set` inside the machine for settings |
+| `vm push\|upload` | `cmux cloud file-write --path <file> --contents …`, or `cmux cloud prepare-scp` then scp |
+| `vm pull\|download` | read the file in a terminal on the machine; `file-read` only shows it to the person in a toast |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`, `cmux cloud copy-machine-link --port <n>` |
@@ -125,6 +130,6 @@ and `vm ls`. See [guest operations](guest.md).
 | `vm snapshot\|fork\|restore\|promote-template\|rename\|rm\|handoff\|status\|resize` | the matching `cmux cloud …-machine` action |
 | `cloud domains list` | `cmux cloud domain-list`, `cmux cloud publication-list` |
 | `cloud domains publish\|verify\|access\|rm\|zones` | none |
-| `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach` |
+| `vpn up\|down` | `cmux cloud tunnel-attach\|tunnel-detach --path <network-id>` (no machine target) |
 | `vpn status`, `ai-accounts`, `auth login\|logout` | none on the CLI; use the app |
 | `capabilities`, `rpc <method>` | `cmux app capabilities`, `cmux action list` |

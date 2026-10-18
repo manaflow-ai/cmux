@@ -12,7 +12,7 @@ appear in the schema is not a license to add a guessed `templates.<viewer>` obje
 | `browser` | Search engine, link routing, omnibar, toolbar, hibernation, passwords | `browser.*` (for example `browser.defaultEngine`, `browser.links.*`, `browser.omnibar.*`, `browser.toolbar.*`); profiles, navigation, devtools and per-page state use the browser UI or the cmux-browser skill | `cmux settings get <key>` |
 | `markdown` | Surface color and opacity | `appearance.surfaces.markdown.color`, `appearance.surfaces.markdown.opacity`; no prose font, size or width setting exists in cmux-next | `cmux settings get <key>` |
 | `diff` | Layout, word wrap, line numbers, word diffs, colors | `diff.layout` (`split` or `unified`), `diff.wordWrap`, `diff.lineNumbers`, `diff.wordDiffs`, `diff.colors`, `diff.expandUnchanged`, `appearance.surfaces.diff.*` | `cmux settings get <key>` |
-| `filePreview` | Which editor opens text files | `files.textEditor`; `cmux open <path>` shows a file in the page that fits it | `cmux settings get files.textEditor` |
+| `filePreview` | Which editor opens text files | `files.textEditor` (user-only); `cmux open <path>` shows a file in the page that fits it | `cmux settings get files.textEditor` |
 | `rightSidebarTool` | Which tool is shown and tab order | the app's sidebar UI; no settings key | none |
 | `html` | Local HTML content and browser chrome | Open local `.html` in a browser tab (`cmux tab create browser --url file:///…`) and edit the HTML/CSS for page content | none |
 | `notes` | Project-scoped notes rendering | No `notes.*` or `templates.notes` setting is shipped | Do not write an unknown key |
@@ -31,7 +31,8 @@ templates follow-up instead of inventing a path.
 1. Map the user's words to one row. If the request names a knob that is not in
    that row, inspect the schema before editing.
 2. Change schema-backed paths with `cmux settings set <key> <value>`; it
-   validates values for known keys. Edit Ghostty config only when the matrix
+   validates values for known keys. A key with `agent_settable: false` is
+   refused with `setting_user_only`; leave it to the person. Edit Ghostty config only when the matrix
    names it as the owner.
 3. Read back the exact setting with `cmux settings get <key>`.
 

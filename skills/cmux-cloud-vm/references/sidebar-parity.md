@@ -36,7 +36,8 @@ applies to the focused cloud workspace's machine.
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 
 Actions return the app's action result. They do not return machine data such as a
-tree, command output or a port URL on stdout; copy actions write to the clipboard.
+tree, a file, command output or a port URL on stdout; read and list actions show
+their result in an app toast, and copy actions write to the clipboard.
 
 Removed with the Swift CLI, with no action equivalent: `vm tree` and its sidebar
 pin/order verbs, `vm workspace open|close|rm|rename` against a machine,

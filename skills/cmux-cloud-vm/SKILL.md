@@ -81,7 +81,8 @@ browser authentication. The machine's `cmux --help` is authoritative.
 
 The Swift `cmux vm …` family is gone. Its replacements are app actions:
 `cmux cloud exec --command …` and `cmux cloud ssh` (both open a terminal),
-`cmux cloud file-read|file-write|files-list|prepare-scp`,
+`cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp` (these
+show their result to the person in a toast, not on stdout),
 `cmux cloud pause-machine|resume-machine`, and `cmux cloud domain-list` (listing
 only). These have no CLI path: `vm route|tree|wait|restart|stats|prompt`,
 `vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
