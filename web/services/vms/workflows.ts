@@ -3565,12 +3565,15 @@ function settleUnexpectedWakes(
   return Effect.gen(function* () {
     if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
     if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
-    // Wakes past the cap stay paused rows for the next run to find again.
+    // Wakes past the cap stay paused rows for the next run to find again. A
+    // row another run claimed is left to it without counting toward the cap.
+    const nowMs = Date.now();
     let woken = 0;
     return yield* Effect.forEach(
       firstPass,
       (outcome, index) => {
         if (outcome !== "unexpected_wake") return Effect.succeed(outcome);
+        if (hasFreshRepauseClaim(candidates[index]!, nowMs)) return Effect.succeed("skipped" as const);
         woken += 1;
         return woken > UNEXPECTED_WAKE_REPAUSE_LIMIT
           ? Effect.succeed("skipped" as const)
@@ -3711,7 +3714,12 @@ function resumeAfterLostRace(
     if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
     yield* resume(vm.provider, providerVmId).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-      Effect.tapError(() => Effect.logWarning("Could not resume a machine a re-pause raced", { vmId: vm.id, providerVmId })),
+      Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.resume_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
       Effect.catchAll(() => Effect.void),
     );
   });
@@ -3726,11 +3734,20 @@ function restoreGoRuntimeBudget(
   return Effect.gen(function* () {
     const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
     if (usage._tag === "Left") {
-      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", { vmId: vm.id, providerVmId });
+      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_usage_unreadable",
+        vmId: vm.id,
+        providerVmId,
+        cause: usage.left,
+      });
       return true;
     }
     if (usage.right && usage.right.remainingSeconds <= 0) {
-      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", { vmId: vm.id, providerVmId });
+      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
+        event: "cloud_vm.repause_race.go_allowance_exhausted",
+        vmId: vm.id,
+        providerVmId,
+      });
       return false;
     }
     const remainingSeconds = usage.right?.remainingSeconds ?? null;
@@ -3738,7 +3755,12 @@ function restoreGoRuntimeBudget(
       yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
     }).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-      Effect.tapError(() => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", { vmId: vm.id, providerVmId })),
+      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_budget_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
       Effect.catchAll(() => Effect.void),
     );
     return true;
