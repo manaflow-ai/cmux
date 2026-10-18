@@ -164,9 +164,11 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(creates[0][:3], ["--actor", "leo", "create"])
         self.assertIn("--external-ref", creates[0])
         self.assertIn("https://github.com/manaflow-ai/cmux/pull/10", creates[0])
-        comment = self.gh_log.read_text()
-        self.assertIn("subjectId=pr-node", comment)
-        self.assertIn("cx-created", comment)
+        # The link goes to the PR's status comment through pr-status.yml (posted as
+        # github-actions), never as a comment under the token's own account.
+        calls = [json.loads(line) for line in self.gh_log.read_text().splitlines()]
+        self.assertEqual(calls, [["workflow", "run", "pr-status.yml", "-R", "manaflow-ai/cmux",
+                                  "--ref", "feat-cmux-next", "-f", "pr=10", "-f", "bead=cx-created"]])
 
     def test_a_second_run_does_not_repeat_comments_or_closes(self):
         # The search starts at (or before) the last merge handled, so it sees that merge again.
