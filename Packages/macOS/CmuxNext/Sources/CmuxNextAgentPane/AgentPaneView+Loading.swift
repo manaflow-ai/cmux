@@ -20,13 +20,20 @@ public final class AgentPaneLoadingView: NSView {
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
     /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
     static let markDelay: Duration = .milliseconds(800)
-    /// How long the loading state waits for the page's first paint before it shows the page
-    /// anyway (cx-txnr): WebKit holds the animation frames of a page it thinks is not visible
-    /// (an occluded window after a relaunch), and its `pane.painted` may never come. Like the
-    /// pane's other covers (`PanePaintHold.limit`, the launch image), it never stays for good.
-    static var paintLimit: Duration = .seconds(8)
+    /// How often the loading state checks on a page that has not painted (cx-txnr): WebKit
+    /// holds the animation frames of a page it thinks is not visible (a window occluded at a
+    /// relaunch), and its `pane.painted` may then never come. Seen unpainted at two checks in a
+    /// row (4-8 s in sight), the page counts as painted and shows as it is: like the pane's
+    /// other covers (`PanePaintHold.limit`, the launch image), it never stays for good. Out of
+    /// sight (a parked spare, a hidden tab, a window ordered out) it waits.
+    var paintCheckInterval: Duration = .seconds(4) {
+        didSet { if onGiveUp != nil { schedulePaintCheck() } }
+    }
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
-    private let paintTimer = DemandTimer(owner: "agentPane.paintLimit")
+    private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
+    private var onGiveUp: (@MainActor () -> Void)?
+    /// The last check saw the pane, still unpainted.
+    private var seenUnpainted = false
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
@@ -69,9 +76,38 @@ public final class AgentPaneLoadingView: NSView {
         }
     }
 
-    /// Runs `giveUp` after ``paintLimit`` unless the loading state leaves first.
-    func giveUpLater(_ giveUp: @escaping @MainActor @Sendable () -> Void) {
-        paintTimer.schedule(after: Self.paintLimit) { @MainActor in giveUp() }
+    /// Runs `giveUp` once the pane has been seen unpainted at two checks in a row, unless the
+    /// loading state leaves first.
+    func giveUpWhenSeenUnpainted(_ giveUp: @escaping @MainActor () -> Void) {
+        onGiveUp = giveUp
+        seenUnpainted = false
+        schedulePaintCheck()
+    }
+
+    private func schedulePaintCheck() {
+        paintTimer.schedule(after: paintCheckInterval) { @MainActor [weak self] in self?.checkPaint() }
+    }
+
+    private func checkPaint() {
+        guard superview != nil, !leaving, let giveUp = onGiveUp else { return }
+        let seen = paneIsSeen
+        if seen, seenUnpainted {
+            onGiveUp = nil
+            giveUp()
+            return
+        }
+        seenUnpainted = seen
+        schedulePaintCheck()
+    }
+
+    /// The pane is on screen: its window is ordered in, and the pane is neither hidden nor
+    /// outside the window's content (a parked New Tab spare). Not the window's occlusion state:
+    /// WebKit's own view of it is what holds the paint.
+    private var paneIsSeen: Bool {
+        guard let pane = superview, let window, window.isVisible, let content = window.contentView,
+              !pane.isHiddenOrHasHiddenAncestor else { return false }
+        // Window coordinates: `visibleRect` does not clip to views that do not clip to bounds.
+        return pane.convert(pane.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
     }
 
     func hideMark() {
@@ -93,6 +129,7 @@ public final class AgentPaneLoadingView: NSView {
         // Once: the page's paint can follow the deadline's leave.
         guard superview != nil, !leaving else { return }
         paintTimer.cancel()
+        onGiveUp = nil
         hideMark()
         leaving = true
         let overImage = isHidden
@@ -138,10 +175,10 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
-        loadingView.giveUpLater { [weak self] in
-            guard let self, !model.hasPainted, loadingView.superview != nil else { return }
-            loadingLogger.error("agent pane page did not paint within the loading limit; showing it")
-            endLoadingState()
+        loadingView.giveUpWhenSeenUnpainted { [weak self] in
+            guard let self, !model.hasPainted else { return }
+            loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
+            model.markPainted()
         }
     }
 
