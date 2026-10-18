@@ -49,6 +49,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private var displayOptionsObserver: (any NSObjectProtocol)?
+    /// Follows the shown workspace's agent chat column (`updateBackdropCover`).
+    private var agentChatColumnObserver: (any NSObjectProtocol)?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -153,6 +155,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.themeDidChange() } // main-proof: observer on queue: .main
         }
+        agentChatColumnObserver = observeAgentChatColumn()
         themeDidChange()
     }
 
@@ -167,6 +170,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             placementObservation?.cancel()
             mainPaneObservation?.cancel()
             if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+            if let agentChatColumnObserver { NotificationCenter.default.removeObserver(agentChatColumnObserver) }
         }
     }
 
@@ -216,6 +220,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         host.repairAgentCursorOrder()
         let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
         host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        updateBackdropCover()
     }
 
     override func layout() {
@@ -310,6 +315,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
         mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
+        updateBackdropCover()
         onContentChange?()
     }
 
