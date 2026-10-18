@@ -1,6 +1,15 @@
-CREATE TYPE "run_status" AS ENUM ('queued', 'running', 'succeeded', 'failed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "run_attempt_status" AS ENUM ('queued', 'running', 'succeeded', 'failed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "run_event_kind" AS ENUM ('run.created', 'attempt.queued', 'attempt.started', 'attempt.succeeded', 'attempt.failed');--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_status" AS ENUM ('queued', 'running', 'succeeded', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_attempt_status" AS ENUM ('queued', 'running', 'succeeded', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_event_kind" AS ENUM ('run.created', 'attempt.queued', 'attempt.started', 'attempt.succeeded', 'attempt.failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
 CREATE TABLE "runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "user_id" text NOT NULL,
