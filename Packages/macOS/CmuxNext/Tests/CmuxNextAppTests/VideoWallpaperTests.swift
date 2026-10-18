@@ -103,6 +103,51 @@ import Testing
         #expect(players.count == 0, "a closed window keeps its video decoder")
     }
 
+    /// A video no one can see for a minute frees its decoder and frame buffers, and comes back at
+    /// the frame it held. One held for Low Power Mode or Reduce Motion is still on screen: it keeps
+    /// them, so its frame never drops to the poster in front of someone.
+    @Test func aVideoNoOneCanSeeGivesBackItsDecoderAndPicksUpWhereItWas() async throws {
+        let clip = try await Self.clip()
+        let players = BackdropVideoPlayers()
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        let url = try #require(h.video.url)
+        let player = try #require(h.video.playerLayer.player as? AVQueuePlayer)
+        #expect(!player.items().isEmpty && h.video.isPlaying)
+        h.video.lowPowerOverride = true
+        #expect(!h.video.isPlaying && h.video.canBeSeen)
+        players.releaseIfUnseen(url)
+        #expect(!players.isReleased(url) && !player.items().isEmpty, "a paused video someone can see lost its frame")
+        h.video.lowPowerOverride = false
+        h.video.visibleOverride = false
+        #expect(!h.video.canBeSeen)
+        players.releaseIfUnseen(url)
+        #expect(players.isReleased(url) && player.items().isEmpty, "a video no one can see keeps its decoder")
+        #expect(players.count == 1, "the released player left the shared set")
+        h.video.visibleOverride = true
+        #expect(!players.isReleased(url) && !player.items().isEmpty, "the video does not come back when seen again")
+        #expect(h.video.isPlaying)
+        #expect(h.video.playerLayer.player === player, "the window's layer lost its player")
+    }
+
+    @Test func theDecoderGoesOnlyAfterTheDeadline() async throws {
+        let clip = try await Self.clip()
+        let players = BackdropVideoPlayers()
+        players.releaseAfter = .milliseconds(150)
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        let url = try #require(h.video.url)
+        h.video.visibleOverride = false
+        #expect(!players.isReleased(url), "the decoder went the moment the window hid")
+        // Updates while hidden do not push the deadline back.
+        h.video.lowPowerOverride = true
+        h.video.lowPowerOverride = false
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(players.isReleased(url), "a video hidden past the deadline keeps its decoder")
+        h.video.visibleOverride = true
+        #expect(!players.isReleased(url))
+    }
+
     @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {
         let clip = try await Self.clip()
         let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
