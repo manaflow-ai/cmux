@@ -162,7 +162,7 @@
 }
 .ui-context-menu-submenu {
   position: absolute;
-  z-index: 1;
+  z-index: var(--layer-raised);
   inset-inline-start: calc(100% - 4px);
   top: -4px;
   min-width: 180px;
