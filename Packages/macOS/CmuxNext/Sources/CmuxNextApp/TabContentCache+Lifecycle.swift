@@ -165,6 +165,9 @@ extension TabContentCache {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
+            // Mounted hidden after an eviction: its last frame shows until its content draws (a
+            // surface that parsed its content while hidden draws it now: no hold).
+            if let frame = lastFrames.remove(key) { lastFrames.note(entry.session.showLastFrame(frame) ?? "shown") }
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)

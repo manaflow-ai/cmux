@@ -169,8 +169,8 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
-        // Only a terminal that draws now: a hidden mount parses its content before it shows.
-        if let frame = lastFrames.remove(tab.id) { lastFrames.note(render ? session.showLastFrame(frame) ?? "shown" : "mounted_hidden") }
+        // A hidden mount keeps the frame for its reveal (`reveal`).
+        if render, let frame = lastFrames.remove(tab.id) { lastFrames.note(session.showLastFrame(frame) ?? "shown") }
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)

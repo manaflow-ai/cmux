@@ -28,7 +28,7 @@ extension TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
         terminals[key] = entry
-        if let frame = lastFrames.remove(key) { lastFrames.note(render ? session.showLastFrame(frame) ?? "shown" : "mounted_hidden") }
+        if render, let frame = lastFrames.remove(key) { lastFrames.note(session.showLastFrame(frame) ?? "shown") }
         session.isRenderingSuspended = !render
         contentDidMount(key)
         return entry
