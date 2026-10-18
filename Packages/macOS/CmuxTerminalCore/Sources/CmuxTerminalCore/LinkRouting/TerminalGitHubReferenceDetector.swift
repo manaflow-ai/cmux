@@ -278,12 +278,24 @@ public struct TerminalGitHubReferenceDetector: Sendable {
         if name.hasSuffix(".git") {
             name.removeLast(4)
         }
-        guard isSlugComponent(owner), isSlugComponent(name) else { return nil }
+        guard isOwnerComponent(owner), isSlugComponent(name) else { return nil }
         return "\(owner)/\(name)"
     }
 
-    /// Whether a slug component matches what GitHub allows in an owner or
-    /// repository name.
+    /// Whether a component matches what GitHub allows in an owner name:
+    /// letters, digits and `-` only, so `github.com/foo` is not an owner.
+    private func isOwnerComponent(_ component: String) -> Bool {
+        guard !component.isEmpty, component.count <= 39 else { return false }
+        return component.allSatisfy { character in
+            character.isASCIIDigit
+                || ("a"..."z").contains(character)
+                || ("A"..."Z").contains(character)
+                || character == "-"
+        }
+    }
+
+    /// Whether a slug component matches what GitHub allows in a repository
+    /// name.
     private func isSlugComponent(_ component: String) -> Bool {
         guard !component.isEmpty, component.count <= 100 else { return false }
         guard component != ".", component != ".." else { return false }
