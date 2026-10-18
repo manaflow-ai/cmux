@@ -61,12 +61,19 @@ pub struct Conn {
     person: AtomicBool,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
+    caller: std::sync::OnceLock<String>,
 }
 
 impl Conn {
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
         self.person.load(Ordering::SeqCst)
+    }
+
+    /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
+    pub(super) fn caller(&self) -> Option<&str> {
+        self.caller.get().map(String::as_str)
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -81,9 +88,15 @@ impl Conn {
     /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
+        let caller = params.as_mut().and_then(crate::hub::person::take_caller);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
+        }
+        let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
+        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
+            let _ = self.caller.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -702,6 +715,7 @@ async fn serve_connection_from(
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        caller: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
