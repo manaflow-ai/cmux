@@ -337,12 +337,11 @@ export function Stage({
       <figcaption>
         <strong>{label ?? state}</strong>
         {note && !thumbnail && <span className="gallery-note">{note}</span>}
-        {windowed && (
-          <span className="gallery-note">
-            {WINDOW_PRESETS[env.window as keyof typeof WINDOW_PRESETS]?.label ?? env.window} window · pane {frame.width}
-            ×{frame.height} pt · {Math.round(scale * 100)}%
-          </span>
-        )}
+        <span className="gallery-note gallery-surface-context">
+          {windowed
+            ? `${WINDOW_PRESETS[env.window as keyof typeof WINDOW_PRESETS]?.label ?? env.window} window · pane ${frame.width}×${frame.height} pt · ${Math.round(scale * 100)}%`
+            : `component surface · ${frame.width}×${frame.height} px`}
+        </span>
         <a href={`frame.html?${query}`} target="_blank" rel="noreferrer">
           open
         </a>

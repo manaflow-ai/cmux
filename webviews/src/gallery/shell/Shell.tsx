@@ -55,6 +55,36 @@ function go({ entry, variant, search }: Address, replace = false): void {
   } as never);
 }
 
+const TEAM_FEED_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:8443/feed/";
+
+/** Small, durable handoff actions: copy the exact shell route and jump to the shared review feed. */
+function GalleryLinks({ address }: { address: Address }) {
+  const [copied, setCopied] = useState(false);
+  const permalink = href(address);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(new URL(permalink, window.location.href).href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard access is optional in locked-down previews; the permalink remains usable.
+    }
+  };
+  return (
+    <div className="gallery-header-links" aria-label="Gallery links">
+      <a href={permalink} title="Open this exact gallery state">
+        Permalink
+      </a>
+      <button type="button" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy link"}
+      </button>
+      <a href={TEAM_FEED_URL} target="_blank" rel="noreferrer">
+        Team feed
+      </a>
+    </div>
+  );
+}
+
 /** Every entry file's load, re-rendered when one changes (entryStore.ts). */
 function useEntryStates(): readonly EntryState[] {
   return useSyncExternalStore(entryStore.subscribe, entryStore.getSnapshot);
@@ -381,6 +411,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
             )
           }
         />
+        <GalleryLinks address={address} />
       </header>
       <BrowseView
         entries={readyEntries(states)}
@@ -468,6 +499,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             }
           />
         </Toolbar>
+        <GalleryLinks address={address} />
         {entry.tunables && entry.tunables.length > 0 && (
           <Tunables
             tunables={entry.tunables}
@@ -518,7 +550,10 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               env={stage.env}
               tune={search.tune}
               label={stage.label}
-              available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
+              available={{
+                width: Math.max(320, room.width - 4),
+                height: Math.max(240, room.height),
+              }}
               thumbnail={search.view !== "variant"}
             />
           ))

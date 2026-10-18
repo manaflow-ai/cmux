@@ -20,7 +20,7 @@ final class WorkspaceStatusView: NSView {
         self.status = status
         self.reservesBar = reservesBar
         while labels.count < status.lines.count {
-            let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+            let label = SidebarRowView.attributedLabel(font: SidebarStyle.subtitleFont)
             labels.append(label)
             addSubview(label)
         }

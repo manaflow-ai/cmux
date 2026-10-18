@@ -74,7 +74,7 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
 async function firstVariant(entryId: string): Promise<string | undefined> {
-  const entry = readyEntries(await entryStore.settled()).find((candidate) => candidate.id === entryId);
+  const entry = await entryStore.waitFor(entryId);
   return entry ? Object.keys(entry.variants)[0] : undefined;
 }
 

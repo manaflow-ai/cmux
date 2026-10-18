@@ -132,6 +132,24 @@ export function createEntryStore(sources: readonly EntrySource[]) {
         }
       if (changed) publish();
     },
+    /** Resolves as soon as a named entry is available; unknown ids fall back after all loads. */
+    async waitFor(id: string): Promise<GalleryEntry | undefined> {
+      const found = () => readyEntries(snapshot).find((entry) => entry.id === id);
+      const current = found();
+      if (current || snapshot.every((state) => state.status !== "loading")) return current;
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (found() || snapshot.every((state) => state.status !== "loading")) {
+            unsubscribe();
+            resolve();
+          }
+        };
+        const unsubscribe = () => listeners.delete(check);
+        listeners.add(check);
+        check();
+      });
+      return found();
+    },
     /** Resolves once no entry is loading (failed ones count as settled). */
     async settled(): Promise<readonly EntryState[]> {
       for (;;) {

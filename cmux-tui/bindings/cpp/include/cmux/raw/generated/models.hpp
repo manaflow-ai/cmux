@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+inline constexpr std::string_view kProtocolIrSha256 = "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationReactionKind;
 struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
+struct ConversationTabSplit;
 struct ConversationTextRun;
 struct ConversationThreadResolution;
 struct ConversationThreadState;
@@ -2322,6 +2323,12 @@ struct ConversationSnapshotResult {
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
 };
 
+struct ConversationTabSplit {
+    std::string direction{};
+    Field<std::string> pane_id{};
+    friend bool operator==(const ConversationTabSplit&, const ConversationTabSplit&) = default;
+};
+
 struct ConversationThreadRequest {
     std::optional<std::uint64_t> after_seq{};
     std::string conversation{};
@@ -3740,6 +3747,7 @@ struct NewConversationTabRequest {
     Field<Id> pane{};
     Field<std::string> route{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
@@ -6010,6 +6018,12 @@ template <>
 struct Codec<ConversationTabRecord> {
     static Result<Json> encode(const ConversationTabRecord& value);
     static Result<ConversationTabRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationTabSplit> {
+    static Result<Json> encode(const ConversationTabSplit& value);
+    static Result<ConversationTabSplit> decode(const Json& value);
 };
 
 template <>

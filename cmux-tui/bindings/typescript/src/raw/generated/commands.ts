@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4. */
+/* cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0. */
 
 
 import type * as T from "./types.js";
@@ -1650,6 +1650,8 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "route"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction. */
+  "split"?: (T.ConversationTabSplit) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
   "transaction"?: (string) | null;
   "workspace"?: (T.Id) | null;

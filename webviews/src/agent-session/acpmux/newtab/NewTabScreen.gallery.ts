@@ -173,6 +173,17 @@ export default agentPaneEntry({
         if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
       },
     },
+    "current-composer": {
+      note: "Current composer visual reference: the latest New Tab surface with folder/computer, model, effort, dictation, Send, create actions, and quiet chat rows. This variant is visual-only; workspace switching is covered by the separate behavior journey.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
+          throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.

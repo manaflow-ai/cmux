@@ -36,11 +36,11 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
-    /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
+    /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
-                            _ transaction: ClientTransactionID) async throws
-        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _ in throw DaemonError.notConnected }
+                            _ transaction: ClientTransactionID, _ split: ConversationTabSplit?) async throws
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _, _ in throw DaemonError.notConnected }
     /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
     /// where the pane still selects it (AppServices: every pane controller).
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }

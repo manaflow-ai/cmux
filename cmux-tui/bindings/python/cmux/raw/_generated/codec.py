@@ -49,6 +49,7 @@ MODEL_BY_PATH = {
     'types/ConversationSearchHit': models.ConversationSearchHit,
     'types/ConversationSummary': models.ConversationSummary,
     'types/ConversationTabRecord': models.ConversationTabRecord,
+    'types/ConversationTabSplit': models.ConversationTabSplit,
     'types/ConversationTextRun': models.ConversationTextRun,
     'types/ConversationThreadResolution': models.ConversationThreadResolution,
     'types/ConversationThreadState': models.ConversationThreadState,

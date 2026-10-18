@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4";
+pub const ir_sha256 = "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -573,6 +573,13 @@ pub const ConversationTabRecord = struct {
         "page",
         "route",
     };
+};
+
+pub const ConversationTabSplit = struct {
+    /// The side of pane the new pane takes: right, down, left or up.
+    direction: []const u8,
+    /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
+    pane_id: wire.Field([]const u8) = .absent,
 };
 
 pub const ConversationTextRun = struct {
@@ -6825,6 +6832,8 @@ pub const NewConversationTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     route: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.
+    split: wire.Field(ConversationTabSplit) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
@@ -6856,6 +6865,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
+                .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },

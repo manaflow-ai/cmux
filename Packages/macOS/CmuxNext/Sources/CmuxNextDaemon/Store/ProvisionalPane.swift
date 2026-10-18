@@ -19,15 +19,30 @@ public struct ProvisionalPane: Sendable, Hashable {
     public let terminalID: String
     /// The surface of its provisional tab.
     public let surface: SurfaceID
+    /// The tab it shows when it is not a terminal: a conversation tab under a provisional id
+    /// (`conversation-tab-split-v1`), which the daemon's tab replaces when its pane arrives
+    /// (`ProvisionalTab.echoed`). Nil: a terminal tab under `tabID` and `terminalID`.
+    public let tab: TabSnapshot?
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
+        self.init(tab: nil)
+    }
+
+    /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)
+    /// that `new-conversation-tab {split}` creates (``ProvisionalTab/conversation(_:)``).
+    @MainActor public init(holding tab: TabSnapshot) {
+        self.init(tab: tab)
+    }
+
+    @MainActor private init(tab: TabSnapshot?) {
         Self.next += 1
         handle = PaneID(rawValue: Self.handleBase + Self.next)
-        surface = ProvisionalTab().surface
+        surface = tab?.surface ?? ProvisionalTab().surface
         let hex = { UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
         paneID = "pane_" + hex()
         tabID = "tab_" + hex()
         terminalID = hex()
+        self.tab = tab
     }
 }

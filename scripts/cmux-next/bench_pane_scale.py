@@ -372,6 +372,10 @@ class Bench:
             measured["frames"] = {k: frames.get(k) for k in ("frames", "p50_ms", "p99_ms", "max_ms", "missed")}
         if layout_before is not None and layout_after is not None:
             measured["layout"] = diff_counters(layout_before, layout_after, len(ops))
+            # Which call sites made the counted calls (debug.layout_counters `sources`).
+            sb, sa = layout_before.get("sources") or {}, layout_after.get("sources") or {}
+            measured["layout_sources"] = dict(sorted(((k, v - sb.get(k, 0)) for k, v in sa.items() if v - sb.get(k, 0) > 0),
+                                                     key=lambda kv: -kv[1]))
         if isinstance(passes, dict):
             # debug.layers layout_passes (LayoutPassGuard): top_classes are the
             # busiest view classes since the reset at the phase start (top 20),
