@@ -25,7 +25,10 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
 /** The shell's store: every entry loads on its own. Created only when the shell mounts. */
 let shellStore: EntryStore | undefined;
 export function getEntryStore(): EntryStore {
-  return (shellStore ??= createEntryStore(entrySources, { concurrency: 6 }));
+  // Keep the shell's background registry at one module transform. A focused frame is a real
+  // interactive preview and shares Vite's transform pool; six eager entry imports can otherwise
+  // leave the visible iframe blank while the registry compiles unrelated entries.
+  return (shellStore ??= createEntryStore(entrySources, { concurrency: 1 }));
 }
 
 /** A frame store loads only the source named by the shell; stale source links fail explicitly. */
