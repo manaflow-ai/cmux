@@ -23,7 +23,7 @@ warnings only.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
                  snapshots, 0 sidebar list reloads (I6).
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
-                 3 topology sends, 3 pane snapshots (sources name the snapshot fields that changed).
+                 3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -57,10 +57,11 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-2.9): the new pane's mount snapshot,
-    # one re-run that changes nothing, the shell's first title; the new pane's first apply after
-    # the split sends one more topology. The last two causes are open. Bound 2 / 2 / 1.
-    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 3},
+    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-3.4): the new pane's mount snapshot,
+    # one re-run that changes nothing, the shell's titles (0.6-1.4, the shell's timing); the new
+    # pane's first apply after the split sends one more topology. Causes 2 and 4 are open.
+    # Target 2 / 2 / 1.
+    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 4},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
 }
