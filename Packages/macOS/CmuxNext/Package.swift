@@ -223,6 +223,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
+                "CmuxNextUpdateEverything",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
@@ -671,6 +672,15 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Update Everything (cx-1mbnu) and the app's update actions: the plan, confirmation,
+        // runner, relaunch note, daemon reads and agent CLI steps over an injected
+        // UpdateEverythingHost (kept out of CmuxNextApp's size cap).
+        .target(
+            name: "CmuxNextUpdateEverything",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextRemote", "CmuxNextUpdater"],
+            resources: [.process("Resources/Localizable.xcstrings")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Cloud machines: auth, REST client, tunnel and link processes. The
         // App turns each connected machine's link socket into a DaemonService.
         .target(
@@ -967,6 +977,7 @@ let package = Package(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextUpdateEverything",
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.
                            .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
