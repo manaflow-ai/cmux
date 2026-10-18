@@ -177,7 +177,10 @@ final class CloudWorkspaceProjectionCoordinator {
                 !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine, workspaceID: remoteID)
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
-            let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
+            let plan = CloudWorkspaceProjectionPlan(
+                desired: desired, existing: Array(existing),
+                protectedPanelIDs: environment.pendingCloudBrowserPanelIDs(workspaceID)
+            )
             if !plan.missing.isEmpty || !plan.obsolete.isEmpty {
                 lastPlanShape[machine] = CloudWorkspaceProjectionPlanShape(plan)
             }

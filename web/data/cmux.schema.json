@@ -1364,7 +1364,7 @@
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is a file under ~/.cache/cmux/paste/<session>/, a directory the command has to create before writing to it. Its stdout is what cmux inserts at the cursor."
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is an absolute /tmp/cmux-drop-<uuid>.<ext> path whose parent already exists; the extension is lowercased. The command owns file permissions and cleanup. Its stdout is what cmux inserts at the cursor."
               },
               "enabled": {
                 "type": "boolean",
@@ -1866,6 +1866,13 @@
           "type": "boolean",
           "default": true,
           "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
+        },
+        "unselectedFillOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity of the workspace color on rows that are not selected, with the solidFill indicator. 1 shows the full color. Multi-selected rows use half of this value."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",

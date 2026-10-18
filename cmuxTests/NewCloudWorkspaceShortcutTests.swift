@@ -46,12 +46,15 @@ final class NewCloudWorkspaceShortcutTests {
 
     private var originalFileStore: KeyboardShortcutSettingsFileStore?
     private var originalCloudOptIn: Any?
+    private var originalWelcomeSeen: Any?
     private var originalBrowserDisabled: Any?
 
     init() {
         originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "new-cloud-workspace")
         let defaults = UserDefaults.standard
         originalCloudOptIn = defaults.object(forKey: Self.cloudOptInKey)
+        originalWelcomeSeen = defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+        defaults.removeObject(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
         originalBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
     }
@@ -65,6 +68,11 @@ final class NewCloudWorkspaceShortcutTests {
             KeyboardShortcutSettings.settingsFileStore = originalFileStore
         }
         let defaults = UserDefaults.standard
+        if let originalWelcomeSeen {
+            defaults.set(originalWelcomeSeen, forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey)
+        }
         if let originalCloudOptIn {
             defaults.set(originalCloudOptIn, forKey: Self.cloudOptInKey)
         } else {
@@ -334,7 +342,7 @@ final class NewCloudWorkspaceShortcutTests {
         NSApp.windows.contains { $0.identifier?.rawValue == "cmux.cloud.welcome" && $0.isVisible }
     }
 
-    @Test func testSharedActionsIntroduceCloudBeforePresentingSheet() {
+    @Test func testSharedActionsIntroduceCloudOnlyOnceBeforePresentingSheet() {
         defer { restoreState() }
         setCloudMachinesEnabled(false)
         let presenter = RecordingSheetPresenter()
@@ -353,14 +361,14 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(!Self.isCloudWelcomeVisible())
         // Cmd-Y, which otherwise falls back to New Cloud Machine.
         #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(debugSource: "test.cmdY.activationOff"))
-        #expect(Self.isCloudWelcomeVisible())
+        #expect(!Self.isCloudWelcomeVisible())
         #expect(!NSApp.windows.contains {
             $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
         })
         #expect(presenter.presentCount == 0)
     }
 
-    @Test func testSharedActionsIntroduceCloudWhenSignedOut() {
+    @Test func testSharedActionsIntroduceCloudOnlyOnceWhenSignedOut() {
         defer { restoreState() }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
@@ -371,7 +379,7 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(Self.isCloudWelcomeVisible())
         appDelegate.cloudWelcomeWindowController.dismiss()
         #expect(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(debugSource: "test.cmdY.signedOut"))
-        #expect(Self.isCloudWelcomeVisible())
+        #expect(!Self.isCloudWelcomeVisible())
         #expect(presenter.presentCount == 0)
     }
 

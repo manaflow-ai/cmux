@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
-      "action": "Sett maskinen på pause, gjenoppta den, og prøv igjen. I Mac-appen velger du Sett maskin på pause og deretter Gjenoppta maskin. I en terminal kjører du cmux vm pause '<machine>' og deretter cmux vm resume '<machine>'."
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
     },
     "inProgress": {
       "title": "Fortsatt i gang",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvoten er brukt opp",
+      "computeMessage": "{plan}-planen din har brukt sine {included} regnetimer i denne faktureringsperioden. En regnetime er 1 vCPU med 2 GB minne i én time. Maskinene dine kan starte igjen {resetDate}.",
+      "computeAction": "Pausede maskiner beholder filene sine. Kontakt support hvis du trenger mer regnekraft før {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-diskkvoten er brukt opp",
+      "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Bytte til {plan}?",
         "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "upgradeBodyYearly": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per år.",
         "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
         "confirm": "Bytt til {plan}",
         "keep": "Behold nåværende plan",
@@ -568,6 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",

@@ -13,6 +13,7 @@ const DROPPED_ALERT_REPORT_TIMEOUT_MS = 2_000;
 const VM_ALERT_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const VM_ALERT_DELIVERY_LEASE_MS = 5 * 60 * 1_000;
 const VM_ALERT_SAMPLE_LIMIT = 25;
+const VM_HEALTH_STALE_MS = 5 * 60 * 1_000;
 // The cron runs every five minutes. A daily bucket gives operators a reminder
 // without creating a new PostHog event for every tick of a persistent outage.
 const DROPPED_ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -26,6 +27,8 @@ export type VmAlertSummary = {
   readonly createFailures: VmAlertCheckSummary;
   readonly stuckProvisioning: VmAlertCheckSummary;
   readonly expiredUnrevokedLeases: VmAlertCheckSummary;
+  /** Running VMs whose guest resource heartbeat has gone stale. */
+  readonly health: VmAlertCheckSummary;
   /** Account-wide provider TLS rule usage; null when no provider could be read. */
   readonly tlsRuleCapacity: (VmAlertCheckSummary & { readonly limit: number }) | null;
   /**
@@ -43,6 +46,8 @@ export type VmAlertStateStore = {
   readonly claim: (input: AlertInput, now: Date) => Promise<string | null>;
   readonly acknowledge: (key: string, leaseId: string, now: Date) => Promise<void>;
   readonly clear: (key: string, now: Date) => Promise<void>;
+  /** Drop a delivery lease that did not send, keeping the alert active, so the next run can retry. */
+  readonly release?: (key: string, leaseId: string, now: Date) => Promise<void>;
 };
 
 type SendAlert = (input: AlertInput) => Promise<AlertResult>;
@@ -74,12 +79,14 @@ export async function runVmAlertChecks(options: {
 
   const createFailureThreshold = positiveIntegerEnv(env.CMUX_VM_ALERT_CREATE_FAILURES_15M, 3);
   const expiredLeaseThreshold = positiveIntegerEnv(env.CMUX_VM_ALERT_EXPIRED_LEASES, 50);
+  const healthStaleMs = positiveIntegerEnv(env.CMUX_VM_ALERT_HEALTH_STALE_MS, VM_HEALTH_STALE_MS);
   const createFailureSince = new Date(now.getTime() - 15 * 60 * 1000);
   const stuckProvisioningBefore = new Date(now.getTime() - 20 * 60 * 1000);
 
   const createFailures = await countCreateFailures(db, createFailureSince);
   const stuckProvisioning = await listStuckProvisioningVms(db, stuckProvisioningBefore);
   const expiredLeases = await listExpiredUnrevokedLeases(db, now);
+  const unhealthy = await listUnhealthyVms(db, new Date(now.getTime() - healthStaleMs));
   const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage, env, alertStateStore, now);
 
   const triggeredAlerts: AlertInput[] = [];
@@ -123,6 +130,8 @@ export async function runVmAlertChecks(options: {
     });
   }
 
+  triggeredAlerts.push(...healthAlerts(unhealthy, healthStaleMs));
+
   triggeredAlerts.push(...tlsRuleCapacity.alerts);
 
   const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
@@ -130,6 +139,7 @@ export async function runVmAlertChecks(options: {
     "vm-create-failure-spike",
     "vm-stuck-provisioning",
     "vm-expired-unrevoked-leases",
+    "vm-health-stale",
   ]) {
     if (!triggeredKeys.has(key)) await clearAlertState(alertStateStore, key, now);
   }
@@ -161,6 +171,10 @@ export async function runVmAlertChecks(options: {
     expiredUnrevokedLeases: {
       triggered: expiredLeases.count > expiredLeaseThreshold,
       count: expiredLeases.count,
+    },
+    health: {
+      triggered: unhealthy.count > 0,
+      count: unhealthy.count,
     },
     tlsRuleCapacity: tlsRuleCapacity.summary,
     alertSink: {
@@ -394,6 +408,57 @@ async function listExpiredUnrevokedLeases(
   return { count: Number(countRow?.total ?? 0), samples };
 }
 
+async function listUnhealthyVms(
+  db: ReturnType<typeof cloudDb>,
+  before: Date,
+): Promise<{
+  readonly count: number;
+  readonly samples: Array<{ readonly id: string; readonly updatedAt: Date }>;
+}> {
+  const stale = and(
+    eq(cloudVms.status, "running"),
+    // Only classify rows that have reported at least once. A legacy image
+    // without the reporter is unknown rather than silently treated as dead;
+    // new images and the stats route establish this heartbeat on first use.
+    sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'providerVmId') = ${cloudVms.providerVmId}`,
+    sql`CASE WHEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$')
+      THEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt')::double precision)
+      ELSE NULL END < ${before.getTime()}`,
+  );
+  // Count and sample in one statement so an alert never reports a count from
+  // one database snapshot alongside IDs from another.
+  const rows = await db
+    .select({
+      id: cloudVms.id,
+      updatedAt: cloudVms.updatedAt,
+      total: sql<number>`count(*) over ()`,
+    })
+    .from(cloudVms)
+    .where(stale)
+    .limit(VM_ALERT_SAMPLE_LIMIT);
+  return {
+    count: Number(rows[0]?.total ?? 0),
+    samples: rows.map(({ id, updatedAt }) => ({ id, updatedAt })),
+  };
+}
+
+function healthAlerts(
+  unhealthy: Awaited<ReturnType<typeof listUnhealthyVms>>,
+  staleMs: number,
+): AlertInput[] {
+  if (unhealthy.count === 0) return [];
+  return [{
+    key: "vm-health-stale",
+    title: "Cloud VM health heartbeat is stale",
+    body: [
+      `${unhealthy.count} running Cloud VM(s) have not reported guest health for ${Math.round(staleMs / 60_000)} minutes.`,
+      `VM ids: ${unhealthy.samples.length ? unhealthy.samples.map((sample) => sample.id).join(", ") : "unknown"}.`,
+      "Check guest connectivity and reporter health before classifying the machine as frozen. Provider-running alone does not establish guest health.",
+    ].join(" "),
+    severity: "critical",
+  }];
+}
+
 function formatAge(start: Date, now: Date): string {
   const minutes = Math.max(0, Math.floor((now.getTime() - start.getTime()) / 60_000));
   if (minutes >= 24 * 60) return `${Math.floor(minutes / (24 * 60))}d old`;
@@ -449,6 +514,15 @@ export function durableVmAlertStateStore(db: ReturnType<typeof cloudDb>): VmAler
           deliveryLeaseUntil: null,
           updatedAt: now,
         })
+        .where(and(
+          eq(cloudVmAlertStates.alertKey, key),
+          eq(cloudVmAlertStates.deliveryLeaseId, leaseId),
+        ));
+    },
+    release: async (key, leaseId, now) => {
+      await db
+        .update(cloudVmAlertStates)
+        .set({ deliveryLeaseId: null, deliveryLeaseUntil: null, updatedAt: now })
         .where(and(
           eq(cloudVmAlertStates.alertKey, key),
           eq(cloudVmAlertStates.deliveryLeaseId, leaseId),

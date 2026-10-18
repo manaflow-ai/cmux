@@ -47,17 +47,6 @@ public enum CheckoutAttribution: Sendable {
         return components.url ?? url
     }
 
-    /// PostHog properties for the Mac-side intent event, so the funnel has a
-    /// client-side count of upgrade clicks per surface and channel even before
-    /// the web page loads.
-    public nonisolated static func intentProperties(
-        source: ProUpgradeSource,
-        flavor: BuildFlavor = BuildFlavor.current,
-        plan: CheckoutPlan = .pro
-    ) -> [String: Any] {
-        ["source": source.rawValue, "client": "mac", "channel": flavor.rawValue, "plan": plan.rawValue]
-    }
-
     /// The checkout URL for `plan`, attributed to `source`.
     ///
     /// - Parameters:
