@@ -295,10 +295,7 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur",
-              "appearance.backgroundVideo",
-              "appearance.backgroundVideoOnBattery",
-              "appearance.backgroundAvoidPanes"
+              "appearance.backgroundBlur"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -542,6 +539,16 @@
             "title" : {
               "key" : "settings.group.freeModel",
               "text" : "AI Models"
+            }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
             }
           }
         ],
@@ -3721,6 +3728,79 @@
       "title" : {
         "key" : "settings.freeModel.enabled",
         "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
       },
       "validation" : "portable"
     },
@@ -11216,192 +11296,6 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "whenActive",
-        "still"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.play",
-            "text" : "Play"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.whenActive",
-            "text" : "Only While cmux Is Active"
-          },
-          "value" : "whenActive"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.still",
-            "text" : "Still Picture"
-          },
-          "value" : "still"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideo.help",
-        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideo",
-      "keywords" : [
-        "video",
-        "wallpaper",
-        "aerial",
-        "motion",
-        "play",
-        "pause",
-        "battery"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideo"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideo",
-        "text" : "Video Background"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "pause"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.play",
-            "text" : "Keep Playing"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.pause",
-            "text" : "Pause"
-          },
-          "value" : "pause"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery.help",
-        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideoOnBattery",
-      "keywords" : [
-        "video",
-        "battery",
-        "power",
-        "energy"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideoOnBattery"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery",
-        "text" : "On Battery"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundAvoidPanes.help",
-        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundAvoidPanes",
-      "keywords" : [
-        "painting",
-        "crop",
-        "subject",
-        "framing",
-        "sidebar",
-        "agent"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundAvoidPanes"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundAvoidPanes",
-        "text" : "Keep Paintings Clear of Panes"
       },
       "validation" : "portable"
     },
@@ -22355,79 +22249,6 @@
     },
     {
       "accepts" : [
-        "always",
-        "hover",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.onHover",
-            "text" : "On Hover"
-          },
-          "value" : "hover"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "hover",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPictures",
-        "text" : "Chief Pictures"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPictureMotion.help",
-        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPictureMotion",
-      "keywords" : [
-        "chief",
-        "avatar",
-        "picture",
-        "gif",
-        "animation",
-        "motion"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPictureMotion"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPictureMotion",
-        "text" : "Animated Pictures"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -25384,7 +25205,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9144aa61f8415a01efd55c6792df5e207a405f134a019291df2dd7ab688df167",
+  "schema_hash" : "a74d98bf2720d5abde1e8aff3e83a7ed0d9175328cbbd7ae9bff8b9baa74c46d",
   "sections" : [
     {
       "id" : "general",

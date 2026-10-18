@@ -2258,6 +2258,17 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sessions.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake While Agents Work",
+      "type" : "string"
+    },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
