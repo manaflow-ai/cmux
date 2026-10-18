@@ -144,11 +144,7 @@ extension CMUXCLI {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-autoname-cwd-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let codexHome = codexHomeURL(from: summarizerEnv)
-        let configToml = codexHome.flatMap {
-            try? String(contentsOf: $0.appendingPathComponent("config.toml"), encoding: .utf8)
-        }
-        var usesFileCredentials = false
+        let configToml = codexConfigToml(from: summarizerEnv)
         let temporaryConfigHome: URL? = {
             guard let configToml else { return nil }
             let home = FileManager.default.temporaryDirectory
@@ -165,17 +161,6 @@ extension CMUXCLI {
                     [.posixPermissions: NSNumber(value: Int16(0o600))],
                     ofItemAtPath: configURL.path
                 )
-                if let authURL = codexHome?.appendingPathComponent("auth.json"),
-                   FileManager.default.fileExists(atPath: authURL.path) {
-                    // Keep file-backed login and token refresh on the original
-                    // store. Copying auth would discard refreshed credentials
-                    // when this temporary home is removed.
-                    try FileManager.default.createSymbolicLink(
-                        at: home.appendingPathComponent("auth.json"),
-                        withDestinationURL: authURL
-                    )
-                    usesFileCredentials = true
-                }
                 return home
             } catch {
                 try? FileManager.default.removeItem(at: home)
@@ -197,11 +182,6 @@ extension CMUXCLI {
             configToml: configToml,
             usesTemporaryConfig: temporaryConfigHome != nil
         )
-        if usesFileCredentials {
-            // "auto" may read the linked file but save refreshed tokens to a
-            // keyring entry owned by this disposable home instead.
-            arguments += ["-c", "cli_auth_credentials_store=\"file\""]
-        }
         arguments += [
             "--cd", workingDirectory.path,
             "--output-last-message", outputFile.path,
@@ -219,10 +199,10 @@ extension CMUXCLI {
         return (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
     }
 
-    private func codexHomeURL(from env: [String: String]) -> URL? {
+    private func codexConfigToml(from env: [String: String]) -> String? {
         let home = env["CODEX_HOME"] ??
             ((env["HOME"].map { $0 + "/.codex" }) ?? "")
         guard !home.isEmpty else { return nil }
-        return URL(fileURLWithPath: home, isDirectory: true)
+        return try? String(contentsOfFile: home + "/config.toml", encoding: .utf8)
     }
 }

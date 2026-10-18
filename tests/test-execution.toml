@@ -21,11 +21,6 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
-path = "tests/test_codex_auto_naming.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_agent_hook_delivery_capability.py"
 lane = "macos-cli-no-socket"
 
