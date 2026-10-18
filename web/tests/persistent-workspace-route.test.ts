@@ -85,4 +85,3 @@ describe("persistent workspace routes", () => {
     expect(await attached.json()).toEqual({ redacted: true, provider: "freestyle", runtimeId: "runtime-route", workspaceId: "workspace-route", target: { token: "[redacted]" } });
   });
 });
-

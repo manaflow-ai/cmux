@@ -226,4 +226,3 @@ describe("persistent workspace broker and host lease wiring", () => {
     expect(fixture.broker.requests).toHaveLength(1);
   });
 });
-

@@ -46,4 +46,3 @@ function noStore(response: Response): Response {
   response.headers.set("cache-control", "no-store");
   return response;
 }
-

@@ -152,4 +152,3 @@ describe("persistent workspace lifecycle", () => {
     expect(commands[0]).not.toContain("token");
   });
 });
-
