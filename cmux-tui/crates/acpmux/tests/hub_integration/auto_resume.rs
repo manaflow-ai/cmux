@@ -155,3 +155,73 @@ async fn stop_cancels_a_continuation_that_has_not_fired() {
     assert_eq!(skipped, [json!("stopped")], "{k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
 }
+
+/// The `skipped` reasons of a session's `auto_resume_skipped` records.
+fn skips(hub: &Hub, id: &str) -> Vec<Value> {
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "auto_resume_skipped")
+        .map(|e| e.msg["skipped"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_turn_stopped_mid_stream_is_not_continued_when_it_ends_in_a_connection_error() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
+    let id = new_session(&mut c, "stopped").await;
+    let mut other = connect(&hub).await;
+    let params =
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-on-cancel"}]});
+    let turn = tokio::spawn(async move { other.request(method::SESSION_PROMPT, params).await });
+    let session = hub.resolve(&id).unwrap();
+    for _ in 0..400 {
+        if session.turn().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(session.turn().is_some(), "the turn never started");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let r = turn.await.unwrap();
+    assert!(r.unwrap_err().contains("stream disconnected"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let k = kinds(&hub, &id);
+    assert!(!k.iter().any(|k| k.starts_with("auto_resume")), "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 1);
+}
+
+#[tokio::test]
+async fn closing_the_chat_cancels_a_continuation_that_has_not_fired() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
+    let id = new_session(&mut c, "close").await;
+    let _ = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-once: x"}]}),
+        )
+        .await;
+    c.request(method::SESSION_CLOSE, json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_skipped")).await;
+    assert_eq!(skips(&hub, &id), [json!("stopped")], "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 1);
+}
+
+#[tokio::test]
+async fn a_chat_being_moved_is_not_continued() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![400]);
+    let id = new_session(&mut c, "move").await;
+    let _ = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-once: x"}]}),
+        )
+        .await;
+    c.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_skipped")).await;
+    assert_eq!(skips(&hub, &id), [json!("closed")], "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 1);
+}

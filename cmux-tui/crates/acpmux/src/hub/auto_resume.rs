@@ -9,12 +9,15 @@
 //! restored transcript) and the turn's rules (`control`, trust gate) are checked again.
 //!
 //! - `autoResumeDelaysMs` in the config sets the wait before each attempt; the default
-//!   [`DEFAULT_DELAYS_MS`] spans about 26 minutes. `[]` turns it off.
+//!   [`DEFAULT_DELAYS_MS`] spans about 26 minutes. `[]` turns it off. At most
+//!   [`MAX_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not a whole number
+//!   of milliseconds of 0 or more is refused with a warning and the default waits apply.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
 //!   checked again under the turn lock), when the person pressed Stop or closed the chat, or
-//!   when the chat is moving. Each chat staggers its waits a little, so chats an outage cut
+//!   when the chat is moving. A turn running when Stop or close came gets none, however it
+//!   ends: an agent stopped mid-stream may still answer with a connection error. Each chat staggers its waits a little, so chats an outage cut
 //!   off together do not all come back at the same moment.
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
@@ -34,6 +37,13 @@ use std::time::Duration;
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
+
+/// Most attempts `autoResumeDelaysMs` may set.
+pub const MAX_ATTEMPTS: usize = DEFAULT_DELAYS_MS.len();
+
+/// Shortest and longest configured wait, in milliseconds.
+const MIN_DELAY_MS: u64 = 1_000;
+const MAX_DELAY_MS: u64 = 3_600_000;
 
 /// The prompt-id suffix of an automatic continuation, before its attempt number.
 const SUFFIX: &str = "~resume-";
@@ -71,12 +81,20 @@ pub(super) struct CutTurn<'a> {
     pub error: &'a str,
 }
 
-/// The cut turn each chat's waiting continuation answers for. Stop and close remove it.
+/// What a chat's continuation state is.
+enum Mark {
+    /// A continuation waits to answer for this cut turn.
+    Waiting(String),
+    /// Stop or close came while this turn ran: it gets no continuation.
+    Stopped(String),
+}
+
+/// Each chat's [`Mark`].
 #[derive(Default)]
-pub(crate) struct Pending(Mutex<HashMap<String, String>>);
+pub(crate) struct Pending(Mutex<HashMap<String, Mark>>);
 
 impl Pending {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Mark>> {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
@@ -115,7 +133,40 @@ fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     session_id.hash(&mut h);
-    delay + h.finish() % (delay / 5 + 1)
+    delay.saturating_add(h.finish() % (delay / 5 + 1))
+}
+
+/// `autoResumeDelaysMs` as the config gives it, checked: see the module doc.
+pub(crate) fn delays_from_config<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Vec<u64>>, D::Error> {
+    use serde::Deserialize;
+    Ok(Option::<Value>::deserialize(d)?.and_then(|v| checked_delays(&v)))
+}
+
+fn checked_delays(v: &Value) -> Option<Vec<u64>> {
+    let refuse = |why: String| -> Option<Vec<u64>> {
+        tracing::warn!("autoResumeDelaysMs: {why}; using the default waits");
+        None
+    };
+    let Some(items) = v.as_array() else {
+        return refuse(format!("{v} is not a list of milliseconds"));
+    };
+    let mut delays = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(ms) = item.as_u64() else {
+            return refuse(format!("{item} is not a whole number of milliseconds of 0 or more"));
+        };
+        delays.push(ms.clamp(MIN_DELAY_MS, MAX_DELAY_MS));
+    }
+    if delays.len() > MAX_ATTEMPTS || delays.iter().zip(items).any(|(d, i)| i.as_u64() != Some(*d))
+    {
+        delays.truncate(MAX_ATTEMPTS);
+        tracing::warn!(
+            "autoResumeDelaysMs: kept to {MAX_ATTEMPTS} attempts of 1 s to 1 h each: {delays:?}"
+        );
+    }
+    Some(delays)
 }
 
 impl Hub {
@@ -129,7 +180,7 @@ impl Hub {
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (control, trust_gate) = (cut.control, cut.trust_gate);
-        self.auto_resumes.lock().insert(session.id.clone(), turn_id.clone());
+        self.auto_resumes.lock().insert(session.id.clone(), Mark::Waiting(turn_id.clone()));
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
@@ -157,15 +208,30 @@ impl Hub {
         });
     }
 
-    /// Stop or close: the chat's waiting continuation does not fire.
-    pub(super) fn drop_auto_resume(&self, session: &Session) {
-        self.auto_resumes.lock().remove(&session.id);
+    /// Stop or close: the chat's waiting continuation does not fire, and the turn running
+    /// now gets none, however it ends.
+    pub(super) fn stop_auto_resume(&self, session: &Session) {
+        let mut pending = self.auto_resumes.lock();
+        match session.turn() {
+            Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t.turn_id)),
+            None => pending.remove(&session.id),
+        };
+    }
+
+    /// Whether Stop or close came while `turn_id` ran. Clears that mark.
+    pub(super) fn take_stopped(&self, session: &Session, turn_id: &str) -> bool {
+        let mut pending = self.auto_resumes.lock();
+        let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
+        if stopped {
+            pending.remove(&session.id);
+        }
+        stopped
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
     fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
         let mut pending = self.auto_resumes.lock();
-        let ours = pending.get(&session.id).is_some_and(|t| t == cut_turn);
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t)) if t == cut_turn);
         if ours {
             pending.remove(&session.id);
         }
@@ -255,5 +321,17 @@ mod tests {
         assert_eq!(split_attempt("p1~resume-3"), ("p1", 3));
         assert_eq!(split_attempt("~resume-2"), ("~resume-2", 0));
         assert_eq!(split_attempt("p1~resume-x"), ("p1~resume-x", 0));
+    }
+
+    #[test]
+    fn configured_waits_are_checked() {
+        assert_eq!(checked_delays(&json!([])), Some(vec![]));
+        assert_eq!(checked_delays(&json!([5000, 60000])), Some(vec![5000, 60000]));
+        assert_eq!(checked_delays(&json!([0, 99_999_999])), Some(vec![1_000, 3_600_000]));
+        assert_eq!(checked_delays(&json!([1000, 1000, 1000, 1000, 1000])).unwrap().len(), 4);
+        assert_eq!(checked_delays(&json!([1000, -5])), None);
+        assert_eq!(checked_delays(&json!([1.5])), None);
+        assert_eq!(checked_delays(&json!("10s")), None);
+        assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
     }
 }

@@ -504,8 +504,13 @@ pub struct Config {
     pub agent_start_timeout_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::hub::auto_resume::delays_from_config"
+    )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,

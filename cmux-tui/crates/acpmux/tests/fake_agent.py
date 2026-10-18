@@ -220,6 +220,17 @@ def handle_prompt(rid, params):
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
+    # an agent stopped mid-stream may.
+    if text == "net-fail-on-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
     if text.startswith("net-down"):
         net_down.add(sid)
     if sid in net_down or (text.startswith("net-fail-once:") and sid not in failed_once):

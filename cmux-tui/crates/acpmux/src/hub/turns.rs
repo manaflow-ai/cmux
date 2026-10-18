@@ -448,7 +448,8 @@ impl Hub {
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
-        if let (Err(e), false) = (&result, detached) {
+        let stopped = self.take_stopped(session, &turn_id);
+        if let (Err(e), false, false) = (&result, detached, stopped) {
             let cut = super::auto_resume::CutTurn {
                 prompt_id: &prompt_id,
                 turn_id: &turn_id,
@@ -963,7 +964,7 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
-        self.drop_auto_resume(session);
+        self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
