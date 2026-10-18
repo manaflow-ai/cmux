@@ -77,16 +77,18 @@
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  /* Keep the folder/computer pair and the optional branch on one optical rhythm.  The
+     controls already carry their own hit-area insets; this is the only inter-control gap. */
+  gap: var(--acpmux-location-gap, 6px);
   min-width: 0;
   height: 100%;
   margin: 0;
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
-/* Folder and computer are two ghost buttons 2 px apart (ui/ghost.css .ui-ghost-row), told apart by
-   their icons; no "·" between them, which floated against the folder's chevron. */
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 0; }
+/* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
+   floats between them against the folder's chevron. */
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
 /* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
@@ -147,8 +149,10 @@
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-location-button:hover {
-    background: var(--acpmux-composer-hover);
+  /* A location control is a text/icon affordance.  Its transparent hit area must not turn
+     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
+  .acpmux-location-button.ui-ghost:hover {
+    background: transparent;
     color: var(--agent-text);
   }
 }
@@ -162,9 +166,13 @@
 }
 .acpmux-location-button:active { background: color-mix(in srgb, var(--agent-text) 18%, var(--agent-page-bg, var(--acpmux-base))); }
 .acpmux-location-button:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: 0;
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
+  outline-offset: 2px;
   color: var(--agent-text);
+}
+.acpmux-location-button > .ui-ghost-icon:last-child {
+  /* The chevron path is optically high inside its 14px viewBox. */
+  transform: translateY(0.75px);
 }
 .acpmux-location-label {
   min-width: 0;
@@ -234,8 +242,10 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
+  /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
+     and Send draw apart with the trailing cluster's own 4 px gap below. */
   --acpmux-row-gap: 4px;
-  --acpmux-row-group-gap: 12px;
+  --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
   min-height: 52px;
@@ -374,8 +384,13 @@
 .acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
 }
+/* The strip's ghost buttons (folder, computer, branch) on the scale's regular weight, not the
+   ghost primitive's 500. */
+.acpmux-location-button.ui-ghost {
+  font-weight: 400;
+}
 @media (max-width: 480px) {
-  .acpmux-composer-context { gap: 2px; }
+  .acpmux-composer-context { --acpmux-location-gap: 4px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
   .acpmux-location-readonly { padding-inline: 4px; }
@@ -395,7 +410,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: var(--acpmux-row-gap);
+  gap: 4px;
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -460,7 +475,9 @@
   .acpmux-composer-bar .acpmux-plan:hover,
   .acpmux-composer-bar .acpmux-steer:hover,
   .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
-    background: var(--acpmux-row-hover);
+    /* Keep hover on the ink, not on the full transparent hit target. */
+    background: transparent;
+    color: var(--agent-text);
   }
 }
 .acpmux-composer-bar .acpmux-picker-button:active,
@@ -492,6 +509,29 @@
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
   color: var(--acpmux-warning);
 }
+.acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
+  outline-offset: 0;
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+    outline-offset: 2px;
+  }
+}
+/* Hover is ink-only, but a selected/open control must keep its open wash while the pointer is
+   over it: the same tone a press shows (test/composer-chip-press.test.ts). */
+.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
+.acpmux-composer-bar .acpmux-access-trigger[aria-expanded="true"] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+}
+.acpmux-composer-bar .acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
+}
+.acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
+.acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
+  /* Match the location strip's optical correction for the shared down-chevron. */
+  transform: translateY(0.75px);
+}
 .acpmux-composer-bar .acpmux-model-name,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
@@ -516,6 +556,7 @@
 .acpmux-composer-bar > :not(.acpmux-chips),
 .acpmux-composer-bar .acpmux-chips > * { flex: none; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+.acpmux-composer-bar[data-fit="icons"] .acpmux-chips > .acpmux-effort { min-width: 49px; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
@@ -796,3 +837,38 @@
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
 .acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
+/* The speed toggle (FastToggle.tsx, Leo 2026-10-15): a round 28 px bolt left of the mic, drawn as
+   the mic is (no bezel, muted ink, a 16 px glyph, the row's hover wash and focus ring). On, its ink
+   is the accent; Ultrafast fills the bolt. */
+.acpmux-fast {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
+.acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
+.acpmux-fast:active { background: var(--acpmux-row-press, var(--acpmux-composer-press)); }
+.acpmux-fast[aria-pressed="true"],
+.acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
+/* Below 370 px the row's controls already sit at their narrowest (the model and effort chips at
+   their min widths, the mode a lock): the bolt gives way there, as the effort chip's "Fast" was cut
+   off before it, and the reasoning menu's speed rows set it. */
+@media (max-width: 369px) {
+  .acpmux-composer-bar .acpmux-fast { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-fast {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}

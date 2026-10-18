@@ -126,6 +126,28 @@ def test_test_only_changes_skip_the_release_build() -> None:
         assert actual.release_build is False, (paths, actual)
 
 
+def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
+    paths = ["scripts/ci/run_ci_guards.py", "tests/test_ci_run_guards.py"]
+    actual = module.classify_files(paths)
+    assert actual == module.ChangeAreas(
+        macos=False,
+        web=False,
+        agent_session_web=False,
+        swift_packages=False,
+        release_build=False,
+    ), (paths, actual)
+
+
+def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
+    paths = [
+        "scripts/ci/run_ci_guards.py",
+        "tests/test_ci_run_guards.py",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlService.swift",
+    ]
+    actual = module.classify_files(paths)
+    assert actual.macos is True, (paths, actual)
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.

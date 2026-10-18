@@ -251,6 +251,12 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
+/* The location controls live beside the card, so focusing one does not make the card
+   :focus-within. Keep the footer's rim in the same focused tone as the prompt and chips. */
+.acpmux-composer > .acpmux-composer-strip:focus-within,
+.nt-composer .acpmux-composer-strip:focus-within {
+  --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
+}
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
 .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {

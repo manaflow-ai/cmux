@@ -55,3 +55,22 @@ pub(super) fn requested_client_tab_id(
     );
     Ok(Some(tab_id))
 }
+
+/// The caller-minted id of the split a `split` makes
+/// (`split-client-split-id-v1`), validated and unused.
+pub(super) fn requested_client_split_id(
+    fields: &Map<String, Value>,
+    state: &State,
+    registry: &WorkspaceRegistry,
+) -> anyhow::Result<Option<SplitPublicId>> {
+    let Some(requested) = fields.get(CLIENT_SPLIT_ID_FIELD) else { return Ok(None) };
+    let requested = requested.as_str().context("bad request: split_id must be a string")?;
+    let split_id = SplitPublicId::parse(requested.to_string())
+        .map_err(|_| anyhow::anyhow!("bad request: split_id {requested:?} is not a split id"))?;
+    anyhow::ensure!(
+        !state.resource_indexes.splits.contains_key(&split_id)
+            && !resource_public_id_known(registry, requested)?,
+        "split_id_exists: {requested}"
+    );
+    Ok(Some(split_id))
+}

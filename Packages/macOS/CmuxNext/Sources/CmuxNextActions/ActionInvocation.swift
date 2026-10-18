@@ -70,6 +70,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
+    /// A close the sidebar sends for its rows (a row's close button, a middle-click, Delete on the
+    /// selection): each row by itself, never widened to the selection. In-app only.
+    public var closesRowOnly = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {
@@ -91,6 +94,12 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
 
     /// Whether a destructive action was confirmed (`confirm: true`).
     public var isConfirmed: Bool { arguments[ActionArgument.confirmName]?.boolValue == true }
+
+    /// The sidebar's own close of workspace row `id` (`closesRowOnly`).
+    public init(closingRow id: String) {
+        self.init(target: ActionTargetRef(kind: .workspace, id: id))
+        closesRowOnly = true
+    }
 
     /// This invocation with `confirm: true`.
     public func confirmed() -> ActionInvocation {

@@ -16,7 +16,7 @@ import QuartzCore
 /// `OverlayPlane`, not in this view, so they draw above content that is a
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
-final class PaneHostView: NSView {
+final class PaneHostView: NSView, RestingPlacement {
     let pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
@@ -52,13 +52,19 @@ final class PaneHostView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Whether the pane sits in a docked (docked) column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
     /// What of the host shows while a spring rect reveals it (a split's arriving pane, a zooming
     /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
     var revealRect: CGRect?
+    /// Where the host will rest minus where it shows now (`RestingPlacement`): its spring rect's
+    /// target and the strip camera's target, against the presented frame. Zero at rest; coming
+    /// to rest tells the content, whose window-relative chrome held its motion layout.
+    var restOffset: CGVector = .zero {
+        didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
+    }
 
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
@@ -206,7 +212,7 @@ final class PaneClipView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }

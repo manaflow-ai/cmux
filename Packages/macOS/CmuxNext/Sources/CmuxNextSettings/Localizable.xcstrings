@@ -100338,6 +100338,796 @@
           }
         }
       }
+    },
+    "settings.workspaces.autoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name Workspaces from Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسمية مساحات العمل من علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imenuj radne prostore po karticama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navngiv arbejdsområder efter faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche nach Tabs benennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombrar espacios de trabajo según sus pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nommer les espaces de travail d’après les onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dai nome agli spazi di lavoro dalle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブからワークスペースに名前を付ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះកន្លែងធ្វើការតាមផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭에서 워크스페이스 이름 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi arbeidsområder navn etter faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazywaj przestrzenie robocze od kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomear espaços de trabalho pelas abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Называть рабочие пространства по вкладкам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งชื่อเวิร์กสเปซตามแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanlarını sekmelerden adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Називати робочі простори за вкладками"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt tên không gian làm việc theo thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按标签页命名工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依分頁命名工作區"
+          }
+        }
+      }
+    },
+    "settings.workspaces.autoName.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض مساحة العمل التي لم تسمّها اسم علامة التبويب الأمامية فيها: عنوان الصفحة، أو عنوان محادثة الوكيل، أو عنوان الطرفية أو مجلدها. الاسم الذي تختاره يفوز دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostor koji niste imenovali prikazuje ime svoje prednje kartice: naslov stranice, naslov razgovora s agentom ili naslov ili folder terminala. Vaše ime uvijek ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbejdsområde, du ikke har navngivet, viser navnet på sin forreste fane: en sides titel, en agentchats titel eller en terminals titel eller mappe. Dit eget navn vinder altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Arbeitsbereich, den du nicht benannt hast, zeigt den Namen seines vorderen Tabs: den Titel einer Seite, eines Agent-Chats oder den Titel oder Ordner eines Terminals. Dein eigener Name hat immer Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espacio de trabajo al que no has puesto nombre muestra el de su pestaña principal: el título de una página, de un chat con un agente, o el título o la carpeta de un terminal. Tu propio nombre siempre prevalece."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espace de travail que vous n’avez pas nommé affiche le nom de son onglet au premier plan : le titre d’une page, d’une discussion avec un agent, ou le titre ou le dossier d’un terminal. Votre propre nom l’emporte toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno spazio di lavoro a cui non hai dato un nome mostra il nome della sua scheda in primo piano: il titolo di una pagina, di una chat con un agente, o il titolo o la cartella di un terminale. Il tuo nome ha sempre la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を付けていないワークスペースには、前面のタブの名前が表示されます。ページのタイトル、エージェントチャットのタイトル、またはターミナルのタイトルやフォルダです。自分で付けた名前が常に優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការដែលអ្នកមិនទាន់ដាក់ឈ្មោះ បង្ហាញឈ្មោះផ្ទាំងខាងមុខរបស់វា៖ ចំណងជើងទំព័រ ចំណងជើងការជជែកជាមួយភ្នាក់ងារ ឬចំណងជើង ឬថតរបស់ terminal។ ឈ្មោះដែលអ្នកដាក់ខ្លួនឯងតែងតែឈ្នះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름을 지정하지 않은 워크스페이스는 앞쪽 탭의 이름을 표시합니다. 페이지 제목, 에이전트 채팅 제목, 또는 터미널의 제목이나 폴더입니다. 직접 지정한 이름이 항상 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbeidsområde du ikke har gitt navn, viser navnet på fanen foran: en sides tittel, en agentchats tittel eller en terminals tittel eller mappe. Ditt eget navn vinner alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestrzeń robocza, której nie nazwano, pokazuje nazwę swojej karty na wierzchu: tytuł strony, tytuł czatu z agentem albo tytuł lub folder terminala. Twoja własna nazwa zawsze wygrywa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um espaço de trabalho que você não nomeou mostra o nome da aba da frente: o título de uma página, de um chat com agente, ou o título ou a pasta de um terminal. O nome que você der sempre prevalece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочее пространство, которому вы не дали имя, показывает имя своей передней вкладки: заголовок страницы, чата с агентом или заголовок либо папку терминала. Ваше собственное имя всегда важнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซที่คุณยังไม่ได้ตั้งชื่อจะแสดงชื่อของแท็บด้านหน้า: ชื่อหน้าเว็บ ชื่อแชตกับเอเจนต์ หรือชื่อหรือโฟลเดอร์ของเทอร์มินัล ชื่อที่คุณตั้งเองมีผลเหนือกว่าเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adlandırmadığınız bir çalışma alanı öndeki sekmesinin adını gösterir: bir sayfanın başlığı, bir ajan sohbetinin başlığı ya da bir terminalin başlığı veya klasörü. Kendi verdiğiniz ad her zaman önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочий простір, якому ви не дали назву, показує назву своєї передньої вкладки: заголовок сторінки, чату з агентом або заголовок чи папку термінала. Ваша власна назва завжди має перевагу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc bạn chưa đặt tên sẽ hiện tên của thẻ phía trước: tiêu đề trang, tiêu đề cuộc trò chuyện với tác tử, hoặc tiêu đề hay thư mục của terminal. Tên bạn tự đặt luôn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名的工作区会显示其前台标签页的名称：页面标题、代理聊天标题，或终端的标题或文件夹。你自己起的名称始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名的工作區會顯示其前景分頁的名稱：頁面標題、代理聊天標題，或終端機的標題或資料夾。你自己取的名稱永遠優先。"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.animation": {
+      "comment": "Settings > Appearance > Loading Indicator (cx-sya4n): the row that picks animated or static status indicators.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Indicators"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤشرات الحالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indikatori statusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusindikatorer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusanzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicadores de estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicateurs d’état"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicatori di stato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスインジケーター"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូចនាករស្ថានភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusindikatorer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaźniki stanu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicadores de status"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Индикаторы состояния"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวบ่งชี้สถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum göstergeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індикатори стану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ báo trạng thái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態指示器"
+          }
+        }
+      }
+    },
+    "settings.choice.animated": {
+      "comment": "Settings > Appearance > Loading Indicator (cx-sya4n): choice: status indicators move (spinners, pulses).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animated"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متحركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメーション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានចលនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анимированные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animasyonlu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анімовані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动画"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動畫"
+          }
+        }
+      }
+    },
+    "settings.choice.static": {
+      "comment": "Settings > Appearance > Loading Indicator (cx-sya4n): choice: status indicators stand still, with a distinct shape per state.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Static"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثابتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statično"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静的"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឋិតិវន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정적"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статичные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статичні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tĩnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靜態"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.animation.help": {
+      "comment": "Settings > Appearance > Loading Indicator (cx-sya4n): help under the Status Indicators row.",
+      "extractionState": "manual",
+      "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statično prikazuje mirni, poseban oblik za svako stanje. Smanjenje pokreta uvijek koristi Statično."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statisk viser en stillestående, tydelig form for hver tilstand. Reducer bevægelse bruger altid Statisk."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statico mostra una forma ferma e distinta per ogni stato. Riduci movimento usa sempre Statico."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឋិតិវន្តបង្ហាញរូបរាងនៅស្ងៀម និងខុសគ្នាសម្រាប់ស្ថានភាពនីមួយៗ។ កាត់បន្ថយចលនាតែងតែប្រើឋិតិវន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statisk viser en stillestående, tydelig form for hver tilstand. Reduser bevegelse bruker alltid Statisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statyczne pokazuje nieruchomy, odrębny kształt dla każdego stanu. Ograniczanie ruchu zawsze używa trybu Statyczne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estático mostra uma forma parada e distinta para cada estado. Reduzir movimento sempre usa Estático."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичный режим показывает неподвижную отдельную форму для каждого состояния. При уменьшении движения всегда используется статичный режим."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบคงที่จะแสดงรูปทรงที่นิ่งและแตกต่างกันสำหรับแต่ละสถานะ ลดการเคลื่อนไหวจะใช้แบบคงที่เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabit, her durum için hareketsiz ve ayrı bir şekil gösterir. Hareketi Azalt her zaman Sabit kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичний режим показує нерухому окрему форму для кожного стану. Зменшення руху завжди використовує статичний режим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tĩnh hiển thị một hình dạng đứng yên, riêng biệt cho mỗi trạng thái. Giảm chuyển động luôn dùng Tĩnh."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statisch zeigt für jeden Zustand eine eigene, unbewegte Form. Bei „Bewegung reduzieren“ ist immer Statisch aktiv."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statique affiche une forme fixe et distincte pour chaque état. Réduire les animations utilise toujours Statique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض الوضع الثابت شكلًا ثابتًا ومميزًا لكل حالة. يستخدم خيار تقليل الحركة الوضع الثابت دائمًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estático muestra una forma fija y distinta para cada estado. Reducir movimiento siempre usa Estático."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靜態會為每種狀態顯示一個不動且各不相同的形狀。「減少動態效果」一律使用靜態。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静态会为每种状态显示一个不动且各不相同的形状。“减弱动态效果”始终使用静态。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정적은 각 상태를 움직이지 않는 고유한 모양으로 표시합니다. 동작 줄이기를 켜면 항상 정적이 사용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静的では、状態ごとに動かない別々の形を表示します。視差効果を減らすがオンのときは常に静的になります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
