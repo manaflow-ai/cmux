@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "build": "3913092146601",
+  "notes": "notes/3913092146601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 20722,
+      "title": "cmux-tui: workspace list in the cmux app lists the sidebar order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20043,
+      "title": "test(cmux-next): CSI 996 reports dark for a plain theme in dark mode",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20043/1152dd4e/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "1152dd4e",
+      "tour": "core"
+    },
+    {
+      "pr": 21190,
+      "title": "fix(cmux-next): avoid invisible divider occlusion holes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21152,
+      "title": "fix(cmux-next): theme the tab overflow action accent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21126,
+      "title": "fix(cmux-next): expose workspace selection to accessibility",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
