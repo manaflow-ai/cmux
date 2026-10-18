@@ -10,6 +10,28 @@ export function attachTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function validateHugeBlueRelayMode(
+  production: boolean,
+  relayMode: string | undefined,
+): void {
+  if (production && relayMode !== "per-tenant") {
+    throw new Error("Huge Blue production relay requires per-tenant daemon isolation");
+  }
+  if (!production && relayMode !== "shared-staging" && relayMode !== "per-tenant") {
+    throw new Error("Huge Blue relay mode must be shared-staging or per-tenant");
+  }
+}
+
+function validateHugeBlueRelayIdentity(
+  hostId: string | undefined,
+  session: string | undefined,
+  ttlMs: number,
+): void {
+  if (!hostId || !session || !Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 300_000) {
+    throw new Error("Huge Blue relay identity or TTL is invalid");
+  }
+}
+
 export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefined>> = process.env) {
   const route = new URL(env.HUGE_BLUE_CMUX_REMOTE_URL ?? "");
   if (route.protocol !== "wss:" || route.username || route.password || route.search || route.hash || route.pathname !== "/v1/link") {
@@ -23,15 +45,8 @@ export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefi
   // The current carrier is a shared daemon. Refuse production startup/token
   // issuance until a per-tenant daemon namespace is configured explicitly.
   // Staging may opt into the shared carrier only with an explicit marker.
-  if (production && relayMode !== "per-tenant") {
-    throw new Error("Huge Blue production relay requires per-tenant daemon isolation");
-  }
-  if (!production && relayMode !== "shared-staging" && relayMode !== "per-tenant") {
-    throw new Error("Huge Blue relay mode must be shared-staging or per-tenant");
-  }
-  if (!hostId || !session || !Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 300_000) {
-    throw new Error("Huge Blue relay identity or TTL is invalid");
-  }
+  validateHugeBlueRelayMode(production, relayMode);
+  validateHugeBlueRelayIdentity(hostId, session, ttlMs);
   return { route, hostId, session, ttlMs, relayMode };
 }
 
