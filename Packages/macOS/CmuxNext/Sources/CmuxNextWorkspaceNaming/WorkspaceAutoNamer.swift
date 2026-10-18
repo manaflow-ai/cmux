@@ -73,8 +73,8 @@ public final class WorkspaceAutoNamer {
     ///   - names: the rule and front-tab reader.
     ///   - workspaces: all daemon workspaces shown by the app.
     ///   - selection: the window's tab selection in a workspace's pane.
-    ///   - rename: sends the rename to the local daemon.
-    public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [WorkspaceModel],
+    ///   - rename: sends the guarded rename to the target daemon.
+    public init(names: WorkspaceAutoNameReader, workspaces: @escaping @MainActor () -> [Target],
                 selection: @escaping @MainActor (WorkspaceModel, PaneModel) -> String?,
                 rename: @escaping @MainActor (Target, String) -> Void) {
         self.names = names
