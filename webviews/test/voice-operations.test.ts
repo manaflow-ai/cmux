@@ -1,17 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import {
-  PROMPT_AUDIO_OP,
-  REALTIME_VOICE_OPS,
-  servesOperation,
-  servesRealtimeVoice,
-} from "../src/agent-session/acpmux/operations";
+import { REALTIME_VOICE_OPS, servesOperation, servesRealtimeVoice } from "../src/agent-session/acpmux/operations";
 
 const initialize = (operations: string[]) => ({ _meta: { acpmux: { operations } } });
 
 describe("voice operation negotiation", () => {
-  test("recognizes one-shot audio independently of realtime voice", () => {
-    const value = initialize([PROMPT_AUDIO_OP]);
-    expect(servesOperation(value, PROMPT_AUDIO_OP)).toBe(true);
+  test("a partial realtime set is no realtime voice", () => {
+    const value = initialize([REALTIME_VOICE_OPS.start, REALTIME_VOICE_OPS.stop]);
+    expect(servesOperation(value, REALTIME_VOICE_OPS.start)).toBe(true);
     expect(servesRealtimeVoice(value)).toBe(false);
   });
 
