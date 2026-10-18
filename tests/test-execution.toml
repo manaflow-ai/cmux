@@ -16,12 +16,22 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_large_request_method_first.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_codex_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_opencode_restore_environment_roots.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -374,6 +384,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_claude_rereports_pwd.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_cli_shim_private_dir.py"
 lane = "macos-shell"
 
@@ -396,6 +410,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_claude_hook_clear_running_status.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_hook_reports_session_cwd.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
@@ -1790,4 +1809,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_browser_engine_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_freeze.py"
 lane = "linux-guard"

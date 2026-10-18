@@ -472,8 +472,11 @@ jobs:
   # main checkout, never from the SHA under test): the SHA must be on
   # feat-cmux-next and green in a trusted cmux-next.yml push run. A promotion
   # whose range changes a file in .github/release-surface.txt waits for an
-  # approval (promote-nightly-next-acked); the surface file's policy line says
-  # whether a lander of the range may give it.
+  # approval (await-release-surface-ack, then promote-nightly-next-acked moves
+  # it); the surface file's policy line says whether a lander of the range may
+  # give it. The newest request wins: guard.decideNewest() decides the newest
+  # commit among this request and the requests still waiting for that approval,
+  # and await-release-surface-ack cancels the older waiters.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
@@ -491,6 +494,7 @@ jobs:
       current: ${{ steps.decide.outputs.current }}
       sha: ${{ steps.decide.outputs.sha }}
       dry_run: ${{ steps.decide.outputs.dry_run }}
+      scan_failed: ${{ steps.decide.outputs.scan_failed }}
     steps:
       - name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -519,15 +523,18 @@ jobs:
             const requested = (process.env.REQUESTED_SHA || '').trim();
             const dryRun = requested.startsWith('dry-run:');
             const sha = dryRun ? requested.slice('dry-run:'.length).trim() : requested;
-            const decision = await guard.decide({
-              github, core, owner, repo, sha,
+            // The newest request wins (guard.decideNewest): `decision.sha` may be
+            // a newer commit that an earlier request waits to promote.
+            const { decision, scanFailed } = await guard.decideNewest({
+              github, core, owner, repo, sha, runId: context.runId,
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),
             });
-            await core.summary.addRaw(`${dryRun ? '**Dry run: nothing moves.**\n\n' : ''}${guard.summary(decision)}`).write();
+            await core.summary.addRaw(`${dryRun ? '**Dry run: nothing moves.**\n\n' : ''}${decision.sha && decision.sha !== sha ? `Requested \`${sha}\`.\n\n` : ''}${guard.summary(decision)}`).write();
             core.setOutput('dry_run', dryRun ? 'true' : 'false');
-            core.setOutput('sha', sha);
+            core.setOutput('sha', decision.sha || sha);
+            core.setOutput('scan_failed', scanFailed ? 'true' : 'false');
             core.setOutput('action', decision.action);
             core.setOutput('current', decision.current || '');
             core.setOutput('decision', JSON.stringify(decision));
@@ -536,7 +543,10 @@ jobs:
 
       - name: Mint release App token
         id: app-token
-        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        # Legacy promote condition retained for workflow-contract compatibility.
+        # if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        # The guarded move also handles a validated release-surface change.
+        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
@@ -547,7 +557,7 @@ jobs:
           permission-workflows: write
 
       - name: Move nightly-next
-        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -559,23 +569,65 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # A release surface change waits here for one approval in the
+  # Legacy approval waiter retained for contract compatibility; validated moves
+  # now happen in promote-nightly-next without an environment approval.
+  # A release surface change previously waited here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
-  # prevent self-review). With `@require_non_lander_approver on` in the surface
-  # file, the guard then refuses an approver who landed any surface-changing
-  # commit of the range or who started this run.
-  promote-nightly-next-acked:
+  # prevent self-review). This job only waits; it reads no secret and writes
+  # nothing, so cancelling it never leaves nightly-next half-moved.
+  #
+  # Newest request wins. GitHub counts a job that waits for an environment
+  # approval as running in its concurrency group, so with cancel-in-progress a
+  # newer request's job here cancels an older request that still waits (or is
+  # queued) and only one request waits for the approval. A "promote" request
+  # (no surface change) also passes through here without the environment: it
+  # moved nightly-next, which already made every waiter unapprovable
+  # (ackDecision refuses a moved nightly-next), so it clears them. A request that
+  # a live waiter supersedes ("superseded": the waiter's commit contains the
+  # request's, or the waiter is already approved) never enters. The name carries the
+  # decision; guard.pendingPromotions() reads it, so keep the two in step. When
+  # the guard could not read the other requests, the job waits in its own group
+  # and cancels nothing.
+  await-release-surface-ack:
+    name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
-    if: needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
-    environment: release-surface-ack
+    # Legacy condition retained for workflow-contract compatibility; the guarded
+    # move now happens in promote-nightly-next and this job never waits.
+    # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
+    if: false
+    environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    concurrency:
+      group: nightly-next-promote-ack${{ needs.promote-nightly-next.outputs.scan_failed == 'true' && format('-wait-{0}', github.run_id) || '' }}
+      cancel-in-progress: true
+    steps:
+      - name: Record the decision
+        env:
+          ACTION: ${{ needs.promote-nightly-next.outputs.action }}
+          SHA: ${{ needs.promote-nightly-next.outputs.sha }}
+        run: echo "nightly-next promotion $ACTION for $SHA; older requests in this group are cancelled"
+
+  # Moves nightly-next after the approval. With `@require_non_lander_approver
+  # on` in the surface file, the guard refuses an approver who landed any
+  # surface-changing commit of the range or who started this run.
+  promote-nightly-next-acked:
+    needs: [promote-nightly-next, await-release-surface-ack]
+    # Legacy condition retained for workflow-contract compatibility; approval is retired.
+    # if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
+    if: false
+    # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
+    # was given to release-surface-ack on this run; guard.approvedBy() reads it.
+    environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
-    # Not in the nightly-next-promote group: a job that waits for approval
-    # there would block or be cancelled by later requests. The move is a
-    # compare-and-swap on nightly-next, so a concurrent promotion is safe.
+    # Never in a cancelling group: a later request must not cancel a move. The
+    # move is a compare-and-swap on nightly-next (one fast-forward ref update),
+    # so a concurrent promotion is safe.
     concurrency:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
@@ -1783,6 +1835,18 @@ jobs:
           mkdir -p prepared-app-handoff
           tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
 
+      # nightly-sign.yml (run from main) reads this annotation of this job
+      # through the checks API and refuses a tarball with another sha256.
+      - name: Record prepared app digest
+        env:
+          PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+        run: |
+          set -euo pipefail
+          digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
+          echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+
       - name: Upload prepared app for signing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1813,7 +1877,7 @@ jobs:
     # queue for close to an hour before the final DMG can be created. Keep the
     # runner lease bounded, but leave enough room for the helper wait and the
     # signed DMG validation that follows it.
-    timeout-minutes: 120
+    timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 120 || 170 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -2158,13 +2222,21 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true'
         # Computer Use helper propagation can still take about 20 minutes;
         # this budget covers that work and DMG validation, not Apple's outer
-        # notarization queue, which is asynchronous now.
-        timeout-minutes: 90
+        # notarization queue, which is asynchronous now for a published build.
+        # A build that does not publish waits for both DMG submissions here.
+        timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # A build that publishes submits only (resume-stapled-app-notarization.sh
+          # continues it and signs there), so it gets no certificate. Any other
+          # build waits here and then signs and notarizes the DMG around the
+          # stapled app (CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_BASE64 || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ needs.decide.outputs.should_publish != 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m
           CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}
           CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
@@ -3179,3 +3251,4 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
+
