@@ -33,6 +33,26 @@ struct CloudTerminalAttachmentPlacementPolicyTests {
         }
     }
 
+    /// The catalog view carries no cursor while a projected tab does, so the
+    /// same workspace and tab must match without a repair.
+    @Test
+    func aMaterializedCursorDoesNotMakeTheSavedTabAMismatch() throws {
+        let policy = CloudTerminalAttachmentPlacementPolicy(
+            expectedResource: resource,
+            expectedWorkspaceID: "saved-workspace",
+            expectedTabID: nil
+        )
+        let materialized = SurfaceRemotePlacement(
+            workspaceID: "saved-workspace", tabID: "saved-tab",
+            cursor: CloudVMCursor(generation: "generation", revision: 7)
+        )
+        #expect(try policy.validate(
+            resourceID: resource, remoteTabID: "saved-tab",
+            catalogPlacement: SurfaceRemotePlacement(workspaceID: "saved-workspace", tabID: "saved-tab"),
+            materializedPlacement: materialized
+        ) == materialized)
+    }
+
     @Test(arguments: [false, true])
     func missingPlacementPolicyRespectsRepairFlag(allowsRepair: Bool) throws {
         let policy = CloudTerminalAttachmentPlacementPolicy(
