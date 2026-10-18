@@ -318,6 +318,13 @@ const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
 /** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
 export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
+/**
+ * How long the status cron waits before pausing a machine it found running
+ * under a paused row. A personal machine's resume writes `running` only after
+ * the provider settles (up to about a minute), so a wake still present after
+ * this wait had no resume behind it.
+ */
+const UNEXPECTED_WAKE_CONFIRM_MS = 90_000;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -338,6 +345,8 @@ export type VmProviderStatusReconcileResult = {
   readonly updated: number;
   readonly destroyed: number;
   readonly skipped: number;
+  /** Paused rows whose machine woke without a recorded resume and was paused again. */
+  readonly repaused: number;
   readonly skippedNoGetStatus: boolean;
 };
 
@@ -554,6 +563,8 @@ export function reconcileVmProviderStatuses(input: {
   readonly now?: () => number;
   /** Revokes coderouter tokens for machines the provider reports gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Wait before re-pausing a machine woken while paused; tests pass 0. */
+  readonly unexpectedWakeConfirmMs?: number;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -586,6 +597,7 @@ export function reconcileVmProviderStatuses(input: {
         updated: 0,
         destroyed: 0,
         skipped: 0,
+        repaused: 0,
         skippedNoGetStatus: true,
       };
     }
@@ -593,11 +605,15 @@ export function reconcileVmProviderStatuses(input: {
     const candidates = yield* repo.reconciliationCandidates({
       limit: boundedVmStatusReconcileLimit(input.limit),
     });
-    const outcomes = yield* Effect.forEach(
+    const firstPass = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane, true),
       { concurrency: 10 },
     );
+    const outcomes = yield* settleUnexpectedWakes(repo, providers, getStatus, candidates, firstPass, {
+      confirmMs: input.unexpectedWakeConfirmMs ?? UNEXPECTED_WAKE_CONFIRM_MS,
+      modelPlane: input.modelPlane,
+    });
     // Network heal moved here from the create path: re-create the members
     // rule of every owner network this batch touches if it went missing.
     const ensureNetwork = providers.ensureNetwork;
@@ -618,14 +634,7 @@ export function reconcileVmProviderStatuses(input: {
         { concurrency: 1, discard: true },
       );
     }
-    let updated = 0;
-    let destroyed = 0;
-    let skipped = 0;
-    for (const outcome of outcomes) {
-      if (outcome === "updated") updated += 1;
-      else if (outcome === "destroyed") destroyed += 1;
-      else if (outcome === "skipped") skipped += 1;
-    }
+    const tally = (kind: ProviderStatusReconcileOutcome) => outcomes.filter((outcome) => outcome === kind).length;
     if (
       input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
       providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
@@ -637,9 +646,10 @@ export function reconcileVmProviderStatuses(input: {
     }
     return {
       checked: candidates.length,
-      updated,
-      destroyed,
-      skipped,
+      updated: tally("updated"),
+      destroyed: tally("destroyed"),
+      skipped: tally("skipped"),
+      repaused: tally("repaused"),
       skippedNoGetStatus: false,
     };
   });
@@ -3491,7 +3501,7 @@ function applyObservedProviderStatus(
   });
 }
 
-type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
+type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped" | "repaused";
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
@@ -3500,7 +3510,9 @@ function reconcileObservedProviderStatus(
   vm: CloudVmRow,
   usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
-): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  /** Return `unexpected_wake` for a paused row found running instead of relabelling it. */
+  holdUnexpectedWakes = false,
+): Effect.Effect<ProviderStatusReconcileOutcome | "unexpected_wake", never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
@@ -3514,6 +3526,7 @@ function reconcileObservedProviderStatus(
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
     const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
+    if (holdUnexpectedWakes && vm.status === "paused" && dbStatus === "running") return "unexpected_wake" as const;
     const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
       providerStatus,
@@ -3522,6 +3535,88 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
+  });
+}
+
+/**
+ * A paused row whose machine runs at the provider, with no resume recorded,
+ * was woken by traffic: a client heartbeat or a request to the machine wakes
+ * a paused Freestyle VM (cmux#21379). Wait out any resume still settling,
+ * then pause it again if the row is still paused and the machine still runs.
+ * A machine the provider will not pause is recorded as running, so it counts.
+ */
+function settleUnexpectedWakes(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  candidates: readonly CloudVmRow[],
+  firstPass: readonly (ProviderStatusReconcileOutcome | "unexpected_wake")[],
+  options: { readonly confirmMs: number; readonly modelPlane?: VmModelPlaneRevoker },
+): Effect.Effect<ProviderStatusReconcileOutcome[], never> {
+  return Effect.gen(function* () {
+    if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
+    if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
+    return yield* Effect.forEach(
+      firstPass,
+      (outcome, index) => outcome === "unexpected_wake"
+        ? repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane)
+        : Effect.succeed(outcome),
+      { concurrency: 10 },
+    );
+  });
+}
+
+function repauseUnexpectedWake(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  vm: CloudVmRow,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) return "skipped" as const;
+    const current = yield* repo.findUserVm({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      providerVmId,
+      provider: vm.provider,
+    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    // A resume, pause or destroy that landed meanwhile owns the row now.
+    if (current?.status !== "paused") return "skipped" as const;
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    if (status !== "running") return "skipped" as const;
+    const pause = providers.pause;
+    const paused = pause
+      ? yield* Effect.gen(function* () {
+        if (current.billingPlanId === "go") yield* setRuntimeBudget(providers, current, providerVmId, 0);
+        yield* pause(current.provider, providerVmId);
+      }).pipe(Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS), Effect.either)
+      : null;
+    if (paused?._tag !== "Right") {
+      const recorded = yield* applyObservedProviderStatus(repo, providers, current, {
+        providerVmId,
+        providerStatus: "running",
+        usageEventSource: "provider_status_cron",
+        modelPlane,
+      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      return recorded ? "updated" as const : "skipped" as const;
+    }
+    yield* Effect.logWarning("Cloud machine woke while paused; paused it again", { vmId: current.id, providerVmId });
+    yield* repo.recordUsageEvent({
+      userId: current.userId,
+      billingTeamId: current.billingTeamId,
+      billingPlanId: current.billingPlanId,
+      vmId: current.id,
+      eventType: "vm.paused",
+      provider: current.provider,
+      imageId: current.imageId,
+      metadata: { source: "unexpected_wake", automated: true },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return "repaused" as const;
   });
 }
 
@@ -3755,9 +3850,10 @@ function recordResumeUsageEvent(
 // Active-limit note: the control-plane-owned paused-row resume path is
 // limit-gated for billing teams by reservePausedResume before the provider
 // resume starts. Freestyle can still resume a VM outside the control plane
-// (for example from the provider console); those already-running observations
-// are reconciled durably here, and beginCreate re-counts provider-running VMs
-// before allocating another active slot.
+// (traffic to a paused machine wakes it, as does the provider console); the
+// status cron pauses those again (settleUnexpectedWakes) and records a
+// machine it cannot pause as running, and beginCreate re-counts
+// provider-running VMs before allocating another active slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
