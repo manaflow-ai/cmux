@@ -14,9 +14,14 @@
 # slot build's Swift settings (batch mode on, no debug info, GlobalISel off) and
 # a fixed DerivedData path, and compares every incremental build with a clean
 # build of the same tree at the same path: each object's force-load symbols and
-# LC_LINKER_OPTION hints, and the executable's ordered LC_LOAD_* list.
+# LC_LINKER_OPTION hints (in order), every prelinked Build/Products/Debug/*.o,
+# the executable's bytes and ordered LC_LOAD_* list, its LinkFileList and its
+# link command line. Each clean build is made twice, to show whether the clean
+# build itself is deterministic.
 #
-#   A  this commit; B  A with `import Contacts` added to one leaf file
+#   A  this commit; B  A with `import MODULE` added to one leaf file, MODULE the
+#      first probed SDK module whose import gives a __swift_FORCE_LOAD reference
+#      (a module that is only an autolink hint links nothing: ld drops it)
 #   rollout  clean A, then the check with no record (every Swift module cleared)
 #   fix-add A->B, fix-remove B->A, repair (a stale B fixed): must equal clean
 #   nofix-add A->B and nofix-remove B->A without the check: must show the defect
@@ -25,13 +30,13 @@
 #   cmux-ci run --class exclusive --script scripts/measure/import-set-xcode.sh --ref SHA \
 #     --tool cmux-import-set@sha256:HEX --timeout 9000 --key import-set-xcode-<sha8>-<n>
 # Args: leaf=<repo-relative Swift file> (default CmuxTheme's AppTheme.swift),
-#       module=<the module it adds and removes> (default Contacts; no macOS
-#       module of this graph may import it already).
+#       module=<the module it adds and removes> (default auto: the probe above;
+#       no macOS module of this graph may import it already).
 # Output: RESULT lines; files under .build/import-set-xcode. Exit 0 when every
 # expectation holds. Never changes anything outside this checkout.
 set -euo pipefail
 leaf="Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift"
-module="Contacts"
+module="auto"
 for arg in "$@"; do
   case "$arg" in
     leaf=*) leaf="${arg#leaf=}" ;;
@@ -40,20 +45,27 @@ for arg in "$@"; do
   esac
 done
 [[ "$leaf" =~ ^Packages/[A-Za-z0-9_./+-]+\.swift$ && "$leaf" != *..* ]] || { echo "import-set-xcode.sh: leaf must be a Swift file under Packages/" >&2; exit 2; }
-[[ "$module" =~ ^[A-Z][A-Za-z0-9_]{1,40}$ ]] || { echo "import-set-xcode.sh: module must be a module name" >&2; exit 2; }
+[[ "$module" == auto || "$module" =~ ^[A-Z][A-Za-z0-9_]{1,40}$ ]] || { echo "import-set-xcode.sh: module must be a module name" >&2; exit 2; }
 tool="${CMUX_CI_TOOL_CMUX_IMPORT_SET:-}"
 [[ -n "$tool" && -f "$tool" ]] || { echo "import-set-xcode.sh: pass --tool cmux-import-set@sha256:HEX" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 [[ -f "$leaf" && -f App/main.swift && -d Packages/macOS/CmuxNext ]] || { echo "import-set-xcode.sh: $leaf, App/main.swift or CmuxNext missing" >&2; exit 2; }
-if git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*((public|internal|package|private|fileprivate)[[:space:]]+)?import[[:space:]]+$module([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' App; then
+imported() { git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*((public|internal|package|private|fileprivate)[[:space:]]+)?import[[:space:]]+(struct[[:space:]]+|class[[:space:]]+|enum[[:space:]]+|protocol[[:space:]]+|func[[:space:]]+|typealias[[:space:]]+|var[[:space:]]+|let[[:space:]]+)?$1([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' App; }
+if [[ "$module" != auto ]] && imported "$module"; then
   echo "import-set-xcode.sh: a macOS module of this graph imports $module already; choose another module=" >&2
   exit 2
 fi
 work="$root/.build/import-set-xcode"
 rm -rf "$work"
-mkdir -p "$work/app-exe/Sources/cmux-next-exe" "$work/spm"
-D="$work/dd" RA="$work/clean-A" RB="$work/clean-B"
+mkdir -p "$work/app-exe/Sources/cmux-next-exe" "$work/spm" "$work/probe"
+D="$work/dd" RA="$work/clean-A" RB="$work/clean-B" RA2="$work/clean-A2" RB2="$work/clean-B2"
+# On exit: the DerivedData trees, packages and probe outputs removed (about
+# 40-50 GB); the logs stay. The leaf file is put back by the trap set below.
+trap 'rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe"' EXIT
+free_gb=$(( $(df -k "$root" | awk 'NR==2 {print $4}') / 1048576 ))
+echo "==> free disk ${free_gb} GB"
+(( free_gb >= 60 )) || { echo "import-set-xcode.sh: needs 60 GB free (five DerivedData trees); ${free_gb} GB free" >&2; exit 1; }
 result() { echo "RESULT $*"; }
 fails=0
 
@@ -68,6 +80,38 @@ if [[ -z "${DEVELOPER_DIR:-}" && -f scripts/select-ci-xcode.sh ]]; then
 fi
 unset SDKROOT
 echo "IMPORT-SET-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) xcode=\"$(xcodebuild -version | tr '\n' ' ')\" rev=$(git rev-parse HEAD) tool_sha256=${CMUX_CI_TOOL_CMUX_IMPORT_SET_SHA256:-$(shasum -a 256 "$tool" | awk '{print $1}')}"
+
+# The test module: the first candidate no macOS module of this graph imports
+# whose import alone gives an object a __swift_FORCE_LOAD_$_swift<MODULE>
+# reference (that reference keeps the library's load command in the executable).
+if [[ "$module" == auto ]]; then
+  sdk="$(xcrun --sdk macosx --show-sdk-path)"
+  cands=(Network NaturalLanguage CoreML Vision GameplayKit SpriteKit SceneKit ModelIO MetalKit CoreMIDI Intents
+         CloudKit AVFoundation CoreImage Accelerate MapKit Charts TabularData StoreKit Observation RegexBuilder
+         Distributed Synchronization XPC OSLog CryptoKit SwiftData AppIntents CoreBluetooth CoreAudio CoreMedia
+         CoreVideo PDFKit Photos GameController EventKit Speech SoundAnalysis CreateML RealityKit MusicKit
+         WeatherKit Translation FoundationModels Contacts CoreLocation os simd Dispatch)
+  free=()
+  for m in "${cands[@]}"; do imported "$m" || free+=("$m"); done
+  printf '%s\n' "${free[@]}" | xargs -P 8 -I{} /bin/bash -c '
+    printf "import %s\n" "$1" >"$2/$1.swift"
+    xcrun swiftc -target arm64-apple-macos14.0 -sdk "$3" -Onone -parse-as-library -module-cache-path "$2/mc" \
+      -module-name Probe$1 -c "$2/$1.swift" -o "$2/$1.o" >"$2/$1.err" 2>&1 || rm -f "$2/$1.o"' _ {} "$work/probe" "$sdk"
+  module="" force_module=0
+  for m in "${free[@]}"; do
+    [[ -f "$work/probe/$m.o" ]] || continue
+    syms="$(python3 -I -c 'import re,sys; print(" ".join(sorted({m.decode() for m in re.findall(rb"__swift_FORCE_LOAD_\$_swift[A-Za-z0-9_]+", open(sys.argv[1],"rb").read())})))' "$work/probe/$m.o")"
+    echo "==> probe import $m: force-load ${syms:-none}"
+    if [[ -z "$module" && " $syms " == *" __swift_FORCE_LOAD_\$_swift${m} "* ]]; then module="$m" force_module=1; fi
+  done
+  if [[ -z "$module" ]]; then
+    module="Contacts"
+    echo "==> probe: no candidate import gives its own force-load reference; module=Contacts (an autolink hint only)"
+  fi
+else
+  force_module=1
+fi
+echo "==> module $module (force-load reference: $force_module)"
 
 # The app executable package (the Xcode target cmux-next: App/main.swift over
 # CmuxNextApp, with that target's linked libraries and frameworks).
@@ -104,10 +148,12 @@ proj = {p["identity"]: p for p in json.load(open(sys.argv[2]))["pins"]} if os.pa
 merged = {p["identity"]: p for p in pkg["pins"]}
 merged.update(proj)
 pkg["pins"] = sorted(merged.values(), key=lambda p: p["identity"])
+pkg.pop("originHash", None)   # CmuxNext's hash is not this root package's
 with open(sys.argv[3], "w") as f:
     json.dump(pkg, f, indent=2, sort_keys=True)
     f.write("\n")
 PY
+cp "$work/app-exe/Package.resolved" "$work/pins.json"
 
 leaf_a="$work/leaf-A.swift" leaf_b="$work/leaf-B.swift"
 cp "$leaf" "$leaf_a"
@@ -119,9 +165,7 @@ lines.insert(k + 1, "import " + sys.argv[3])
 open(sys.argv[2], "w").write("\n".join(lines))
 PY
 at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
-# On exit: the leaf file back, and the DerivedData trees and packages removed
-# (about 20-30 GB); the logs stay.
-trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$work/spm" "$work/list-dd"' EXIT
+trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe"' EXIT
 
 # The package's scheme: the executable product's, else the whole package's.
 scheme="$(cd "$work/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$work/spm" 2>"$work/list.err" | python3 -I -c '
@@ -135,7 +179,7 @@ xcb() {   # LABEL: one build in $D, the slot build's Swift settings
   local t0=$SECONDS
   if ! (cd "$work/app-exe" && xcodebuild -scheme "$scheme" -configuration Debug \
       -destination 'platform=macOS,arch=arm64' -derivedDataPath "$D" -clonedSourcePackagesDirPath "$work/spm" \
-      -skipPackagePluginValidation -skipMacroValidation \
+      -skipPackagePluginValidation -skipMacroValidation -verbose \
       SWIFT_ENABLE_BATCH_MODE=YES DEBUG_INFORMATION_FORMAT= GCC_GENERATE_DEBUGGING_SYMBOLS=NO \
       'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1' \
       build >"$work/$1.log" 2>&1); then
@@ -164,27 +208,33 @@ fixed() {   # LABEL: the slot recipe's sequence (check, build, done, one more bu
 }
 plain() { touch "$work/$1.start"; xcb "$1"; }
 
-# Compare $D (this build) with a clean build of the same tree at the same path.
-compare() {   # LABEL CLEAN_DIR EXPECT(match|stale-objects|stale-dylib)
-  python3 -I - "$D" "$2" "$work/$1.start" "$1" "$3" "$module" <<'PY' || fails=$((fails + 1))
-import glob, hashlib, os, re, struct, sys
-shipped, clean, start, label, expect, module = sys.argv[1:7]
-since = os.stat(start).st_mtime
+# Compare a build tree with a clean build of the same tree at the same path.
+compare() {   # LABEL SHIPPED_DIR CLEAN_DIR EXPECT(match|stale-objects|stale-dylib|info) CLEAN_LABEL
+  local leg="${1%%~*}"
+  python3 -I - "$2" "$3" "$work/$leg.start" "$1" "$4" "$module" "$work/$leg-again.log" "$work/$leg.log" "$work/$5.log" <<'PY' || { [[ "$4" == info ]] || fails=$((fails + 1)); }
+import glob, hashlib, os, re, shlex, struct, sys
+shipped, clean, start, label, expect, module, slog_again, slog, clog = sys.argv[1:10]
+since = os.stat(start).st_mtime_ns
 FL = re.compile(rb"__swift_FORCE_LOAD_\$_[A-Za-z0-9_$]+")
 DYLIB = {0xC: "LOAD_DYLIB", 0x18 | 0x80000000: "LOAD_WEAK_DYLIB", 0x1F | 0x80000000: "REEXPORT_DYLIB",
          0x20: "LAZY_LOAD_DYLIB", 0x23 | 0x80000000: "LOAD_UPWARD_DYLIB"}
+EXE = "cmux-next-exe"
 
 def macho(path):
+    """Force-load names (string-table order, first seen), LC_LINKER_OPTION
+    hints (load-command order), LC_LOAD_* list (order), sha256."""
     data = open(path, "rb").read()
     if len(data) < 32 or struct.unpack_from("<I", data, 0)[0] != 0xFEEDFACF:
         return None
     ncmds = struct.unpack_from("<I", data, 16)[0]
-    off, fl, opts, dylibs = 32, set(), [], []
+    off, fl, opts, dylibs = 32, [], [], []
     for _ in range(ncmds):
         cmd, size = struct.unpack_from("<II", data, off)
-        if cmd == 0x2:   # LC_SYMTAB: the force-load names in the string table
+        if cmd == 0x2:   # LC_SYMTAB
             _symoff, _nsyms, stroff, strsize = struct.unpack_from("<IIII", data, off + 8)
-            fl.update(m.decode() for m in FL.findall(data, stroff, stroff + strsize))
+            for m in FL.findall(data, stroff, stroff + strsize):
+                if m.decode() not in fl:
+                    fl.append(m.decode())
         elif cmd == 0x2D:   # LC_LINKER_OPTION
             count = struct.unpack_from("<I", data, off + 8)[0]
             opts.append(" ".join(s.decode() for s in data[off + 12:off + size].split(b"\0")[:count]))
@@ -192,79 +242,195 @@ def macho(path):
             name_off = struct.unpack_from("<I", data, off + 8)[0]
             dylibs.append(f"{DYLIB[cmd]} {data[off + name_off:off + size].split(b'\0')[0].decode()}")
         off += size
-    return {"fl": sorted(fl), "opts": sorted(set(opts)), "dylibs": dylibs,
-            "sha": hashlib.sha256(data).hexdigest()}
+    return {"fl": fl, "opts": opts, "dylibs": dylibs, "sha": hashlib.sha256(data).hexdigest()}
 
+def kind(a, b):
+    """'' equal bytes; 'set' other force-load or hint set; 'order' same sets in
+    another order; 'bytes' same ordered sets, other bytes."""
+    if a is not None and b is not None and a["sha"] == b["sha"]:
+        return ""
+    if a is None or b is None or sorted(a["fl"]) != sorted(b["fl"]) or sorted(set(a["opts"])) != sorted(set(b["opts"])):
+        return "set"
+    if a["fl"] != b["fl"] or a["opts"] != b["opts"]:
+        return "order"
+    return "bytes"
+
+base = lambda dd: os.path.join(dd, "Build", "Intermediates.noindex")
 def objects(dd):
-    base = os.path.join(dd, "Build", "Intermediates.noindex")
-    out = {}
-    for p in glob.glob(os.path.join(glob.escape(base), "*", "Debug", "*", "Objects-normal", "arm64", "*.o")):
-        out[os.path.relpath(p, base)] = p
-    return out
+    pat = os.path.join(glob.escape(base(dd)), "*", "Debug", "*", "Objects-normal", "arm64", "*.o")
+    return {os.path.relpath(p, base(dd)): p for p in glob.glob(pat)}
+def products(dd):
+    pat = os.path.join(glob.escape(os.path.join(dd, "Build", "Products", "Debug")), "*.o")
+    return {os.path.basename(p): p for p in glob.glob(pat)}
 
-sh, cl = objects(shipped), objects(clean)
-only_sh, only_cl = sorted(set(sh) - set(cl)), sorted(set(cl) - set(sh))
-byte_diff, sem_diff, by_mod = 0, [], {}
-for rel in sorted(set(sh) & set(cl)):
-    a, b = macho(sh[rel]), macho(cl[rel])
-    mod = rel.split("/")[2].removesuffix(".build")
-    kept = os.stat(sh[rel]).st_mtime < since
-    st = by_mod.setdefault(mod, [0, 0, 0, 0])   # objects, kept, byte-differ, semantic-differ
-    st[0] += 1
-    st[1] += kept
-    if a is None or b is None or a["sha"] != b["sha"]:
-        byte_diff += 1
-        st[2] += 1
-        if a is None or b is None or a["fl"] != b["fl"] or a["opts"] != b["opts"]:
-            st[3] += 1
-            sem_diff.append((rel, kept, a, b))
-exe_sh = macho(os.path.join(shipped, "Build", "Products", "Debug", "cmux-next-exe"))
-exe_cl = macho(os.path.join(clean, "Build", "Products", "Debug", "cmux-next-exe"))
-only_dl_sh = [d for d in exe_sh["dylibs"] if d not in exe_cl["dylibs"]]
-only_dl_cl = [d for d in exe_cl["dylibs"] if d not in exe_sh["dylibs"]]
-same_order = exe_sh["dylibs"] == exe_cl["dylibs"]
-n = len(set(sh) & set(cl))
-print(f"RESULT {label} objects={n} only_shipped={len(only_sh)} only_clean={len(only_cl)} byte_equal={n - byte_diff} "
-      f"semantic_differ={len(sem_diff)} kept_semantic_differ={sum(1 for x in sem_diff if x[1])} "
-      f"exe_byte_equal={exe_sh['sha'] == exe_cl['sha']} load_commands={len(exe_sh['dylibs'])} load_order_equal={same_order}")
-print(f"RESULT {label} load commands only in this build: {only_dl_sh or 'none'}; only in the clean build: {only_dl_cl or 'none'}")
-mods = [f"{m}:{s[3]}/{s[0]}(kept {s[1]})" for m, s in sorted(by_mod.items()) if s[3]]
-print(f"RESULT {label} modules with objects whose force-load or autolink set differs (differ/objects): {' '.join(mods) or 'none'}")
-bmods = [f"{m}:{s[2]}" for m, s in sorted(by_mod.items()) if s[2] and not s[3]]
-print(f"RESULT {label} modules with byte-only differences (same force-load and autolink sets): {' '.join(bmods) or 'none'}")
-for rel, kept, a, b in sem_diff[:3]:
-    extra = sorted(set(a["fl"]) - set(b["fl"])) if a and b else "?"
-    missing = sorted(set(b["fl"]) - set(a["fl"])) if a and b else "?"
-    print(f"RESULT {label} example {rel} kept={kept} force-load only here={extra} only clean={missing}")
-if expect == "match":
-    ok = not only_sh and not only_cl and not sem_diff and same_order
-elif expect == "stale-objects":
-    ok = any(kept for _r, kept, _a, _b in sem_diff)
+def tally(sh, cl):
+    only_sh, only_cl = sorted(set(sh) - set(cl)), sorted(set(cl) - set(sh))
+    diffs = []   # (rel, kind, kept, a, b)
+    for rel in sorted(set(sh) & set(cl)):
+        a, b = macho(sh[rel]), macho(cl[rel])
+        k = kind(a, b)
+        if k:
+            diffs.append((rel, k, os.stat(sh[rel]).st_mtime_ns < since, a, b))
+    return only_sh, only_cl, diffs, len(set(sh) & set(cl))
+
+ok_parts = {}
+# 1. Unit objects.
+osh, ocl = objects(shipped), objects(clean)
+only_sh, only_cl, odiff, n = tally(osh, ocl)
+kept_all = sum(1 for p in osh.values() if os.stat(p).st_mtime_ns < since)
+by_mod = {}
+for rel, k, kept, _a, _b in odiff:
+    st = by_mod.setdefault(rel.split("/")[2].removesuffix(".build"), {"set": 0, "order": 0, "bytes": 0, "kept": 0})
+    st[k] += 1
+    st["kept"] += kept
+cnt = lambda ds, k: sum(1 for d in ds if d[1] == k)
+print(f"RESULT {label} objects={n} kept={kept_all} only_shipped={len(only_sh)} only_clean={len(only_cl)} "
+      f"byte_equal={n - len(odiff)} set_differ={cnt(odiff, 'set')} order_differ={cnt(odiff, 'order')} "
+      f"bytes_only_differ={cnt(odiff, 'bytes')} kept_set_differ={sum(1 for d in odiff if d[1] == 'set' and d[2])}")
+mods = [f"{m}:set{s['set']}/order{s['order']}/bytes{s['bytes']}(kept {s['kept']})" for m, s in sorted(by_mod.items())]
+print(f"RESULT {label} object modules that differ: {' '.join(mods)[:1500] or 'none'}")
+for rel, k, kept, a, b in odiff[:3]:
+    if a and b:
+        print(f"RESULT {label} example {rel} {k} kept={kept} force-load only here={sorted(set(a['fl']) - set(b['fl']))} "
+              f"only clean={sorted(set(b['fl']) - set(a['fl']))} hints only here={sorted(set(a['opts']) - set(b['opts']))} "
+              f"only clean={sorted(set(b['opts']) - set(a['opts']))}")
+ok_parts["objects"] = not only_sh and not only_cl and not odiff
+
+# 2. Prelinked products: Build/Products/Debug/*.o, and whether each is older
+# than the newest unit object of its module (a skipped relink).
+psh, pcl = products(shipped), products(clean)
+ponly_sh, ponly_cl, pdiff, pn = tally(psh, pcl)
+pkept = sum(1 for p in psh.values() if os.stat(p).st_mtime_ns < since)
+stale_prelink = []
+for name, p in sorted(psh.items()):
+    units = glob.glob(os.path.join(glob.escape(base(shipped)), "*", "Debug", glob.escape(name[:-2]) + ".build",
+                                   "Objects-normal", "arm64", "*.o"))
+    newest = max((os.stat(u).st_mtime_ns for u in units), default=0)
+    if newest > os.stat(p).st_mtime_ns:
+        stale_prelink.append(name[:-2])
+print(f"RESULT {label} products={pn} kept={pkept} only_shipped={len(ponly_sh)} only_clean={len(ponly_cl)} "
+      f"byte_equal={pn - len(pdiff)} set_differ={cnt(pdiff, 'set')} order_differ={cnt(pdiff, 'order')} "
+      f"bytes_only_differ={cnt(pdiff, 'bytes')} older_than_unit_objects={len(stale_prelink)}")
+print(f"RESULT {label} products that differ: {' '.join(f'{r[:-2]}:{k}(kept {kp})' for r, k, kp, _a, _b in pdiff)[:1500] or 'none'}"
+      f"; older than their unit objects: {' '.join(stale_prelink)[:800] or 'none'}"
+      f"; only here: {ponly_sh[:10] or 'none'}; only clean: {ponly_cl[:10] or 'none'}")
+for rel, k, kept, a, b in pdiff[:2]:
+    if a and b and k == "order":
+        i = next(i for i, (x, y) in enumerate(zip(a["opts"] + [""], b["opts"] + [""])) if x != y)
+        print(f"RESULT {label} product {rel} hint order from #{i}: here={a['opts'][i:i + 6]} clean={b['opts'][i:i + 6]}")
+ok_parts["products"] = not ponly_sh and not ponly_cl and not pdiff and not stale_prelink
+
+# 3. The executable: bytes and ordered load commands.
+exe_sh = macho(os.path.join(shipped, "Build", "Products", "Debug", EXE))
+exe_cl = macho(os.path.join(clean, "Build", "Products", "Debug", EXE))
+dl_sh, dl_cl = exe_sh["dylibs"], exe_cl["dylibs"]
+same_order = dl_sh == dl_cl
+print(f"RESULT {label} exe_byte_equal={exe_sh['sha'] == exe_cl['sha']} load_commands={len(dl_sh)}/{len(dl_cl)} "
+      f"load_order_equal={same_order} load_set_equal={sorted(dl_sh) == sorted(dl_cl)}")
+print(f"RESULT {label} load commands only in this build: {[d for d in dl_sh if d not in dl_cl] or 'none'}; "
+      f"only in the clean build: {[d for d in dl_cl if d not in dl_sh] or 'none'}")
+if not same_order:
+    i = next(i for i, (x, y) in enumerate(zip(dl_sh + [""], dl_cl + [""])) if x != y)
+    short = lambda ds: [d.split(" ", 1)[1].rsplit("/", 1)[-1] for d in ds]
+    print(f"RESULT {label} load order from #{i}: here={short(dl_sh[i:i + 8])} clean={short(dl_cl[i:i + 8])}")
+ok_parts["exe"] = exe_sh["sha"] == exe_cl["sha"]
+
+# 4. LinkFileList and the link command line.
+def lfl(dd):
+    ps = glob.glob(os.path.join(glob.escape(base(dd)), "*", "Debug", EXE + ".build", "Objects-normal", "arm64", "*.LinkFileList"))
+    return open(ps[0]).read().splitlines() if ps else None
+l_sh, l_cl = lfl(shipped), lfl(clean)
+if l_sh is None or l_cl is None:
+    print(f"RESULT {label} LinkFileList missing here={l_sh is None} clean={l_cl is None}")
+    ok_parts["linkfilelist"] = False
 else:
-    ok = any(module in d for d in only_dl_sh) or (any(kept for _r, kept, _a, _b in sem_diff) and not same_order)
-print(f"RESULT {label} {'PASS' if ok else 'FAIL'} (expected {expect})")
-sys.exit(0 if ok else 1)
+    eq = l_sh == l_cl
+    msg = f"RESULT {label} LinkFileList entries={len(l_sh)}/{len(l_cl)} equal={eq} same_set={sorted(l_sh) == sorted(l_cl)}"
+    if not eq:
+        i = next(i for i, (x, y) in enumerate(zip(l_sh + [""], l_cl + [""])) if x != y)
+        msg += f" first difference #{i}: here={[os.path.basename(x) for x in l_sh[i:i + 5]]} clean={[os.path.basename(x) for x in l_cl[i:i + 5]]}"
+    print(msg)
+    ok_parts["linkfilelist"] = eq
+
+def link_cmd(log):
+    """The argv of the last link of the executable in an xcodebuild log."""
+    try:
+        lines = open(log, errors="replace").read().splitlines()
+    except OSError:
+        return None
+    out = None
+    for i, l in enumerate(lines):
+        if l.startswith("Ld ") and f"/Build/Products/Debug/{EXE} " in l:
+            for c in lines[i + 1:i + 12]:
+                s = c.strip()
+                if not s:
+                    break
+                if not s.startswith("cd ") and not s.startswith("export ") and f"/Debug/{EXE}" in s:
+                    try:
+                        out = shlex.split(s)
+                    except ValueError:
+                        out = s.split()
+    return out
+c_sh, c_cl = link_cmd(slog_again) or link_cmd(slog), link_cmd(clog)
+if c_sh is None or c_cl is None:
+    print(f"RESULT {label} link command not in the log here={c_sh is None} clean={c_cl is None} (no relink in this build?)")
+else:
+    eq = c_sh == c_cl
+    msg = f"RESULT {label} link command args={len(c_sh)}/{len(c_cl)} equal={eq} same_set={sorted(c_sh) == sorted(c_cl)}"
+    if not eq:
+        here = [a for a in c_sh if a not in c_cl][:6]
+        there = [a for a in c_cl if a not in c_sh][:6]
+        msg += f" only here={here} only clean={there}"
+    print(msg)
+    ok_parts["link_command"] = eq
+
+if expect in ("match", "info"):
+    ok = all(ok_parts.values())
+elif expect == "stale-objects":
+    ok = any(k == "set" and kept for _r, k, kept, _a, _b in odiff)
+else:   # stale-dylib: the executable keeps a load command of the removed module
+    ok = any(module in d for d in dl_sh if d not in dl_cl)
+bad = [k for k, v in ok_parts.items() if not v]
+print(f"RESULT {label} {'PASS' if ok else 'FAIL'} (expected {expect}; differ: {', '.join(bad) or 'nothing'})")
+sys.exit(0 if ok or expect == "info" else 1)
 PY
 }
 
+# A clean build into a reference directory; the index is not compared.
+reference() {   # LABEL SIDE DIR
+  at "$2"; plain "$1"; mv "$D" "$3"; rm -rf "$3/Index.noindex"
+}
+
 echo "==> leaf $leaf, module $module"
-echo "==> clean references at the test DerivedData path"
-at A; plain clean-A; mv "$D" "$RA"
-at B; plain clean-B; mv "$D" "$RB"
-grep -q "$module" <(python3 -I - "$RB/Build/Products/Debug/cmux-next-exe" <<'PY'
-import struct, sys
-d = open(sys.argv[1], "rb").read(); n = struct.unpack_from("<I", d, 16)[0]; o = 32
-for _ in range(n):
-    c, s = struct.unpack_from("<II", d, o)
-    if c in (0xC, 0x80000018): print(d[o + struct.unpack_from("<I", d, o + 8)[0]:o + s].split(b"\0")[0].decode())
-    o += s
+echo "==> clean references at the test DerivedData path, each twice"
+reference clean-A A "$RA"
+python3 -I - "$work/pins.json" "$work/app-exe/Package.resolved" <<'PY'
+import json, sys
+want = {p["identity"]: p["state"] for p in json.load(open(sys.argv[1]))["pins"]}
+got = {p["identity"]: p["state"] for p in json.load(open(sys.argv[2]))["pins"]}
+moved = sorted(k for k in want if got.get(k) != want[k])
+print(f"RESULT pins kept={not moved} pins={len(want)} moved={moved[:8] or 'none'}")
 PY
-) || echo "==> note: the clean B executable has no load command naming $module (the force-load legs still apply)"
+reference clean-A2 A "$RA2"
+reference clean-B B "$RB"
+reference clean-B2 B "$RB2"
+python3 -I - "$RA" "$RB" "$module" <<'PY'
+import collections, glob, os, re, struct, sys
+for dd in sys.argv[1:3]:
+    c = collections.Counter()
+    for p in glob.glob(os.path.join(glob.escape(dd), "Build", "Intermediates.noindex", "*", "Debug", "*", "Objects-normal", "arm64", "*.o")):
+        c.update({m.decode() for m in re.findall(rb"__swift_FORCE_LOAD_\$_swift[A-Za-z0-9_]+", open(p, "rb").read())})
+    print(f"RESULT force-load names in {os.path.basename(dd)} objects (objects): " + " ".join(f"{k}:{v}" for k, v in c.most_common(12)))
+PY
+echo "==> clean vs clean (is the clean build deterministic)"
+compare clean-A2 "$RA2" "$RA" match clean-A
+compare clean-B2 "$RB2" "$RB" match clean-B
 
 echo "==> rollout: a warm slot at A without a record (every Swift module compiled in full once)"
 at A; plain base-A
 fixed rollout
-compare rollout "$RA" match
+compare rollout "$D" "$RA" match clean-A
+compare "rollout~vs-clean-A2" "$D" "$RA2" info clean-A2
 
 echo "==> cost: check and done without a change, and a no-op build"
 t0=$(python3 -c 'import time; print(time.time())')
@@ -277,14 +443,15 @@ t3=$(python3 -c 'import time; print(time.time())')
 result "no-change check_seconds=$(python3 -c "print(round($t1-$t0,2))") noop_build_seconds=$(python3 -c "print(round($t2-$t1,1))") done_seconds=$(python3 -c "print(round($t3-$t2,2))")"
 
 echo "==> fix-add: A -> B with the check"
-at B; fixed fix-add; compare fix-add "$RB" match
+at B; fixed fix-add; compare fix-add "$D" "$RB" match clean-B; compare "fix-add~vs-clean-B2" "$D" "$RB2" info clean-B2
 echo "==> fix-remove: B -> A with the check"
-at A; fixed fix-remove; compare fix-remove "$RA" match
+at A; fixed fix-remove; compare fix-remove "$D" "$RA" match clean-A; compare "fix-remove~vs-clean-A2" "$D" "$RA2" info clean-A2
 echo "==> nofix-add: A -> B without the check (the defect)"
-at B; plain nofix-add; compare nofix-add "$RB" stale-objects
+at B; plain nofix-add; compare nofix-add "$D" "$RB" stale-objects clean-B
 echo "==> repair: the stale B with the check (the record still says A)"
-fixed repair; compare repair "$RB" match
+fixed repair; compare repair "$D" "$RB" match clean-B; compare "repair~vs-clean-B2" "$D" "$RB2" info clean-B2
 echo "==> nofix-remove: B -> A without the check (the defect)"
-at A; plain nofix-remove; compare nofix-remove "$RA" stale-dylib
+at A; plain nofix-remove
+compare nofix-remove "$D" "$RA" "$( (( force_module )) && echo stale-dylib || echo stale-objects)" clean-A
 result "fails=$fails"
 exit $(( fails > 0 ))
