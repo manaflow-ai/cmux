@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextMobile
 import CmuxNextSettings
 public import CmuxNextSettingsWindow
-import Observation
+public import Observation
 
 /// Who may use this Mac from a phone (`phone.newDevices`): a phone on the
 /// allowed list gets in; a new one waits for the person's Allow on this Mac,
