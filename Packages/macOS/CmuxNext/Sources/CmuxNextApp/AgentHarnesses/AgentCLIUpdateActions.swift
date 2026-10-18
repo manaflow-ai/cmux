@@ -9,6 +9,7 @@ import Foundation
 /// commands, journals creation and reports terminal outcomes.
 @MainActor
 final class AgentCLIUpdateActions {
+    typealias JSONValue = CmuxNextSettings.JSONValue
     struct Route {
         let machine: ResourceID
         let session: ResourceID

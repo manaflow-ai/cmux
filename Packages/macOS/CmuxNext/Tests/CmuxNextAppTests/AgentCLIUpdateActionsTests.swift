@@ -10,6 +10,7 @@ import Testing
 /// Settings and palette use the production registry binding; the owner boundary
 /// records requests and returns terminal receipts without running a package manager.
 @MainActor struct AgentCLIUpdateActionsTests {
+    typealias JSONValue = CmuxNextSettings.JSONValue
     @MainActor final class Owner {
         var starts: [(AgentCLIFamily, String)] = []
         var captures = 0
