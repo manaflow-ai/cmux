@@ -60,7 +60,7 @@ public nonisolated struct SidebarPriority: Sendable {
     /// fight the priority projection.
     public func items(_ workspaces: [SidebarWorkspace], limit: Int? = nil) -> [SidebarPriorityItem] {
         let sorted = workspaces
-            .filter { $0.rowState != .placeholder }
+            .filter { !$0.rowState.isPending }
             .map(SidebarPriorityItem.init)
             .enumerated()
             .sorted { lhs, rhs in
@@ -125,7 +125,7 @@ public nonisolated struct SidebarPriority: Sendable {
     }
 
     private func workspaceRank(_ workspace: SidebarWorkspace) -> Int {
-        workspace.rowState == .placeholder ? SidebarPriorityBucket.idle.rawValue : SidebarPriorityItem(workspace: workspace).bucket.rawValue
+        workspace.rowState.isPending ? SidebarPriorityBucket.idle.rawValue : SidebarPriorityItem(workspace: workspace).bucket.rawValue
     }
 
     private func ordered(_ workspaces: [SidebarWorkspace]) -> [SidebarWorkspace] {

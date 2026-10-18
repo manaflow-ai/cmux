@@ -26,6 +26,7 @@ extension SidebarViewComponents {
         Motion.animate(.hover, in: self) {
             if changed {
                 newButton.animator().alphaValue = alpha
+                priorityButton.animator().alphaValue = alpha
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
             }
             aboveFade.animator().alphaValue = above
