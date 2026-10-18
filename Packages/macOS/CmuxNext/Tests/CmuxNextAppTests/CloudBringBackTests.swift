@@ -377,7 +377,7 @@ struct CloudBringBackTests {
         }
 
         /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
-        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true) async -> ControlError? {
             let bridge = RegistryControlBridge(registry: services.registry)
             let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                                  processID: getpid()),
@@ -385,7 +385,7 @@ struct CloudBringBackTests {
                                        configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
             router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
             let params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
-                                                                "wait": .bool(true), "target": .string("tab:" + tab), "args": .object(args)]
+                                                                "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
             if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
             return nil
         }
@@ -469,7 +469,11 @@ struct CloudBringBackTests {
         let created = try await connection.request(NewConversationTabRequest(agentSession: record, pane: pane.handle))
         let tabID = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         while services.locateTab(tabID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
-        if let error = await trip.run("cloud move", tab: tabID, args: ["path": .string(trip.project.path)]) {
+        // Move runs behind the action registry. Setup only needs the moved
+        // chat before exercising Bring Back Local; waiting for the full move
+        // couples setup to the control request deadline and turns a slow
+        // daemon startup into a false timeout.
+        if let error = await trip.run("cloud move", tab: tabID, args: ["path": .string(trip.project.path)], wait: false) {
             Issue.record("cmux cloud move: \(error.code) \(error.message)")
         }
         try await trip.waitUntil { trip.machineChat() != nil && trip.localChat() == nil }
