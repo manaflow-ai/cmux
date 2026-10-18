@@ -73,6 +73,48 @@ ensure_parent() {
   git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
 }
 
+# A same-repository pull request run (the workflow sets CMUX_PACKAGE_REUSE=1)
+# keys each selected package's test inputs (scripts/ci/package_input_key.py)
+# and, unless it is the full suite, drops the packages whose key passed on an
+# earlier run of this branch (scripts/ci/reuse_package_results.py). The select
+# step looks once; the run step selects again and drops the same packages.
+# record_passed publishes the keys that pass for the next run to reuse.
+package_keys="$work/package-input-keys.json"
+reused_packages="$work/reused-packages.txt"
+reuse_package_results() {
+  [ "${CMUX_PACKAGE_REUSE:-0}" = 1 ] && [ -s "$selected" ] || return 0
+  if [ ! -f "$package_keys" ] && ! python3 scripts/ci/package_input_key.py --packages-file "$selected" \
+      --extra "xcode=${CMUX_CI_XCODE_APP:-}" --extra "macos=$(sw_vers -productVersion 2>/dev/null || true)" \
+      --output "$package_keys"; then
+    rm -f "$package_keys"
+    return 0
+  fi
+  if [ "${CMUX_PACKAGE_REUSE:-0}" = 1 ] && [ "$full_suite" != "true" ] && [ "$event" = "pull_request" ]; then
+    if [ ! -f "$reused_packages" ]; then
+      python3 scripts/ci/reuse_package_results.py --repository "${GITHUB_REPOSITORY:-}" \
+        --branch "${CMUX_PACKAGE_REUSE_BRANCH:-}" --current-run-id "${GITHUB_RUN_ID:-0}" \
+        --selected "$selected" --keys "$package_keys" --reused "$reused_packages" || : > "$reused_packages"
+    fi
+    grep -vxF -f "$reused_packages" "$selected" > "$selected.remaining" || true
+    mv "$selected.remaining" "$selected"
+  fi
+}
+
+# record_passed PACKAGE...: write the input keys of these packages (each passed
+# here or was reused) as passed-packages.json for the workflow to publish.
+record_passed() {
+  [ -f "$package_keys" ] && [ "$#" -gt 0 ] || return 0
+  local directory="$work/passed-packages"
+  mkdir -p "$directory"
+  python3 - "$package_keys" "$directory/passed-packages.json" "$@" <<'PY'
+import json, sys
+keys = json.load(open(sys.argv[1], encoding="utf-8"))
+passed = {package: keys[package] for package in sys.argv[3:] if package in keys}
+json.dump(passed, open(sys.argv[2], "w", encoding="utf-8"), sort_keys=True)
+PY
+  output "passed_packages=$directory"
+}
+
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
@@ -164,6 +206,7 @@ select_packages() {
     run_bonsplit=true
     printf '%s\n' "${PACKAGES[@]}" > "$selected"
   fi
+  reuse_package_results
   if [ "$run_bonsplit" = true ]; then
     output "bonsplit=true"
   fi
@@ -451,6 +494,12 @@ run_package_tests() {
   }
 
   summary=()
+  passed=()
+  if [ -f "$reused_packages" ]; then
+    while IFS= read -r pkg; do
+      [ -n "$pkg" ] && passed+=("$pkg")
+    done < "$reused_packages"
+  fi
   failed=0
   first_failure_status=0
   while IFS= read -r pkg; do
@@ -463,6 +512,7 @@ run_package_tests() {
     seconds=$((SECONDS - started))
     if [ "$package_status" -eq 0 ]; then
       result=passed
+      passed+=("$pkg")
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$package_status"
@@ -483,6 +533,7 @@ run_package_tests() {
     printf '%s\n' ${summary[@]+"${summary[@]}"}
   )"
   printf 'Swift package test results:\n%s\n' "$table"
+  record_passed ${passed[@]+"${passed[@]}"}
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Swift package tests\n\n```\n%s\n```\n' "$table" >> "$GITHUB_STEP_SUMMARY"
   fi

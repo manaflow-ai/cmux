@@ -319,6 +319,12 @@ class ProductRunnerTests(unittest.TestCase):
         api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["glaeda-std-xcode-26.6"]}])
         self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
 
+    def test_aws_xcode_263_admission_maps_to_macos_15(self) -> None:
+        # AWS's compile-only image carries the macOS 15 pool's Xcode 26.3.
+        api = self.api_for([{"name": "macos / macOS compile admission", "labels": [
+            "glaeda-aws-root-std-xcode-26.3"]}])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-15")
+
     def test_macos_15_admission_and_unknown_producers_stay_on_macos_15(self) -> None:
         api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["blacksmith-6vcpu-macos-15"]}])
         self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-15")
@@ -721,6 +727,21 @@ class CanonicalRootTests(unittest.TestCase):
             result = subprocess.run([str(TAKE_ROOT), str(receipt)], env=env, capture_output=True, text=True)
             taken = calls.read_text().splitlines() if calls.exists() else []
             return result.returncode, result.stdout.strip(), taken
+
+    def test_a_per_runner_root_is_kept_on_a_mac_without_glaeda(self) -> None:
+        # A fleet Mac without the glaeda helper builds at a per-runner root
+        # (canonical-build-root.sh); the rerun must build there too.
+        derived = "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2/derived-data-compile-admission"
+        code, out, taken = self.take(derived, helper=False)
+        self.assertEqual((code, out, taken), (0, "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2", []))
+        code, out, _ = self.take(None, env_root="/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2", helper=False)
+        self.assertEqual((code, out), (0, "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2"))
+
+    def test_glaeda_still_refuses_a_per_runner_root(self) -> None:
+        derived = "/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2/derived-data-compile-admission"
+        code, _, taken = self.take(derived, env_root="/private/tmp/cmux-ci-aws-m4pro-7-glaeda-2")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(taken, [])
 
     def test_the_workflow_names_no_canonical_root_itself(self) -> None:
         # The root comes from the product's receipt, or CMUX_CI_CANONICAL_ROOT,

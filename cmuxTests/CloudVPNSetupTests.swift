@@ -145,13 +145,9 @@ struct CloudVPNSetupTests {
         let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
         UserDefaults.standard.set(true, forKey: cloudMarkerKey)
-        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
-        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
         defer {
             if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey) }
             else { UserDefaults.standard.removeObject(forKey: cloudMarkerKey) }
-            CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag)
         }
         let previous = AppDelegate.shared
         let previousActive = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -189,7 +185,7 @@ struct CloudVPNSetupTests {
         let original = try #require(manager.selectedWorkspace)
         let ports = CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
                 resizeMemory: { _, _ in }, promptUpgrade: {}),
             nodeActions: CloudTreeNodeActions(project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
                 projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },

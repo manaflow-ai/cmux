@@ -127,6 +127,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 canMarkUnread: false,
                 hasLatestNotification: false,
                 allNotificationsMuted: false,
+                hasManualCustomColor: false,
                 notifications: []
             )
         )

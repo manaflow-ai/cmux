@@ -34,23 +34,46 @@ struct CloudWorkspaceSidebarPresentation {
 
     /// Returns the current device-workspace label for callers without a full presentation.
     @MainActor
-    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog = .shared) -> String? {
-        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog? = nil) -> String? {
+        let catalog = catalog ?? SurfaceCatalog.shared
+        return deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+
     }
 
     static var unavailableDirectory: String {
         String(localized: "sidebar.cloudWorkspace.directoryUnavailable", defaultValue: "Directory unavailable")
     }
 
+    /// Builds the presentation from the app's shared catalog.
+    @MainActor
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
+        self.init(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIDs,
+            usesLastSegmentPath: usesLastSegmentPath,
+            catalog: SurfaceCatalog.shared
+        )
+    }
+
     @MainActor
     /// Builds the immutable remote sidebar identity and directory presentation.
-    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog = .shared) {
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog? = nil) {
+        let catalog = catalog ?? SurfaceCatalog.shared
         let state = workspace.cloudBindingState
 
         func machineMetadata(for id: String) -> String? {
             if let name = state.machineNames[id] { return name }
             if let name = state.machineNames[SurfaceMachineID.cloud(id).rawValue] { return name }
-            return catalog.machineInfo(for: .cloud(id))?.name
+            if let name = catalog.machineInfo(for: .cloud(id))?.name { return name }
+            // The window-title path can receive the same authoritative machine
+            // label slightly before the catalog row. Reuse it during that
+            // binding transition so the sidebar does not drop the machine
+            // badge while the first terminal projection is still arriving.
+            let host = workspace.hostLabel
+            if host.kind == .cloud, workspace.cloudVMID == id, !host.label.isEmpty, host.label != id {
+                return host.label
+            }
+            return nil
         }
 
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
@@ -117,11 +140,14 @@ struct CloudWorkspaceSidebarPresentation {
                 // A restored workspace can retain a panel projection after the
                 // provider has published a current graph without that resource.
                 // Do not turn that stale identity into a directory placeholder.
-                guard let resource = catalog.resources[resourceID], resource.kind == .terminal else {
-                    continue
-                }
-                if resource.lifecycle == .launching {
-                    continue
+                if let resource = catalog.resources[resourceID] {
+                    guard resource.kind == .terminal else { continue }
+                    if resource.lifecycle == .launching { continue }
+                } else {
+                    // Device metadata is restored before its catalog row; the
+                    // workspace's accepted device projection is authoritative
+                    // enough to render its reported directory in that window.
+                    guard resourceID.machine.isDevice, resourceID.kind == .terminal else { continue }
                 }
             } else {
                 guard workspace.terminalPanel(for: panelID) != nil else { continue }

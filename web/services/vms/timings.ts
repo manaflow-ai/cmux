@@ -16,6 +16,7 @@ export type VmTimingStage =
   | "resolve_network"
   | "model_plane_provision"
   | "provider_create"
+  | "provider_snapshot"
   | "mark_running"
   | "mark_base_running"
   | "usage_events"

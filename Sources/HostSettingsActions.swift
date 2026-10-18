@@ -757,18 +757,6 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
-        switch AppDelegate.shared?.appChannelSwitchTarget {
-        case .nightly: .nightly
-        case .stable: .stable
-        case nil: nil
-        }
-    }
-
-    func switchAppChannel() {
-        AppDelegate.shared?.switchAppChannel(nil)
-    }
-
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
         Self.mobilePhonePushSettingsSnapshot(
             from: PhonePushClient.shared.configuration()

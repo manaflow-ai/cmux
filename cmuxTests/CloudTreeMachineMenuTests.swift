@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import AppKit
 import SwiftUI
 import CmuxCloudMachines
@@ -154,10 +155,205 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
-        #expect(recorder.deletions == [Self.machineID])
+        #expect(recorder.deletions.first.map { $0.id == Self.machineID && $0.name == "Big Machine" } == true)
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
+    }
+
+    @Test("Resize menu keeps plan-locked targets visible and disabled")
+    func machineMenuUsesPlanResizeCeilings() throws {
+        let node = Self.machineNode()
+        guard case .machine(let machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeDiskOptionsGiB = [64, 128, 256]
+        actions.resizeDiskMaximumGiB = 128
+        actions.resizeCPUOptions = [2, 4, 8, 12, 16, 32]
+        actions.resizeCPUMaximum = 8
+        actions.resizeMemoryOptionsGiB = [8, 16, 24, 32, 64]
+        actions.resizeMemoryMaximumGiB = 16
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let diskMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") }?.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+
+        let disk128 = try #require(diskMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 128) })
+        let disk256 = try #require(diskMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 256) })
+        #expect(disk128.isEnabled)
+        #expect(!disk256.isEnabled)
+        let cpu8 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) })
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let cpu16 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 16) })
+        #expect(cpu8.isEnabled)
+        #expect(!cpu12.isEnabled)
+        #expect(!cpu16.isEnabled)
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        let memory64 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64) })
+        #expect(!memory24.isEnabled)
+        #expect(!memory64.isEnabled)
+    }
+
+    @Test("Resize menu remains safe for a running machine without a shared pool")
+    func machineMenuWithoutPoolDoesNotOverflow() throws {
+        let node = Self.machineNode()
+        guard case .machine(let machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = nil
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let diskMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") }?.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        #expect(try #require(diskMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64) }).isEnabled)
+        #expect(try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) }).isEnabled)
+        #expect(try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16) }).isEnabled)
+    }
+
+    @Test("Resize menu accounts for remaining shared subscription pool")
+    func machineMenuUsesRemainingResourcePool() throws {
+        let node = Self.machineNode()
+        guard case .machine(let machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40 * 1024,
+            usedVcpus: 18,
+            usedMemoryMb: 32 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu4 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 4) })
+        let cpu8 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8) })
+        let memory16 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+
+        #expect(!cpu4.isEnabled)
+        #expect(!cpu8.isEnabled)
+        #expect(memory16.isEnabled)
+        #expect(!memory24.isEnabled)
+    }
+
+    @Test("Resize menu uses the server reservation when guest stats are stale")
+    func machineMenuUsesServerReservationForPoolMath() throws {
+        let node = Self.machineNode()
+        guard case .machine(var machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        machine.resourceReservation = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        machine.resourcePoolClaim = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40 * 1024,
+            usedVcpus: 16,
+            usedMemoryMb: 32 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        #expect(cpu12.isEnabled)
+        #expect(memory24.isEnabled)
+    }
+
+    @Test("Resize menu separates a pool claim from the live reservation")
+    func machineMenuUsesPoolClaimForLegacyPoolMath() throws {
+        let node = Self.machineNode()
+        guard case .machine(var machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        machine.resourceReservation = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        machine.resourcePoolClaim = CloudVMResourceReservation(vcpus: 32, memoryMb: 64 * 1024)
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 32,
+            poolMemoryMb: 64 * 1024,
+            usedVcpus: 32,
+            usedMemoryMb: 64 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        #expect(cpu12.isEnabled)
+        #expect(memory24.isEnabled)
+    }
+
+    @Test("Resize menu checks both dimensions at the pool boundary")
+    func machineMenuChecksCompleteTargetShape() throws {
+        let node = Self.machineNode()
+        guard case .machine(let machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        // The active machine currently uses 4 vCPUs / 8 GiB. Removing that
+        // reservation leaves 14 vCPUs but only 16 GiB for the target shape.
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40 * 1024,
+            usedVcpus: 10,
+            usedMemoryMb: 32 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        #expect(cpu12.isEnabled)
+        #expect(!memory24.isEnabled)
+    }
+
+    @Test("Resize menu treats a paused machine as a new pool allocation")
+    func machineMenuUsesPoolCapacityForPausedMachine() throws {
+        let node = Self.machineNode()
+        guard case .machine(var machine, _) = node.kind else {
+            Issue.record("expected a machine node")
+            return
+        }
+        machine.usesResourcePool = false
+        machine.resourceReservation = CloudVMResourceReservation(vcpus: 8, memoryMb: 16 * 1024)
+        var actions = Self.machineActions(recording: CloudTreeMenuVerbRecorder())
+        actions.resizeResourcePool = CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40 * 1024,
+            usedVcpus: 16,
+            usedMemoryMb: 32 * 1024
+        )
+
+        let root = CloudTreeResizeMenu.item(machine: machine, id: Self.machineID, action: actions)
+        let resizeMenu = try #require(root.submenu)
+        let cpuMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") }?.submenu)
+        let memoryMenu = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") }?.submenu)
+        let cpu12 = try #require(cpuMenu.items.first { $0.title == Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 12) })
+        let memory24 = try #require(memoryMenu.items.first { $0.title == Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 24) })
+        #expect(!cpu12.isEnabled)
+        #expect(!memory24.isEnabled)
     }
 
     @Test("A nested terminal activates its owning Cloud workspace for click and Return")
@@ -283,6 +479,54 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.openWorkspaces.allSatisfy { $0.machine == machine && $0.workspace.id == workspace.id && $0.group == group })
     }
 
+    @Test("A workspace terminal closes its tab without offering to kill the process")
+    func workspaceTerminalMenuClosesRemoteTab() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let workspace = SurfaceRemoteWorkspace(id: "workspace-close", name: "Build", index: 0, focused: true)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-close")
+        let view = SurfaceRemoteView(tabID: "tab-close", workspace: workspace)
+        let terminal = SurfaceResource(
+            id: resource,
+            title: "shell",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [view],
+            port: nil,
+            url: nil
+        )
+        let node = CloudTreeNode(
+            id: "terminal-close",
+            kind: .terminal(CloudTreeTerminalRow(resource: terminal, isOpen: false, viewBadge: nil, remoteView: view))
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-close-tab-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [node])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        let closeTitle = Self.title("cloudTree.menu.closeTab", "Close Tab…")
+        #expect(menu.items.contains { $0.title == closeTitle })
+        #expect(!menu.items.contains { $0.title == Self.title("cloudTree.menu.killTerminal", "Kill Terminal\u{2026}") })
+        try Self.choose(closeTitle, in: menu)
+        #expect(recorder.closedRemoteTabs.count == 1)
+        #expect(recorder.closedRemoteTabs.first?.resource == resource)
+        #expect(recorder.closedRemoteTabs.first?.view.tabID == view.tabID)
+        #expect(recorder.closedRemoteTabs.first?.view.workspace.id == workspace.id)
+        #expect(recorder.killedTerminals.isEmpty)
+    }
+
     @Test("Double-clicking machines and remote workspaces routes to their rename actions")
     func doubleClickRenamesCloudRows() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -388,7 +632,7 @@ struct CloudTreeMachineMenuTests {
         func render() {
             coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
                 machines: model.sidebarMachines, snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
-            ))
+            ).withoutCoderouterSection)
         }
         render()
         let outline = try #require(coordinator.outlineView)
@@ -490,7 +734,7 @@ struct CloudTreeMachineMenuTests {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
         )
-        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+        #expect(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID }?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
     }
 
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
@@ -622,9 +866,10 @@ struct CloudTreeMachineMenuTests {
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         try Self.choose(Self.title("cloudTree.menu.rename", "Rename\u{2026}"), in: menu)
-        #expect(recorder.renamedRemoteViews.count == 1)
-        #expect(recorder.renamedRemoteViews.first?.0 == desktop.id)
-        #expect(recorder.renamedRemoteViews.first?.1 == "tab-9")
+        // A display's name belongs to the display, shared by every row and pane
+        // that shows it, so Rename names the display rather than one view's tab.
+        #expect(recorder.renamedDisplays == [desktop.id])
+        #expect(recorder.renamedRemoteViews.isEmpty)
     }
 
     /// Another Mac's browser rows carry a tab, so "does this row have a tab"
@@ -884,11 +1129,17 @@ struct CloudTreeMachineMenuTests {
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
-            confirmDelete: { recorder.deletions.append($0) },
-            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
+            confirmDelete: { recorder.deletions.append((id: $0.id, name: $0.displayName)) },
+            promptRename: { machine in recorder.renamedMachines.append((machine.id, machine.displayName)) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
+            resizeDiskOptionsGiB: [64, 128, 256],
+            resizeDiskMaximumGiB: 256,
+            resizeCPUOptions: [2, 4, 8, 12, 16, 32],
+            resizeCPUMaximum: 32,
+            resizeMemoryOptionsGiB: [8, 16, 24, 32, 64],
+            resizeMemoryMaximumGiB: 64,
             promptUpgrade: {},
             editNetwork: { id, label in recorder.networkEdits.append((id, label)) },
             setAgentUpdates: { id, keepUpdated in recorder.agentUpdateChanges.append((id, keepUpdated)) },
@@ -906,7 +1157,8 @@ struct CloudTreeMachineMenuTests {
             openGroup: { _, _, _, _ in },
             openGroupAsWorkspace: { _, _, _ in },
             newWorkspace: { _ in },
-            closeTerminal: { _ in },
+            closeTerminal: { resource in recorder.killedTerminals.append(resource) },
+            closeRemoteTab: { resource, view in recorder.closedRemoteTabs.append((resource, view)) },
             closeWorkspace: { _, _ in },
             renameWorkspace: { machine, workspace in
                 recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
@@ -926,6 +1178,9 @@ struct CloudTreeMachineMenuTests {
         actions.openWorkspace = { machine, workspace, group in
             recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
         }
+        actions.renameDisplay = { resource in
+            recorder.renamedDisplays.append(resource.id)
+        }
         return actions
     }
 }
@@ -936,7 +1191,7 @@ struct CloudTreeMachineMenuTests {
 private final class CloudTreeMenuVerbRecorder {
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
-    var deletions: [String] = []
+    var deletions: [(id: String, name: String)] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
     var openWorkspaces: [(machine: SurfaceMachineID, workspace: SurfaceRemoteWorkspace, group: SurfaceResourceGroup)] = []
@@ -949,4 +1204,7 @@ private final class CloudTreeMenuVerbRecorder {
     var networkEdits: [(String, String?)] = []
     var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
+    var renamedDisplays: [SurfaceResourceID] = []
+    var killedTerminals: [SurfaceResourceID] = []
+    var closedRemoteTabs: [(resource: SurfaceResourceID, view: SurfaceRemoteView)] = []
 }

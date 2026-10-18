@@ -90,9 +90,13 @@ public struct CustomSidebarDataContextBuilder {
             "ports": .array(workspace.listeningPorts.map { .int($0) }),
             "portCount": .int(workspace.listeningPorts.count),
             "unread": .int(workspace.unreadCount),
+            "status": .string(workspace.taskStatus),
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let emoji = workspace.emoji, !emoji.isEmpty {
+            fields["emoji"] = .string(emoji)
+        }
         if let groupId = workspace.groupId {
             fields["group"] = .string(groupId.uuidString)
         }

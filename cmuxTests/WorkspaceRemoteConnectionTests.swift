@@ -2696,7 +2696,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "copy failed")
             }
             if executable == "/usr/bin/ssh" {
-                return (status: 0, stdout: "", stderr: "")
+                let stdout = arguments.contains {
+                    $0.contains("__CMUX_REMOTE_PASTE_HOME__")
+                } ? "__CMUX_REMOTE_PASTE_HOME__/home/test user\n" : ""
+                return (status: 0, stdout: stdout, stderr: "")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2714,6 +2717,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        XCTAssertTrue(
+            uploadedRemotePath.hasPrefix("/home/test user/.cache/cmux/paste/"),
+            String(uploadedRemotePath)
+        )
         let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
         // The first ssh call prepares the private paste directory; cleanup runs
         // after the failed copy and addresses the file through "$HOME/...".
@@ -2783,6 +2790,72 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertNil(session)
+    }
+
+    func testDetectsForcedTTYSSHSessionWithRemoteTmuxCommandForImagePaste() throws {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-tt",
+                    "my-host",
+                    "tmux",
+                    "new-session",
+                    "-A",
+                    "-s",
+                    "pastetest",
+                ],
+            ]
+        )
+
+        let detectedSession = try XCTUnwrap(session)
+        XCTAssertEqual(detectedSession.destination, "my-host")
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-21064.png")
+        try Data("image-payload".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [fileURL],
+                target: .remote(.detectedSSH(detectedSession))
+            ),
+            .uploadFiles([fileURL], .detectedSSH(detectedSession))
+        )
+    }
+
+    func testForcedTTYSSHDetectionRespectsTTYOptionPrecedence() {
+        let cases: [([String], Bool)] = [
+            (["ssh", "-o", "RequestTTY=force", "-o", "RequestTTY=no", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY=auto", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY force", "my-host", "tmux"], true),
+            (["ssh", "-oRequestTTY=force", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-t", "my-host", "tmux"], true),
+            (["ssh", "-T", "-t", "my-host", "tmux"], true),
+            (["ssh", "-t", "-T", "my-host", "tmux"], false),
+        ]
+
+        for (arguments, shouldDetect) in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+
+            XCTAssertEqual(
+                session != nil,
+                shouldDetect,
+                "Unexpected detection result for arguments: \(arguments)"
+            )
+        }
     }
 
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
@@ -3408,10 +3481,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defer { CmuxFeatureFlags.shared.setOverride(previousRemoteOverride, for: flag) }
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cloud VM",

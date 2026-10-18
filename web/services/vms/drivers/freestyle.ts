@@ -11,17 +11,21 @@ import {
 
 import { randomBytes } from "node:crypto";
 import type { NetworkRulePlan } from "../networkPolicy";
-import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
+import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgressTlsRules, isFreestyleTlsRuleLimit, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderGuestUnresponsiveError,
+  isProviderHangCause,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
+  ProviderTlsRuleLimitError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -32,6 +36,11 @@ import {
   type EnsureProviderNetworkOptions,
   type ExecOptions,
   type ExecResult,
+  type VMFileContents,
+  type VMFileEntry,
+  type VMFileStat,
+  type VMFirewallRule,
+  type VMFirewallRuleInput,
   type ProviderNetwork,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
@@ -47,6 +56,9 @@ import {
   type VMStats,
   type VMResourceStatsResult,
   type VMStatus,
+  type ProviderReadOptions,
+  type VmPauseState,
+  type VmHealthInventory,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -54,6 +66,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import { devboxForkDaemonReadyCommand, devboxForkReadinessStage } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -61,6 +74,8 @@ import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
 } from "./cmuxTuiDaemon";
+export { preconnectFreestyle } from "./freestyleWarmup";
+export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
 // freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
@@ -132,8 +147,9 @@ import {
 // workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
-// guest makes there. The platform steers the host to its edge (/etc/hosts) and
+// `tls` rule for the coderouter host whose transform overwrites the signed
+// `x-cmux-authorization` plus compatibility bearer/VM headers on every request
+// the guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and
@@ -173,11 +189,18 @@ const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 const SNAPSHOT_LIST_PAGE = 100;
 const SNAPSHOT_LIST_MAX = 1_000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * The SCP setup command (start sshd, authorize a key, read the host key)
+ * finishes in well under a second on a healthy guest. Its exec is bounded
+ * well inside the route's answer budget (SCP_ANSWER_BUDGET_MS).
+ */
+const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -187,48 +210,15 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * snapshot owns it, see NO-WORK INVARIANT above).
  */
 export type FreestyleProviderDependencies = {
-  readonly client: (timeoutMs?: number) => Freestyle;
+  /** `signal` aborts every request of a bounded read (an uncached client). */
+  readonly client: (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
 };
 
-export type FreestylePreconnectOptions = {
-  readonly baseUrl?: string;
-  readonly fetch?: typeof fetch;
-  readonly timeoutMs?: number;
-  readonly now?: () => number;
-};
-
-type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean; succeededAtMs?: number };
-
-const freestyleWarmupStates = new WeakMap<object, Map<string, FreestyleWarmupState>>();
-// Undici's default global-fetch idle pool expires around four seconds. Keep a
-// successful probe for less than that, so an idle Cloud path probes again
-// before the next provider call rather than trusting a closed socket.
-const FREESTYLE_WARMUP_REUSE_MS = 3_000;
 const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
 
 const globalForFreestyle = globalThis as typeof globalThis & {
   __cmuxFreestyleClients?: Map<string, Freestyle>;
 };
-
-/** Returns the sticky single-flight state for one fetch implementation and origin. */
-function warmupStateFor(fetchImpl: typeof fetch, baseUrl: string): FreestyleWarmupState {
-  const key = fetchImpl as unknown as object;
-  const states = freestyleWarmupStates.get(key) ?? new Map<string, FreestyleWarmupState>();
-  const existing = states.get(baseUrl);
-  if (existing) return existing;
-  const state: FreestyleWarmupState = {};
-  states.set(baseUrl, state);
-  freestyleWarmupStates.set(key, states);
-  return state;
-}
-
-/** Performs the bounded same-origin probe that establishes the provider connection pool. */
-async function warmFreestyleConnection(options: Required<Omit<FreestylePreconnectOptions, "now">>): Promise<void> {
-  await options.fetch(`${options.baseUrl}/`, {
-    method: "HEAD",
-    signal: AbortSignal.timeout(options.timeoutMs),
-  });
-}
 
 /**
  * FREESTYLE_API_URL stays as an operator escape hatch (a staging edge); unset,
@@ -243,60 +233,16 @@ async function warmFreestyleConnection(options: Required<Omit<FreestylePreconnec
  * connection in undici's pool. Concurrent route requests share one in-flight
  * warm-up, and a failed probe is best-effort so provider errors remain typed.
  */
-export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): Promise<void> {
-  const baseUrl = options.baseUrl?.trim() || process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
-  const fetchImpl = options.fetch ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 3_000;
-  const now = options.now ?? Date.now;
-  const state = warmupStateFor(fetchImpl, baseUrl);
-  const warmupAgeMs = state.succeededAtMs === undefined ? undefined : Math.max(0, now() - state.succeededAtMs);
-  if (state.succeeded && warmupAgeMs !== undefined && warmupAgeMs < FREESTYLE_WARMUP_REUSE_MS) {
-    return Promise.resolve();
-  }
-  state.succeeded = undefined;
-  if (state.promise) return state.promise;
-  const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs })
-    .then(() => { state.succeeded = true; state.succeededAtMs = now(); })
-    .catch(() => { state.succeeded = false; state.succeededAtMs = undefined; });
-  const settled = promise.finally(() => {
-    if (state.promise === settled) state.promise = undefined;
-  });
-  state.promise = settled;
-  return settled;
-}
-
 /** Exported for the publication provider, which shares this account-wide client. */
-export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
-  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
-  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
-  const credentialKind = apiKey ? "api-key" : stackAccessToken && teamId ? "stack" : "missing";
-  const cacheKey = `${baseUrl ?? "https://api.freestyle.sh"}|${credentialKind}|${timeoutMs}`;
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
+  // A bounded read's own client: its requests end when the route answers, so
+  // it belongs to that read and is never cached.
+  if (signal) return buildFreestyleClient(timeoutMs, signal);
+  const cacheKey = `${freestyleApiBaseUrl() ?? "https://api.freestyle.sh"}|${freestyleCredentialKind()}|${timeoutMs}`;
   const clients = globalForFreestyle.__cmuxFreestyleClients ??= new Map<string, Freestyle>();
   const cached = clients.get(cacheKey);
   if (cached) return cached;
-
-  const longFetch = freestyleRequestFetch({
-    timeoutMs,
-    record: process.env.NODE_ENV === "development" ? (event) => {
-      const traceId = currentVmRequestContext()?.traceId;
-      console.info("cmux.vm.freestyle.request", JSON.stringify({
-        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
-      }));
-    } : undefined,
-  });
-  const client = apiKey
-    ? new Freestyle({ apiKey, baseUrl, fetch: longFetch })
-    : stackAccessToken && teamId
-      ? new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch })
-      : null;
-  if (!client) {
-    throw new ProviderError(
-      "freestyle",
-      "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
-    );
-  }
+  const client = buildFreestyleClient(timeoutMs);
   // Exec accepts a caller-selected timeout; bound the account-wide wrapper
   // cache so arbitrary timeout values cannot retain clients indefinitely.
   if (clients.size >= FREESTYLE_CLIENT_CACHE_LIMIT) {
@@ -305,6 +251,38 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   }
   clients.set(cacheKey, client);
   return client;
+}
+
+function freestyleApiBaseUrl(): string | undefined {
+  return process.env.FREESTYLE_API_URL?.trim() || undefined;
+}
+
+function freestyleCredentialKind(): "api-key" | "stack" | "missing" {
+  if (process.env.FREESTYLE_API_KEY?.trim()) return "api-key";
+  return process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim() && process.env.FREESTYLE_TEAM_ID?.trim() ? "stack" : "missing";
+}
+
+function buildFreestyleClient(timeoutMs: number, signal?: AbortSignal): Freestyle {
+  const baseUrl = freestyleApiBaseUrl();
+  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
+  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
+  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    ...(signal ? { signal } : {}),
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
+  if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
+  if (stackAccessToken && teamId) return new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch });
+  throw new ProviderError(
+    "freestyle",
+    "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
+  );
 }
 
 /**
@@ -628,6 +606,18 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
   }
 }
 
+/** Freestyle's raw state as a pause observation (see FreestyleProvider.getPauseState). */
+export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
+  if (state === "paused") return "paused";
+  if (state === "pausing" || state === "starting") return "in_progress";
+  // Powered off: not pausable (Freestyle refuses), and recorded as our
+  // `paused` row state, as getStatus already does. Resume calls start() for
+  // both, which cold-boots a stopped machine (the systemd units bring the
+  // daemon back); only memory and running sessions differ.
+  if (state === "stopped") return "stopped";
+  return "not_paused";
+}
+
 /**
  * Tunnel creates finish in ~150 ms at the median and ~2.2 s at the slowest
  * seen in production (30 days); 10 s leaves room while cutting a hung create
@@ -662,6 +652,20 @@ export function isFreestyleNetworkFull(err: unknown): boolean {
 }
 
 /** Wraps a provider failure, keeping a full network distinguishable from an outage. */
+/**
+ * Freestyle's answer when an exec outlived its timeout and the guest reported
+ * no exit for it: 409 VM_NON_RESPONSIVE, "exec produced no exit within <t>".
+ * The machine itself still answers (the next exec returns at once), so this
+ * is the command's timeout, the same outcome as a null status (exit 124), not
+ * a provider outage. Other VM_NON_RESPONSIVE answers stay provider errors.
+ */
+function isFreestyleExecNoExit(err: unknown): boolean {
+  return err instanceof FreestyleApiError
+    && err.status === 409
+    && err.code === "VM_NON_RESPONSIVE"
+    && /exec produced no exit/i.test(err.message);
+}
+
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
   return isFreestyleNetworkFull(err)
     ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
@@ -920,6 +924,23 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
+  async listFirewallRules(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]> {
+    const result = await this.client().firewall.rules.list(options);
+    return result.rules as VMFirewallRule[];
+  }
+
+  async getFirewallRule(ruleId: string): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.get(ruleId) as VMFirewallRule;
+  }
+
+  async createFirewallRule(options: VMFirewallRuleInput): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.create({ action: "allow", ...options }) as VMFirewallRule;
+  }
+
+  async deleteFirewallRule(ruleId: string): Promise<void> {
+    await this.client().firewall.rules.delete(ruleId);
+  }
+
   /**
    * Guarantee the network's members-reach-each-other rule (all ports, all
    * protocols — the rule created with the network). Missing means someone
@@ -993,6 +1014,28 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
+/** Span attributes for the machine shape a create asked for, else the one the provider reported. */
+function freestyleCreateResourceAttributes(
+  imageSize: CreateOptions["imageSize"],
+  data: { resources?: { cpu?: number; memory?: number; storage?: number } | null },
+): Record<string, string | number | boolean> {
+  if (imageSize) {
+    return {
+      "cmux.vm.image_size": imageSize.name,
+      "cmux.vm.resources.cpu": imageSize.cpu,
+      "cmux.vm.resources.memory_mb": imageSize.memoryMb,
+      "cmux.vm.resources.storage_mb": imageSize.storageMb,
+      "cmux.vm.resize.requested": false,
+    };
+  }
+  return {
+    "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
+    "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
+    "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
+    "cmux.vm.resize.requested": false,
+  };
+}
+
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
@@ -1001,10 +1044,13 @@ export class FreestyleProvider implements VMProvider {
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
   /// Freestyle exposes live resource statistics and grow-only resizing.
+  // `fork` stays derived (no native fork): forkVm takes the snapshot path, and
+  // clients offer Fork from snapshot + restore (VMCapabilities.canFork).
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
   private readonly resourceStats: FreestyleResourceStatsReader;
+  readonly healthInventory: VmHealthInventory;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -1013,6 +1059,7 @@ export class FreestyleProvider implements VMProvider {
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
     this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
+    this.healthInventory = freestyleHealthInventory(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1022,12 +1069,26 @@ export class FreestyleProvider implements VMProvider {
       const data = await vm.data();
       const host = freestylePortAddress(data, vmId);
       const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
-      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
-      if (!result || result.exitCode !== 0) {
-        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      let result: Awaited<ReturnType<Vm["exec"]>>;
+      try {
+        result = await this.deps.client(SCP_PREPARE_EXEC_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId)
+          .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
+      } catch (err) {
+        // The command never ran or its answer was lost: nothing is known about sshd.
+        if (isProviderHangCause(err)) {
+          throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
+        }
+        throw new ProviderError("freestyle", `prepareSCP(${vmId})`, err);
+      }
+      if (result.statusCode === null || result.statusCode === undefined || result.statusCode === 124) {
+        throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the setup command did not exit within ${SCP_PREPARE_EXEC_TIMEOUT_MS / 1000}s`);
+      }
+      if (result.statusCode !== 0) {
+        const detail = (result.stderr ?? "").trim() || `exit ${result.statusCode} with no error output`;
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${detail.slice(0, 500)}`);
       }
       let hostPublicKey: string;
-      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      try { hostPublicKey = parseSshPublicKey(result.stdout ?? ""); }
       catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
       return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
     });
@@ -1063,9 +1124,13 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            ...(options.runtimeBudgetSeconds !== undefined ? {
-              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
-            } : {}),
+            // Be explicit even for normal machines: images created under an
+            // account default with automatic restart disabled must not remain
+            // unrecoverable after a provider/VMM failure.
+            automaticRestart: options.runtimeBudgetSeconds === undefined,
+            ...(options.runtimeBudgetSeconds !== undefined
+              ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
+              : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1082,6 +1147,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
+            if (options.forked) await this.awaitForkDaemon(vm);
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
@@ -1093,22 +1159,7 @@ export class FreestyleProvider implements VMProvider {
             // allocate that immutable image and attach its account network.
             // Per-machine prompt identity is refreshed asynchronously by the
             // boot contract; no guest exec or filesystem upload belongs here.
-            if (options.imageSize) {
-              setSpanAttributes(span, {
-                "cmux.vm.image_size": options.imageSize.name,
-                "cmux.vm.resources.cpu": options.imageSize.cpu,
-                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
-              });
-            } else {
-              setSpanAttributes(span, {
-                "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
-                "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
-                "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
-                "cmux.vm.resize.requested": false,
-              });
-            }
+            setSpanAttributes(span, freestyleCreateResourceAttributes(options.imageSize, data));
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1168,6 +1219,17 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.tls_deleted": result.tlsDeleted,
           });
         } catch (err) {
+          if (isFreestyleTlsRuleLimit(err)) {
+            span.setAttribute("cmux.vm.network.tls_rule_limit", true);
+            if (err instanceof FreestyleTlsRuleLimitRestoreError) {
+              span.setAttribute("cmux.vm.network.tls_restored", err.restored);
+              span.setAttribute("cmux.vm.network.tls_unrestored", err.unrestored.length);
+              if (err.unrestored.length > 0) {
+                console.error("[freestyle] TLS rule limit: retired rules not restored", JSON.stringify({ vmId, unrestored: err.unrestored }));
+              }
+            }
+            throw new ProviderTlsRuleLimitError("freestyle", `applyNetworkPolicy(${vmId}): account TLS rule limit reached`, err);
+          }
           throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },
@@ -1190,20 +1252,44 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async getStatus(vmId: string): Promise<VMStatus> {
+  async getStatus(vmId: string, options?: ProviderReadOptions): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
       "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           return status;
         } catch (err) {
           if (isNotFound(err)) return "destroyed";
           throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  /**
+   * The raw pause state: only `paused` is a finished pause. `pausing` and
+   * `starting` are transitions; `stopped` is powered off, which a pause does
+   * not produce (memory is lost), so it is not a finished pause.
+   */
+  async getPauseState(vmId: string): Promise<VmPauseState> {
+    return withVmSpan(
+      "cmux.vm.provider.get_pause_state",
+      "provider",
+      spanAttributes(vmId, "get_pause_state"),
+      async (span) => {
+        try {
+          const data = await this.deps.client().vms.get(vmId);
+          const state = freestylePauseState(data.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
+          return state;
+        } catch (err) {
+          if (isNotFound(err)) return "destroyed";
+          throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
         }
       },
     );
@@ -1224,6 +1310,11 @@ export class FreestyleProvider implements VMProvider {
       },
     );
   }
+
+  // Hard restart is deliberately unavailable. The documented provider API
+  // can pause/start, which resumes the same memory and cannot recover a frozen
+  // guest. Do not advertise restart or call an undocumented endpoint until a
+  // memory-discarding operation with completion/retry semantics is available.
 
   async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
     const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
@@ -1307,27 +1398,81 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
+          // Public `vm exec` commands belong to the same account as Cloud
+          // terminals and coding agents. Leaving `linuxUser` unset asks the
+          // provider for its uid-1000 account (`cmux` on current images), while
+          // preserving the provider's legacy fallback to root on older images.
+          // Driver maintenance stays explicitly root below, as does cmux's own
+          // guest maintenance that asks for it.
+          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
           return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
         } catch (err) {
+          if (isFreestyleExecNoExit(err)) {
+            setSpanAttributes(span, { "cmux.exec.exit_code": 124, "cmux.exec.no_exit_reported": true });
+            return {
+              exitCode: 124,
+              stdout: "",
+              stderr: `cmux: the command did not exit within ${Math.round(timeoutMs / 1000)}s and its output was lost; it may still be running on the machine.\n`,
+            };
+          }
           throw new ProviderError("freestyle", `exec(${vmId})`, err);
         }
       },
     );
   }
 
+  async listFiles(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileEntry[]> {
+    const entries = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readDir(path);
+    return entries.map((entry) => ({
+      name: entry.name,
+      kind: entry.kind === "directory" || entry.kind === "symlink" ? entry.kind : "file",
+    }));
+  }
+
+  async readFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileContents> {
+    const data = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.readFile(path);
+    return { path, data: new Uint8Array(data), size: data.byteLength };
+  }
+
+  async writeFile(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.writeFile(path, data, mode === undefined ? {} : { mode });
+  }
+
+  async makeDirectory(vmId: string, path: string): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.mkdir(path);
+  }
+
+  async removeFile(vmId: string, path: string): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.remove(path);
+  }
+
+  async statFile(vmId: string, path: string, options?: ProviderReadOptions): Promise<VMFileStat> {
+    const stat = await this.deps.client(undefined, options?.signal).vms.ref(vmId).fs.stat(path);
+    const raw = stat as unknown as Record<string, unknown>;
+    const kind = raw.isDirectory === true ? "directory" : raw.isSymlink === true ? "symlink" : "file";
+    const permissions = typeof raw.permissions === "string" ? Number.parseInt(raw.permissions, 8) : undefined;
+    const modified = typeof raw.modified === "string" ? Date.parse(raw.modified) : NaN;
+    return {
+      path,
+      kind,
+      size: typeof raw.size === "number" ? raw.size : undefined,
+      mode: permissions !== undefined && Number.isFinite(permissions) ? permissions : undefined,
+      modifiedAt: Number.isFinite(modified) ? modified : undefined,
+    };
+  }
+
   /** Read provisioned dimensions without waking the guest or inventing usage gauges. */
-  async getStats(vmId: string): Promise<VMStats> {
+  async getStats(vmId: string, options?: ProviderReadOptions): Promise<VMStats> {
     return withVmSpan(
       "cmux.vm.provider.get_stats",
       "provider",
       spanAttributes(vmId, "getStats"),
       async () => {
         try {
-          const data = await this.deps.client().vms.get(vmId);
+          const data = await this.deps.client(undefined, options?.signal).vms.get(vmId);
           return {
             state: data.state === "running"
               ? "awake"
@@ -1400,14 +1545,14 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
+  async listSnapshots(vmId: string, options?: ProviderReadOptions): Promise<SnapshotRef[]> {
     return withVmSpan(
       "cmux.vm.provider.list_snapshots",
       "provider",
       spanAttributes(vmId, "listSnapshots"),
       async (span) => {
         try {
-          const fs = this.deps.client();
+          const fs = this.deps.client(undefined, options?.signal);
           const snapshots: SnapshotData[] = [];
           for (let offset = 0; offset < SNAPSHOT_LIST_MAX; offset += SNAPSHOT_LIST_PAGE) {
             const page = await fs.vms.snapshots.list({ sourceVmId: vmId, limit: SNAPSHOT_LIST_PAGE, offset });
@@ -1469,6 +1614,7 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
+            automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
@@ -1651,6 +1797,30 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * A fork or restore resumes a live guest's memory image. Its boot
+   * supervisor rebinds the daemon to this machine but leaves the copied
+   * session stranded (remoteState.ts), so the daemon never listens. A user
+   * snapshot can also carry a stopped supervisor, which nothing restarts in a
+   * resumed memory image. Start a stopped supervisor, wait for the rebind,
+   * repair that one state, and wait for this machine's listener so the
+   * machine is never reported ready while attach would be refused.
+   */
+  private async awaitForkDaemon(vm: Vm): Promise<void> {
+    const ready = await this.execResult(
+      vm,
+      devboxForkDaemonReadyCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS),
+      (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
+    );
+    if (!ready || ready.exitCode !== 0) {
+      // Only the classified stage is logged and stored: the guest's own
+      // output is user-controlled text and never leaves this function.
+      const stage = ready ? devboxForkReadinessStage(ready.stderr) : "stage=exec-unavailable";
+      console.error("[freestyle] fork daemon readiness failed", stage);
+      throw new ProviderError("freestyle", `forked machine daemon did not become ready (${stage})`);
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

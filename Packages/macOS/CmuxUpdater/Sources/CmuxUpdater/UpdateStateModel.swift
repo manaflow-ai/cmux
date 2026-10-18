@@ -269,10 +269,7 @@ public final class UpdateStateModel {
             let percent = String(format: "%.0f%%", extracting.progress * 100)
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
-            if install.relaunchBlockers != nil {
-                return String(localized: "update.readyWaiting", defaultValue: "Update Ready")
-            }
-            return install.isAutoUpdate ? String(localized: "update.readyWaiting", defaultValue: "Update Ready") : String(localized: "update.installing.status", defaultValue: "Installing…")
+            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
@@ -318,8 +315,8 @@ public final class UpdateStateModel {
             return "arrow.down.circle"
         case .extracting:
             return "shippingbox"
-        case .installing(let install):
-            return install.relaunchBlockers == nil ? "power.circle" : "hourglass"
+        case .installing:
+            return "power.circle"
         case .notFound:
             return "info.circle"
         case .error:
@@ -345,10 +342,7 @@ public final class UpdateStateModel {
         case .extracting:
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
-            if let blockers = install.relaunchBlockers {
-                return Self.relaunchBlockersDescription(blockers)
-            }
-            return install.isAutoUpdate ? String(localized: "update.readyWaiting", defaultValue: "Update Ready") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):
@@ -375,25 +369,6 @@ public final class UpdateStateModel {
         default:
             return nil
         }
-    }
-
-    /// Explains why a ready update is waiting to relaunch: busy agents are waited out, other
-    /// running commands need the user's Install Now.
-    public static func relaunchBlockersDescription(_ blockers: UpdateRelaunchBlockers) -> String {
-        var sentences: [String] = []
-        if blockers.busyAgentCount > 0 {
-            sentences.append(String(
-                localized: "update.readyWaiting.agents",
-                defaultValue: "Installs and relaunches when \(blockers.busyAgentCount) agents finish. Agents resume after the relaunch."
-            ))
-        }
-        if blockers.runningCommandCount > 0 {
-            sentences.append(String(
-                localized: "update.readyWaiting.commands",
-                defaultValue: "Relaunching will stop \(blockers.runningCommandCount) running commands. Choose Install Now when you're ready."
-            ))
-        }
-        return sentences.joined(separator: " ")
     }
 
     /// The detected-background-update title, when one should be shown.

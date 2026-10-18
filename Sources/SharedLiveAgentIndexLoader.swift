@@ -72,6 +72,14 @@ struct SharedLiveAgentIndexLoader {
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
+#if DEBUG
+            cmuxDebugLog(
+                "liveAgentIndex.unavailable capture=\(processSnapshot.captureIsAvailable ? 1 : 0) " +
+                "complete=\(processSnapshot.enumerationIsComplete ? 1 : 0) " +
+                "missing=\(processSnapshot.enumerationMissingProcessCount) " +
+                "processes=\(processSnapshot.processesByPID.count)"
+            )
+#endif
             return (.unavailable, [], [], [])
         }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
@@ -87,12 +95,28 @@ struct SharedLiveAgentIndexLoader {
                 agentProcessIDs: detected.agentProcessIDs
             )
         }
+        // Hook-backed agents such as Claude Code are never process-detected,
+        // so scope their recorded PID against the same process snapshot.
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
             hibernationProcessScopes: hibernationProcessScopes,
+            hookProcessScopeProvider: { key, agentProcessID in
+                guard let panelProcessIDs = scopedProcessIDsByPanelKey[key],
+                      panelProcessIDs.contains(agentProcessID) else {
+                    return nil
+                }
+                return (
+                    processIDs: panelProcessIDs,
+                    scope: processSnapshot.agentHibernationProcessScope(
+                        panelProcessIDs: panelProcessIDs,
+                        agentProcessIDs: [agentProcessID]
+                    )
+                )
+            },
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )

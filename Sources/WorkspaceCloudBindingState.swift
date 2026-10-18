@@ -15,12 +15,20 @@ final class WorkspaceCloudBindingState {
     private(set) var revision: UInt64 = 0
     private(set) var projectedResources: [UUID: SurfaceResourceID] = [:]
     private(set) var machineNames: [String: String] = [:]
+    /// Lifecycle of each projected panel's catalog terminal; a panel is absent until its row exists.
+    private(set) var terminalLifecycles: [UUID: SurfaceLifecycle] = [:]
 
-    /// An immutable projection of catalog ownership and names, delivered above the sidebar list.
-    func updateCatalogMetadata(resources: [UUID: SurfaceResourceID], machineNames: [String: String]) {
-        guard projectedResources != resources || self.machineNames != machineNames else { return }
+    /// An immutable projection of catalog ownership, names and terminal readiness, delivered above the sidebar list.
+    func updateCatalogMetadata(
+        resources: [UUID: SurfaceResourceID],
+        machineNames: [String: String],
+        terminalLifecycles: [UUID: SurfaceLifecycle] = [:]
+    ) {
+        guard projectedResources != resources || self.machineNames != machineNames
+            || self.terminalLifecycles != terminalLifecycles else { return }
         projectedResources = resources
         self.machineNames = machineNames
+        self.terminalLifecycles = terminalLifecycles
         cloudBindingDidChange()
     }
     @ObservationIgnored

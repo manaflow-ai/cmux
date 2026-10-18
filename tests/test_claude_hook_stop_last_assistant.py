@@ -264,13 +264,15 @@ def main() -> int:
             print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
             return 1
         if not any(
-            command.startswith("set_status claude_code Running ")
+            command.startswith("set_status claude_code Idle ")
             and f"--tab={workspace_id}" in command
             and f"--panel={surface_id}" in command
-            and "--work=running" in command
             for command in server.commands
         ):
-            print(f"FAIL: re-entrant Stop with stop_hook_active=true did not keep Running: {server.commands!r}")
+            print(f"FAIL: re-entrant Stop with stop_hook_active=true did not settle Idle: {server.commands!r}")
+            return 1
+        if any(command.startswith("set_status claude_code Running ") for command in server.commands):
+            print(f"FAIL: re-entrant Stop with stop_hook_active=true set Running: {server.commands!r}")
             return 1
 
     print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")

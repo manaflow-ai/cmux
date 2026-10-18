@@ -98,7 +98,10 @@ final class CloudDirectoryTestFixture {
         let defaults = try #require(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         return SidebarWorkspaceSnapshotFactory(
-            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false,
+            catalog: catalog
         ).makeSnapshot()
     }
 

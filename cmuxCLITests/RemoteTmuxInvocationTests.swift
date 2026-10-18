@@ -1,0 +1,45 @@
+import Foundation
+import Testing
+
+// RemoteTmuxInvocation.swift compiles into this target, so it needs no app import. An app
+// import here makes cmuxCLITests resolve the app's modules (Sparkle, Iroh, ...), which it
+// does not link, and the target fails to build.
+
+/// Focused coverage for the `ssh-tmux` list/attach argument contract.
+@Suite struct RemoteTmuxInvocationTests {
+    @Test func defaultsToTheExistingBulkMirror() throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", "--no-focus"])
+        #expect(invocation.action == .mirror)
+        #expect(invocation.destination == "dev@host")
+        #expect(invocation.focus == false)
+    }
+
+    @Test(arguments: ["list", "ls"])
+    func listAliasesDoNotSelectOrOpenAWorkspace(_ verb: String) throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", verb, "--port", "2222"])
+        #expect(invocation.action == .list)
+        #expect(invocation.port == 2222)
+        #expect(invocation.workspaceName == nil)
+        #expect(!invocation.newWindow)
+    }
+
+    @Test func attachAcceptsPositionalAndLongFormSelectors() throws {
+        let positional = try RemoteTmuxInvocation.parse(["dev@host", "attach", "work"])
+        #expect(positional.action == .attach(session: "work"))
+
+        let longForm = try RemoteTmuxInvocation.parse(["dev@host", "--session", "work"])
+        #expect(longForm.action == .attach(session: "work"))
+    }
+
+    @Test(arguments: [
+        ["dev@host", "attach"],
+        ["dev@host", "list", "--session", "work"],
+        ["dev@host", "attach", "work", "extra"],
+        ["dev@host", "attach", "work", "--session", "other"],
+    ])
+    func rejectsAmbiguousSelectors(_ arguments: [String]) {
+        #expect(throws: CLIError.self) {
+            try RemoteTmuxInvocation.parse(arguments)
+        }
+    }
+}

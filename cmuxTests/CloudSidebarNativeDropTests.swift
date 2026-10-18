@@ -20,6 +20,36 @@ struct CloudSidebarNativeDropTests {
         #expect(!views.contains { $0 is FileDropHintBadgeView })
     }
 
+    @Test("An organization lift keeps expanded workspace peers open")
+    func organizationLiftKeepsExpandedPeersOpen() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.machineLiftEnabled = true
+        coordinator.apply(nodes: fixture.nodes(titles: ["first", "second"]))
+        let outline = try #require(coordinator.outlineView)
+        let group = try #require(
+            CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1"))
+        )
+        outline.expandItem(group, expandChildren: true)
+        let peer = try #require(group.children.first { $0.id == fixture.folderID("ws_1") })
+        let source = try #require(group.children.first { $0.id == fixture.folderID("ws_2") })
+        outline.expandItem(peer, expandChildren: true)
+        #expect(outline.isItemExpanded(peer))
+
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let writer = try #require(coordinator.outlineView(outline, pasteboardWriterForItem: source))
+        #expect(board.writeObjects([writer]))
+        let session = CloudSidebarDraggingSession(pasteboard: board)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        #expect(outline.machineLift.isActive(sequence: session.draggingSequenceNumber))
+        #expect(outline.isItemExpanded(peer), "expanded workspace peers stay open during the drag")
+
+        coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: [])
+        #expect(outline.isItemExpanded(peer), "expanded workspace peers stay open after the drag")
+    }
+
     @Test("Repeated Cloud row hover creates no hint views or indicator frame updates", arguments: [3, 100])
     func sidebarHoverRenderingIsBounded(workspaceCount: Int) throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -277,6 +307,7 @@ struct CloudSidebarNativeDropTests {
             organization: fixture.catalog.sidebarOrganization,
             tabDragTransferRegistry: { Issue.record("Folder drags cannot request pane capabilities"); return nil }
         )
+        coordinator.machineLiftEnabled = false
         let container = CloudTreeContainerView(coordinator: coordinator)
         // Empty daemon records are deliberately hidden by the catalog builder.
         // Exercise the writer's resource-independent contract directly.

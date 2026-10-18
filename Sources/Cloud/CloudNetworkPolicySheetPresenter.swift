@@ -10,6 +10,7 @@ final class CloudNetworkPolicySheetPresenter {
     static let shared = CloudNetworkPolicySheetPresenter()
 
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private var hostWindow: NSWindow?
     private var model: CloudNetworkPolicySheetModel?
     private var loadTask: Task<Void, Never>?
@@ -34,24 +35,23 @@ final class CloudNetworkPolicySheetPresenter {
             }
         )
         model.onFinished = { [weak self] _ in self?.dismiss() }
-        let controller = NSHostingController(rootView: CloudNetworkPolicySheet(model: model))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
+        let sheet = CloudSheetWindow(rootView: CloudNetworkPolicySheet(model: model))
+        let window = sheet.window
         window.styleMask = [.titled]
         window.title = String(localized: "cloud.network.section.label", defaultValue: "Network")
         window.isReleasedWhenClosed = false
         self.model = model
+        sheetController = sheet
         sheetWindow = window
         loadTask = Task { [weak model] in await model?.load() }
 
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow)
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { _ in }
+            sheet.beginSheet(on: host)
         } else {
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
     }
 
@@ -63,6 +63,7 @@ final class CloudNetworkPolicySheetPresenter {
             host.endSheet(window)
         }
         window.orderOut(nil)
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         model = nil

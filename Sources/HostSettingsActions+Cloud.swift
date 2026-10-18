@@ -69,6 +69,35 @@ extension HostSettingsActions {
         )
     }
 
+    var cloudMachinesAccountID: String? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow,
+              let accountID = flow.currentIdentity?.id else { return nil }
+        // Include the active team so a team switch reruns entitlement lookup
+        // even though the signed-in account remains unchanged.
+        let teamID = flow.confirmedTeamID ?? "personal"
+        return "\(accountID):\(teamID)"
+    }
+
+    func cloudMachinesPlanIncludesCloud() async -> Bool? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated,
+              let accountID = flow.currentIdentity?.id else { return nil }
+        let requestedTeamID = flow.confirmedTeamID
+        guard await flow.refreshBillingPlanAndReportSuccess() else { return nil }
+        // Only answer for the account that asked; a switch mid-check means
+        // this answer belongs to someone else.
+        guard !Task.isCancelled,
+              flow.currentIdentity?.id == accountID,
+              flow.confirmedTeamID == requestedTeamID else { return nil }
+        // A member can use the selected team's Cloud scope without a personal
+        // Pro subscription. Personal VM access remains server-scoped to the
+        // user's own plan.
+        return flow.hasLoadedBillingPlan
+            ? flow.isProActive || CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: flow.availableTeams.count
+            )
+            : nil
+    }
+
     func openCloudMachinesPanel() {
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
     }

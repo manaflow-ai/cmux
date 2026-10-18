@@ -34,7 +34,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Up to 5 Cloud VMs with up to 16 vCPUs and 32 GB RAM per VM.",
+              "description" : "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.",
               "displayName" : "cmux Max",
               "locale" : "en_US"
             }
@@ -56,7 +56,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Up to 5 Cloud VMs with up to 4 vCPUs and 8 GB RAM per VM.",
+              "description" : "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
               "displayName" : "cmux Pro",
               "locale" : "en_US"
             }
@@ -64,6 +64,28 @@
           "productID" : "dev.cmux.ios.pro.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "699.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Yearly",
           "subscriptionGroupID" : "21490001",
           "type" : "RecurringSubscription",
           "winbackOffers" : []

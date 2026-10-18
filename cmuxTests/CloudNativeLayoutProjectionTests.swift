@@ -409,7 +409,11 @@ struct CloudNativeLayoutProjectionTests {
             remoteWorkspaceID: remoteID, resource: created))
         #expect(adopted.workspaceID == viewer.id)
         #expect(adopted.panelID == reservation.panelID)
+        // Adoption binds the pane; only the request's completion retires it.
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+        viewer.completeReservedCloudTerminalPane(reservation, adoptedPanelID: adopted.panelID)
         #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
+        #expect(viewer.panels[reservation.panelID] != nil)
     }
 
     @Test(

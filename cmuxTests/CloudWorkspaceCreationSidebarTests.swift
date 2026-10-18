@@ -82,6 +82,86 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    /// `adoptsReservedPane` materializes the way `DeviceSurfaceProvider` does:
+    /// the terminal bound to the open's reservation takes the reserved pane
+    /// through `adoptPendingDeviceTerminalPane`. The opened workspace and that
+    /// pane must survive the open's post-adoption checks.
+    @Test("Clicking another Mac's workspace row opens it as a local workspace", arguments: [false, true])
+    func deviceWorkspaceRowOpensLocalWorkspace(adoptsReservedPane: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let instance = SurfaceDeviceInstanceID(deviceID: "other-mac-\(UUID().uuidString)", tag: "default")
+            let fixture = try CloudWorkspaceCreationSidebarFixture(machine: .device(instance))
+            defer { fixture.close() }
+            fixture.manager.window = nil
+            // Another Mac publishes its workspaces through the device mirror,
+            // never through an installed Cloud VM state.
+            let workspace = SurfaceRemoteWorkspace(id: "device_ws", name: "Device Project", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.provider.info.presence = SurfaceDevicePresence(
+                state: .online, lastSeenAt: nil, tag: instance.tag, bundleID: nil, accountTrust: .sameAccount
+            )
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            let terminal = fixture.provider.terminal(in: workspace)
+            fixture.catalog.upsert(terminal, from: fixture.provider)
+            #expect(fixture.catalog.cloudStates[fixture.provider.machine] == nil)
+            var adoptedPanelID: UUID?
+            if adoptsReservedPane {
+                fixture.provider.beforeMaterialize = { resource, reservation in
+                    let reservation = try #require(reservation)
+                    let local = try #require(Workspace.liveWorkspace(id: reservation.workspaceID))
+                    adoptedPanelID = try #require(local.adoptPendingDeviceTerminalPane(
+                        reservation, machine: resource.id.machine,
+                        remoteWorkspaceID: workspace.id, resource: resource
+                    )).panelID
+                }
+            }
+
+            let completed = CloudLinkFirstValue<Bool>()
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in },
+                onDidMutate: { completed.resolve(true) },
+                onFailure: { Issue.record("Unexpected device workspace open failure: \($0)") },
+                refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
+            )
+            let snapshot = fixture.catalog.snapshot
+            let rows = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.deviceNodes(
+                snapshot: snapshot,
+                projectionIndex: CloudTreeNodeBuilder.LocalProjectionIndex(snapshot: snapshot),
+                grouped: false
+            ))
+            let row = try #require(rows.first { node in
+                if case .workspace(_, let value, _, _, _) = node.kind { return value.id == workspace.id }
+                return false
+            })
+            guard case .workspace(let machine, let rowWorkspace, _, _, let openIn) = row.kind else {
+                Issue.record("Expected a workspace row")
+                return
+            }
+            #expect(openIn == nil)
+            // The same call the row's single click makes when nothing is open yet.
+            actions.openWorkspace(machine, rowWorkspace, try #require(row.dragGroup))
+            #expect(await completed.result == true)
+
+            let opened = try #require(fixture.manager.tabs.first { $0.id != fixture.originalWorkspaceID })
+            #expect(fixture.manager.tabs.count == 2)
+            #expect(fixture.manager.selectedTabId == opened.id)
+            #expect(fixture.catalog.projections.filter { $0.workspaceID == opened.id }.map(\.resource) == [terminal.id])
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            if adoptsReservedPane {
+                let adopted = try #require(adoptedPanelID)
+                #expect(opened.panels[adopted] != nil, "The adopted mirror pane must not be torn down after the open")
+                #expect(fixture.catalog.projections.filter { $0.workspaceID == opened.id }.map(\.panelID) == [adopted])
+                #expect(opened.cloudPendingCreations.isEmpty, "Completing the open retires its reservation")
+            }
+        }
+    }
+
     @Test("A failed existing Cloud workspace open rolls back and preserves the previous selection")
     func existingWorkspaceOpenFailureRollsBackSelection() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

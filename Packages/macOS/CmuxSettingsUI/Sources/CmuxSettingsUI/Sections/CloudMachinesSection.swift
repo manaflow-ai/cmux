@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import SwiftUI
 
@@ -11,6 +12,12 @@ public struct CloudMachinesSection: View {
     @State private var activationState: CloudMachinesActivationState
     @State private var plan: CloudMachinesPlanSummary?
     @State private var hasLoaded = false
+    /// Free accounts get Upgrade in place of the Enable toggle; nil until the
+    /// plan answers (or when signed out), which keeps the toggle.
+    @State private var planIncludesCloud: Bool?
+    /// Bumped when the app comes back to the front, e.g. after upgrading in
+    /// the browser, so the row stops offering Upgrade without a restart.
+    @State private var planCheckGeneration = 0
 
     public init(hostActions: SettingsHostActions) {
         self.hostActions = hostActions
@@ -25,20 +32,45 @@ public struct CloudMachinesSection: View {
             )
             SettingsCard {
                 activationRow
-                SettingsCardDivider()
-                planRow
-                SettingsCardDivider()
-                panelRow
-                SettingsCardDivider()
-                vpnRow
+                // Plan, machines and VPN all need Cloud on; before that each
+                // could only say "Open Machines", so they wait until it is.
+                if activationState.isEnabled {
+                    SettingsCardDivider()
+                    planRow
+                    SettingsCardDivider()
+                    panelRow
+                    SettingsCardDivider()
+                    vpnRow
+                }
             }
-            .settingsSearchAnchors([
-                "setting:cloudMachines:enable",
-                "setting:cloudMachines:plan",
-                "setting:cloudMachines:open-panel",
-                "setting:cloudMachines:vpn",
-            ])
+            .settingsSearchAnchors(
+                activationState.isEnabled
+                    ? [
+                        "setting:cloudMachines:enable",
+                        "setting:cloudMachines:plan",
+                        "setting:cloudMachines:open-panel",
+                        "setting:cloudMachines:vpn",
+                    ]
+                    : ["setting:cloudMachines:enable"]
+            )
             .task { await observeActivation() }
+            .task(id: PlanCheckKey(
+                showsEnableToggle: showsEnableToggle,
+                accountID: hostActions.cloudMachinesAccountID,
+                generation: planCheckGeneration
+            )) {
+                guard showsEnableToggle, hostActions.cloudMachinesAccountID != nil else {
+                    planIncludesCloud = nil
+                    return
+                }
+                let includesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                // A newer check (account switch, app reactivation) owns the row now.
+                guard !Task.isCancelled else { return }
+                planIncludesCloud = includesCloud
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                planCheckGeneration &+= 1
+            }
             .task(id: activationState.isEnabled) {
                 plan = nil
                 hasLoaded = false
@@ -54,7 +86,7 @@ public struct CloudMachinesSection: View {
     private var activationRow: some View {
         SettingsCardRow(
             searchAnchorID: "setting:cloudMachines:enable",
-            String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"),
+            String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"),
             subtitle: activationSubtitle
         ) {
             activationControl
@@ -65,6 +97,13 @@ public struct CloudMachinesSection: View {
     @ViewBuilder
     private var activationControl: some View {
         switch activationState {
+        case .disabled where planIncludesCloud == false, .cancelled where planIncludesCloud == false:
+            Button(String(localized: "settings.cloudMachines.enable.upgrade", defaultValue: "Upgrade")) {
+                hostActions.openCloudMachinesBilling()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsCloudEnableUpgrade")
         case .disabled, .cancelled:
             Toggle(
                 "",
@@ -75,7 +114,7 @@ public struct CloudMachinesSection: View {
             )
             .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"))
+            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"))
             .accessibilityIdentifier("SettingsCloudEnableToggle")
         case .enabling:
             HStack(spacing: 8) {
@@ -99,7 +138,7 @@ public struct CloudMachinesSection: View {
             )
             .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"))
+            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"))
             .accessibilityIdentifier("SettingsCloudEnableToggle")
         case .failed(let failure):
             HStack(spacing: 8) {
@@ -130,8 +169,27 @@ public struct CloudMachinesSection: View {
         }
     }
 
+    private struct PlanCheckKey: Equatable {
+        let showsEnableToggle: Bool
+        let accountID: String?
+        let generation: Int
+    }
+
+    /// Cloud is off, so the row offers to turn it on (or to upgrade first).
+    private var showsEnableToggle: Bool {
+        switch activationState {
+        case .disabled, .cancelled: return true
+        default: return false
+        }
+    }
+
     private var activationSubtitle: String {
         switch activationState {
+        case .disabled where planIncludesCloud == false, .cancelled where planIncludesCloud == false:
+            return String(
+                localized: "settings.cloudMachines.enable.requiresPro.subtitle",
+                defaultValue: "Your current plan does not include Cloud machine access."
+            )
         case .disabled, .cancelled:
             return String(
                 localized: "settings.cloudMachines.enable.subtitle",
