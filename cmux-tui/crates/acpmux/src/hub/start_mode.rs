@@ -4,7 +4,10 @@
 //!
 //! 1. the person's latest mode pick in any chat (config.json
 //!    `lastPermissionMode`: `fullAccess`, `standard` or `ask`, written by
-//!    `note_mode_pick` from the app pane only). One pick for every harness
+//!    `note_mode_pick` from the app pane only), while the cmux setting is
+//!    what it was at the pick (`lastPermissionModeSetting`): a change to the
+//!    setting after the pick is the person's latest choice, so it wins
+//!    (Leo 2026-10-18: users set their own default). One pick for every harness
 //!    and model (Lawrence 2026-10-14: "should just apply to the ones going
 //!    forward, all harnesses/models, should always use the latest user
 //!    selected one"); chats that exist keep their mode;
@@ -130,12 +133,37 @@ impl Source {
     }
 }
 
+/// The cmux setting as the settings file holds it now, to compare with the
+/// one saved beside a pick: its value as compact JSON, `None` with no file or
+/// no key, and a marker for a file that cannot be read.
+pub(crate) fn setting_snapshot() -> Option<String> {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Missing => None,
+        crate::user_settings::Settings::Unreadable(_) => Some("\u{0}unreadable".to_owned()),
+        crate::user_settings::Settings::Parsed(doc) => {
+            match crate::user_settings::value(&doc, SETTING) {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(value.to_string()),
+            }
+        }
+    }
+}
+
 /// The level a new chat starts at: the latest pick (config.json
-/// `lastPermissionMode`), else `DefaultMode::resolve`.
-fn start_level(picked: Option<&str>, configured: Option<&str>) -> (DefaultMode, Source) {
-    match picked.and_then(DefaultMode::parse) {
-        Some(level) => (level, Source::Pick),
-        None => DefaultMode::resolve(configured),
+/// `lastPermissionMode`) while the cmux setting is what it was at the pick
+/// (`picked_under`), else `DefaultMode::resolve`. The person's latest
+/// choice wins, whether it is a pick in a chat or a change to the setting.
+fn start_level(
+    picked: Option<&str>,
+    picked_under: Option<&str>,
+    configured: Option<&str>,
+) -> (DefaultMode, Source) {
+    let pick = picked.and_then(DefaultMode::parse);
+    match pick {
+        Some(level) if configured.is_some() || setting_snapshot().as_deref() == picked_under => {
+            (level, Source::Pick)
+        }
+        _ => DefaultMode::resolve(configured),
     }
 }
 
@@ -276,11 +304,15 @@ impl Hub {
 
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
-        let (picked, configured) = {
+        let (picked, picked_under, configured) = {
             let cfg = self.config.read().await;
-            (cfg.last_permission_mode.clone(), cfg.default_permission_mode.clone())
+            (
+                cfg.last_permission_mode.clone(),
+                cfg.last_permission_mode_setting.clone(),
+                cfg.default_permission_mode.clone(),
+            )
         };
-        start_level(picked.as_deref(), configured.as_deref())
+        start_level(picked.as_deref(), picked_under.as_deref(), configured.as_deref())
     }
 
     /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
@@ -395,14 +427,19 @@ impl Hub {
         }
         let family = crate::web_modes::family_of(&meta);
         let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
+        // The setting as it is now, so a later change to it wins over this pick.
+        let setting = setting_snapshot();
         let mut cfg = self.config.write().await;
         if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;
         }
-        if cfg.last_permission_mode.as_deref() == Some(level) {
+        if cfg.last_permission_mode.as_deref() == Some(level)
+            && cfg.last_permission_mode_setting == setting
+        {
             return;
         }
         cfg.last_permission_mode = Some(level.to_owned());
+        cfg.last_permission_mode_setting = setting;
         if let Err(e) = cfg.save() {
             tracing::warn!("mode pick not saved to config.json: {e}");
         }

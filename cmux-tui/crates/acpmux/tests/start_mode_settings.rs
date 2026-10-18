@@ -1,7 +1,9 @@
 //! The cmux setting `agents.defaultPermissionMode` in the app's settings
 //! file (JSONC, read at each new chat) chooses a new chat's start mode when
 //! acpmux config.json names none; a settings file acpmux cannot read, or a
-//! value it does not know, never gives full access (cx-wx93i). Its own test
+//! value it does not know, never gives full access (cx-wx93i). A change to
+//! the setting after the person's latest mode pick wins over that pick, and a
+//! later pick wins again. Its own test
 //! binary: it sets CMUX_NEXT_CONFIG_FILE, which every session start reads.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
@@ -168,5 +170,32 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "Ask"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+
+    // The person's latest choice wins, whether it is a pick in a chat or a
+    // change to the setting (Leo 2026-10-18: users set their own default).
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    let (chat, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    // A pick after the setting: new chats follow the pick.
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // The setting changes after the pick: new chats follow the setting.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "standard"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["source"], "settings", "{r}");
+    // A pick after that change wins again, also when it picks the level it
+    // picked before the change.
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["source"], "pick", "{r}");
+    // Removing the key is a change too: the default (full access) applies.
+    std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }
