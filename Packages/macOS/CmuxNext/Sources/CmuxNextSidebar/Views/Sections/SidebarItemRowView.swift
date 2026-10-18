@@ -43,7 +43,7 @@ class SidebarItemRowView: NSView {
     private let pill = CALayer()
     private let chip = CALayer()
     let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
+    let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).

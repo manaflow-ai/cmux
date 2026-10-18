@@ -274,6 +274,7 @@
     "setting.appearance.metrics.titlebarHeight": null,
     "setting.appearance.saturation": 1,
     "setting.appearance.sidebarSurface": "same",
+    "setting.appearance.statusIndicator.animation": "animated",
     "setting.appearance.statusIndicator.color": null,
     "setting.appearance.statusIndicator.honorStatusStyle": true,
     "setting.appearance.statusIndicator.showAgentWorkingOnTabs": true,
