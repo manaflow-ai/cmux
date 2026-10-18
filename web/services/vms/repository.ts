@@ -3847,6 +3847,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .set({
           providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
             || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
+          // Reconciliation reads oldest `updatedAt` first; moving a claimed row
+          // to the back lets a capped run reach the wakes it left behind.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', now())`,
         })
         .where(
           and(

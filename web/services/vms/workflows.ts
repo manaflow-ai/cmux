@@ -4088,19 +4088,26 @@ function preflightResumeIfSuspended(
  * re-read gives the machine back when it sees `running`, but the write above
  * can land after that read. While a claim is fresh, resume here too; resuming
  * a running machine is a no-op. The row is re-read after the write so a claim
- * taken while this open ran counts as well.
+ * taken while this open ran counts as well. Best effort: an open that found
+ * the machine running must not fail on this extra resume.
  */
 function resumeIfRepauseClaimed(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-): Effect.Effect<void, VmWorkflowError> {
+): Effect.Effect<void, never> {
   return Effect.gen(function* () {
     const current = yield* readWokenRow(repo, vm, providerVmId);
     const row = current._tag === "Right" && current.right ? current.right : vm;
     if (!hasFreshRepauseClaim(row, Date.now())) return;
-    yield* resumeUntilRunning(providers, row, providerVmId);
+    yield* resumeUntilRunning(providers, row, providerVmId).pipe(
+      Effect.catchAll((error) => Effect.logWarning("Could not resume a machine opened during a re-pause", {
+        vmId: row.id,
+        providerVmId,
+        error: error._tag,
+      })),
+    );
   });
 }
 
