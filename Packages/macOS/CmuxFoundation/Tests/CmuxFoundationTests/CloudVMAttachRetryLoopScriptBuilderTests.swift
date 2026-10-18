@@ -20,8 +20,7 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
         )
         #expect(run.status == 255)
         #expect(run.attempts == 2)
-        #expect(run.elapsed >= 1.5, "retried after \(run.elapsed)s")
-        #expect(!run.stderr.contains("sleep:"), Comment(rawValue: run.stderr))
+        #expect(run.sleeps == ["2"], "slept \(run.sleeps)")
         let notices = run.stderr.components(separatedBy: "CMUX_SSH_RECONNECT_DELAY_SECONDS=abc").count - 1
         #expect(notices == 1, Comment(rawValue: run.stderr))
     }
@@ -73,7 +72,8 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
     private struct LoopRun {
         var status: Int32
         var attempts: Int
-        var elapsed: TimeInterval
+        /// The argument of each `sleep` the loop ran, in order.
+        var sleeps: [String]
         var stderr: String
         var resolved: String
         var attachEnvironment: String
@@ -92,8 +92,11 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let calls = root.appendingPathComponent("calls").path
         let seen = root.appendingPathComponent("seen").path
+        let slept = root.appendingPathComponent("slept").path
         let builder = CloudVMAttachRetryLoopScriptBuilder()
+        // `retryLoopLines` calls `sleep` by name, so this records the wait instead of taking it.
         var attach = [
+            "sleep() { printf '%s\\n' \"$1\" >> '\(slept)'; }",
             "cmux_freestyle_attach() {",
             "  echo attempt >> '\(calls)'",
             "  printf '%s %s %s %s' \"$CMUX_SSH_RECONNECT_LIMIT\" \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\" "
@@ -126,7 +129,6 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let started = Date()
         try process.run()
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
@@ -135,7 +137,8 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
         return LoopRun(
             status: process.terminationStatus,
             attempts: attempts,
-            elapsed: Date().timeIntervalSince(started),
+            sleeps: ((try? String(contentsOfFile: slept, encoding: .utf8)) ?? "")
+                .split(separator: "\n").map(String.init),
             stderr: String(data: stderrData, encoding: .utf8) ?? "",
             resolved: String(data: stdoutData, encoding: .utf8) ?? "",
             attachEnvironment: (try? String(contentsOfFile: seen, encoding: .utf8)) ?? ""

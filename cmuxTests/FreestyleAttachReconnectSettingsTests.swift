@@ -16,8 +16,10 @@ import Testing
 ///
 /// The loop passed both straight to the shell: an oversized limit made `[ -ge ]`
 /// fail on every retry, so the budget bounded nothing, and a delay `sleep`
-/// rejects, including one too long for it, made the loop retry with no wait. Each test runs the startup command the app really builds under `/bin/sh`,
-/// with a stand-in cmux CLI whose attach always fails as retryable (255).
+/// rejects, including one too long for it, made the loop retry with no wait.
+/// Each test runs the startup command the app really builds under `/bin/sh`,
+/// with a stand-in cmux CLI whose attach fails as retryable (255) and a
+/// stand-in `sleep` that records what it was asked to wait.
 @MainActor
 @Suite(.serialized)
 struct FreestyleAttachReconnectSettingsTests {
@@ -66,27 +68,48 @@ struct FreestyleAttachReconnectSettingsTests {
 
     private struct LoopRun {
         let attempts: Int
-        let elapsed: TimeInterval
+        /// The argument of each `sleep` the loop ran, in order.
+        let sleeps: [String]
         let stderr: String
         let finished: Bool
     }
 
-    /// Runs `command` with the given reconnect settings, stopping it after `deadline`.
-    private static func run(_ command: String, environment extra: [String: String], deadline: TimeInterval) throws -> LoopRun {
+    /// Runs `command` with the given reconnect settings. The stand-in CLI fails
+    /// retryable (255) for its first `failingAttempts` runs and then succeeds, and a
+    /// stand-in `sleep` records the delay it is given and returns at once, so no
+    /// result depends on how long anything took. `deadline` only stops a loop that
+    /// would otherwise never end.
+    private static func run(
+        _ command: String,
+        environment extra: [String: String],
+        failingAttempts: Int = 1_000_000,
+        deadline: TimeInterval = 10
+    ) throws -> LoopRun {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("freestyle-reconnect-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let calls = root.appendingPathComponent("calls")
+        let slept = root.appendingPathComponent("slept")
         let cli = root.appendingPathComponent("cmux")
-        try "#!/bin/sh\necho attach >> '\(calls.path)'\nexit 255\n".write(to: cli, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        try """
+        #!/bin/sh
+        echo attach >> '\(calls.path)'
+        [ "$(/usr/bin/wc -l < '\(calls.path)')" -gt \(failingAttempts) ] && exit 0
+        exit 255
+        """.write(to: cli, atomically: true, encoding: .utf8)
+        let sleep = bin.appendingPathComponent("sleep")
+        try "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '\(slept.path)'\n".write(to: sleep, atomically: true, encoding: .utf8)
+        for executable in [cli, sleep] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
         process.environment = [
-            "PATH": "/usr/bin:/bin",
+            "PATH": "\(bin.path):/usr/bin:/bin",
             "HOME": root.path,
             "CMUX_BUNDLED_CLI_PATH": cli.path,
         ].merging(extra) { _, new in new }
@@ -103,34 +126,33 @@ struct FreestyleAttachReconnectSettingsTests {
         }
         let finished = !process.isRunning
         if !finished {
-            // Whatever the loop is sleeping in, then the loop.
-            let children = Process()
-            children.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-            children.arguments = ["-KILL", "-P", String(process.processIdentifier)]
-            try? children.run()
-            children.waitUntilExit()
             process.terminate()
             process.waitUntilExit()
         }
-        let elapsed = Date().timeIntervalSince(started)
-        let attempts = ((try? String(contentsOf: calls, encoding: .utf8)) ?? "")
-            .split(separator: "\n").count
+        func lines(_ url: URL) -> [String] {
+            ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        }
         let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        return LoopRun(attempts: attempts, elapsed: elapsed, stderr: stderr, finished: finished)
+        return LoopRun(attempts: lines(calls).count, sleeps: lines(slept), stderr: stderr, finished: finished)
+    }
+
+    private static func notices(of setting: String, in stderr: String) -> Int {
+        stderr.components(separatedBy: setting).count - 1
     }
 
     /// `sleep` rejects `abc` at once, so the loop retried without waiting. It must
-    /// wait the default 2 seconds instead.
+    /// wait the default 2 seconds instead, and say so once.
     @Test func aDelaySleepCannotReadIsReplacedByTheDefaultWait() throws {
         for (name, command) in try Self.startupCommands() {
             let run = try Self.run(command, environment: [
                 "CMUX_SSH_RECONNECT_LIMIT": "1",
                 "CMUX_SSH_RECONNECT_DELAY_SECONDS": "abc",
-            ], deadline: 10)
+            ])
             #expect(run.finished, "\(name): the loop did not end")
             #expect(run.attempts == 2, "\(name): \(run.attempts) attempts for a limit of 1")
-            #expect(run.elapsed >= 1.5, "\(name): retried after \(run.elapsed)s, without waiting")
-            #expect(!run.stderr.contains("sleep:"), "\(name): \(run.stderr)")
+            #expect(run.sleeps == ["2"], "\(name): slept \(run.sleeps)")
+            #expect(Self.notices(of: "CMUX_SSH_RECONNECT_DELAY_SECONDS=abc", in: run.stderr) == 1,
+                    "\(name): \(run.stderr)")
         }
     }
 
@@ -143,11 +165,10 @@ struct FreestyleAttachReconnectSettingsTests {
                 "CMUX_SSH_RECONNECT_LIMIT": "1",
                 "CMUX_SSH_RECONNECT_DELAY_SECONDS": "99999999999999999999",
                 "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
-            ], deadline: 10)
-            #expect(run.finished, "\(name): the loop was still sleeping after 10s")
+            ])
+            #expect(run.finished, "\(name): the loop did not end")
             #expect(run.attempts == 2, "\(name): \(run.attempts) attempts for a limit of 1")
-            #expect(run.elapsed >= 0.8, "\(name): retried after \(run.elapsed)s, not the 1s cap")
-            #expect(!run.stderr.contains("sleep:"), "\(name): \(run.stderr)")
+            #expect(run.sleeps == ["1"], "\(name): slept \(run.sleeps)")
         }
     }
 
@@ -158,11 +179,13 @@ struct FreestyleAttachReconnectSettingsTests {
             let run = try Self.run(command, environment: [
                 "CMUX_SSH_RECONNECT_LIMIT": "99999999999999999999",
                 "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
-            ], deadline: 2.5)
-            #expect(run.attempts >= 2, "\(name): \(run.attempts) attempts")
+            ], failingAttempts: 2)
+            #expect(run.finished, "\(name): the loop did not end")
+            #expect(run.attempts == 3, "\(name): \(run.attempts) attempts")
+            #expect(run.sleeps == ["1", "1"], "\(name): slept \(run.sleeps)")
             #expect(!run.stderr.contains("integer expression expected"), "\(name): \(run.stderr)")
-            let notices = run.stderr.components(separatedBy: "CMUX_SSH_RECONNECT_LIMIT=99999999999999999999").count - 1
-            #expect(notices == 1, "\(name): \(run.stderr)")
+            #expect(Self.notices(of: "CMUX_SSH_RECONNECT_LIMIT=99999999999999999999", in: run.stderr) == 1,
+                    "\(name): \(run.stderr)")
         }
     }
 
@@ -173,9 +196,10 @@ struct FreestyleAttachReconnectSettingsTests {
             let run = try Self.run(command, environment: [
                 "CMUX_SSH_RECONNECT_LIMIT": "0",
                 "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
-            ], deadline: 10)
+            ])
             #expect(run.finished, "\(name): the loop did not end")
             #expect(run.attempts == 1, "\(name): \(run.attempts) attempts for a limit of 0")
+            #expect(run.sleeps.isEmpty, "\(name): slept \(run.sleeps)")
             #expect(run.stderr.isEmpty, "\(name): \(run.stderr)")
         }
     }
