@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextKeepAwake
 import CmuxNextSettings
 import Testing
 
