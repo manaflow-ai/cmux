@@ -11,8 +11,11 @@ scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
     shots/NN-*.png  one screenshot per step (a failed step is captured too)
     frames/*.jpg    the window about twice a second, for the video
 
-A tour is a JSON file with a `title` and `steps`. A step has a `title` and
-optionally:
+A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
+the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
+file in the tour's work directory, so a tour can show a setting (background
+art, a theme) and `cmux settings set` writes there, never to the runner's own
+settings. A step has a `title` and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     daemon    true for a daemon verb (notify, terminal ...): it gets
@@ -60,7 +63,7 @@ import time
 from typing import Any
 
 STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect"}
-TOUR_KEYS = {"title", "steps"}
+TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
@@ -113,6 +116,8 @@ def load_tour(path: Path) -> dict[str, Any]:
         raise TourError(f"{path}: `title` must be a non-empty string")
     if not isinstance(steps, list) or not steps:
         raise TourError(f"{path}: `steps` must be a non-empty list")
+    if "settings" in data and not isinstance(data["settings"], dict):
+        raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -147,7 +152,7 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
-    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps}
+    return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
 
 
 def command_line(argv: list[str]) -> str:
@@ -442,7 +447,8 @@ def clean_tag(tag: Any) -> str:
 class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
-    def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False) -> None:
+    def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
+                 settings: dict[str, Any] | None = None) -> None:
         self.app_path = app_path
         self.session = session
         self.fresh_state = fresh_state
@@ -454,6 +460,13 @@ class App:
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
+        # The tour's own settings file; None keeps the session user's.
+        self.settings_path: Path | None = None
+        if settings is not None:
+            self.settings_path = session.shareable(workdir) / "cmux-next.json"
+            self.settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+            if session.prefix:
+                self.settings_path.chmod(0o666)
         self.process: subprocess.Popen[bytes] | None = None
         self.identity: dict[str, Any] = {}
 
@@ -495,6 +508,8 @@ class App:
         self.clear_leftovers()
         self.clear_state()
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
+        if self.settings_path:
+            knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
@@ -709,7 +724,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
-    app = App(app_path, session, workdir, fresh_state=fresh_state)
+    app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],

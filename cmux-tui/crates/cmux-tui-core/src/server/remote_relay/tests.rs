@@ -167,6 +167,19 @@ fn url_open_loopback_scheduler_resource_and_binary_frames_are_refused_before_any
     }
 }
 
+/// Stash (`stash-v1`) never reaches a remote peer: a restore opens URLs on
+/// this Mac and every other stash op reads or changes local state.
+#[test]
+fn stash_operations_are_refused_at_the_remote_gate() {
+    for op in ["stash.create", "stash.list", "stash.restore", "stash.delete", "stash.import"] {
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "r",
+            "operation": op, "params": {"machine": "current", "session": "current"}});
+        assert_eq!(check_frame(&frame.to_string()), Err(Denial::ResourceProtocol), "{op}");
+        let command = json!({"id": 1, "cmd": op});
+        assert_eq!(check_frame(&command.to_string()), Err(Denial::Command), "{op}");
+    }
+}
+
 /// Every daemon command (the spec list plus commands outside it) is refused
 /// unless it is on the section 4 list, so a new command is denied by default.
 /// Every serde name of the daemon's `Command` enum, from serde's own list
