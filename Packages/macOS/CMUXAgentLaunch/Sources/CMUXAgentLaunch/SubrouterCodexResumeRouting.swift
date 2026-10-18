@@ -115,6 +115,25 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return marker.split(separator: " ").map(String.init) + [sessionID]
     }
 
+    /// Returns whether captured Codex arguments explicitly select Subrouter.
+    ///
+    /// Older cmux bindings can retain the provider configuration without the
+    /// wrapper's resume marker. They still need the dummy credential exported
+    /// before Codex starts; this check is limited to the non-secret provider
+    /// selection in the captured argv.
+    public func usesSubrouterProvider(in launchArguments: [String]) -> Bool {
+        launchArgumentsContainSubrouterProvider(launchArguments)
+    }
+
+    /// Legacy surface bindings may retain only their canonical shell command
+    /// after trust sanitization. Preserve the non-secret provider proof from
+    /// that command so a valid Subrouter checkpoint is still resumable.
+    public func usesSubrouterProvider(in shellCommand: String?) -> Bool {
+        guard let shellCommand else { return false }
+        return shellCommand.contains("model_provider=\"subrouter\"") ||
+            shellCommand.contains("model_provider=subrouter")
+    }
+
     /// Retains a canonical, non-secret routing proof when prompt sanitization
     /// removes Subrouter's trailing injected config block from captured argv.
     public func retainingRoutingProof(

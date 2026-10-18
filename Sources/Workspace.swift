@@ -1679,8 +1679,26 @@ extension Workspace {
                 )
             // All local resumes enter cmux restore, which validates ownership
             // immediately before launching the native agent resume command.
-            let shouldAutoResumeAgent = autoResumeAgentSessions &&
-                (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude) &&
+            // Legacy Codex/Subrouter records can have only a hook binding and
+            // `wasAgentRunning == false`; their durable checkpoint is still
+            // explicitly resumable and must not degrade to an empty shell.
+            let legacyCodexSubrouterLaunchArguments =
+                persistedResumeBinding?.launchCommand?.arguments ??
+                resumeBinding?.launchCommand?.arguments ??
+                snapshot.terminal?.agent?.launchCommand?.arguments ?? []
+            let legacyCodexSubrouterProvider =
+                SubrouterCodexResumeRouting().usesSubrouterProvider(in: persistedResumeBinding?.command) ||
+                SubrouterCodexResumeRouting().usesSubrouterProvider(in: legacyCodexSubrouterLaunchArguments)
+            let legacyCodexSubrouterBinding =
+                (persistedResumeBinding?.kind ?? resumeBinding?.kind)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==
+                    RestorableAgentKind.codex.rawValue &&
+                (persistedResumeBinding?.checkpointId ?? resumeBinding?.checkpointId)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+                (persistedResumeBinding?.autoResume ?? resumeBinding?.autoResume) == true &&
+                legacyCodexSubrouterProvider
+            let shouldAutoResumeAgent =
+                (autoResumeAgentSessions &&
+                    (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude || legacyCodexSubrouterBinding) ||
+                 legacyCodexSubrouterBinding) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
@@ -1807,7 +1825,35 @@ extension Workspace {
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let restoredBindingLaunch = unresolvedBindingLaunch
+            let capturedCodexLaunch = effectiveResumeBindingForStartup?.launchCommand ??
+                restorableAgent?.launchCommand ?? persistedResumeBinding?.launchCommand ??
+                snapshot.terminal?.agent?.launchCommand
+            let capturedAgentKind = restorableAgent?.kind.rawValue ?? effectiveResumeBindingForStartup?.kind ??
+                persistedResumeBinding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
+            let capturedAgentSessionID = restorableAgent?.sessionId ?? effectiveResumeBindingForStartup?.checkpointId ??
+                persistedResumeBinding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
+            let legacySubrouterResumeInput: String? = {
+                let launch = persistedResumeBinding?.launchCommand ??
+                    snapshot.terminal?.agent?.launchCommand ?? capturedCodexLaunch
+                let kind = persistedResumeBinding?.kind ?? capturedAgentKind
+                let sessionID = persistedResumeBinding?.checkpointId ?? capturedAgentSessionID
+                guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
+                      let sessionID,
+                      legacyCodexSubrouterBinding else {
+                    return nil
+                }
+                let command = "sr codex resume \(sessionID) --cd \(TerminalStartupShellQuoting.singleQuoted(resumeSessionWorkingDirectory ?? workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path))"
+                let startupDelaySeconds = Int(String(sessionID.prefix(8)), radix: 16).map { $0 % 60 } ?? 0
+                let delayedCommand = startupDelaySeconds == 0
+                    ? command
+                    : "sleep \(startupDelaySeconds); \(command)"
+                let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
+                    delayedCommand,
+                    workingDirectory: resumeSessionWorkingDirectory
+                )
+                return TerminalStartupTypedShellCommand().typedInput(posixCommand: prefixed) + "\n"
+            }()
+            let restoredBindingLaunch = legacySubrouterResumeInput == nil ? unresolvedBindingLaunch : nil
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
@@ -1877,7 +1923,7 @@ extension Workspace {
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restorableAgentCanAutoResume,
-                   restoredHibernation == nil && restoredBindingLaunch == nil
+                   restoredHibernation == nil && legacySubrouterResumeInput == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
@@ -1906,10 +1952,13 @@ extension Workspace {
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
+            let deferredAgentResumeCandidateInput: String? = if
+                restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-                if let restorableAgent {
+                if let legacySubrouterResumeInput {
+                    legacySubrouterResumeInput
+                } else if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         // Same rule as the immediate remote resume above: only the trusted
                         // remote cwd, never the recorded directory as a fallback.
@@ -1945,11 +1994,11 @@ extension Workspace {
             let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
-            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
+            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil && legacySubrouterResumeInput == nil
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                hasResumeStartupWork: restoredBindingLaunch != nil ||
+                hasResumeStartupWork: legacySubrouterResumeInput != nil || restoredBindingLaunch != nil ||
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil ||
                     claudeBackgroundAttach != nil
             )
@@ -1960,15 +2009,17 @@ extension Workspace {
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
-                ? (restoredBindingLaunch?.initialInput ??
+                ? (deferredAgentResumeStartupInput ??
+                    legacySubrouterResumeInput ??
+                    restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput ??
                     claudeBackgroundAttach?.startupInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
                 restoredBindingLaunch != nil ||
+                legacySubrouterResumeInput != nil ||
                 deferredAgentResumeStartupInput != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
@@ -1999,6 +2050,7 @@ extension Workspace {
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
             let restoredAgentWillRunStartupInput =
+                legacySubrouterResumeInput != nil ||
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
                 deferredAgentResumeStartupInput != nil
@@ -2030,6 +2082,12 @@ extension Workspace {
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
             let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
+            var restoredEnvironment = replayEnvironment
+            if capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
+               (SubrouterCodexResumeRouting().usesSubrouterProvider(in: capturedCodexLaunch?.arguments ?? []) ||
+               SubrouterCodexResumeRouting().usesSubrouterProvider(in: persistedResumeBinding?.command)) {
+                restoredEnvironment["SUBROUTER_CODEX_DUMMY_API_KEY"] = "subrouter"
+            }
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
@@ -2051,7 +2109,7 @@ extension Workspace {
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
-                startupEnvironment: replayEnvironment,
+                startupEnvironment: restoredEnvironment,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
                     willRunStartupInput: restoredAgentWillRunStartupInput,
