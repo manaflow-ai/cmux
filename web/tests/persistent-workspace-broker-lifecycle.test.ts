@@ -202,6 +202,26 @@ describe("persistent workspace broker and host lease wiring", () => {
     })).rejects.toMatchObject({ code: "receipt_mismatch" });
   });
 
+  test("rejects deeply nested provider metadata", async () => {
+    const leaseClient = {
+      acquire: async () => ({ metadata: { nested: [[[[[["too-deep"]]]]]] } }),
+      renew: async () => ({}),
+      release: async () => ({}),
+    };
+    const transport = new VmHostLeaseTransport(
+      new MemoryVmHostLeaseStore(),
+      new Map([["freestyle", createFreestyleHostLeaseAdapter(leaseClient)]]),
+    );
+    await expect(transport.acquire({
+      provider: "freestyle",
+      leaseId: "lease-deep",
+      hostId: "host-deep",
+      ownerId: "owner-deep",
+      generation: 1,
+      effectKey: "effect-deep",
+    })).rejects.toMatchObject({ code: "receipt_mismatch" });
+  });
+
   test("promotion adopts retained handles through the same broker and lease path", async () => {
     const fixture = providerFixture();
     const service = createPersistentWorkspaceService({ store: storeFixture(), provider: fixture.provider });

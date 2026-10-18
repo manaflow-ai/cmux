@@ -125,6 +125,9 @@ const MAX_METADATA_DEPTH = 5;
 const MAX_METADATA_STRING = 2_048;
 
 function safeMetadataValue(value: unknown, depth: number): unknown {
+  if (depth > MAX_METADATA_DEPTH) {
+    throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is too deeply nested");
+  }
   if (typeof value === "string") {
     if (value.length > MAX_METADATA_STRING || /[\u0000-\u001f\u007f]/.test(value) || FORBIDDEN_METADATA_VALUE.test(value)) {
       throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains an unsafe string");
