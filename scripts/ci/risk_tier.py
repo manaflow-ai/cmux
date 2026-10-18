@@ -282,12 +282,13 @@ def diff_lines(patch: str) -> tuple[list[str], list[str]]:
     return [l for l in removed if l], [l for l in added if l]
 
 
-def undoes(pr_patch: str, commit_patch: str) -> bool:
+def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
-    # A line the pull request removes and adds back elsewhere moved; it wasn't taken back.
-    gone, back = pr_removed - pr_added, pr_added - pr_removed
+    # A line the pull request removes and adds back, here or in another file, moved; it wasn't
+    # taken back.
+    gone, back = pr_removed - pr_added - added_elsewhere, pr_added - pr_removed
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
     if not commit_added:
         return False
@@ -307,6 +308,7 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     replaced is how a stale base undoes someone's work."""
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
+    added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         patch = entry.get("patch") or ""
@@ -345,7 +347,7 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                                        capture_output=True, text=True, timeout=30).stdout
             except subprocess.TimeoutExpired:
                 continue
-            if undoes(patch, shown):
+            if undoes(patch, shown, added_anywhere):
                 found.setdefault(int(number.group(1)), []).append(path)
     return {number: sorted(set(paths)) for number, paths in found.items()}
 

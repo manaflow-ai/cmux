@@ -140,6 +140,9 @@ class RecentRevertTests(unittest.TestCase):
         # Moving the new lines elsewhere in the file is not taking them back.
         self.assertFalse(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx\n@@ -40 +38,3 @@\n+.a{}\n+.b{}\n ctx",
                                      "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
+        # Moving them to another file is not taking them back either.
+        self.assertFalse(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx",
+                                     frozenset({".a{}", ".b{}"})))
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
