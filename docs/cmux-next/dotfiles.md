@@ -105,15 +105,27 @@ names.
 
 ## Agent defaults
 
-The model, reasoning effort and permission mode a new chat starts with are not
-in `cmux-next.json` yet. Today:
+Set the permission mode every new agent chat starts in, including chats an
+agent starts through acpmux:
 
-- `acpmux defaults <harness> model=<id> effort=<level>` saves the model and
-  effort for new chats (for example `acpmux defaults claude model=claude-opus-5-5 effort=high`).
-  The last pick you make in a chat also becomes the default.
-- `agents.defaultPermissionMode` in `cmux-next.json` (`fullAccess`, `standard`
-  or `ask`) sets the starting mode. The last mode you pick in a chat still
-  wins over it.
+```jsonc
+{
+  "agents": {
+    // fullAccess (the default), standard (the harness's own mode) or ask.
+    "defaultPermissionMode": "ask",
+  },
+}
+```
+
+It's also Settings > Agents > Permission Mode for New Chats, and
+`cmux config set agents.defaultPermissionMode ask --confirm`. Agents can't
+change it without you confirming. Picking a mode in a chat sets the default
+too, so the latest choice wins: a pick in a chat, or a change to this setting.
+
+The model and reasoning effort a new chat starts with aren't in
+`cmux-next.json` yet. `acpmux defaults <harness> model=<id> effort=<level>`
+saves them (for example `acpmux defaults claude model=claude-opus-5-5
+effort=high`), and the last pick you make in a chat becomes the default too.
 
 ## Changing settings from a script or an agent
 
