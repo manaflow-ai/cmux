@@ -16,7 +16,7 @@ const speedChoices = [
 ];
 
 /// `slider`: the Debug Settings opt-in `agent.reasoningSlider`; `speed`: a Fast Mode section under it.
-type Props = { slider?: boolean; speed?: boolean };
+type Props = { slider?: boolean; sliderStyle?: "accent" | "minimal"; speed?: boolean };
 
 const open: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Effort" });
@@ -96,7 +96,7 @@ export default componentEntry<Props>({
   },
   load: async () => {
     const { EffortPicker } = await import("./EffortPicker");
-    return function GalleryEffortPicker({ slider, speed }: Props) {
+    return function GalleryEffortPicker({ slider, sliderStyle, speed }: Props) {
       const [current, setCurrent] = useState("medium");
       const [fast, setFast] = useState("off");
       return (
@@ -106,6 +106,7 @@ export default componentEntry<Props>({
           current={current}
           onPick={setCurrent}
           slider={slider}
+          sliderStyle={sliderStyle}
           speed={
             speed ? { title: "Fast Mode", choices: speedChoices, current: fast, on: "on", onPick: setFast } : undefined
           }
@@ -125,6 +126,11 @@ export default componentEntry<Props>({
     "slider-open": {
       note: "Debug Settings agent.reasoningSlider on: the Reasoning section is the stepped slider.",
       props: { slider: true },
+      play: open,
+    },
+    "slider-minimal-open": {
+      note: "Debug Settings agent.reasoningSliderStyle=minimal: quieter fill and an outlined thumb.",
+      props: { slider: true, sliderStyle: "minimal" },
       play: open,
     },
     "slider-speed-open": {
