@@ -11,7 +11,7 @@ public struct WorkspacePresenceWebSocket: WorkspacePresenceConnecting {
 
     public func connect(scope: WorkspacePresenceScope, accessToken: String) async throws -> any WorkspacePresenceConnection {
         let request = try request(scope: scope, accessToken: accessToken)
-        return WorkspacePresenceSocket(request: request)
+        return try WorkspacePresenceSocket(request: request)
     }
 
     /// Builds a bounded, credentialed upgrade request.
