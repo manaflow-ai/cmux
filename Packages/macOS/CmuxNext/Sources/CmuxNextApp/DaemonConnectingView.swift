@@ -13,8 +13,8 @@ import CmuxNextWakeups
 /// behind Copy Details for a bug report.
 final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""

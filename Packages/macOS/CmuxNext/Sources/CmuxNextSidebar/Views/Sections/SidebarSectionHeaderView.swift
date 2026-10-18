@@ -8,7 +8,7 @@ final class SidebarSectionHeaderView: NSView {
     var onPress: (() -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
-    private let name = NSTextField(labelWithString: "")
+    private let name = ChromeLabel(labelWithString: "")
     let chevron = NSImageView()
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).

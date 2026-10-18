@@ -19,12 +19,12 @@ final class CloudMachineProgressView: NSView {
 
     let creation: CloudMachineCreation
     private let actions: Actions
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let elapsedLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let elapsedLabel = ChromeLabel(labelWithString: "")
     private let stepsStack = NSStackView()
     private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let typingLabel = NSTextField(wrappingLabelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let typingLabel = ChromeLabel(wrappingLabelWithString: "")
     private let retryButton = ThemedDefaultButton()
     private let copyButton = ThemedBezelButton()
     private let dismissButton = ThemedBezelButton()
@@ -50,7 +50,7 @@ final class CloudMachineProgressView: NSView {
         for step in CloudMachineStage.steps {
             let icon = NSImageView()
             icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
-            let label = NSTextField(labelWithString: CloudStrings.stage(step))
+            let label = ChromeLabel(labelWithString: CloudStrings.stage(step))
             label.font = Typography.body
             let row = NSStackView(views: [icon, label])
             row.orientation = .horizontal

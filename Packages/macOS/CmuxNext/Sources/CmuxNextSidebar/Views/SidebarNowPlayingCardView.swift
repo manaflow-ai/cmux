@@ -14,8 +14,8 @@ final class SidebarNowPlayingCardView: NSView {
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
     let artworkView = NSImageView()
-    let titleLabel = NSTextField(labelWithString: "")
-    let artistLabel = NSTextField(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
+    let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
     let previousButton = SidebarIconButton(icon: .mediaPrevious, label: "")
     let playPauseButton = SidebarIconButton(icon: .mediaPlay, label: "")

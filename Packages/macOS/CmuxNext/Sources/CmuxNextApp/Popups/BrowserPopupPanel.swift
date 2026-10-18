@@ -16,8 +16,8 @@ final class BrowserPopupPanel: NSPanel {
     let page: any BrowserTab
     var onEscape: (() -> Void)?
     var onClose: (() -> Void)?
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let originLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let originLabel = ChromeLabel(labelWithString: "")
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
 

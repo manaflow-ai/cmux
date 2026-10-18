@@ -28,8 +28,8 @@ public final class ShareCmuxView: NSView {
     let copyButton: CmuxDialogButtonView
     let closeButton: NSButton
     let messageView = ShareCmuxMessageTextView()
-    private let titleLabel = NSTextField(wrappingLabelWithString: ShareCmuxStrings.title)
-    private let bodyLabel = NSTextField(wrappingLabelWithString: ShareCmuxStrings.body)
+    private let titleLabel = ChromeLabel(wrappingLabelWithString: ShareCmuxStrings.title)
+    private let bodyLabel = ChromeLabel(wrappingLabelWithString: ShareCmuxStrings.body)
     private let messageScroll = NSScrollView()
     private let stack = NSStackView()
     /// The modal's material, below the lines (like the tip card, cx-367y).

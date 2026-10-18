@@ -152,7 +152,7 @@ final class NotificationRowView: NSView {
 
     /// A one-line label; its owner sets the color in its theme scope.
     static func label(_ text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
+        let label = ChromeLabel(labelWithString: text)
         label.font = font
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1

@@ -1,12 +1,23 @@
 public import AppKit
 
-/// A one-line AppKit label whose text color blends on a theme change (I5, cx-8w027.3): it keeps
-/// `NSTextField`'s layout (intrinsic size, alignment, truncation, accessibility) and draws its
-/// string with a ``ChromeTextLayer``, so ``textColor`` is a layer color the render server blends
-/// from the color on screen (`ThemeRepaint`) and a color change redraws no glyphs. For plain
-/// strings only: per-run colors of an attributed string are not drawn (use `NSTextField`).
-public final class ChromeLabel: NSTextField {
-    private let text = ChromeTextLayer()
+/// The AppKit label whose text color blends on a theme change (I5, cx-8w027.3, cx-8w027.12).
+///
+/// It is an `NSTextField` in every way but the ink: layout, intrinsic size, wrapping, line
+/// count, truncation, alignment and accessibility are the field's own, and its own cell draws
+/// the text, so the glyphs are where and how an `NSTextField` draws them. The cell draws once,
+/// in black, as the mask of a fill layer whose `backgroundColor` is ``textColor``: the color is
+/// a layer color the render server blends from the color on screen (`ThemeRepaint`), and a
+/// color change draws no glyphs. The glyphs draw again only when what they show changes (text,
+/// font, size, scale, line settings).
+///
+/// One text color per label: per-run colors of an attributed string draw in ``textColor``
+/// (keep an `NSTextField` for text with its own run colors).
+open class ChromeLabel: NSTextField {
+    /// The text color, masked by ``glyphs``.
+    private let fill = CALayer()
+    private let glyphs = LabelGlyphLayer()
+    /// What ``glyphs`` shows now; a different one draws them again.
+    private var drawn: Ink?
 
     public convenience init(font: NSFont) {
         self.init(labelWithString: "")
@@ -16,70 +27,123 @@ public final class ChromeLabel: NSTextField {
         cell?.truncatesLastVisibleLine = true
     }
 
-    override public var wantsUpdateLayer: Bool { true }
+    override open var wantsUpdateLayer: Bool { true }
 
-    override public var stringValue: String {
-        didSet { needsDisplay = true }
+    // Each of these changes the glyphs or their color: `updateLayer` sorts out which.
+    override open var stringValue: String { didSet { needsDisplay = true } }
+    override open var attributedStringValue: NSAttributedString { didSet { needsDisplay = true } }
+    override open var font: NSFont? { didSet { needsDisplay = true } }
+    override open var textColor: NSColor? { didSet { needsDisplay = true } }
+    override open var alignment: NSTextAlignment { didSet { needsDisplay = true } }
+    override open var lineBreakMode: NSLineBreakMode { didSet { needsDisplay = true } }
+
+    override open func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsDisplay = true
     }
 
-    override public var font: NSFont? {
-        didSet { needsDisplay = true }
-    }
-
-    override public var textColor: NSColor? {
-        didSet { text.foregroundColor = textColor?.cgColor }
-    }
-
-    override public var alignment: NSTextAlignment {
-        didSet { needsDisplay = true }
-    }
-
-    override public var lineBreakMode: NSLineBreakMode {
-        didSet { needsDisplay = true }
-    }
-
-    override public func updateLayer() {
+    override open func updateLayer() {
         guard let layer else { return }
-        if text.superlayer !== layer {
-            text.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
-            layer.addSublayer(text)
+        if fill.superlayer !== layer {
+            let still: [String: any CAAction] = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
+                                                 "contents": NSNull(), "frame": NSNull(), "contentsScale": NSNull(),
+                                                 "hidden": NSNull()]
+            fill.actions = still
+            glyphs.actions = still
+            glyphs.label = self
+            fill.mask = glyphs
+            layer.addSublayer(fill)
         }
-        text.string = stringValue
-        text.font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
-        text.foregroundColor = textColor?.cgColor
-        text.truncation = switch lineBreakMode {
-        case .byTruncatingTail: .end
-        case .byTruncatingMiddle: .middle
-        case .byTruncatingHead: .start
-        default: nil
+        // AppKit runs this with the view's appearance as the drawing appearance, as it does
+        // for `draw(_:)`: dynamic colors resolve the way the field's own drawing resolved them.
+        layer.backgroundColor = drawsBackground ? backgroundColor?.cgColor : nil
+        fill.backgroundColor = textColor?.cgColor
+        // A selectable label being selected: the field editor draws the text.
+        fill.isHidden = currentEditor() != nil
+        let scale = window?.backingScaleFactor ?? layer.contentsScale
+        if fill.frame != layer.bounds || glyphs.contentsScale != scale {
+            fill.frame = layer.bounds
+            glyphs.frame = fill.bounds
+            glyphs.contentsScale = scale
         }
-        text.alignmentMode = switch alignment {
-        case .center: .center
-        case .right: .right
-        case .natural: userInterfaceLayoutDirection == .rightToLeft ? .right : .left
-        default: .left
+        let ink = Ink(text: inkText(), size: bounds.size, scale: scale, lines: maximumNumberOfLines,
+                      lineBreak: lineBreakMode, alignment: alignment,
+                      truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
+        if ink != drawn {
+            drawn = ink
+            glyphs.setNeedsDisplay()
         }
-        text.contentsScale = window?.backingScaleFactor ?? layer.contentsScale
-        layoutText()
     }
 
-    override public func viewDidChangeBackingProperties() {
+    override open func becomeFirstResponder() -> Bool {
+        defer { needsDisplay = true }
+        return super.becomeFirstResponder()
+    }
+
+    override open func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        needsDisplay = true
+    }
+
+    override open func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        text.contentsScale = window?.backingScaleFactor ?? text.contentsScale
+        needsDisplay = true
     }
 
-    override public func layout() {
-        super.layout()
-        layoutText()
+    /// The field's text with every run in black: the glyph coverage, whatever the color.
+    private func inkText() -> NSAttributedString {
+        let text = NSMutableAttributedString(attributedString: attributedStringValue)
+        let all = NSRange(location: 0, length: text.length)
+        text.removeAttribute(.foregroundColor, range: all)
+        text.addAttribute(.foregroundColor, value: NSColor.black, range: all)
+        return text
     }
 
-    /// Where the cell draws its title: the same inset and top as an `NSTextField` label.
-    private func layoutText() {
-        let rect = cell?.titleRect(forBounds: bounds) ?? bounds
-        guard text.frame != rect else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        text.frame = rect
-        CATransaction.commit()
+    /// Draws the glyph coverage: a copy of the field's cell, in black, without a background.
+    fileprivate func drawGlyphs(in ctx: CGContext, flipped: Bool) {
+        guard let drawn, drawn.text.length > 0, let ink = cell?.copy() as? NSTextFieldCell else { return }
+        ink.drawsBackground = false
+        ink.textColor = .black
+        ink.attributedStringValue = drawn.text
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        // The field draws in flipped coordinates; a layer context is unflipped unless its
+        // geometry is.
+        if !flipped {
+            ctx.translateBy(x: 0, y: bounds.height)
+            ctx.scaleBy(x: 1, y: -1)
+        }
+        // What AppKit enables for label text (a transparent layer leaves it off).
+        ctx.setAllowsFontSmoothing(true)
+        ctx.setShouldSmoothFonts(true)
+        ctx.setAllowsAntialiasing(true)
+        ctx.setShouldAntialias(true)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        ink.draw(withFrame: bounds, in: self)
+    }
+
+    /// What the glyphs show (not their color).
+    private struct Ink: Equatable {
+        var text: NSAttributedString
+        var size: CGSize
+        var scale: CGFloat
+        var lines: Int
+        var lineBreak: NSLineBreakMode
+        var alignment: NSTextAlignment
+        var truncates: Bool
+        var wraps: Bool
+    }
+}
+
+/// ``ChromeLabel``'s glyph coverage: the mask of its fill layer.
+nonisolated private final class LabelGlyphLayer: CALayer {
+    weak var label: ChromeLabel?
+
+    override func draw(in ctx: CGContext) {
+        let flipped = contentsAreFlipped()
+        // main-proof: AppKit displays the layers of a view tree on the main thread, in its commit.
+        MainActor.assumeIsolated { label?.drawGlyphs(in: ctx, flipped: flipped) }
     }
 }

@@ -9,7 +9,7 @@ import CmuxNextDesign
 /// keyboard focus: the card hides after the click, and the focus must not stay on a hidden button.
 final class SidebarCardTextButton: NSView {
     var onPress: (() -> Void)?
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
