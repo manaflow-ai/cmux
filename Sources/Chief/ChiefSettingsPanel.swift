@@ -10,7 +10,8 @@ import Observation
 ///
 /// - Profile: Chief's name and avatar.
 /// - Brain: harness, model and effort (the `chief.*` cmux settings, applied
-///   from the next turn). Each picker's first item names what the default
+///   from the next turn), and the provider API key under the harness while
+///   the harness needs one (DeepInfra). Each picker's first item names what the default
 ///   resolves to ("Default (Opus 5.5)"), the menus check the current choice,
 ///   and a line under Effort says what the level trades (references:
 ///   `apps/claude/live/model-picker-open.png`, `model-effort-submenu.png`,
@@ -41,6 +42,14 @@ final class ChiefSettingsPanel: NSView {
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
     private var effortNote = NSTextField(labelWithString: "")
+    /// The DeepInfra key's rows, shown only while the harness needs a key.
+    private let apiKeyField = NSSecureTextField(string: "")
+    private let apiKeyRemove = NSButton(title: ChiefSettingsStrings.deepInfraKeyRemove, target: nil, action: nil)
+    private var apiKeyLabel = NSTextField(labelWithString: "")
+    private var apiKeyStatus = NSTextField(labelWithString: "")
+    private var apiKeyHelp = NSTextField(labelWithString: "")
+    /// The last save or removal failed; shown until the next one.
+    private var apiKeyFailure: String?
     private let dangerousPermissions = NSButton(checkboxWithTitle: ChiefStrings.settingsDangerousPermissions,
                                                 target: nil, action: nil)
     private var statsLabel = NSTextField(labelWithString: "")
@@ -98,6 +107,7 @@ final class ChiefSettingsPanel: NSView {
         chainKeyViews()
         refresh()
         observeWorking()
+        observeSavedKey()
     }
 
     @available(*, unavailable)
@@ -180,6 +190,7 @@ final class ChiefSettingsPanel: NSView {
             button.setAccessibilityIdentifier("ChiefSettings\(["Harness", "Model", "Effort"][index])")
             brain.addRow(label, button)
             if button !== effort { brain.addGap(10) }
+            if button === harness { buildAPIKey(in: brain) }
         }
         effortNote = brain.addCaption("", describing: effort)
         brain.addGap(10)
@@ -190,6 +201,23 @@ final class ChiefSettingsPanel: NSView {
         brain.addCaption(ChiefStrings.settingsDangerousPermissionsHelp, describing: dangerousPermissions)
         brain.addGap(10)
         brain.addCaption(ChiefStrings.settingsNextTurn)
+    }
+
+    /// The provider key under the harness: a secure field saved on Return or when
+    /// focus leaves it, a status line, and Remove Key while a key is saved.
+    private func buildAPIKey(in brain: ChiefSettingsCard) {
+        configure(apiKeyField, placeholder: ChiefSettingsStrings.deepInfraKeyPlaceholder, action: #selector(apiKeyEntered))
+        apiKeyField.setAccessibilityIdentifier("ChiefSettingsDeepInfraKey")
+        apiKeyLabel = brain.addRow(ChiefSettingsStrings.deepInfraKey, apiKeyField)
+        apiKeyStatus = brain.addCaption("")
+        apiKeyStatus.setAccessibilityIdentifier("ChiefSettingsDeepInfraKeyStatus")
+        apiKeyHelp = brain.addCaption(ChiefSettingsStrings.deepInfraKeyHelp, describing: apiKeyField)
+        // Also after the caption: Remove Key is hidden without a saved key.
+        brain.addGap(10)
+        configure(apiKeyRemove, action: #selector(removeAPIKey))
+        apiKeyRemove.setAccessibilityIdentifier("ChiefSettingsDeepInfraKeyRemove")
+        brain.add(apiKeyRemove)
+        brain.addGap(10)
     }
 
     private func buildActivity() {
@@ -249,7 +277,8 @@ final class ChiefSettingsPanel: NSView {
     private func chainKeyViews() {
         // The memory section's own buttons (Show All…) sit between Activity and Conversation.
         let memory = Self.buttons(in: memorySection)
-        let order: [NSView] = [nameField, pictureButton, avatarField, harness, model, effort, dangerousPermissions,
+        let order: [NSView] = [nameField, pictureButton, avatarField, harness, apiKeyField, apiKeyRemove, model, effort,
+                               dangerousPermissions,
                                homeLink, logButton] + memory
             + [newConversationButton]
         for (view, next) in zip(order, order.dropFirst()) { view.nextKeyView = next }
@@ -344,6 +373,7 @@ final class ChiefSettingsPanel: NSView {
         fill(effort, harnessValue.efforts(for: settings.resolvedModel)
                 .map { ($0.id, ChiefStrings.effortName($0.id)) },
              current: settings.effort.isEmpty ? nil : settings.effort, defaultTitle: ChiefStrings.settingsDefault)
+        refreshAPIKey(shown: harnessValue.needsCredential)
         effortNote.stringValue = ChiefSettingsStrings.effortDescription(settings.effort)
         effort.setAccessibilityHelp(effortNote.stringValue)
         dangerousPermissions.state = settings.dangerouslySkipPermissions ? .on : .off
@@ -354,6 +384,29 @@ final class ChiefSettingsPanel: NSView {
         homeLink.toolTip = path
         homeLink.setAccessibilityHelp(ChiefSettingsStrings.showInFinderHelp)
         refreshStats()
+    }
+
+    /// Shows the key rows for a harness that needs a key, with what the next turn will use.
+    private func refreshAPIKey(shown: Bool) {
+        let service = ChiefService.shared
+        for view in [apiKeyLabel, apiKeyField, apiKeyStatus, apiKeyHelp, apiKeyRemove] as [NSView] { view.isHidden = !shown }
+        guard shown else { return }
+        let saved = service.hasSavedDeepInfraKey
+        apiKeyField.placeholderString = saved ? ChiefSettingsStrings.deepInfraKeySavedPlaceholder
+            : ChiefSettingsStrings.deepInfraKeyPlaceholder
+        apiKeyRemove.isHidden = !saved
+        let status: String
+        if let apiKeyFailure {
+            status = apiKeyFailure
+        } else if saved {
+            status = ""
+        } else if ChiefService.environmentHasDeepInfraKey() {
+            status = ChiefSettingsStrings.deepInfraKeyFromEnvironment
+        } else {
+            status = ChiefSettingsStrings.deepInfraKeyMissing
+        }
+        apiKeyStatus.stringValue = status
+        apiKeyStatus.isHidden = status.isEmpty
     }
 
     /// `values` after a "Default (…)" item and a separator, keeping a current
@@ -405,6 +458,21 @@ final class ChiefSettingsPanel: NSView {
         }
     }
 
+    /// A saved or removed key lands through the secret store's stream, after the
+    /// save returns: the key rows follow it (Observation, no polling).
+    private func observeSavedKey() {
+        guard !stopped else { return }
+        withObservationTracking {
+            _ = ChiefService.shared.hasSavedDeepInfraKey
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped else { return }
+                self.refreshAPIKey(shown: ChiefService.shared.engineSettings.resolvedHarness.needsCredential)
+                self.observeSavedKey()
+            }
+        }
+    }
+
     // MARK: Actions
 
     @objc private func picked(_ sender: NSPopUpButton) {
@@ -428,6 +496,36 @@ final class ChiefSettingsPanel: NSView {
         if !settings.effort.isEmpty, !offered.contains(where: { $0.id == settings.effort }) { settings.effort = "" }
         ChiefService.shared.setEngineSettings(settings)
         refresh()
+    }
+
+    /// Return or leaving the field saves a typed key; an empty field never clears the saved one.
+    @objc private func apiKeyEntered() {
+        let key = apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        apiKeyField.stringValue = ""
+        // task-owner: one save; ends when the secret file is written
+        Task { [weak self] in
+            let failed: Bool
+            do {
+                try await ChiefService.shared.saveDeepInfraKey(key)
+                failed = false
+            } catch {
+                failed = true
+            }
+            guard let self, !self.stopped else { return }
+            self.apiKeyFailure = failed ? ChiefSettingsStrings.deepInfraKeySaveFailed : nil
+            self.refresh()
+        }
+    }
+
+    @objc private func removeAPIKey() {
+        // task-owner: one removal; ends when the secret file is gone
+        Task { [weak self] in
+            let failed = (try? await ChiefService.shared.removeDeepInfraKey()) == nil
+            guard let self, !self.stopped else { return }
+            self.apiKeyFailure = failed ? ChiefSettingsStrings.deepInfraKeyRemoveFailed : nil
+            self.refresh()
+        }
     }
 
     @objc private func dangerousPermissionsChanged() {

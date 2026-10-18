@@ -1,6 +1,7 @@
 import AppKit
 import CmuxChief
 import CmuxHomeCore
+import CmuxSettings
 import Foundation
 import Observation
 
@@ -45,6 +46,15 @@ final class ChiefService {
     /// changes only with ``workingConversations``, so Observation tracks that.
     @ObservationIgnored private(set) var turnStarts: [ConversationID: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var started = false
+    /// The secret store holding the provider API key (`chief.deepInfraAPIKey`), set by the
+    /// app's composition root; nil leaves only `DEEPINFRA_API_KEY` (ChiefService+Credentials.swift).
+    @ObservationIgnored var secretStore: SecretFileStore?
+    // task-owner: follows the saved key from start() for the app's lifetime
+    @ObservationIgnored var credentialWatch: Task<Void, Never>?
+    /// Whether the saved key has been read once (its first value installs no new brain).
+    @ObservationIgnored var savedKeyObserved = false
+    /// Whether a DeepInfra key is saved in Chief Settings (not counting `DEEPINFRA_API_KEY`).
+    var hasSavedDeepInfraKey = false
     /// The list's preview lines by conversation (ChiefService+Previews.swift), with the row state
     /// each was read at.
     @ObservationIgnored var previewLines: [ConversationID: ChiefPreviewEntry] = [:]
@@ -128,7 +138,7 @@ final class ChiefService {
         let (home, temporary) = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
-        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings), settings: settings)
+        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings, keyFile: deepInfraKeyFile), settings: settings)
         let builder = ChiefTurnContextBuilder(engine: { await switcher.settings })
         // task-owner: reads the login shell's PATH before the first turn needs it; ends with the read
         Task.detached(priority: .utility) { _ = await ChiefLoginShellPath.shared.value() }
@@ -148,6 +158,7 @@ final class ChiefService {
         self.storeIfStarted = store
         observeSettings()
         observeQuit()
+        watchCredential()
         // task-owner: waits for the one load above; ends with it
         Task { @MainActor [weak self] in
             do {
@@ -218,13 +229,15 @@ final class ChiefService {
 
     // MARK: Brain
 
-    static func makeBrain(_ settings: ChiefEngineSettings) -> any ChiefBrain {
+    static func makeBrain(_ settings: ChiefEngineSettings, keyFile: URL?) -> any ChiefBrain {
 #if DEBUG
         // Dogfood tours and screenshots: a scripted turn, no model or credentials.
         if usesScriptedBrain { return ChiefScriptedBrain() }
 #endif
-        return settings.resolvedHarness.makeBrain(model: settings.model, effort: settings.effort,
-                                                  dangerouslySkipPermissions: settings.dangerouslySkipPermissions)
+        let harness = settings.resolvedHarness
+        return harness.makeBrain(model: settings.model, effort: settings.effort,
+                                 dangerouslySkipPermissions: settings.dangerouslySkipPermissions,
+                                 keyFile: harness.needsCredential ? keyFile : nil)
     }
 
 #if DEBUG
@@ -258,9 +271,15 @@ final class ChiefService {
 
     private func applySettingsIfChanged() {
         let settings = ChiefSettingsAccess().current
-        guard settings != engine, let brainSwitch else { return }
+        guard settings != engine else { return }
+        replaceBrain(settings)
+    }
+
+    /// Installs a brain built from `settings` for the next turn.
+    func replaceBrain(_ settings: ChiefEngineSettings) {
+        guard let brainSwitch else { return }
         engine = settings
-        let brain = Self.makeBrain(settings)
+        let brain = Self.makeBrain(settings, keyFile: deepInfraKeyFile)
         // task-owner: one swap; ends when the old brain is retired
         Task { await brainSwitch.replace(with: brain, settings: settings) }
     }

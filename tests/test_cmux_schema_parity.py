@@ -47,6 +47,14 @@ KEY_DECLARATION = re.compile(
 STRING = re.compile(r'"([^"]+)"')
 SYMBOL = re.compile(r"^([A-Z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)\s*,?$")
 
+# Catalog SecretFileKey ids that are never read from cmux.json: credentials entered
+# only in Settings and kept in their own 0600 file, so the schema must not invite
+# users to paste them into a shared, often-synced config file.
+SECRETS_NOT_IN_CMUX_JSON = frozenset({
+    # Chief's DeepInfra API key (Chief Settings and Settings > Automation only).
+    "chief.deepInfraAPIKey",
+})
+
 # Catalog DefaultsKey ids that no cmux.json section parser reads. They are
 # stored only in UserDefaults (UI state, device and account state, or
 # remembered values). Adding one to the schema would make
@@ -230,11 +238,12 @@ class SchemaParityTests(unittest.TestCase):
         )
 
     def test_every_json_backed_catalog_key_is_in_the_schema(self):
-        # JSONKey and SecretFileKey ids are read straight from cmux.json.
+        # JSONKey and SecretFileKey ids are read straight from cmux.json, except the
+        # secrets kept out of it on purpose.
         missing = sorted(
             f"{key_id} ({name})"
             for key_id, (kind, _, name) in self.catalog.items()
-            if kind != "DefaultsKey" and key_id not in self.paths
+            if kind != "DefaultsKey" and key_id not in self.paths and key_id not in SECRETS_NOT_IN_CMUX_JSON
         )
         self.assertEqual(missing, [], "JSON-backed catalog keys missing from the schema")
 

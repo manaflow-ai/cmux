@@ -1,11 +1,13 @@
 public import Foundation
 
-/// The agent CLI a Chief runs on.
+/// The agent CLI a Chief runs on, and the provider it talks to.
 public enum ChiefHarness: String, Sendable, Codable, CaseIterable, Identifiable {
     /// Claude Code (`claude -p` stream-json).
     case claude
     /// Codex (`codex app-server`).
     case codex
+    /// Claude Code against DeepInfra's Anthropic-compatible API, with the user's DeepInfra key.
+    case deepInfra = "deepinfra"
 
     public var id: String { rawValue }
 
@@ -14,8 +16,12 @@ public enum ChiefHarness: String, Sendable, Codable, CaseIterable, Identifiable 
         switch self {
         case .claude: return "Claude Code"
         case .codex: return "Codex"
+        case .deepInfra: return "DeepInfra"
         }
     }
+
+    /// Whether the harness needs a provider API key from Chief Settings.
+    public var needsCredential: Bool { self == .deepInfra }
 }
 
 /// One model a picker offers.
@@ -90,8 +96,18 @@ extension ChiefHarness {
         ChiefModelOption(id: "gpt-5.5", displayName: "GPT-5.5", efforts: [.low, .medium, .high, .xhigh]),
     ]
 
-    /// The harness a settings value names (`"claude"` or `"codex"`, any
-    /// case); an unknown value falls back to Claude Code.
+    /// DeepInfra models, default first: open models that handle Claude Code's tool use,
+    /// from DeepInfra's Anthropic-compatible catalog (snapshot 2026-10-16). `--effort`
+    /// sets Claude thinking budgets these models do not take, so none offers a level.
+    private static let deepInfraModels: [ChiefModelOption] = [
+        ChiefModelOption(id: "deepseek-ai/DeepSeek-V4-Pro-0813", displayName: "DeepSeek V4 Pro", efforts: []),
+        ChiefModelOption(id: "moonshotai/Kimi-K3", displayName: "Kimi K3", efforts: []),
+        ChiefModelOption(id: "zai-org/GLM-5.3", displayName: "GLM-5.3", efforts: []),
+        ChiefModelOption(id: "deepseek-ai/DeepSeek-V4-Flash-0731", displayName: "DeepSeek V4 Flash", efforts: []),
+    ]
+
+    /// The harness a settings value names (`"claude"`, `"codex"` or
+    /// `"deepinfra"`, any case); an unknown value falls back to Claude Code.
     public init(lenient name: String) {
         self = ChiefHarness(rawValue: name.lowercased()) ?? .claude
     }
@@ -101,6 +117,7 @@ extension ChiefHarness {
         switch self {
         case .claude: return Self.claudeModels
         case .codex: return Self.codexModels
+        case .deepInfra: return Self.deepInfraModels
         }
     }
 
@@ -161,9 +178,11 @@ extension ChiefHarness {
     ///   - effort: The effort level; nil or empty uses the model default.
     ///   - dangerouslySkipPermissions: Whether the harness may bypass permission prompts.
     ///   - executableOverride: An explicit CLI path; nil looks it up on `PATH`.
+    ///   - keyFile: The saved provider key a harness that ``needsCredential`` reads (else its
+    ///     environment variable); without either its turns fail with a pointer to Chief Settings.
     /// - Returns: A brain that starts its processes lazily.
     public func makeBrain(model: String?, effort: String?, dangerouslySkipPermissions: Bool = false,
-                          executableOverride: URL? = nil) -> any ChiefBrain {
+                          executableOverride: URL? = nil, keyFile: URL? = nil) -> any ChiefBrain {
         let model = model.flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel
         let effort = effort.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }
         switch self {
@@ -175,6 +194,11 @@ extension ChiefHarness {
             return CodexAppServerBrain(configuration: .init(model: model, effort: effort,
                                                             dangerouslySkipPermissions: dangerouslySkipPermissions,
                                                             executableOverride: executableOverride))
+        case .deepInfra:
+            return ClaudeCodeBrain(configuration: .init(model: model, effort: effort,
+                                                        dangerouslySkipPermissions: dangerouslySkipPermissions,
+                                                        executableOverride: executableOverride,
+                                                        endpoint: .deepInfra(keyFile: keyFile)))
         }
     }
 }

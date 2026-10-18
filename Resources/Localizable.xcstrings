@@ -657993,124 +657993,6 @@
         }
       }
     },
-    "chief.firstRun.intro.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief runs your coding agents and terminals."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief steuert deine Coding-Agents und Terminals."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief gère vos agents de code et vos terminaux."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يدير Chief وكلاء البرمجة والطرفيات لديك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief gestiona tus agentes de código y tus terminales."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 管理你的程式設計代理和終端機。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 管理你的编程代理和终端。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief가 코딩 에이전트와 터미널을 관리합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief はコーディングエージェントとターミナルを管理します。"
-          }
-        }
-      }
-    },
-    "chief.firstRun.intro.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It starts coding agents and checks on them, works in your terminals, and sets up Cloud machines with a desktop it can use for you."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Er startet Coding-Agents und behält sie im Blick, arbeitet in deinen Terminals und richtet Cloud-Maschinen mit einem Desktop ein, den er für dich bedienen kann."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il lance des agents de code et les surveille, travaille dans vos terminaux et configure des machines Cloud avec un bureau qu’il peut utiliser pour vous."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يشغّل وكلاء البرمجة ويتابعهم، ويعمل في الطرفيات لديك، ويُعدّ أجهزة Cloud بسطح مكتب يمكنه استخدامه نيابةً عنك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inicia agentes de código y los supervisa, trabaja en tus terminales y configura máquinas Cloud con un escritorio que puede usar por ti."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它會啟動程式設計代理並追蹤進度、在你的終端機中工作，並設定附有桌面的 Cloud 機器，替你操作。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它会启动编程代理并跟进进度、在你的终端中工作，并设置带桌面的 Cloud 机器，替你操作。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "코딩 에이전트를 시작하고 진행 상황을 확인하며, 터미널에서 작업하고, 대신 사용할 수 있는 데스크톱이 있는 Cloud 머신을 설정합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コーディングエージェントを起動して様子を確認し、ターミナルで作業し、代わりに操作できるデスクトップ付きの Cloud マシンを用意します。"
-          }
-        }
-      }
-    },
     "chief.firstRun.prompt.agentStatus": {
       "extractionState": "manual",
       "localizations": {
@@ -668507,6 +668389,655 @@
           "stringUnit": {
             "state": "translated",
             "value": "展開済み"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra API Key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح API لـ DeepInfra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra-API-Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave de API de DeepInfra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé API DeepInfra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra API キー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra API 키"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra API 金鑰"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.environment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using DEEPINFRA_API_KEY from the environment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُستخدم DEEPINFRA_API_KEY من البيئة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEEPINFRA_API_KEY aus der Umgebung wird verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se usa DEEPINFRA_API_KEY del entorno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation de DEEPINFRA_API_KEY depuis l’environnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境変数の DEEPINFRA_API_KEY を使用しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경 변수의 DEEPINFRA_API_KEY를 사용 중입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用环境变量中的 DEEPINFRA_API_KEY。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用環境變數中的 DEEPINFRA_API_KEY。"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved on this Mac, never in cmux.json. Create a key at deepinfra.com. Usage is billed to your DeepInfra account."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُحفظ على هذا الـ Mac، وليس في cmux.json أبدًا. أنشئ مفتاحًا على deepinfra.com. يُحتسب الاستخدام على حسابك في DeepInfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac gesichert, nie in cmux.json. Erstelle einen Schlüssel auf deepinfra.com. Die Nutzung wird über dein DeepInfra-Konto abgerechnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se guarda en este Mac, nunca en cmux.json. Crea una clave en deepinfra.com. El uso se factura en tu cuenta de DeepInfra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrée sur ce Mac, jamais dans cmux.json. Créez une clé sur deepinfra.com. L’utilisation est facturée sur votre compte DeepInfra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac に保存され、cmux.json には保存されません。deepinfra.com でキーを作成してください。利用料金は DeepInfra アカウントに請求されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 저장되며 cmux.json에는 저장되지 않습니다. deepinfra.com에서 키를 만드세요. 사용량은 DeepInfra 계정으로 청구됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存在这台 Mac 上，绝不写入 cmux.json。请在 deepinfra.com 创建密钥。用量计入你的 DeepInfra 账户。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存在這台 Mac 上，絕不寫入 cmux.json。請在 deepinfra.com 建立金鑰。使用量會計入你的 DeepInfra 帳號。"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a key to use DeepInfra models."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف مفتاحًا لاستخدام نماذج DeepInfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge einen Schlüssel hinzu, um DeepInfra-Modelle zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una clave para usar los modelos de DeepInfra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez une clé pour utiliser les modèles DeepInfra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra のモデルを使うにはキーを追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepInfra 모델을 사용하려면 키를 추가하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加密钥以使用 DeepInfra 模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增金鑰以使用 DeepInfra 模型。"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste your key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصق مفتاحك"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlüssel einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega tu clave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez votre clé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키를 붙여넣으세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴你的密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上你的金鑰"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Key"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة المفتاح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlüssel entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar clave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer la clé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키 제거"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除金鑰"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the key."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر حفظ المفتاح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Schlüssel konnte nicht gesichert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar la clave."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer la clé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを保存できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키를 저장할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存金鑰。"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.savedPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved. Paste a new key to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محفوظ. الصق مفتاحًا جديدًا لاستبداله."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesichert. Füge einen neuen Schlüssel ein, um ihn zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardada. Pega una clave nueva para reemplazarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrée. Collez une nouvelle clé pour la remplacer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みです。置き換えるには新しいキーを貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장되었습니다. 바꾸려면 새 키를 붙여넣으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存。粘贴新密钥即可替换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存。貼上新金鑰即可取代。"
+          }
+        }
+      }
+    },
+    "chief.settings.deepInfraKey.removeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not remove the key."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إزالة المفتاح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Schlüssel konnte nicht entfernt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo eliminar la clave."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer la clé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを削除できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키를 제거할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法移除密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法移除金鑰。"
+          }
+        }
+      }
+    },
+    "chief.firstRun.intro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief runs your coding agents and terminals."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief steuert deine Coding-Agents und Terminals."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gère vos agents de code et vos terminaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدير Chief وكلاء البرمجة والطرفيات لديك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief gestiona tus agentes de código y tus terminales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 管理你的程式設計代理和終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 管理你的编程代理和终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 코딩 에이전트와 터미널을 관리합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief はコーディングエージェントとターミナルを管理します。"
+          }
+        }
+      }
+    },
+    "chief.firstRun.intro.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It starts coding agents and checks on them, works in your terminals, and sets up Cloud machines with a desktop it can use for you."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er startet Coding-Agents und behält sie im Blick, arbeitet in deinen Terminals und richtet Cloud-Maschinen mit einem Desktop ein, den er für dich bedienen kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il lance des agents de code et les surveille, travaille dans vos terminaux et configure des machines Cloud avec un bureau qu’il peut utiliser pour vous."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل وكلاء البرمجة ويتابعهم، ويعمل في الطرفيات لديك، ويُعدّ أجهزة Cloud بسطح مكتب يمكنه استخدامه نيابةً عنك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia agentes de código y los supervisa, trabaja en tus terminales y configura máquinas Cloud con un escritorio que puede usar por ti."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它會啟動程式設計代理並追蹤進度、在你的終端機中工作，並設定附有桌面的 Cloud 機器，替你操作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它会启动编程代理并跟进进度、在你的终端中工作，并设置带桌面的 Cloud 机器，替你操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트를 시작하고 진행 상황을 확인하며, 터미널에서 작업하고, 대신 사용할 수 있는 데스크톱이 있는 Cloud 머신을 설정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントを起動して様子を確認し、ターミナルで作業し、代わりに操作できるデスクトップ付きの Cloud マシンを用意します。"
           }
         }
       }

@@ -5293,5 +5293,18 @@
     "identityLocales": {
       "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
     }
+  },
+  "settings.automation.chief.harness.deepInfra": {
+    "source": "DeepInfra",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
   }
 }

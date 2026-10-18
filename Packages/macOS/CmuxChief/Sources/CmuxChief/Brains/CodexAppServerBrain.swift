@@ -198,7 +198,7 @@ actor CodexConversation {
 
     private func ensureProcess(_ request: ChiefTurnRequest) async throws {
         if process != nil { return }
-        let environment = ChiefExecutableResolver.environment(request.environment,
+        let environment = ChiefExecutableResolver.environment(request: request.environment,
                                                               overrides: ["CMUX_CODEX_HOOKS_DISABLED": "1"])
         guard let executable = ChiefExecutableResolver.resolve("codex", override: configuration.executableOverride,
                                                                environment: environment) else {

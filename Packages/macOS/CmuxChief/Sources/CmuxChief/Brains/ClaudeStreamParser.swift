@@ -13,6 +13,8 @@ enum ClaudeStreamOutput: Sendable, Equatable {
     case stalePermission(requestID: String, input: ChiefJSON)
     /// A control request the driver does not handle; it answers with an error.
     case unsupportedControl(requestID: String, subtype: String)
+    /// The API rejected the credential (401) and Claude Code is retrying it.
+    case rejectedCredential
 }
 
 /// Turns Claude Code's `--output-format stream-json` lines into Chief turn
@@ -107,6 +109,11 @@ struct ClaudeStreamParser: Sendable {
         if line["parent_tool_use_id"]?.string != nil { return [] }
         switch type {
         case "system":
+            // A 401 that Claude Code retries (up to ten times, with growing delays) never succeeds.
+            // A 403 is left alone: providers also use it for balance or model access.
+            if line["subtype"]?.string == "api_retry", line["error_status"]?.number == 401 {
+                return [.rejectedCredential]
+            }
             guard line["subtype"]?.string == "init", let id = line["session_id"]?.string, id != sessionID else { return [] }
             sessionID = id
             return turnActive ? [.event(.session(id))] : []
