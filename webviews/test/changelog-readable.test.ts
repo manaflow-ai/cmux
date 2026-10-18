@@ -44,7 +44,9 @@ test("readable change titles", () => {
     title: "Snapshot sources name a new pane's first runs",
     internal: true,
   });
-  expect(readableChange("cmux-next strip: a moving column keeps the larger traffic-light inset until it rests")).toEqual({
+  expect(
+    readableChange("cmux-next strip: a moving column keeps the larger traffic-light inset until it rests"),
+  ).toEqual({
     title: "A moving column keeps the larger traffic-light inset until it rests",
     internal: false,
   });
@@ -61,5 +63,7 @@ test("short titles end at a clause, never inside one", () => {
     "Terminals in the keep-alive band keep drawing",
   );
   expect(shortTitle("An agent page that never paints drops its loading spinner after 8 s")).toBeUndefined();
-  expect(shortTitle("A tab dropped on a strip lands by the pointer")).toBe("A tab dropped on a strip lands by the pointer");
+  expect(shortTitle("A tab dropped on a strip lands by the pointer")).toBe(
+    "A tab dropped on a strip lands by the pointer",
+  );
 });

@@ -11,6 +11,7 @@ import type {
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
+import { readableChange, shortTitle } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -36,8 +37,10 @@ export interface ReleaseItem {
 export interface ReleaseView {
   hero?: ReleaseItem;
   groups: { category: WhatsNewCategory; items: ReleaseItem[] }[];
-  /** Every change (titles with their pull requests), shown folded. */
+  /** Every change a person would notice (readable titles, each pull request once), shown folded. */
   changes: ChangeItem[];
+  /** Changes left out of `changes` as internal work (CI, tests, perf measurement). */
+  internalChanges: number;
   /** Every change the release lists (hero and groups), for counts. */
   count: number;
 }
@@ -121,21 +124,78 @@ function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
   return items.find((i) => i.category === "new" && i.media) ?? items.find((i) => i.media);
 }
 
+/** The item as a person reads it, or undefined for internal work: no work-stream prefix or bead
+    id, and a title an older pipeline cut with "…" made whole again from its summary or the
+    change it came from. A long title ends at its first clause and the rest becomes the summary. */
+function readableItem(item: ReleaseItem, changes: ChangeItem[]): ReleaseItem | undefined {
+  const readable = readableChange(item.title);
+  if (readable.internal) return undefined;
+  let full = readable.title;
+  if (full.endsWith("…")) {
+    const stem = full.slice(0, -1).trim().toLowerCase();
+    const whole = [item.summary, ...changes.map((c) => c.title)]
+      .map((text) => (text && !text.includes("\n") ? readableChange(text).title : ""))
+      .find((text) => !text.endsWith("…") && text.toLowerCase().startsWith(stem) && text.length > stem.length);
+    full = whole ?? full.slice(0, -1).trim();
+  }
+  const title = shortTitle(full) ?? full;
+  // A digest built from summary lines repeats the title as the summary; read that copy too.
+  const echoes = !!item.summary && stemOf(item.summary).startsWith(stemOf(item.title).slice(0, 24));
+  let summary = echoes ? readableChange(item.summary).title : item.summary;
+  if (title !== full) {
+    summary = full
+      .slice(title.length)
+      .replace(/^[\s,;—-]+/u, "")
+      .replace(/^\((.*)\)$/u, "$1");
+  } else if (summary.toLowerCase().startsWith(stemOf(title)) && summary.length <= full.length + 1) {
+    summary = "";
+  }
+  return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+function stemOf(text: string): string {
+  return text.replace(/[.!…\s]+$/u, "").toLowerCase();
+}
+
+/** The changes a person would notice, readable and each pull request (or title) once, and how
+    many internal ones were left out. */
+export function readableChanges(items: ChangeItem[]): { changes: ChangeItem[]; internal: number } {
+  const seen = new Set<string>();
+  const changes: ChangeItem[] = [];
+  let internal = 0;
+  for (const item of items) {
+    const readable = readableChange(item.title);
+    const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (readable.internal) internal += 1;
+    else changes.push({ ...item, title: readable.title });
+  }
+  return { changes, internal };
+}
+
 export function releaseView(notes: ReleaseNotes, language: string): ReleaseView {
   // The reviewed document first, then the highlights it does not carry (a nightly digest drops
-  // an entry the validator refuses), then the summary lines no highlight already says.
-  const items: ReleaseItem[] = (notes.whatsNew?.entries ?? []).map((e) => fromEntry(e, language));
-  const ids = new Set(items.map((i) => i.id));
-  const seen = new Set(items.map((i) => i.title.toLowerCase()));
-  for (const highlight of notes.highlights) {
-    if (ids.has(highlight.id) || seen.has(highlight.title.toLowerCase())) continue;
-    seen.add(highlight.title.toLowerCase());
-    items.push(fromHighlight(highlight));
-  }
+  // an entry the validator refuses), then the summary lines no highlight already says. Each as a
+  // person reads it; internal work is left out.
+  const raw = changeItems(notes);
+  const items: ReleaseItem[] = [];
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  const add = (item: ReleaseItem, byId: boolean) => {
+    if (byId && ids.has(item.id)) return;
+    const readable = readableItem(item, raw);
+    if (!readable) return;
+    const key = readable.title.toLowerCase();
+    if (seen.has(key)) return;
+    ids.add(item.id);
+    seen.add(key);
+    items.push(readable);
+  };
+  for (const entry of notes.whatsNew?.entries ?? []) add(fromEntry(entry, language), false);
+  for (const highlight of notes.highlights) add(fromHighlight(highlight), true);
   for (const [index, line] of (notes.summary ?? []).entries()) {
-    if (seen.has(line.title.toLowerCase())) continue;
-    seen.add(line.title.toLowerCase());
-    items.push({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" });
+    add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false);
   }
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
@@ -143,7 +203,8 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  return { hero, groups, changes: changeItems(notes), count: items.length };
+  const { changes, internal } = readableChanges(raw);
+  return { hero, groups, changes, internalChanges: internal, count: items.length };
 }
 
 /** The notes' structured changes, else one item per commit subject (no PR without the provider). */
@@ -173,16 +234,8 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
     category,
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
-  const changeSeen = new Set<string>();
-  const changes = views
-    .flatMap((v) => v.changes)
-    .filter((c) => {
-      const key = c.pr ? `#${c.pr}` : c.title;
-      if (changeSeen.has(key)) return false;
-      changeSeen.add(key);
-      return true;
-    });
-  return { hero, groups, changes, count: items.length };
+  const { changes, internal } = readableChanges(notes.flatMap(changeItems));
+  return { hero, groups, changes, internalChanges: internal, count: items.length };
 }
 
 /** Builds (newest first) in runs of one release day. */

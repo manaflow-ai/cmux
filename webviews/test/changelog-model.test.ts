@@ -42,13 +42,22 @@ test("a summary that repeats its title is dropped", () => {
 });
 
 test("a summary that says more than its title is kept", () => {
-  const long = "Keep favorite destinations within easy reach across all of your open windows";
   const view = releaseView(
-    notes([
-      entry("summary-0", "Keep favorite destinations within easy reach across all…", long),
-      entry("tabs", "Tab groups", "Colored labels, icons, and pins that keep a group."),
-    ]),
+    notes([entry("tabs", "Tab groups", "Colored labels, icons, and pins that keep a group.")]),
     "en",
   );
-  expect(summaries(view)).toEqual({ "summary-0": long, tabs: "Colored labels, icons, and pins that keep a group." });
+  expect(summaries(view)).toEqual({ tabs: "Colored labels, icons, and pins that keep a group." });
+});
+
+// An older pipeline cut long titles with "…" and carried the whole line as the summary: the row
+// shows the whole line once, as its title (Leo 2026-10-18: never cut a title mid-sentence).
+test("a title cut with an ellipsis is made whole from its summary", () => {
+  const long = "Keep favorite destinations within easy reach across all of your open windows";
+  const view = releaseView(
+    notes([entry("summary-0", "Keep favorite destinations within easy reach across all…", long)]),
+    "en",
+  );
+  const [item] = view.groups.flatMap((g) => g.items);
+  expect(item?.title).toBe(long);
+  expect(item?.summary).toBe("");
 });

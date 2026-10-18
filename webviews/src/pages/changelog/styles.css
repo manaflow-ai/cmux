@@ -76,16 +76,18 @@ html[data-cmux-page="changelog"] body {
   font-weight: 600;
 }
 .cl-group ul { list-style: none; margin: 0; padding: 0; }
+/* A row wraps rather than cut a title or its line short (Leo 2026-10-18). */
 .cl-group li {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  column-gap: 6px;
   padding: 5px 0;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.cl-row-title { font-weight: 600; flex: none; max-width: 100%; }
-.cl-row-summary { color: var(--page-text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-row-title { font-weight: 600; flex: 0 1 auto; min-width: 0; }
+.cl-row-summary { color: var(--page-text-2); flex: 0 1 auto; min-width: 0; }
 .cl-row-action {
   margin-left: auto;
   flex: none;
@@ -126,6 +128,7 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
+.cl-changes-internal { color: var(--page-text-3); }
 .cl-pr { flex: none; margin-left: auto; color: var(--page-text-3); text-decoration: none; font-variant-numeric: tabular-nums; }
 .cl-pr:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
 .cl-more {

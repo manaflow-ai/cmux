@@ -122,10 +122,21 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
   );
 }
 
-/** Every change, folded: readable titles with their pull request linked, 20 at a time. */
-export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[]; strings: Strings; open?: boolean }) {
+/** Every change a person would notice, folded: readable titles with their pull request linked,
+    20 at a time, then one quiet line for the internal ones. */
+export function ChangesFold({
+  changes,
+  internal = 0,
+  strings,
+  open,
+}: {
+  changes: ChangeItem[];
+  internal?: number;
+  strings: Strings;
+  open?: boolean;
+}) {
   const [shown, setShown] = useState(CHANGES_PAGE);
-  if (changes.length === 0) return null;
+  if (changes.length === 0 && internal === 0) return null;
   return (
     <details className="cl-changes" open={open}>
       <summary>
@@ -143,6 +154,13 @@ export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[];
             )}
           </li>
         ))}
+        {internal > 0 && shown >= changes.length && (
+          <li className="cl-changes-internal">
+            {internal === 1
+              ? strings.t("changelog.page.internalChange")
+              : strings.format("changelog.page.internalChanges", String(internal))}
+          </li>
+        )}
       </ul>
       {shown < changes.length && (
         <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
