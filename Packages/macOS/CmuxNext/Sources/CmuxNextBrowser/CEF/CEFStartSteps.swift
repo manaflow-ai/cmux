@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Darwin
 
 /// The main-thread steps of Chromium's start, counted as
 /// `MainThreadEngineStart` time so control deadlines skip them:
@@ -16,15 +17,45 @@ final class CEFStartSteps {
     private(set) var firstWindowPending = false
     private var firstWindowRequested = false
 
+    /// When each step of Chromium's start ran in this process and for how
+    /// long (`debug.cef` `start_steps`): `initialize`, `make_tab` (the first
+    /// tab's host and page objects), `create_window`, every pump run of 10 ms
+    /// or more until the first window exists (`pump`), `first_window`
+    /// (OnAfterCreated). At most 64.
+    private(set) var marks: [CEFStartMark] = []
+    private var madeFirstTab = false
+
+    private func mark<T, E: Error>(_ name: String, _ body: () throws(E) -> T, keepUnder: Double = 0) throws(E) -> T {
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        defer {
+            let ms = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1_000_000
+            // Pump runs keep 8 slots free for the steps after them (first_window).
+            if ms >= keepUnder, marks.count < (keepUnder > 0 ? 56 : 64) {
+                marks.append(CEFStartMark(name: name, startUptimeNanos: start, milliseconds: ms))
+            }
+        }
+        return try body()
+    }
+
+    /// A sub-step of the start (`cef_initialize`, `ready_hooks`): timed only.
+    func timed<T>(_ name: String, _ body: () -> T) -> T { mark(name, body) }
+
     /// `CefInitialize` (main thread).
     func initialize<E: Error>(_ body: () throws(E) -> Void) throws(E) {
-        try MainThreadEngineStart.shared.run(body)
+        try mark("initialize") { () throws(E) in try MainThreadEngineStart.shared.run(body) }
+    }
+
+    /// The first Chromium tab's page objects (`CEFEngine.makeReadyTab`).
+    func makeTab<T>(_ body: () -> T) -> T {
+        guard !madeFirstTab else { return body() }
+        madeFirstTab = true
+        return mark("make_tab", body)
     }
 
     /// The first browser window's `create_window` call.
     func createWindow(_ body: () -> Int32) -> Int32 {
         guard !firstWindowRequested else { return body() }
-        let started = MainThreadEngineStart.shared.run(body)
+        let started = mark("create_window") { MainThreadEngineStart.shared.run(body) }
         firstWindowRequested = started == 1
         firstWindowPending = started == 1
         return started
@@ -32,7 +63,12 @@ final class CEFStartSteps {
 
     /// A window exists (OnAfterCreated for a create_window request, also one
     /// whose tab closed meanwhile).
-    func firstWindowEnded() { firstWindowPending = false }
+    func firstWindowEnded() {
+        if firstWindowPending, marks.count < 64 {
+            marks.append(CEFStartMark(name: "first_window", startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW), milliseconds: 0))
+        }
+        firstWindowPending = false
+    }
 
     /// One run of the external message pump. `windowPending`: a
     /// create_window request still waits for its window; when none does
@@ -40,6 +76,14 @@ final class CEFStartSteps {
     /// first window's step ends too.
     func pump(windowPending: Bool, _ work: () -> Void) {
         if !windowPending { firstWindowPending = false }
-        if firstWindowPending { MainThreadEngineStart.shared.run(work) } else { work() }
+        if firstWindowPending { mark("pump", { MainThreadEngineStart.shared.run(work) }, keepUnder: 10) } else { work() }
     }
+}
+
+/// One timed step of Chromium's start (`CEFStartSteps.marks`).
+public struct CEFStartMark: Sendable {
+    public var name: String
+    /// `CLOCK_UPTIME_RAW` nanoseconds, the clock of `debug.hangs`.
+    public var startUptimeNanos: UInt64
+    public var milliseconds: Double
 }

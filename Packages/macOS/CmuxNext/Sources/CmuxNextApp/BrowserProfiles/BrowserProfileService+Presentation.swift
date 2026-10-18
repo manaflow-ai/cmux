@@ -29,12 +29,11 @@ extension BrowserProfileService {
                                    name: record?.name ?? displayName(id))
     }
 
-    /// Re-renders every tab strip and omnibar after a profile or a default
-    /// changed (names, colors, which tabs differ from their workspace).
+    /// Re-renders every omnibar after a profile or a default changed. Tab strips follow by
+    /// themselves: a pane snapshot reads `tabBadge` (observed: the book, the home records), so
+    /// only the strips whose badge changed map again. Pushing every strip here re-ran every pane
+    /// snapshot twice at each launch, with nothing changed (cx-8w027.23, I2).
     func refreshPresentation() {
-        for controller in services.windows.controllers {
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] { pane.resyncStrip() }
-        }
         for (key, entry) in services.cache.browsers {
             entry.chrome.addressBar.setProfileBadge(omnibarBadge(forTab: key))
             entry.chrome.toolbarButtons.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)

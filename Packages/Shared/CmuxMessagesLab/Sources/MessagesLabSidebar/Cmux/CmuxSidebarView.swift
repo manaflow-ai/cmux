@@ -141,7 +141,13 @@ public final class CmuxSidebarView: NSView {
         controller.view.autoresizingMask = [.width, .height]
         addSubview(controller.view)
         setAccessibilityIdentifier("cmux.home.sidebar")
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
+        // bubbles already pulsing (CmuxSidebarView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
