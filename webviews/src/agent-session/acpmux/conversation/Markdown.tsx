@@ -14,6 +14,8 @@ import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
+import { RenderPreview } from "./RenderPreview";
+import { REACT_MARKER } from "./renderFrameDoc";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
@@ -661,6 +663,18 @@ function Block({
       );
     }
     case "code": {
+      // Keep the card mounted while its inert preview becomes a live page (Lucas 2026-10-18).
+      if (
+        liveRender &&
+        code !== "plain" &&
+        /^(cmux-render|cmux-react)$/i.test(block.lang) &&
+        (!block.open || code === "open")
+      ) {
+        const render = renderFence(block.lang, block.code) ?? {
+          html: block.lang.toLowerCase() === "cmux-react" ? REACT_MARKER : block.code,
+        };
+        return <RenderPreview call={{ ...render, id: rowId ? renderId : undefined }} streaming={!!block.open} />;
+      }
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
@@ -759,9 +773,17 @@ export function Markdown({
   githubRepository,
   plainCode = false,
 }: MarkdownProps) {
+  const liveRender = useLab("liveRender");
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
+  // safeTail holds a last fence line; a completed render can take over now.
+  const closedRender =
+    liveRender &&
+    /(?:^|\n)[ \t]*```[ \t]*$/.test(children) &&
+    /^[ \t]*```(?:cmux-render|cmux-react)\b/i.test(children.match(/^[ \t]*```[^\n]*$/gm)?.at(-2) ?? "");
+  const blocks = acpmuxPerf.timed("markdown.parse", () =>
+    parser.current!.update(children, { streaming: streaming && !closedRender }),
+  );
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
