@@ -425,6 +425,13 @@ test("New Collage… arranges pictures, saves them as one background, and can ed
   expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
   await act(async () => button("Save Collage", editor())!.click());
   await settle();
-  expect(runs(page, "cmux.settings.backdrop.image.collage.save").at(-1)).toMatchObject({ replacing: "c-1" });
+  // The edit is saved under a new id, the background switches to it, and only then does the old
+  // collage go.
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-2" });
+  expect(runs(page, "cmux.settings.backdrop.image.collage.delete").at(-1)).toMatchObject({ id: "c-1" });
+  const log = page.provider.log.map((entry) => entry.op);
+  expect(log.lastIndexOf("cmux.settings.set")).toBeLessThan(
+    log.lastIndexOf("cmux.settings.backdrop.image.collage.delete"),
+  );
   page.unmount();
 });

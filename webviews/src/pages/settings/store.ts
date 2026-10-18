@@ -316,15 +316,14 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Draws and saves `collage` (replacing an edited one) and makes it the background. Resolves
-   * the new id, or the refusal code. */
+  /** Draws and saves `collage` and makes it the background. An edit is saved under a new id;
+   * the collage it replaces is removed only once the background has switched (the host still
+   * refuses it while a workspace shows it). Resolves the new id, or the refusal code. */
   async saveCollage(collage: Collage, replacing?: string): Promise<{ id: string } | { error: string }> {
-    const reply = await this.request(
-      "cmux.settings.backdrop.image.collage.save",
-      replacing ? { collage, replacing } : { collage },
-    );
+    const reply = await this.request("cmux.settings.backdrop.image.collage.save", { collage });
     if (!reply.ok) return { error: reply.error.code };
-    await this.set("appearance.background", `collage:${reply.value.id}`);
+    const switched = await this.set("appearance.background", `collage:${reply.value.id}`);
+    if (switched.ok && replacing) await this.request("cmux.settings.backdrop.image.collage.delete", { id: replacing });
     await this.refreshHost();
     return { id: reply.value.id };
   }

@@ -196,13 +196,12 @@ export class MockSettingsProvider {
       },
       "cmux.settings.backdrop.image.reveal": () => ({}),
       "cmux.settings.backdrop.image.collage.save": (params) => {
-        const { collage, replacing } = params as { collage: { name: string; layers: unknown[] }; replacing?: string };
+        const { collage } = params as { collage: { name: string; layers: unknown[] } };
         if (collage.layers.length === 0)
           throw new ProtocolError("cmux.settings.backdrop.collage.no_pictures", "no pictures");
         const id = `c-${this.collages.size + 1}`;
         this.collages.set(id, collage);
-        if (replacing) this.collages.delete(replacing);
-        const rows = (this.host.backdrops ?? []).filter((row) => row.id !== `collage:${replacing}`);
+        const rows = this.host.backdrops ?? [];
         const row = {
           id: `collage:${id}`,
           title: collage.name || "Collage",

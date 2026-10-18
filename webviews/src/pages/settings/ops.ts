@@ -336,7 +336,7 @@ export type SettingsOps = {
   "cmux.settings.backdrop.image.adjust": [Record<string, never>, Record<string, never>];
   /** Native: draw and save a collage (backgrounds plan phase 7), replacing an edited one; the
    * page then sets `collage:<id>`. Refused with cmux.settings.backdrop.collage.* codes. */
-  "cmux.settings.backdrop.image.collage.save": [{ collage: Collage; replacing?: string }, { id: string }];
+  "cmux.settings.backdrop.image.collage.save": [{ collage: Collage }, { id: string }];
   /** Native: a saved collage, to edit. */
   "cmux.settings.backdrop.image.collage.get": [{ id: string }, Collage];
   /** Native: delete a collage (never the background in use). */
