@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as Effect from "effect/Effect";
@@ -73,6 +73,9 @@ function machine() {
   for (const dir of [home, tmp, bin, code]) mkdirSync(dir, { recursive: true });
   write(path.join(bin, "mount"), "#!/bin/sh\necho '/dev/root on / type ext4 (rw)'\n");
   chmodSync(path.join(bin, "mount"), 0o755);
+  // The real Docker must never run from a test: this one records and fails.
+  write(path.join(bin, "docker"), `#!/bin/sh\necho "$*" >> ${JSON.stringify(path.join(root, "docker.calls"))}\nexit 99\n`);
+  chmodSync(path.join(bin, "docker"), 0o755);
   write(path.join(code, "app", "package.json"), "{}");
   write(path.join(code, "app", "src", "main.ts"), "export {};");
   write(path.join(code, "app", "node_modules", "pkg", "index.js"), "1");
@@ -97,6 +100,7 @@ async function runCommandLocally(m: ReturnType<typeof machine>, apply: boolean) 
   });
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
+  expect(existsSync(path.join(m.root, "docker.calls"))).toBe(false);
   return JSON.parse(result.stdout) as MachineHygieneReport;
 }
 
@@ -239,6 +243,26 @@ describe("runMachineHygiene", () => {
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmNotFoundError);
     expect(h.commands).toEqual([]);
+  });
+
+  test("another apply run on the machine answers busy", async () => {
+    const commands: string[] = [];
+    const vm = row();
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, { findUserVm: () => Effect.succeed(vm) } as unknown as VmRepositoryShape),
+      Layer.succeed(VmProviderGateway, {
+        getStatus: () => Effect.succeed("running" as const),
+        exec: (_p: string, _i: string, command: string) => Effect.sync(() => {
+          commands.push(command);
+          return { exitCode: 4, stdout: "", stderr: "another cmux-machine-hygiene --apply is running (pid 7)\n" };
+        }),
+      } as unknown as VmProviderGatewayShape),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+    const result = await Effect.runPromise(Effect.either(runMachineHygiene({
+      userId: OWNER, billingTeamId: TEAM, teamIds: [TEAM], providerVmId: "vm-clean", apply: true,
+    })).pipe(Effect.provide(layer)));
+    expect(result._tag === "Right" && result.right.kind).toBe("busy");
   });
 
   test("never wakes a paused machine", async () => {
