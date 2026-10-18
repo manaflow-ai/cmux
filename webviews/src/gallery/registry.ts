@@ -3,6 +3,9 @@
 // missing export) fails its own load and no other (entryStore.ts). test/gallery-coverage.test.ts
 // reads the same files without Vite (scripts/gallery/entries.ts).
 import { createEntryStore, type EntrySource, type EntryStore } from "./entryStore";
+import { prioritizeEntrySources } from "./registryPriority";
+
+export { prioritizeEntrySources } from "./registryPriority";
 
 const loaders = import.meta.glob("../**/*.gallery.{ts,tsx}", { import: "default" });
 
@@ -22,13 +25,22 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
           ),
   }));
 
+
 /** The shell's store: every entry loads on its own. Created only when the shell mounts. */
 let shellStore: EntryStore | undefined;
 export function getEntryStore(): EntryStore {
   // Keep the shell's background registry at one module transform. A focused frame is a real
   // interactive preview and shares Vite's transform pool; six eager entry imports can otherwise
   // leave the visible iframe blank while the registry compiles unrelated entries.
-  return (shellStore ??= createEntryStore(entrySources, { concurrency: 1, initial: 1, deferRemainingMs: 750 }));
+  const routeEntry =
+    typeof location === "undefined"
+      ? ""
+      : decodeURIComponent(location.hash.replace(/^#\/?/, "").split(/[/?]/, 1)[0] ?? "");
+  return (shellStore ??= createEntryStore(prioritizeEntrySources(entrySources, routeEntry), {
+    concurrency: 1,
+    initial: 1,
+    deferRemainingMs: 750,
+  }));
 }
 
 /** A frame store loads only the source named by the shell; stale source links fail explicitly. */

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createEntryStore, type EntrySource } from "../src/gallery/entryStore";
+import { prioritizeEntrySources } from "../src/gallery/registryPriority";
 
 const entry = (id: string) => ({
   id,
@@ -8,6 +9,15 @@ const entry = (id: string) => ({
   host: "component" as const,
   covers: [`test/${id}`],
   variants: { initial: { props: {} } },
+});
+
+test("deep-linked gallery routes prioritize their real source path", () => {
+  const sources: EntrySource[] = [
+    { path: "src/pages/history/history.gallery.ts", load: async () => entry("test.history") },
+    { path: "src/agent-session/acpmux/Composer.gallery.tsx", load: async () => entry("test.composer") },
+  ];
+  expect(prioritizeEntrySources(sources, "agent-pane.composer")[0]?.path).toContain("Composer.gallery");
+  expect(prioritizeEntrySources(sources, "pages.history")[0]?.path).toContain("history.gallery");
 });
 
 test("find resolves a requested entry before a slow sibling", async () => {
