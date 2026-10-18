@@ -644,9 +644,14 @@ def main():
             if m == "session/new":
                 sessions += 1
                 result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}
-                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too.
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too;
+                # =claude: Claude Code's modes, so acpmux's full-access start mode applies.
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                elif os.environ.get("FAKE_PICKER_MODES") == "claude":
+                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                        {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
+                        {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
