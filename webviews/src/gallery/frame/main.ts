@@ -16,6 +16,7 @@ import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
+import "./frame.css";
 
 installGalleryClock();
 
@@ -29,14 +30,13 @@ const stageRoot = document.getElementById("root");
 const requestedId = params.get("entry");
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
-  stageRoot.style.cssText =
-    "display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box;font:13px system-ui;color:#888";
+  stageRoot.className = "gallery-frame-loading";
 }
 
 function fail(message: string): never {
   root.dataset.galleryReady = "error";
   document.body.textContent = message;
-  document.body.style.cssText = "font: 13px ui-monospace, monospace; color: #c33; padding: 16px; white-space: pre-wrap";
+  document.body.className = "gallery-frame-error";
   parent.postMessage({ type: "cmux-gallery-stage", status: "error", message }, "*");
   throw new Error(message);
 }
@@ -138,7 +138,7 @@ const context: StageContext = {
 
 if (stageRoot) {
   stageRoot.textContent = "";
-  stageRoot.removeAttribute("style");
+  stageRoot.className = "";
 }
 
 function markReady(): void {
@@ -241,7 +241,7 @@ async function mount(): Promise<void> {
     case "native":
       // Drawn by the DEBUG native gallery (CmuxNextGallery); its snapshots join the matrix index.
       document.body.textContent = `${entry.id}#${variantName} is a native view: open it in the cmux-next DEBUG gallery.`;
-      document.body.style.cssText = "font: 13px system-ui; color: var(--cmux-text-secondary); padding: 16px";
+      document.body.className = "gallery-frame-native";
       return;
   }
 }
