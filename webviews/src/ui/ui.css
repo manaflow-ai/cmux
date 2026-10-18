@@ -149,6 +149,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ui-context-menu .ui-menu-item:has(.ui-context-menu-submenu-arrow) {
+  position: relative;
+  padding-inline-end: 24px;
+}
+.ui-context-menu-submenu-arrow {
+  position: absolute;
+  inset-inline-end: 8px;
+  color: var(--agent-muted, currentColor);
+  font-size: 18px;
+  line-height: 1;
+}
+.ui-context-menu-submenu {
+  position: absolute;
+  z-index: 1;
+  inset-inline-start: calc(100% - 4px);
+  top: -4px;
+  min-width: 180px;
+  padding: var(--ui-popup-padding);
+  border-radius: var(--ui-popup-radius);
+  background: var(--surface-popup);
+  box-shadow: var(--acpmux-popup-elevation, var(--elevation-2));
+}
 
 .ui-menu-check {
   display: inline-flex;

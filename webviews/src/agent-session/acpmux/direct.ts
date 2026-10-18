@@ -2091,7 +2091,7 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       rows: this.rows.sorted(),
-      processes: [...this.processes.values()],
+      processes: [...this.processes.values()].filter((process) => process.sessionId === this.selectedSessionId),
       subagentViews: this.subagents.views(),
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);

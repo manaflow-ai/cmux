@@ -14,6 +14,8 @@ export interface ContextMenuItem {
   disabled?: boolean;
   destructive?: boolean;
   separatorBefore?: boolean;
+  /** Optional one-level submenu. Children use the same focus/close semantics as parent items. */
+  children?: readonly ContextMenuItem[];
   onSelect(): void;
 }
 
@@ -67,6 +69,7 @@ const MENU_ICON = {
 export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
+  const [submenu, setSubmenu] = useState<string | undefined>();
   const returnFocus = useRef<HTMLElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
@@ -136,6 +139,18 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       if (enabled.length === 0) return;
       event.preventDefault();
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+      setSubmenu(undefined);
+    } else if (event.key === "ArrowRight") {
+      const item = enabled[active];
+      if (item?.children?.length) {
+        event.preventDefault();
+        setSubmenu(item.id);
+      }
+    } else if (event.key === "ArrowLeft") {
+      if (submenu) {
+        event.preventDefault();
+        setSubmenu(undefined);
+      }
     } else if (event.key === "Home" || event.key === "End") {
       if (enabled.length === 0) return;
       event.preventDefault();
@@ -227,9 +242,21 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
                       disabled={item.disabled}
                       aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                      onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
+                      onPointerEnter={() => {
+                        if (item.disabled) return;
+                        setActive(Math.max(0, enabled.indexOf(item)));
+                        setSubmenu(item.children?.length ? item.id : undefined);
+                      }}
                       data-highlighted={enabled[active] === item ? "" : undefined}
-                      onClick={() => run(item)}
+                      aria-haspopup={item.children?.length ? "menu" : undefined}
+                      aria-expanded={item.children?.length ? submenu === item.id : undefined}
+                      onClick={() => {
+                        if (item.children?.length) {
+                          setSubmenu((current) => (current === item.id ? undefined : item.id));
+                          return;
+                        }
+                        run(item);
+                      }}
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
@@ -243,7 +270,26 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       ) : (
                         item.label
                       )}
+                      {item.children?.length ? <span className="ui-context-menu-submenu-arrow">›</span> : null}
                     </button>
+                    {item.children?.length && submenu === item.id ? (
+                      <div className="ui-context-menu-submenu" role="menu" onPointerDown={(event) => event.stopPropagation()}>
+                        {item.children.map((child) => (
+                          <button
+                            key={child.id}
+                            type="button"
+                            role="menuitem"
+                            className={cx("ui-menu-item", child.destructive && "ui-menu-item-destructive")}
+                            disabled={child.disabled}
+                            aria-label={child.ariaLabel ?? (typeof child.label === "string" ? child.label : undefined)}
+                            onClick={() => run(child)}
+                          >
+                            {child.icon ? <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>{child.icon}</span> : null}
+                            {typeof child.label === "string" ? <span className="ui-menu-label">{child.label}</span> : child.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

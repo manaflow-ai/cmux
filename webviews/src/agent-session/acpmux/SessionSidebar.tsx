@@ -51,6 +51,23 @@ const PLACE_LABELS = {
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
 export type SidebarAccount = { name: string; detail?: string };
 
+/** Host-owned mutations exposed from a chat row's context menu. */
+export type SessionSidebarActions = {
+  onRename?(session: AcpmuxSessionEntry): void;
+  onPin?(session: AcpmuxSessionEntry, pinned: boolean): void;
+  onMarkUnread?(session: AcpmuxSessionEntry): void;
+  onProject?(session: AcpmuxSessionEntry): void;
+  onGroup?(session: AcpmuxSessionEntry): void;
+  onFork?(session: AcpmuxSessionEntry): void;
+  onShare?(session: AcpmuxSessionEntry): void;
+  onCopyDeeplink?(session: AcpmuxSessionEntry): void;
+  onCopyMarkdown?(session: AcpmuxSessionEntry): void;
+  onCopyWorkingDirectory?(session: AcpmuxSessionEntry): void;
+  onOpenWindow?(session: AcpmuxSessionEntry): void;
+  onArchive?(session: AcpmuxSessionEntry, archived: boolean): void;
+  onDelete?(session: AcpmuxSessionEntry): void;
+};
+
 const VIEW_TITLES = {
   history: "sidebar.history",
   pulls: "sidebar.pulls",
@@ -71,6 +88,8 @@ export function SessionSidebar({
   account,
   preview = false,
   groupProjects = false,
+  groupLabel = "Groups",
+  actions,
   onContinue,
   onSettle,
   onShowMoreSettled,
@@ -88,6 +107,10 @@ export function SessionSidebar({
   preview?: boolean;
   /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
   groupProjects?: boolean;
+  /** The visible heading for grouped chats. Regular chat workspaces call these Groups. */
+  groupLabel?: string;
+  /** Host-owned desktop-parity row actions. */
+  actions?: SessionSidebarActions;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
   onShowMoreSettled?: () => void;
@@ -155,12 +178,14 @@ export function SessionSidebar({
                 onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
+                groupLabel={groupLabel}
+                actions={actions}
                 onContinue={onContinue}
                 onSettle={onSettle}
                 onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
-              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} actions={actions} />
             )}
           </div>
           {account && (
@@ -225,6 +250,8 @@ function SessionsView({
   expanded,
   onExpand,
   groupProjects,
+  groupLabel,
+  actions,
   onContinue,
   onSettle,
   onShowMoreSettled,
@@ -239,6 +266,8 @@ function SessionsView({
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
   groupProjects: boolean;
+  groupLabel: string;
+  actions?: SessionSidebarActions;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
   onShowMoreSettled?: () => void;
@@ -314,6 +343,7 @@ function SessionsView({
                 onSelect={onSelect}
                 section="active"
                 onSettle={onSettle}
+                actions={actions}
               />
             ))}
           </ul>
@@ -333,6 +363,7 @@ function SessionsView({
                 onSelect={onSelect}
                 section="active"
                 onSettle={onSettle}
+                actions={actions}
                 flat
               />
             ))}
@@ -340,9 +371,9 @@ function SessionsView({
         </section>
       )}
       {groups.length > 0 && groupProjects && (
-        <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
+        <section className="acpmux-sidebar-projects" aria-label={groupLabel}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
-            {t("sidebar.projects")}
+            {groupLabel}
           </div>
           {groups.map((group) => {
             // A search shows every match, so it never hides rows behind "Show more".
@@ -371,6 +402,7 @@ function SessionsView({
                       onSelect={onSelect}
                       section="active"
                       onSettle={onSettle}
+                      actions={actions}
                     />
                   ))}
                 </ul>
@@ -409,6 +441,7 @@ function SessionsView({
                   onSelect={onSelect}
                   section="settled"
                   onContinue={onContinue}
+                  actions={actions}
                   flat
                 />
               ))}
@@ -431,11 +464,13 @@ function FlatView({
   sessions,
   selectedId,
   onSelect,
+  actions,
 }: {
   view: Exclude<SidebarView, "sessions">;
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
+  actions?: SessionSidebarActions;
 }) {
   const t = useT();
   // Pull requests appear once the session summary reports them; until then the view says so.
@@ -464,6 +499,7 @@ function FlatView({
               onSelect={onSelect}
               flat
               trailing={shortAge(session.updatedAt, now, t)}
+              actions={actions}
             />
           ))}
         </ul>
@@ -482,6 +518,7 @@ const SessionRow = memo(function SessionRow({
   section,
   onContinue,
   onSettle,
+  actions,
 }: {
   session: AcpmuxSessionEntry;
   selected: boolean;
@@ -492,6 +529,7 @@ const SessionRow = memo(function SessionRow({
   section?: "active" | "settled";
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
+  actions?: SessionSidebarActions;
 }) {
   const t = useT();
   const open = useContext(OpenSessions)?.has(session.sessionId);
@@ -520,6 +558,107 @@ const SessionRow = memo(function SessionRow({
       onSelect: () => onSettle([session.sessionId]),
     });
   }
+  if (actions?.onRename)
+    menuItems.push({
+      id: "rename",
+      label: t("chatMenu.rename"),
+      icon: <Icon name="action.edit" size={ROW_ICON} row />,
+      onSelect: () => actions.onRename?.(session),
+    });
+  if (actions?.onPin)
+    menuItems.push({
+      id: "pin",
+      label: session.pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
+      icon: <Icon name="action.pin" size={ROW_ICON} row />,
+      onSelect: () => actions.onPin?.(session, !session.pinned),
+    });
+  if (actions?.onMarkUnread && !session.unread)
+    menuItems.push({
+      id: "mark-unread",
+      label: t("chatMenu.markUnread"),
+      icon: <Icon name="status.unread" size={ROW_ICON} row />,
+      onSelect: () => actions.onMarkUnread?.(session),
+    });
+  if (actions?.onProject)
+    menuItems.push({
+      id: "project",
+      label: t("project.label"),
+      icon: <Icon name="folder" size={ROW_ICON} row />,
+      onSelect: () => actions.onProject?.(session),
+    });
+  if (actions?.onGroup)
+    menuItems.push({
+      id: "group",
+      label: "Group",
+      icon: <Icon name="list" size={ROW_ICON} row />,
+      onSelect: () => actions.onGroup?.(session),
+    });
+  if (actions?.onFork)
+    menuItems.push({
+      id: "fork",
+      label: t("chatMenu.fork"),
+      icon: <Icon name="agent.fork" size={ROW_ICON} row />,
+      separatorBefore: true,
+      onSelect: () => actions.onFork?.(session),
+    });
+  if (actions?.onShare)
+    menuItems.push({
+      id: "share",
+      label: "Share",
+      icon: <Icon name="share" size={ROW_ICON} row />,
+      separatorBefore: true,
+      onSelect: () => actions.onShare?.(session),
+    });
+  const copyItems = [
+    actions?.onCopyDeeplink && {
+      id: "copy-deeplink",
+      label: "Copy deeplink",
+      onSelect: () => actions.onCopyDeeplink?.(session),
+    },
+    actions?.onCopyMarkdown && {
+      id: "copy-markdown",
+      label: t("chatMenu.copyMarkdown"),
+      onSelect: () => actions.onCopyMarkdown?.(session),
+    },
+    actions?.onCopyWorkingDirectory && {
+      id: "copy-working-directory",
+      label: "Copy working directory",
+      onSelect: () => actions.onCopyWorkingDirectory?.(session),
+    },
+  ].filter((item): item is ContextMenuItem => Boolean(item));
+  if (copyItems.length > 0)
+    menuItems.push({
+      id: "copy",
+      label: t("chatMenu.copy"),
+      icon: <Icon name="copy" size={ROW_ICON} row />,
+      children: copyItems,
+      separatorBefore: true,
+      onSelect: () => undefined,
+    });
+  if (actions?.onOpenWindow)
+    menuItems.push({
+      id: "new-window",
+      label: t("chatMenu.newWindow"),
+      icon: <Icon name="app.open.external" size={ROW_ICON} row />,
+      separatorBefore: true,
+      onSelect: () => actions.onOpenWindow?.(session),
+    });
+  if (actions?.onArchive)
+    menuItems.push({
+      id: "archive",
+      label: session.archived ? t("chatMenu.unarchive") : t("chatMenu.archive"),
+      icon: <Icon name="archive" size={ROW_ICON} row />,
+      separatorBefore: true,
+      onSelect: () => actions.onArchive?.(session, !session.archived),
+    });
+  if (actions?.onDelete)
+    menuItems.push({
+      id: "delete",
+      label: t("permission.verb.delete"),
+      icon: <Icon name="action.delete" size={ROW_ICON} row />,
+      destructive: true,
+      onSelect: () => actions.onDelete?.(session),
+    });
   const row = (
     <button
       {...keyboard}
