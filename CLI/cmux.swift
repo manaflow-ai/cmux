@@ -112,6 +112,9 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Restart-stable panel identity carried by the managed terminal environment.
+    /// Runtime surface IDs are re-minted when a session is restored.
+    var stableSurfaceId: String? = nil
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
@@ -399,6 +402,8 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
+    private let stableSurfaceId: String?
+    private let environmentSurfaceId: UUID?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -419,6 +424,10 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.environmentSurfaceId = processEnv["CMUX_SURFACE_ID"].flatMap(UUID.init(uuidString:))
+        self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"].flatMap { value in
+            UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))?.uuidString
+        }
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -2055,6 +2064,14 @@ final class ClaudeHookSessionStore {
     ) {
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
+            // PID/TTY routing can replace stale inherited runtime IDs. Carry a
+            // stable ID only when it belongs to the resolved runtime surface.
+            if let stableSurfaceId, let environmentSurfaceId,
+               UUID(uuidString: surfaceId) == environmentSurfaceId {
+                record.stableSurfaceId = stableSurfaceId
+            } else if record.surfaceId.caseInsensitiveCompare(surfaceId) != .orderedSame {
+                record.stableSurfaceId = nil
+            }
             record.surfaceId = surfaceId
         }
         if let cwd = normalizeOptional(cwd) {
@@ -29774,7 +29791,6 @@ struct CMUXCLI {
                 return
             }
 
-            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
             if parsed.hasFlag("-h") {
@@ -29790,14 +29806,18 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if parsed.hasFlag("-h"),
-               let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
-                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                    direction = anchoredTarget.direction
-                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
-                }
+            var target: (workspaceId: String, paneId: String?, surfaceId: String)
+            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
+               let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                direction = anchoredTarget.direction
+                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+            } else {
+                // Resolve an ordinary target only after attempting the managed
+                // layout anchor. This lets a stale -t pane/surface fall back to
+                // the live leader when a teammate was closed outside the shim.
+                target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             }
 
             // tmux semantics: the new pane takes focus unless -d ("don't focus
@@ -30410,10 +30430,12 @@ struct CMUXCLI {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     try withLockedTmuxCompatStore { store in
                         let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let existingMainPaneWidth = store.mainVerticalLayouts[workspaceId]?.mainPaneWidthFraction
                         let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                         store.mainVerticalLayouts[workspaceId] = MainVerticalState(
                             mainSurfaceId: callerSurface,
-                            lastColumnSurfaceId: seedColumn
+                            lastColumnSurfaceId: seedColumn,
+                            mainPaneWidthFraction: existingMainPaneWidth
                         )
                     }
                 }

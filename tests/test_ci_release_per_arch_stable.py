@@ -85,6 +85,15 @@ class ReleasePerArchStableTest(unittest.TestCase):
             self.assertLess(order("Notarize app"), order(f"Import signing cert for the {arch} DMG"))
             self.assertLess(order(f"Import signing cert for the {arch} DMG"), order(f"Notarize thin {arch} stable DMG"))
             self.assertLess(order(f"Notarize thin {arch} stable DMG"), order("Generate Sparkle appcast"))
+            # The DMG around the stapled app: submitted without a wait, finished together.
+            self.assertIn(f'CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff"', body)
+            self.assertLess(order(f"Notarize thin {arch} stable DMG"), order("Finish the stapled-app thin DMGs"))
+        finish = steps()["Finish the stapled-app thin DMGs"]
+        self.assertIn("./scripts/ci/finish-stapled-app-dmgs.sh", finish)
+        for arch in ARCHS:
+            self.assertIn(f'"$RUNNER_TEMP/stapled-app-{arch}.handoff"', finish)
+        self.assertIn("CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m", finish)
+        self.assertLess(order("Finish the stapled-app thin DMGs"), order("Gate distribution with syspolicy_check"))
 
     def test_appcasts_are_generated_per_dmg_and_composed(self):
         body = steps()["Generate Sparkle appcast"]

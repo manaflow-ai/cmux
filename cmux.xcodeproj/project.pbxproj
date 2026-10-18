@@ -179,6 +179,7 @@
 		B79500040000000000000001 /* AgentPortScanRootInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500040000000000000002 /* AgentPortScanRootInput.swift */; };
 		B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */; };
 		B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500110000000000000002 /* AgentPortTrackingState.swift */; };
+		C9559E747B1307F1E13F8549 /* AgentPreviousGenerationSessionEndTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */; };
 		89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		762CA407531356D761E008F5 /* AgentQuitOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE51B932F439965C497D145F /* AgentQuitOwnershipTests.swift */; };
@@ -3685,6 +3686,7 @@
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */; };
 		FB3A15A096C8270E929D34B6 /* SurfaceCatalog+AgentIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA5950A12D41190CC94F10A /* SurfaceCatalog+AgentIcons.swift */; };
+		C6464A2E80C48B0AB6D992E5 /* SurfaceCatalog+BrowserDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */; };
 		CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */; };
 		F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */; };
 		78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */; };
@@ -4946,6 +4948,7 @@
 		B79500040000000000000002 /* AgentPortScanRootInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanRootInput.swift; sourceTree = "<group>"; };
 		B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortSnapshotReplacementState.swift; sourceTree = "<group>"; };
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
+		6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentPreviousGenerationSessionEndTests.swift"; sourceTree = "<group>"; };
 		89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessBindingResolution.swift; sourceTree = "<group>"; };
 		AE51B932F439965C497D145F /* AgentQuitOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentQuitOwnershipTests.swift"; sourceTree = "<group>"; };
 		D12805000000000000000005 /* AgentQuitProcessOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentQuitProcessOwnership.swift"; sourceTree = "<group>"; };
@@ -8261,6 +8264,7 @@
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgentNaming.swift"; sourceTree = "<group>"; };
 		ECA5950A12D41190CC94F10A /* SurfaceCatalog+AgentIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+AgentIcons.swift"; sourceTree = "<group>"; };
+		DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+BrowserDocuments.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+ChangeNotifications.swift"; sourceTree = "<group>"; };
 		F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudBinding.swift"; sourceTree = "<group>"; };
 		7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudDirectoryMetadata.swift"; sourceTree = "<group>"; };
@@ -9888,6 +9892,7 @@
 				A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */,
 				0C5BE46EBCE45A43B75BF437 /* CmuxTuiSurfaceProviderRegistry+ForeignTeams.swift */,
 				1EDF2ADBFC385933E793C17E /* CmuxTuiSurfaceProvider+AccessLoss.swift */,
+				DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -14013,6 +14018,7 @@
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16824,6 +16830,7 @@
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */,
 				FB3A15A096C8270E929D34B6 /* SurfaceCatalog+AgentIcons.swift in Sources */,
+				C6464A2E80C48B0AB6D992E5 /* SurfaceCatalog+BrowserDocuments.swift in Sources */,
 				CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */,
 				F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */,
 				78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */,
@@ -17999,6 +18006,7 @@
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
+				C9559E747B1307F1E13F8549 /* AgentPreviousGenerationSessionEndTests.swift in Sources */,
 				762CA407531356D761E008F5 /* AgentQuitOwnershipTests.swift in Sources */,
 				F6F0F8FCF48DD40A3DB48F42 /* AgentQuitTerminationCoordinatorTests.swift in Sources */,
 				93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */,

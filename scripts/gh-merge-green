@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--freeze-token TOKEN] [--window-token TOKEN]... [gh pr merge flags...]
+# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--trust-fork-head SHA] [--freeze-token TOKEN] [--window-token TOKEN]... [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
@@ -112,6 +112,7 @@ fi
 fix=0
 override_reason=''
 freeze_token=''
+trust_fork_head=''
 window_tokens=()
 args=()
 while [ "$#" -gt 0 ]; do
@@ -124,6 +125,16 @@ while [ "$#" -gt 0 ]; do
         'not green: --freeze-token requires the token from the FREEZE line' \
         'pass --freeze-token followed by the token=... value you hold'
       freeze_token="$2"
+      shift
+      ;;
+    --trust-fork-head)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --trust-fork-head requires the full reviewed commit SHA' \
+        'review the fork code that merged-head checks execute, then pass its exact head'
+      [[ "$2" =~ ^[0-9a-f]{40}$ ]] || refuse \
+        'not green: --trust-fork-head requires a full lowercase 40-character SHA' \
+        'pass the exact reviewed head, not a branch or an abbreviated SHA'
+      trust_fork_head="$2"
       shift
       ;;
     --window-token)
@@ -155,12 +166,11 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
-skip_vercel=0
+vercel_gate='required'
 if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
-  # Vercel is an optional preview deployment status in this repository.  An
-  # explicit, auditable override may waive that one external status when it is
-  # pending or red; all other pending statuses remain merge blockers.
-  skip_vercel=1
+  # An explicit, auditable override may waive Vercel-family statuses when they
+  # are pending or red; all other pending statuses remain merge blockers.
+  vercel_gate='override'
 fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
@@ -178,6 +188,11 @@ if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_jso
     'retry after GitHub returns headRefOid and baseRefName'
 fi
 IFS=$'\t' read -r sha base <<<"$fields"
+if [ -n "$trust_fork_head" ] && [ "$trust_fork_head" != "$sha" ]; then
+  refuse \
+    "not merged: reviewed fork head $trust_fork_head does not match current head $sha" \
+    'review the current fork head before rerunning with --trust-fork-head'
+fi
 if [ -z "$sha" ] || [ -z "$base" ]; then
   refuse \
     "not green: GitHub metadata for $ref has no head SHA or base branch" \
@@ -222,7 +237,15 @@ fi
 workflow_response=''
 workflow_on_base() {
   local file="$1" response
-  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+  # A missing optional workflow is a normal negative result.  Disable the
+  # global ERR trap just for this expected nonzero API response; otherwise
+  # Bash fires the trap before the 404 branch below can classify it.
+  local status
+  trap - ERR
+  response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
+  status=$?
+  trap on_error ERR
+  if [ "$status" -eq 0 ]; then
     workflow_response="$response"
     return 0
   fi
@@ -483,6 +506,13 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+is_vercel_context() {
+  local lowered
+  lowered=$(LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$lowered" == vercel || "$lowered" == vercel\ preview* || "$lowered" == vercel\ production* ||
+     "$lowered" == vercel-* || "$lowered" == vercel/* || "$lowered" == vercel\ -* || "$lowered" == vercel\ –* ]]
+}
+
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
@@ -495,13 +525,44 @@ if [ "$has_ci" -eq 0 ]; then
   ' <<<"$statuses_json" 2>/dev/null); then
     refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
   fi
+  vercel_reported=0
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$statuses"
+  while IFS=$'\t' read -r name _ _; do
+    [ -n "$name" ] || continue
+    if is_vercel_context "$name"; then
+      vercel_reported=1
+      break
+    fi
+  done <<<"$runs"
+  if [ "$vercel_reported" -eq 1 ] && [ "$vercel_gate" = required ]; then
+    if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      refuse \
+        "not green: cannot list changed files for $ref" \
+        'restore GitHub API access, then retry the exact-head check'
+    fi
+    if ! python3 "$script_dir/ci/vercel_merge_gate.py" "$repo" <<<"$changed_files" >/dev/null 2>&1; then
+      # Vercel is a preview convenience for non-web changes. Keep it required
+      # for web inputs, but never let an unrelated deployment block a merge.
+      vercel_gate='advisory'
+    fi
+  fi
   all_verdicts="$runs"$'\n'"$statuses"
   reported=0
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
-    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
-      echo "note: --override waived Vercel $st/$co status" >&2
+    if is_vercel_context "$name" && [ "$vercel_gate" != required ]; then
+      if [ "$vercel_gate" = advisory ]; then
+        echo "note: Vercel $st/$co is advisory for non-web changes on $sha" >&2
+      else
+        echo "note: --override waived Vercel $st/$co status" >&2
+      fi
       continue
     fi
     if [ "$st" != completed ]; then
@@ -631,7 +692,7 @@ for path in sys.stdin.read().split():
   fi
   if [ -n "$frozen" ]; then
     refuse \
-      "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
+      "not merged: $ref touches frozen paths: $(paste -sd ';' - <<<"$frozen" | sed 's/;/; /g')" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
 fi
@@ -713,10 +774,12 @@ merged_head_checks() {
   grep -q '^Packages/macOS/CmuxNext/' <<<"$changed" && swift_changed=1
   grep -q '^webviews/' <<<"$changed" && web_changed=1
   [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
-  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1; then
+  # Trust concerns the reviewed source, not whether its branch is in our repo.
+  # Pin explicit trust to this exact head; CI and all merged-tree checks still run.
+  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 && [ -z "$trust_fork_head" ]; then
     refuse \
       "not merged: $ref is from a fork, and its merged-head checks would run its code here" \
-      'send the PR to the coordinator, who merges it after reviewing the god-file and vp check results'
+      "review that code, then rerun with --trust-fork-head $sha; no coordinator handoff is required"
   fi
   repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
   if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
@@ -771,10 +834,10 @@ merged_head_checks() {
         status=1
         printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
         printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
-          "${new_files:+ (not on the base: $(paste -sd ' ' <<<"$new_files"))}" >&2
+          "${new_files:+ (not on the base: $(paste -sd ' ' - <<<"$new_files"))}" >&2
       else
         printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
-          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ')" "$ref" >&2
+          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ' -)" "$ref" >&2
       fi
     fi
   fi
@@ -788,6 +851,13 @@ merged_head_checks() {
 }
 if [ "$base" = feat-cmux-next ]; then
   merged_head_checks
+fi
+if [ -n "$trust_fork_head" ]; then
+  if ! gh pr comment "$num" --repo "$repo" --body "merge-source-trust: reviewed fork head $trust_fork_head for local merged-tree checks; normal CI, freeze, and merged-tree gates apply." >/dev/null; then
+    refuse \
+      "not merged: could not record reviewed fork head $trust_fork_head on $ref" \
+      'restore GitHub comment access, then retry the same reviewed head'
+  fi
 fi
 if [ -n "$override_reason" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
