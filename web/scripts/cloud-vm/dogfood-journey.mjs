@@ -306,6 +306,25 @@ async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   if (!matched) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
 }
 
+async function findRestoredTerminal(localSocket, pattern, timeoutMs) {
+  const deadline = performance.now() + timeoutMs;
+  let lastIds = [];
+  while (performance.now() < deadline) {
+    const list = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (list.code === 0) {
+      let terminals = [];
+      try { terminals = JSON.parse(list.stdout || "[]"); } catch {}
+      lastIds = terminals.map((entry) => entry.id).filter(Boolean);
+      for (const entry of terminals) {
+        const screen = await runTui(["--socket", localSocket, "terminal", entry.id, "screen", "read"], 5_000);
+        if (screen.code === 0 && screen.stdout.includes(pattern)) return entry.id;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`restored terminal replay did not contain /${pattern}/ within ${timeoutMs}ms (terminals: ${lastIds.join(",") || "none"})`);
+}
+
 async function sessionHeaders(stackUser, expiresInMillis) {
   const session = await stackUser.createSession({ expiresInMillis, isImpersonation: true });
   const tokens = await session.getTokens();
@@ -666,11 +685,22 @@ try {
   const relaunched = await timed("relaunchReconnect", async () => {
     return startLink("remote connect (relaunch)");
   });
+  let restoredTerminal = terminal;
   await timed("restoredTerminal", async () => {
-    const anchor = skipSleep ? `${marker}-2` : `${marker}-6`;
-    await waitForScreen(relaunched.local_socket, terminal, anchor, 30_000);
+    // The provider restores the terminal/session identity, but it does not
+    // promise replay of the old screen buffer. Resolve the terminal from the
+    // fresh socket, then prove it is live with a new post-relaunch command.
+    localSocket = relaunched.local_socket;
+    const listed = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (listed.code !== 0) throw new Error(`restored terminal list failed (${listed.code}): ${listed.stderr.slice(-400)}`);
+    const terminals = JSON.parse(listed.stdout || "[]");
+    restoredTerminal = terminals[0]?.id;
+    if (!restoredTerminal) throw new Error("relaunch restored no terminal");
+    const relaunchMarker = `${marker}-relaunch`;
+    await typeLine(restoredTerminal, `echo ${relaunchMarker}`);
+    await waitForScreen(localSocket, restoredTerminal, relaunchMarker, 30_000);
   });
-  await saveScreen(relaunched.local_socket, terminal, "03-after-relaunch");
+  await saveScreen(localSocket, restoredTerminal, "03-after-relaunch");
 
   await link.stop();
   await hub.stop();
