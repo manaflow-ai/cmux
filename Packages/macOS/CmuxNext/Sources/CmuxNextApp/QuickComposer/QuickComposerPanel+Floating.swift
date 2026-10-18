@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFloating
 
 /// The floating chat (cx-b9qi): once a started chat stays in the panel, it
 /// resizes, drags by its top edge or with ⌘ anywhere, and keeps the frame it

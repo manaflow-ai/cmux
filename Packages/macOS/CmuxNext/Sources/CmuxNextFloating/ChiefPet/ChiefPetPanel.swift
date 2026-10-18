@@ -1,23 +1,21 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The Chief pet: a small character floating over every app and every
 /// Space. It never activates cmux and never takes the keys; a drag moves it
 /// (the spot is kept per screen, `ChiefPetPlacement`), and a click runs
 /// `onClick`.
-final class ChiefPetPanel: NSPanel, NSWindowDelegate {
-    static let accessibilityID = "cmux.chiefPet"
+public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
+    public static let accessibilityID = "cmux.chiefPet"
     /// The bundled Chief (256 x 309) at the size Leo's floating-pet references show it.
-    static let petSize = CGSize(width: 64, height: 77)
-    /// The Chief's bundled avatar, the character the references float over the desktop.
-    static let defaultImage = Bundle.module.image(forResource: "ChiefAvatar")
+    public static let petSize = CGSize(width: 64, height: 77)
 
     /// A click that was not a drag.
-    var onClick: (() -> Void)?
+    public var onClick: (() -> Void)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
 
-    init(image: NSImage?, defaults: UserDefaults = .standard) {
+    public init(image: NSImage?, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: image)
         super.init(
@@ -46,8 +44,8 @@ final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         delegate = self
     }
 
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+    override public var canBecomeKey: Bool { false }
+    override public var canBecomeMain: Bool { false }
 
     /// Orders the pet in on the screen under the pointer, where it was left there.
     func present() {
@@ -64,7 +62,7 @@ final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     }
 
     /// A screen change (resolution, a display unplugged) keeps it on its screen.
-    func windowDidChangeScreen(_ notification: Notification) {
+    public func windowDidChangeScreen(_ notification: Notification) {
         guard let visible = screen?.visibleFrame else { return }
         setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
     }

@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport

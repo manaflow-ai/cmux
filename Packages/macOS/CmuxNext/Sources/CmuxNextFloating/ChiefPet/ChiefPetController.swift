@@ -1,10 +1,10 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 
 /// Owns the Chief pet's panel: shown while it is turned on, made on first
 /// show and kept (with its spot) while hidden.
 @MainActor
-final class ChiefPetController {
+public final class ChiefPetController {
     private let enabled: @MainActor @Sendable () -> Bool
     private let makePanel: () -> ChiefPetPanel
     /// What a click on the pet opens.
@@ -12,7 +12,7 @@ final class ChiefPetController {
     private(set) var panel: ChiefPetPanel?
     private var watch: Task<Void, Never>?
 
-    init(enabled: @escaping @MainActor @Sendable () -> Bool = { ChiefPetTunables.enabled.value },
+    public init(enabled: @escaping @MainActor @Sendable () -> Bool = { ChiefPetTunables.enabled.value },
          makePanel: @escaping () -> ChiefPetPanel,
          onClick: @escaping () -> Void) {
         self.enabled = enabled
@@ -23,7 +23,7 @@ final class ChiefPetController {
     var isShown: Bool { panel?.isVisible == true }
 
     /// Follows the switch: shows the pet when it turns on, hides it when it turns off.
-    func start() {
+    public func start() {
         // task-owner: lives as long as the app services; event-driven (Observation)
         watch = Task { [weak self, enabled] in
             for await on in ObservationStream({ enabled() }) {

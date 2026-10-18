@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFloating
 
 /// The Quick Agent Chat panel: a borderless composer floating over any app
 /// and every Space. Unlike `ActiveAppKeyPanel` it takes the keys while cmux

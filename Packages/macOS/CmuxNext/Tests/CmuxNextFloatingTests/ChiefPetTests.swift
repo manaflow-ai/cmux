@@ -1,5 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
+@testable import CmuxNextFloating
 import Foundation
 import Observation
 import Testing
@@ -68,10 +68,6 @@ import Testing
         #expect(panel.collectionBehavior.contains(.ignoresCycle))
         #expect(panel.accessibilityIdentifier() == ChiefPetPanel.accessibilityID)
         #expect(panel.pet.acceptsFirstMouse(for: nil))
-    }
-
-    @Test func bundledChiefIsTheDefaultCharacter() {
-        #expect(ChiefPetPanel.defaultImage != nil)
     }
 
     /// One press through the view: down at `from`, dragged through `path`, up.
