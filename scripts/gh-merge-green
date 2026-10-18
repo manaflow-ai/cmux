@@ -111,7 +111,7 @@ fi
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
 override_reason=''
-freeze_token=''
+freeze_tokens=()
 trust_fork_head=''
 window_tokens=()
 args=()
@@ -124,7 +124,7 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || refuse \
         'not green: --freeze-token requires the token from the FREEZE line' \
         'pass --freeze-token followed by the token=... value you hold'
-      freeze_token="$2"
+      freeze_tokens+=("$2")
       shift
       ;;
     --trust-fork-head)
@@ -763,7 +763,7 @@ fi
 # (--freeze-token) merges into it, and --override never lifts it. A WINDOW
 # that cannot be read refuses: the coordinator merges while freezes are unknown.
 window=''
-if [ "$base" = feat-cmux-next ] || [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+if [ "$base" = feat-cmux-next ] || [ "${#freeze_tokens[@]}" -gt 0 ] || [ "${#window_tokens[@]}" -gt 0 ]; then
   if [ -n "${GH_MERGE_GREEN_WINDOW_FILE:-}" ]; then
     window=$(cat -- "$GH_MERGE_GREEN_WINDOW_FILE" 2>/dev/null) || window=''
   elif [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
@@ -784,18 +784,18 @@ if [ "$base" = feat-cmux-next ]; then
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
   fi
-  if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token" python3 -c '
+  freeze_token_csv=''
+  if [ "${#freeze_tokens[@]}" -gt 0 ]; then freeze_token_csv=$(IFS=,; printf '%s' "${freeze_tokens[*]}"); fi
+  if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token_csv" python3 -c '
 import os, sys
-token = os.environ["FREEZE_TOKEN"]
+tokens = {value for value in os.environ["FREEZE_TOKEN"].split(",") if value}
 freezes = []
 for line in os.environ["WINDOW"].splitlines():
-    if not line.startswith("FREEZE:"):
-        continue
+    if not line.startswith("FREEZE:"): continue
     words = line[len("FREEZE:"):].split()
-    held = {w.split("=", 1)[1] for w in words if w.startswith("token=")}
-    if token and token in held:
-        continue
-    freezes += [w for w in words if "=" not in w]
+    held = {value for word in words if word.startswith("token=") for value in word.split("=", 1)[1].split(",")}
+    if held & tokens: continue
+    freezes += [word for word in words if "=" not in word]
 for path in sys.stdin.read().split():
     for prefix in freezes:
         if path == prefix or path.startswith(prefix if prefix.endswith("/") else prefix + "/"):
@@ -806,8 +806,9 @@ for path in sys.stdin.read().split():
       'check with the coordinator before merging'
   fi
   if [ -n "$frozen" ]; then
+    frozen_summary=$(printf '%s\n' "$frozen" | tr '\n' ';' | sed 's/;$//')
     refuse \
-      "not merged: $ref touches frozen paths: $(paste -sd ';' - <<<"$frozen" | sed 's/;/; /g')" \
+      "not merged: $ref touches frozen paths: ${frozen_summary//;/; }" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
 fi
@@ -825,7 +826,7 @@ mailbox_is_local() {
   [ -z "${GH_MERGE_GREEN_TEST:-}" ] && [ -z "${GH_MERGE_GREEN_WINDOW_FILE:-}" ] && return 0
   return 1
 }
-if [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+if [ "${#freeze_tokens[@]}" -gt 0 ] || [ "${#window_tokens[@]}" -gt 0 ]; then
   if ! mailbox_is_local; then
     refuse \
       "not merged: a test or local-WINDOW run must set GH_MERGE_GREEN_MAILBOX_DIR before a token merge of $ref" \
@@ -836,36 +837,34 @@ if [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
       "not merged: cannot read the coordinator's WINDOW to check the tokens for $ref" \
       'check with the coordinator; they merge this PR while the WINDOW is unreadable'
   fi
+  token_args=()
+  if [ "${#freeze_tokens[@]}" -gt 0 ]; then token_args+=("${freeze_tokens[@]}"); fi
+  if [ "${#window_tokens[@]}" -gt 0 ]; then token_args+=("${window_tokens[@]}"); fi
   if ! releases=$(WINDOW="$window" python3 -c '
 import re, os, sys
 areas, holds, frozen = {}, {}, set()
 area = None
 for line in os.environ["WINDOW"].splitlines():
     header = re.match(r"\[([A-Za-z0-9_-]+)\]", line)
-    if header:
-        area = header.group(1)
-        continue
+    if header: area = header.group(1); continue
     held = re.match(r"token:\s*(\S+)", line)
-    if area and held and held.group(1) != "none":
-        areas[held.group(1)] = area
-    if not line.strip():
-        area = None
-    for token in re.findall(r"token=(\S+)", line):
-        if line.startswith("FREEZE:"):
-            frozen.add(token)
-        else:
-            holds.setdefault(token, line.split()[0])
+    if area and held and held.group(1) != "none": areas[held.group(1)] = area
+    if not line.strip(): area = None
+    for group in re.findall(r"token=(\S+)", line):
+        for token in group.split(","):
+            if line.startswith("FREEZE:"): frozen.add(token)
+            else: holds.setdefault(token, line.split()[0])
 missing = []
+seen = set()
 for token in sys.argv[1:]:
+    if token in seen: continue
+    seen.add(token)
     name = areas.get(token) or holds.get(token) or ("FREEZE" if token in frozen else None)
-    if name is None:
-        missing.append(token)
-    else:
-        print(f"{name}\t{token}")
+    if name is None: missing.append(token)
+    else: print(f"{name}\t{token}")
 if missing:
-    print(" ".join(missing), file=sys.stderr)
-    sys.exit(3)
-' ${freeze_token:+"$freeze_token"} ${window_tokens[@]+"${window_tokens[@]}"} 2>"${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"); then
+    print(" ".join(missing), file=sys.stderr); sys.exit(3)
+' "${token_args[@]}" 2>"${TMPDIR:-/tmp}/gh-merge-green-tokens.$$" ); then
     stale=$(cat "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$")
     rm -f "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"
     refuse \
