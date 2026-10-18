@@ -27,6 +27,11 @@
 .acpmux-summary-card__fold:focus-visible,.acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__body{padding:0 0 6px;border-top:0}
+/* Rows past a capped card's edge: that edge fades (scrollEdges.ts), the only sign under hidden scrollbars. */
+.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-top:0px;--acpmux-summary-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent)}
+.acpmux-summary-card__body[data-fade-top]{--acpmux-summary-fade-top:14px}.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-top],:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
 .acpmux-summary-agent[aria-current=true]{background:var(--acpmux-menu-hover)}
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}

@@ -6,6 +6,7 @@ import type { AcpmuxRow } from "../model";
 import { subagentsIn } from "../subagents/subagentRows";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
+import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
@@ -58,6 +59,7 @@ export function SummaryCard({
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const panel = useRef<HTMLElement>(null);
   const popover = shown && !card.column;
+  const edges = useScrollEdges();
   const close = card.close;
   useEffect(() => {
     if (!popover) return;
@@ -139,7 +141,7 @@ export function SummaryCard({
           )}
         </div>
         {summary && (
-          <div className="acpmux-summary-card__body">
+          <div className="acpmux-summary-card__body" ref={edges}>
             {/* The subagents first: they are what the card follows while a turn runs. */}
             {agents.length > 0 && (
               <SubagentStatusList
