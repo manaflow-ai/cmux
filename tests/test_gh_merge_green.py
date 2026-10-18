@@ -348,6 +348,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
             "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/protection'; then printf '%s\\n' '{\"required_status_checks\":null}'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
         )
@@ -678,6 +679,10 @@ class InstalledHelperRegression(unittest.TestCase):
                   printf '%s\n' '[[]]'
                   exit 0
                 fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/protection'; then
+                  printf '%s\n' '{{"required_status_checks":null}}'
+                  exit 0
+                fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/rules/branches/'; then
                   printf '%s\n' '[]'
                   exit 0
@@ -710,7 +715,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, required_contexts=(), app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, files_error=False, extra_args=()):
+                 raw_content=None, app_workflow_body=None, files_error=False, extra_args=(),
+                 classic_checks=(), rules_error=None, protection_error=None):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -719,7 +725,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "required_contexts": list(required_contexts), "app_workflow": app_workflow, "files": files or [],
                        "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
-                       "files_error": files_error}
+                       "files_error": files_error, "classic_checks": list(classic_checks),
+                       "rules_error": rules_error, "protection_error": protection_error}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -753,7 +760,13 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps([x['statuses']]))
                 elif a[0] == 'api' and any('/rules/branches/' in arg for arg in a):
-                    print(json.dumps([{"parameters": {"required_status_checks": [{"context": name} for name in x["required_contexts"]]}}]))
+                    if x['rules_error']:
+                        print(json.dumps({'status': x['rules_error']})); sys.exit(1)
+                    print(json.dumps([{"parameters": {"required_status_checks": [name if isinstance(name, dict) else {"context": name} for name in x["required_contexts"]]}}]))
+                elif a[0] == 'api' and any('/protection' in arg for arg in a):
+                    if x['protection_error']:
+                        print(json.dumps({'status': x['protection_error']})); sys.exit(1)
+                    print(json.dumps({'required_status_checks': {'contexts': [], 'checks': x['classic_checks']}}))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
                     if x.get('files_error'): sys.exit(1)
                     if '.[].filename' in a: print('\n'.join(x['files']))
@@ -879,6 +892,76 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
         self.assertIn("no required checks", result.stderr)
+
+    def test_netlify_configuration_requires_preview(self):
+        result, merged, _ = self.run_case(
+            files=["netlify.toml"],
+            statuses=[{"id": 2, "context": "Netlify Preview", "state": "pending"}],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("Netlify Preview", result.stderr)
+
+    def test_classic_required_preview_stays_strict(self):
+        result, merged, queries = self.run_case(
+            classic_checks=[{"context": "Vercel", "app_id": None}],
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("/branches/main/protection", queries)
+
+    def test_both_protection_sources_fail_closed(self):
+        for source in ("rules_error", "protection_error"):
+            for status in (403, 500):
+                with self.subTest(source=source, status=status):
+                    result, merged, _ = self.run_case(**{source: status})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(merged)
+                    self.assertIn("cannot read", result.stderr)
+
+    def test_integration_requirement_cannot_use_wrong_app_or_legacy_status(self):
+        for checks, statuses in (
+            ([{"id": 2, "name": "Vercel", "status": "completed", "conclusion": "success", "app": {"id": 99, "slug": "unknown"}}], []),
+            ([], [{"id": 3, "context": "Vercel", "state": "success"}]),
+        ):
+            with self.subTest(checks=checks, statuses=statuses):
+                result, merged, _ = self.run_case(
+                    required_contexts=[{"context": "Vercel", "integration_id": 42}],
+                    checks=checks, statuses=statuses,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+
+    def test_matching_required_integration_is_preserved_despite_newer_namesake(self):
+        result, merged, _ = self.run_case(
+            required_contexts=[{"context": "Vercel", "integration_id": 42}],
+            checks=[
+                {"id": 2, "name": "Vercel", "status": "completed", "conclusion": "failure", "app": {"id": 42, "slug": "vercel"}},
+                {"id": 3, "name": "Vercel", "status": "completed", "conclusion": "success", "app": {"id": 99, "slug": "unknown"}},
+            ],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("failure", result.stderr)
+
+    def test_classic_integration_requires_its_app(self):
+        for app in (42, 99, None):
+            with self.subTest(app=app):
+                result, merged, _ = self.run_case(
+                    classic_checks=[{"context": "tests", "app_id": 42}],
+                    checks=[{"id": 1, "name": "tests", "status": "completed", "conclusion": "success", "app": {"id": app}}],
+                )
+                self.assertEqual(merged, app == 42, result.stderr)
+                self.assertEqual(result.returncode == 0, app == 42, result.stderr)
+
+    def test_unknown_app_cannot_masquerade_as_advisory_preview(self):
+        result, merged, _ = self.run_case(checks=[
+            {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+            {"id": 2, "name": "Vercel", "status": "in_progress", "app": {"id": 99, "slug": "unknown"}},
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
 
     def test_changed_files_failure_fails_closed(self):
         result, merged, _ = self.run_case(
