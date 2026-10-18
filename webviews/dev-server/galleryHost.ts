@@ -79,6 +79,7 @@ export function readSharedFixtures(): Record<string, unknown> {
   return out;
 }
 
+
 /** Every MetricTunable's default per density: `{ sidebarWidth: { compact: 208, comfortable: 240 }, ... }`. */
 export function readChromeMetrics(file = METRICS_SWIFT): Record<string, { compact: number; comfortable: number }> {
   const swift = fs.readFileSync(file, "utf8");

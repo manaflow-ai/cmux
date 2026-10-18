@@ -6,8 +6,7 @@ import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import type { GalleryEntry } from "../format";
-import { errorText, readyEntries } from "../entryStore";
-import { entryStore } from "../registry";
+import { checkEntry, errorText, readyEntries } from "../entryStore";
 import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
@@ -36,21 +35,27 @@ const themeNamed = (name: string, fallback: string): GhosttyTheme =>
   byName.get(name) ?? byName.get(fallback) ?? fail(`No Ghostty theme named ${JSON.stringify(name)}`);
 
 // Every entry file loads on its own (entryStore.ts): a broken sibling file does not stop this stage.
-const settled = await entryStore.settled();
-const entryState = settled.find((state) => state.entry?.id === params.get("entry"));
+const entryId = params.get("entry");
+const entryPath = entryId === "agent-pane.new-tab" ? "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts" : undefined;
+let entry: GalleryEntry;
+try {
+  const module = entryId === "agent-pane.new-tab"
+    ? ((await import("../../agent-session/acpmux/newtab/NewTabScreen.gallery")) as { default?: unknown })
+    : undefined;
+  if (module) {
+    entry = checkEntry(entryPath!, module.default);
+  } else {
+    const { entryStore } = await import("../registry");
+    const settled = await entryStore.settled();
+    entry = readyEntries(settled).find((candidate) => candidate.id === entryId) ??
+      fail(`No gallery entry ${JSON.stringify(entryId)}.`);
+  }
+} catch (error) {
+  fail(errorText(error));
+}
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
-watchStageErrors(entryState?.path);
-const entry: GalleryEntry =
-  readyEntries(settled).find((candidate) => candidate.id === params.get("entry")) ??
-  fail(
-    [
-      `No gallery entry ${JSON.stringify(params.get("entry"))}.`,
-      ...settled
-        .filter((state) => state.status === "error")
-        .map((state) => `\n${state.path} does not load:\n${errorText(state.error)}`),
-    ].join("\n"),
-  );
+watchStageErrors(entryPath);
 const variantName = params.get("variant") ?? Object.keys(entry.variants)[0]!;
 if (!entry.variants[variantName]) fail(`No variant ${JSON.stringify(variantName)} in ${entry.id}`);
 
