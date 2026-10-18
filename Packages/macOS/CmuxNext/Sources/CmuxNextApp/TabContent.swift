@@ -106,7 +106,6 @@ final class TerminalEntry {
         self.validity = validity
         self.themeKey = themeKey
         self.gate = nil
-        confirmation?.cancel()
         watch.stop()
         watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
         gate.resolve(target)

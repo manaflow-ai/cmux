@@ -87,11 +87,6 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-    /// The daemon surface the focus topology names this tab by (`FocusTopology.Tab.surface`): nil
-    /// only while the tab is provisional (a split's terminal before the daemon's confirm). The tab
-    /// id is the identity; a focus wait on a tab the store has goes by id (`expectFocus(on:)`).
-    public var daemonSurface: String? { ProvisionalTab.isProvisional(surface: surface) ? nil : String(surface.rawValue) }
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         return title

@@ -16,6 +16,15 @@ extension WorkspaceContentController {
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
+        rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
+    }
+
+    /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
+    /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
+    func rekeySurfaceWait() {
+        guard let wait = focus.state.expectation, case .surface(let raw) = wait.key, let value = UInt64(raw),
+              let tab = daemon.store.tab(surface: SurfaceID(rawValue: value)) else { return }
+        focus.expect(.tab(tab.id), target: wait.target, awayFrom: wait.awayFrom, generation: wait.generation)
     }
 
     /// Panes in layout order (every screen, in screen order). A pane whose
@@ -29,7 +38,7 @@ extension WorkspaceContentController {
                 continue
             }
             guard let handle = handles.panes[id], let model = daemon.store.pane(handle) else { continue }
-            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: $0.daemonSurface, kind: .of($0)) }
+            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, kind: .of($0)) }
             let selected = state.selection.selection(in: model.id).flatMap { id in tabs.contains { $0.id == id } ? id : nil }
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
@@ -77,11 +86,9 @@ extension WorkspaceContentController {
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
         // The coordinator lands an expectation against the topology it holds at once (reducer
-        // `Expect`), and again on each later topology: no re-apply or topology send here. A tab
-        // the store has under its public id goes by that id, which a later surface change (a
-        // split's confirm) keeps; a tab without one yet can get a new record (`TabModel.identity`).
-        let known = daemon.store.tab(surface: surface).flatMap { $0.resourceID == nil ? nil : $0.id }
-        let key: FocusState.Expectation.Key = known.map { .tab($0) } ?? .surface(String(surface.rawValue))
+        // `Expect`), and again on each later topology: no re-apply or topology send here.
+        // The topology names tabs by id: a tab the store has goes by its id; else `rekeySurfaceWait` later.
+        let key: FocusState.Expectation.Key = daemon.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue))
         focus.expect(key, target: target, awayFrom: paneKey, generation: generation)
     }
 }
@@ -114,7 +121,7 @@ extension PaneController {
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
-            return byID[id].map { FocusTopology.Tab(id: id, surface: $0.daemonSurface, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
+            return byID[id].map { FocusTopology.Tab(id: id, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }

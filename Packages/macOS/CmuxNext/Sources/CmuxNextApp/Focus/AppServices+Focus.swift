@@ -35,23 +35,16 @@ extension AppServices {
         }
     }
 
-    /// A split's terminal tab, minted by a window, got its daemon surface on `daemon`. Its view
-    /// takes the confirmed terminal's own theme. A focus wait by that surface made before the
-    /// store had it (the crate's copy of the tab may not name the surface yet: the confirm sends
-    /// no topology) takes the tab's public id, with the same target, pane and intent generation,
-    /// so it lands now. Surface numbers are per daemon: only windows showing that daemon re-key.
+    /// A split's terminal tab, minted by a window, got its daemon surface on `daemon` (no topology
+    /// send). Its view takes the confirmed terminal's own theme, and a focus wait by that surface
+    /// in a window showing `daemon` (surface numbers are per daemon) takes the tab's id.
     func terminalConfirmed(_ tab: TabModel, on daemon: DaemonService) {
         if let entry = cache.existingTerminal(tab.id) { themes.terminalDidMount(entry) }
-        guard let surface = tab.daemonSurface, tab.resourceID != nil else { return }
-        for controller in windows.controllers where controller.content?.daemon === daemon {
-            guard let wait = controller.focus.state.expectation, wait.key == .surface(surface) else { continue }
-            controller.focus.expect(.tab(tab.id), target: wait.target, awayFrom: wait.awayFrom, generation: wait.generation)
-        }
+        for controller in windows.controllers where controller.content?.daemon === daemon { controller.content?.rekeySurfaceWait() }
     }
 
     /// The chrome of page `key` gives the keyboard back to the page: its
     /// window's coordinator targets the page content (WebKit or Chromium).
-
     func returnFocusToPage(_ key: String) {
         for controller in windows.controllers {
             guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }
