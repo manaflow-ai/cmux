@@ -136,22 +136,34 @@ try:
     x0, y0 = dividers[0]
     report["before"] = terminals()
     frames_dir = os.path.join(opts.out, "frames")
-    report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 12})
+    path = [-opts.step_pt] * opts.steps + [opts.step_pt] * (2 * opts.steps) + [-opts.step_pt] * opts.steps
+
+    def drag(sample):
+        rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        x = x0
+        for delta in path:
+            rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
+                                "press": False, "release": False})
+            x += delta
+            time.sleep(1 / 60)
+            if sample:
+                panes = terminals()
+                report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes]})
+        rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+        time.sleep(0.8)
+
+    # Baseline: display-link intervals of the idle window for 2 s.
+    rpc("debug.frames", {"action": "start"})
+    time.sleep(2)
+    report["frames_idle"] = rpc("debug.frames", {"action": "stop"})
+    # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
     rpc("debug.frames", {"action": "start"})
     time.sleep(0.3)
-    rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
-    x = x0
-    path = [-opts.step_pt] * opts.steps + [opts.step_pt] * (2 * opts.steps) + [-opts.step_pt] * opts.steps
-    for delta in path:
-        rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
-                            "press": False, "release": False})
-        x += delta
-        time.sleep(1 / 60)
-        panes = terminals()
-        report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes]})
-    rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
-    time.sleep(0.8)
+    drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
+    # Pass B, recorded frame by frame: the grid each terminal renders against what its frame fits.
+    report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
+    drag(sample=True)
     report["after"] = terminals()
     # Pass rule, per terminal: the columns it renders equal what its frame fits at that step or one of
     # the --lag steps before it (one grid in flight and its echo), and they change during the drag.
@@ -160,15 +172,18 @@ try:
         fits = [s["fit"][pane] for s in report["steps"]]
         grids = [s["grid"][pane] for s in report["steps"]]
         for i, grid in enumerate(grids):
+            # The grid sent can be a fit between two samples: within the range of the recent fits.
             recent = fits[max(0, i - opts.lag):i + 1]
-            if grid not in recent:
+            if not min(recent) <= grid <= max(recent):
                 misses.append({"pane": pane, "step": i, "grid": grid, "recent_fits": recent})
         distinct.append(len(set(grids)))
     report["misses"] = misses
     report["distinct_grids"] = distinct
     stats = report["frames"] or {}
     report["worst_frame_ms"] = stats.get("max_ms") or 0
-    ok = bool(distinct) and not misses and min(distinct) > 5 and report["worst_frame_ms"] <= opts.hitch_ms
+    frames_ok = isinstance(stats, dict) and "error" not in stats and (stats.get("frames") or 0) > 0 \
+        and report["worst_frame_ms"] <= opts.hitch_ms
+    ok = bool(distinct) and not misses and min(distinct) > 5 and frames_ok
 finally:
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
@@ -181,7 +196,8 @@ finally:
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
 print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
-print("frames:", json.dumps(report.get("frames"))[:800])
+print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
+print("frames drag:", json.dumps(report.get("frames"))[:600])
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
