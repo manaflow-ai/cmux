@@ -29,67 +29,97 @@ struct TabStripMove {
     let closing: MotionMove?
     /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
     var isScroll = false
+    /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
+    /// moves in flight exactly; Core Animation would otherwise start them at the commit).
+    let begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."
+    /// Key suffix of the scroll part of a move (`cancelScroll(on:)`).
+    static let scrollSuffix = ".scroll"
 
     private var key: String { "\(Self.keyPrefix)\(generation)." }
 
     /// Seconds a layer of this move takes to rest (`closing`: a closing tab's).
     func duration(closing: Bool) -> CFTimeInterval { (closing ? self.closing ?? motion : motion).duration }
 
-    /// The model geometry of `root`, its sublayers (two levels: a chip's pill content) and their
+    /// The model geometry of `root`, its sublayers (`depth` levels: a chip's pill content) and their
     /// masks, read before a change.
     struct Snapshot {
         fileprivate var layers: [(layer: CALayer, isMask: Bool, position: CGPoint, size: CGSize, opacity: Float)] = []
     }
 
-    static func snapshot(_ root: CALayer) -> Snapshot {
+    /// `depth` 0 and no `masks`: the root alone (a tab cell, whose inner parts and occlusion mask follow
+    /// its path on their own: `TabCell.retimeInner`, `TabOcclusion`).
+    static func snapshot(_ root: CALayer, depth: Int = 2, masks: Bool = true) -> Snapshot {
         var snapshot = Snapshot()
         func add(_ layer: CALayer, depth: Int) {
             snapshot.layers.append((layer, false, layer.position, layer.bounds.size, layer.opacity))
-            if let mask = layer.mask { snapshot.layers.append((mask, true, mask.position, mask.bounds.size, mask.opacity)) }
+            if masks, let mask = layer.mask { snapshot.layers.append((mask, true, mask.position, mask.bounds.size, mask.opacity)) }
             guard depth > 0 else { return }
             for sublayer in layer.sublayers ?? [] { add(sublayer, depth: depth - 1) }
         }
-        add(root, depth: 2)
+        add(root, depth: depth)
         return snapshot
     }
 
     /// Adds an animation from each layer's value in `snapshot` to its model value now. Opacity moves
     /// only on the snapshot's root (a collapsing group's fade); a sublayer that shows or hides at
-    /// another width does so at once, as it did when the strip stepped every frame. True when
-    /// anything moved.
+    /// another width does so at once. `scroll`: the part of the root's position change that the
+    /// strip's scroll made; it moves under its own key, so a wheel ends it alone (`cancelScroll`).
+    /// True when anything moved.
     @discardableResult
-    func animate(from snapshot: Snapshot, closing isClosing: Bool = false) -> Bool {
+    /// `pinsEnd` (a root anchored at its leading edge): only the leading edge moves; the trailing edge
+    /// is at its model at once (a group band whose end the dragged tab sets).
+    func animate(from snapshot: Snapshot, closing isClosing: Bool = false, scroll: CGFloat = 0, pinsEnd: Bool = false) -> Bool {
         let move = isClosing ? closing ?? motion : motion
         var moved = false
         for (index, old) in snapshot.layers.enumerated() {
             let layer = old.layer
             // A sublayer the change removed draws nothing.
             guard index == 0 || old.isMask || layer.superlayer != nil else { continue }
-            let dp = CGPoint(x: old.position.x - layer.position.x, y: old.position.y - layer.position.y)
+            let scrolled = index == 0 ? scroll : 0
+            let dp = CGPoint(x: old.position.x - layer.position.x - scrolled, y: old.position.y - layer.position.y)
             if abs(dp.x) > 0.01 || abs(dp.y) > 0.01 {
-                layer.add(move.additive("position", from: NSValue(point: dp), to: NSValue(point: .zero)), forKey: key + "position")
+                add(move.additive("position", from: NSValue(point: dp), to: NSValue(point: .zero)), to: layer, as: "position")
+                moved = true
+            }
+            if abs(scrolled) > 0.01 {
+                addScroll(scrolled, to: layer)
                 moved = true
             }
             let size = layer.bounds.size
-            let ds = CGSize(width: old.size.width - size.width, height: old.size.height - size.height)
+            var ds = CGSize(width: old.size.width - size.width, height: old.size.height - size.height)
+            // The start's move is taken off the width, its scroll part under the scroll key, so a wheel
+            // that ends the scroll part ends both and the end stays put.
+            if index == 0, pinsEnd {
+                ds.width = -dp.x
+                if abs(scrolled) > 0.01 {
+                    add(motion.additive("bounds.size.width", from: NSNumber(value: Double(-scrolled)), to: NSNumber(value: 0)), to: layer, as: "size.scroll")
+                }
+            }
             if abs(ds.width) > 0.01 || abs(ds.height) > 0.01 {
-                layer.add(move.additive("bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero)), forKey: key + "size")
+                add(move.additive("bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero)), to: layer, as: "size")
                 moved = true
             }
             if index == 0, abs(old.opacity - layer.opacity) > 0.001 {
-                layer.add(move.additive("opacity", from: NSNumber(value: old.opacity - layer.opacity), to: NSNumber(value: 0)), forKey: key + "opacity")
+                add(move.additive("opacity", from: NSNumber(value: old.opacity - layer.opacity), to: NSNumber(value: 0)), to: layer, as: "opacity")
                 moved = true
             }
         }
         return moved
     }
 
-    /// Adds `animation` (a keyframe path) under this move's key.
+    /// Adds `animation` under this move's key `name`, starting at `begin`.
     func add(_ animation: CAAnimation, to layer: CALayer, as name: String) {
+        animation.beginTime = layer.convertTime(begin, from: nil)
         layer.add(animation, forKey: key + name)
+    }
+
+    /// The scroll part of a move on `layer`: `offset` (the view x it showed minus the one now) to 0.
+    func addScroll(_ offset: CGFloat, to layer: CALayer) {
+        guard abs(offset) > 0.01 else { return }
+        add(motion.additive("position.x", from: NSNumber(value: Double(offset)), to: NSNumber(value: 0)), to: layer, as: "scroll")
     }
 
     /// Ends every strip move on `root`'s tree at once (a tab dropped back starts where the drop gap is).
@@ -102,14 +132,15 @@ struct TabStripMove {
     /// Ends every strip move of `root`'s position at once: direct manipulation (a dragged tab sits
     /// exactly under the pointer; its width keeps moving).
     static func cancelPosition(_ root: CALayer) {
-        for key in root.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && key.hasSuffix(".position") { root.removeAnimation(forKey: key) }
+        for key in root.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && (key.hasSuffix(".position") || key.hasSuffix(scrollSuffix)) {
+            root.removeAnimation(forKey: key)
+        }
     }
 
-    /// Ends the moves of `generations` on `layers` at once (a wheel takes over a reveal's scroll).
-    static func cancel(_ generations: Set<Int>, on layers: [CALayer]) {
-        let prefixes = generations.map { "\(keyPrefix)\($0)." }
+    /// Ends the scroll part of every move on `layers` at once (a wheel takes the scroll over).
+    static func cancelScroll(on layers: [CALayer]) {
         for layer in layers {
-            for key in layer.animationKeys() ?? [] where prefixes.contains(where: key.hasPrefix) { layer.removeAnimation(forKey: key) }
+            for key in layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && key.hasSuffix(scrollSuffix) { layer.removeAnimation(forKey: key) }
         }
     }
 }

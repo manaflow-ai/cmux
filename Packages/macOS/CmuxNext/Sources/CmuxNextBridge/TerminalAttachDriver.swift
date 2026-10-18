@@ -208,18 +208,23 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         stream: for await event in ref.link.events {
             guard let queue = owner.value?.queue else { break stream }
             for step in TerminalStreamPlan.steps(for: event, cursorDefault: cursorDefault) {
+                // A grid change reaches the machine before the view applies it, so the view
+                // reads the geometry claim that grid leaves (`TerminalIO.appliesViewGrid`).
+                switch step {
+                case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
+                // A local-history READY is also the grid change (no .grid step).
+                case .snapshot(let frame) where frame.phase == .ready && frame.localHistory != nil:
+                    if let cols = frame.cols, let rows = frame.rows {
+                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
+                    }
+                default: break
+                }
                 await queue.push(step)
                 switch step {
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
-                case .snapshot(let frame) where frame.phase == .ready:
-                    // A local-history READY is also the grid change (no .grid step).
-                    if frame.localHistory != nil, let cols = frame.cols, let rows = frame.rows {
-                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
-                    }
-                    owner.value?.send(.replayDelivered(ref))
-                case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
-                case .output, .snapshot, .exited, .status: break
+                case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
+                case .grid, .output, .snapshot, .exited, .status: break
                 }
             }
             if case .closed(let reason) = event {

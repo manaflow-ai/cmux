@@ -21,7 +21,7 @@ final class BrowserNoticeView: NSView {
     }()
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private let density = DensityBinding()
     /// The card's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?

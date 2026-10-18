@@ -5,6 +5,7 @@ import {
   initialPriorityState,
   priorityLanes,
 } from "../src/agent-activity/priority";
+import { initialActivityState, reduceActivity } from "../src/agent-activity/model";
 
 const summary = (id: string, state: "working" | "input" | "idle" | "failed", updatedAt: number) =>
   ({
@@ -54,6 +55,32 @@ describe("event-driven priority agent state", () => {
       workspaceId: "w",
     });
     expect(stale).toEqual(initial);
+  });
+
+  test("keeps the activity state stable for stale reducer events", () => {
+    const first = reduceActivity(initialActivityState(), {
+      type: "agentEvent",
+      event: {
+        kind: "updated",
+        sessionId: "s1",
+        seq: 3,
+        session: summary("s1", "working", 10),
+        workspaceId: "w",
+      },
+    });
+    const stale = reduceActivity(first, {
+      type: "agentEvent",
+      event: {
+        kind: "updated",
+        sessionId: "s1",
+        seq: 2,
+        session: summary("s1", "failed", 20),
+        workspaceId: "w",
+      },
+    });
+    expect(stale).toBe(first);
+    expect(stale.priorityRevision).toBe(first.priorityRevision);
+    expect(stale.priorityChangedSessionId).toBe(first.priorityChangedSessionId);
   });
 
   test("retains the existing workspace binding when a later hook omits it", () => {

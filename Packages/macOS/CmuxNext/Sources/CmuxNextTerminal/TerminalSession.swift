@@ -90,7 +90,7 @@ public final class TerminalSession {
         didSet { surfaceView.mirrorDemand = mirrorDemand }
     }
 
-    private let io: any TerminalIO
+    let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
@@ -288,6 +288,7 @@ public final class TerminalSession {
         case .status(let status):
             model.connection = status
             model.hasExited = status == .exited
+            surfaceView.updateReflowPreview()
             view.showStatus(status)
         }
     }

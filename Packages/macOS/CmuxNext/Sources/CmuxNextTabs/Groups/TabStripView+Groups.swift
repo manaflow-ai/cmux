@@ -68,7 +68,9 @@ extension TabStripView {
 
     /// Positions chips and bands at their places; with `move`, each one that moved animates there.
     /// `offset`: the unpinned region's (`TabScrollMapping.offset(isPinned: false)`); chips are never pinned.
-    func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove? = nil) {
+    /// `scroll`: the view x the scroll alone moved them by in `move` (`TabStripMove.addScroll`).
+    func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove? = nil,
+                          scroll: CGFloat = 0) {
         var memberMaxX: [TabGroupID: CGFloat] = [:]
         for item in displayed {
             guard let group = item.groupID, let place = placed[item.id] else { continue }
@@ -89,11 +91,11 @@ extension TabStripView {
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
             var moved = false
-            if let move, frame != chip.frame || alpha != chip.layer.opacity {
+            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
                 let before = TabStripMove.snapshot(chip.layer)
                 chip.frame = frame
                 chip.layer.opacity = alpha
-                moved = move.animate(from: before)
+                moved = move.animate(from: before, scroll: scroll)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
@@ -106,11 +108,15 @@ extension TabStripView {
             let chipMaxX = place.x + width
             let end = memberMaxX[group] ?? chipMaxX
             let members = max(0, end - chipMaxX)
-            // A band a dragged tab or block stretches follows it exactly; a new band is where it starts.
+            // The end of a band the dragged tab stretches follows it exactly (its start still moves with the
+            // chip); when the dragged tab starts or stops setting the end, the end moves there on the move's
+            // curve and then follows. A dragged group's band sits under the pointer; a new band is where it starts.
             let dragSetsEnd = drag.map { $0.targetGroup == group && (placed[$0.id]?.maxX ?? -.infinity) >= end - 0.5 } ?? false
-            let bandMoves = !direct && !dragSetsEnd && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
-            let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer) : nil }
-            let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer) : nil }
+            let pinsEnd = dragSetsEnd && band.endFollowsDrag
+            band.endFollowsDrag = dragSetsEnd
+            let bandMoves = !direct && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
+            let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer, depth: 0) : nil }
+            let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer, depth: 0) : nil }
             band.apply(
                 span: CGRect(x: pixel(chipMaxX - offset), y: tabY, width: pixel(members), height: tabHeight),
                 lineWidth: members > 0.5 ? pixel(end - pillMinX) : 0,
@@ -120,8 +126,8 @@ extension TabStripView {
             )
             band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
             if let move, let wash, let line {
-                move.animate(from: wash)
-                move.animate(from: line)
+                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd)
+                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd)
             }
         }
     }

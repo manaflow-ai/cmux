@@ -411,6 +411,11 @@ public final class ThemeScope {
         responders.add(responder)
     }
 
+    /// Stops calling `responder.themeDidChange()`.
+    public func removeResponder(_ responder: any ThemeResponsive) {
+        responders.remove(responder)
+    }
+
     /// Runs `body` with this scope's colors active for `Palette` and its
     /// appearance as the drawing appearance (layer owners without a view).
     public func perform<T>(_ body: () -> T) -> T {
