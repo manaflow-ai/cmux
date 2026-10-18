@@ -260,6 +260,46 @@ function viewFromRuntime(input: {
   };
 }
 
+function normalizedRequestKey(requestKey: string): string {
+  const normalized = requestKey.trim();
+  if (!normalized || normalized.length > 128) {
+    throw new PromotionIdempotencyConflictError("Idempotency-Key is required and must be at most 128 characters");
+  }
+  return normalized;
+}
+
+async function findExistingPromotion(input: {
+  readonly dependencies: AttemptPromotionDependencies;
+  readonly userId: string;
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly requestKey: string;
+}): Promise<PromotionView | null> {
+  const existing = await input.dependencies.store.findByRequestKey?.({ userId: input.userId, requestKey: input.requestKey });
+  if (!existing) return null;
+  if (existing.runId !== input.runId || existing.attemptId !== input.attemptId) {
+    throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
+  }
+  return existing;
+}
+
+function reservationResult(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly reserved: PromotionReserveResult;
+}): PromotionReservation | PromotionView {
+  if (input.reserved.kind === "reserved") return input.reserved.reservation;
+  if (input.reserved.kind === "in_progress") throw new PromotionInProgressError("promotion is already in progress");
+  if (input.reserved.kind === "idempotency_conflict") {
+    throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
+  }
+  if (input.reserved.promotion.runId !== input.runId || input.reserved.promotion.attemptId !== input.attemptId) {
+    throw new PromotionIdempotencyConflictError("the stored promotion belongs to a different run attempt");
+  }
+  if (input.reserved.kind === "replay") return input.reserved.promotion;
+  throw new PromotionAlreadyExistsError("this attempt has already been promoted");
+}
+
 /**
  * Promote a tenant-owned, successful, evidence-ready attempt. All ownership,
  * readiness, uniqueness, and redaction checks live here so HTTP and future
@@ -273,35 +313,17 @@ export async function promoteRunAttempt(input: {
   readonly dependencies: AttemptPromotionDependencies;
   readonly now?: number;
 }): Promise<PromotionView> {
-  const requestKey = input.requestKey.trim();
-  if (!requestKey || requestKey.length > 128) throw new PromotionIdempotencyConflictError("Idempotency-Key is required and must be at most 128 characters");
-  const existing = await input.dependencies.store.findByRequestKey?.({ userId: input.userId, requestKey });
-  if (existing) {
-    if (existing.runId !== input.runId || existing.attemptId !== input.attemptId) {
-      throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
-    }
-    return existing;
-  }
+  const requestKey = normalizedRequestKey(input.requestKey);
+  const existing = await findExistingPromotion({ ...input, requestKey });
+  if (existing) return existing;
   const source = await input.dependencies.source.find({ userId: input.userId, runId: input.runId, attemptId: input.attemptId });
   if (!source || source.userId !== input.userId || source.runId !== input.runId || source.attemptId !== input.attemptId) {
     throw new PromotionNotFoundError("run attempt not found");
   }
   const handles = assertPromotable(source, input.now ?? Date.now());
   const reserved = await input.dependencies.store.reserve({ userId: input.userId, runId: input.runId, attemptId: input.attemptId, requestKey });
-  if (reserved.kind === "replay") {
-    if (reserved.promotion.runId !== input.runId || reserved.promotion.attemptId !== input.attemptId) {
-      throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
-    }
-    return reserved.promotion;
-  }
-  if (reserved.kind === "idempotency_conflict") throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
-  if (reserved.kind === "duplicate") {
-    if (reserved.promotion.runId !== input.runId || reserved.promotion.attemptId !== input.attemptId) {
-      throw new PromotionIdempotencyConflictError("the stored promotion belongs to a different run attempt");
-    }
-    throw new PromotionAlreadyExistsError("this attempt has already been promoted");
-  }
-  if (reserved.kind === "in_progress") throw new PromotionInProgressError("promotion is already in progress");
+  const outcome = reservationResult({ runId: input.runId, attemptId: input.attemptId, reserved });
+  if (!("claimId" in outcome)) return outcome;
   try {
     const runtime = await input.dependencies.runtime.promote({
       userId: input.userId,
@@ -317,9 +339,9 @@ export async function promoteRunAttempt(input: {
     });
     if (runtime.sessionId !== handles.sessionId) throw new PromotionRuntimeUnavailableError("runtime promotion changed the terminal session identity");
     const promotion = viewFromRuntime({ runId: input.runId, attemptId: input.attemptId, runtime });
-    return await input.dependencies.store.complete({ reservation: reserved.reservation, promotion });
+    return await input.dependencies.store.complete({ reservation: outcome, promotion });
   } catch (error) {
-    await input.dependencies.store.release(reserved.reservation).catch(() => undefined);
+    await input.dependencies.store.release(outcome).catch(() => undefined);
     if (error instanceof PromotionRuntimeUnavailableError) throw error;
     throw error;
   }
