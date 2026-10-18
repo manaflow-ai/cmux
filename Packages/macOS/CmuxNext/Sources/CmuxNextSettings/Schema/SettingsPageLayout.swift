@@ -135,7 +135,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
         // Show/Hide and the characters from its group's two rows (the page lists them for search).
         CategorySpec(
-            id: "chiefPet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
+            id: "chief-pet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
             groups: [group("settings.group.chiefPet")], lead: [.chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.

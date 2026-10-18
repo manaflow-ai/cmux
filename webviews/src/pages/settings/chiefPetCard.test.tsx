@@ -20,7 +20,7 @@ const checked = (element: HTMLElement) =>
   choices(element).find((choice) => choice.getAttribute("aria-pressed") === "true")?.dataset.pet;
 
 test("the page shows None and every character, None chosen while the pet is off", async () => {
-  const page = await renderPage({ path: "/settings/chiefPet" });
+  const page = await renderPage({ path: "/settings/chief-pet" });
   await settle();
   const pet = card(page.container);
   expect(choices(pet).map((choice) => choice.dataset.pet)).toEqual([
@@ -44,7 +44,7 @@ test("the page shows None and every character, None chosen while the pet is off"
 });
 
 test("picking a character shows the pet with it; None hides it", async () => {
-  const page = await renderPage({ path: "/settings/chiefPet" });
+  const page = await renderPage({ path: "/settings/chief-pet" });
   await settle();
   const pick = async (id: string) => {
     await act(async () => card(page.container).querySelector<HTMLElement>(`[data-pet="${id}"]`)!.click());
@@ -61,7 +61,7 @@ test("picking a character shows the pet with it; None hides it", async () => {
 });
 
 test("Show Pet and Hide Pet turn the pet on and off with its character kept", async () => {
-  const page = await renderPage({ path: "/settings/chiefPet", mock: { values: { "home.chiefPetMascot": "moon" } } });
+  const page = await renderPage({ path: "/settings/chief-pet", mock: { values: { "home.chiefPetMascot": "moon" } } });
   await settle();
   const toggle = () => card(page.container).querySelector<HTMLButtonElement>('[data-action="chief-pet-toggle"]')!;
   expect(toggle().textContent).toBe("Show Pet");

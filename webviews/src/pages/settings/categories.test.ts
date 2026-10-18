@@ -22,7 +22,7 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "terminal",
     "agents",
-    "chiefPet",
+    "chief-pet",
     "notifications",
     "browser",
     "keyboard",

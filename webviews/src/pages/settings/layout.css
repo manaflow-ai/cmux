@@ -771,7 +771,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 220px;
+  height: 160px;
+  margin-bottom: 26px;
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
 }
@@ -811,9 +812,6 @@
   transform: rotate(180deg);
 }
 
-.chief-pet-grid-title {
-  margin-top: 22px;
-}
 
 .chief-pet-grid {
   display: grid;

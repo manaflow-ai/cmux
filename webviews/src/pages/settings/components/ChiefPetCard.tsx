@@ -64,7 +64,7 @@ export function ChiefPetCard() {
   };
   return (
     <section className="group chief-pet" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
-      <div className="chief-pet-header">
+      <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED}>
         <p className="chief-pet-lede">{t("settingsPage.chiefPet.lede")}</p>
         <button
           type="button"
@@ -80,8 +80,8 @@ export function ChiefPetCard() {
         <img className="chief-pet-art" src={mascot.art} alt={t(`settings.choice.chiefPetMascot.${mascot.id}`)} />
         <Rail />
       </div>
-      <h3 className="group-title chief-pet-grid-title">{t("settingsPage.chiefPet.pets")}</h3>
-      <div className="chief-pet-grid">
+      <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
+      <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
         <button
           type="button"
           aria-pressed={selected === "none"}
