@@ -75,6 +75,12 @@ test("matrix index marks mixed-source cards as provenance-failed", () => {
   expect(html).toContain("provenance-failed");
 });
 
+test("matrix index exposes free-text triage search", () => {
+  const html = renderIndex([{ id: "composer", engine: "chromium", screenshot: "composer.png", ready: "1" }]);
+  expect(html).toContain('id="search"');
+  expect(html).toContain("JSON.stringify({id:r.id,params:r.params,source:r.revision?.source})");
+});
+
 test("matrix index pages large result sets instead of mounting every card", () => {
   const results = Array.from({ length: 49 }, (_, index) => ({
     id: `case-${index}`,
