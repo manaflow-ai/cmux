@@ -63,6 +63,26 @@ struct AgentPaneColdChatRevealTests {
         #expect(!Self.markShows(view), "the busy mark stayed while the page faded in")
     }
 
+    /// cx-txnr: after a relaunch a page that never reported its first paint (WebKit holds an
+    /// occluded window's animation frames) kept the pane on its loading state, a spinner over a
+    /// clear page, for good. The loading state gives up at its deadline and shows the page.
+    @Test func aPageThatNeverPaintsDropsItsLoadingStateAtTheDeadline() async throws {
+        let limit = AgentPaneLoadingView.paintLimit
+        AgentPaneLoadingView.paintLimit = .milliseconds(200)
+        defer { AgentPaneLoadingView.paintLimit = limit }
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        #expect(view.showsLoadingState)
+        try await Self.settle { view.loadingView.superview == nil }
+        #expect(view.loadingView.superview == nil, "a page that never painted kept its loading state")
+        #expect(view.pageContent.alphaValue == 1, "the page stayed clear after the loading state gave up")
+        #expect(!view.model.hasPainted)
+
+        view.model.markPainted()
+        #expect(view.loadingView.superview == nil, "a late paint brought the loading state back")
+        #expect(view.pageContent.alphaValue == 1)
+    }
+
     @Test func aNewTabPageShowsInOneFrame() throws {
         let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
         defer { window.close() }

@@ -17,6 +17,8 @@ public final class AgentPaneLoadingView: NSView {
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
     /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
     static let markDelay: Duration = .milliseconds(800)
+    /// Placeholder until the fix: the loading state has no deadline yet (cx-txnr).
+    static var paintLimit: Duration = .seconds(8)
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
