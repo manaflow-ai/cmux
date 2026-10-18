@@ -1,5 +1,5 @@
+import CmuxNextCompat
 import CmuxNextControl
-import Foundation
 import Observation
 import CmuxNextLayout
 import CmuxNextSettings
@@ -47,19 +47,18 @@ enum DebugLayoutCounters {
         }
         return fields.isEmpty ? "unchanged" : fields.joined(separator: ",")
     }
-    /// PROBE (side branch only): the latest snapshot run per pane; an older run's probes stay silent.
-    private static var probeRuns: [ObjectIdentifier: Int] = [:]
-    private static var probeFired: Set<String> = []
+    /// PROBE (side branch only): the latest snapshot run per pane (read where a change fires); an
+    /// older run's probes stay silent, and one run counts each group once.
+    private static let probeRuns = Mutex<[ObjectIdentifier: Int]>([:])
+    private static let probeFired = Mutex<Set<String>>([])
     /// Runs `read` under its own tracking (nested: the caller's tracking still sees each access) and
     /// counts "pane read <group> fired" in `sources` when what it read changes, for the latest run only.
     static func probe<T>(_ group: String, owner: ObjectIdentifier, run: Int, _ read: () -> T) -> T {
-        probeRuns[owner] = run
+        probeRuns.withLock { $0[owner] = run }
         return withObservationTracking(read, onChange: {
-            let fire: @MainActor @Sendable () -> Void = {
-                guard probeRuns[owner] == run, probeFired.insert("\(owner.hashValue)#\(run)#\(group)").inserted else { return }
-                sources["pane read \(group) fired", default: 0] += 1
-            }
-            if Thread.isMainThread { MainActor.assumeIsolated(fire) } else { Task { @MainActor in fire() } }
+            let latest = probeRuns.withLock { $0[owner] == run }
+            guard latest, probeFired.withLock({ $0.insert("\(owner.hashValue)#\(run)#\(group)").inserted }) else { return }
+            Task { @MainActor in sources["pane read \(group) fired", default: 0] += 1 }
         })
     }
     private static var paneCounts: [ObjectIdentifier: Int] = [:]
