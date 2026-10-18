@@ -11,6 +11,9 @@ public import Foundation
 ///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
+/// - `cmux.settings.backdrop.image.collage.save {collage, replacing?}`: draws and saves a collage
+///   (``BackdropCollages``); `{id}`, the page then sets `collage:<id>` like any choice.
+/// - `cmux.settings.backdrop.image.collage.get {id}` / `.collage.delete {id}` (never the one in use).
 /// - `cmux.settings.backdrop.image.adjust`: places the picture a window shows by hand
 ///   (``BackdropAdjustOverlay``); `cmux.settings.backdrop.not_adjustable` when none shows one.
 ///
@@ -75,6 +78,28 @@ public final class BackdropImagesPageProvider: PageProvider {
             return .object([:])
         case Self.prefix + "usage":
             return try await usage()
+        case Self.prefix + "collage.save":
+            let invalid = PageError(code: BackdropCollages.SaveError.invalid.code, message: "not a collage")
+            guard let value = params["collage"],
+                  let collage = try? JSONDecoder().decode(BackdropCollage.self, from: Data(value.compactText.utf8)) else { throw invalid }
+            let replacing = params["replacing"]?.stringValue
+            let collages = collages
+            do {
+                return ["id": .string(try await Task.detached { try collages.save(collage, replacing: replacing) }.value)]
+            } catch let refused as BackdropCollages.SaveError {
+                throw PageError(code: refused.code, message: refused.code)
+            }
+        case Self.prefix + "collage.get":
+            guard let id = params["id"]?.stringValue, let collage = collages.collage(id) else { throw PageError.invalidParams("no such collage") }
+            return try JSONValue.parse(JSONEncoder().encode(collage))
+        case Self.prefix + "collage.delete":
+            guard let id = params["id"]?.stringValue, BackdropCollages.isValidID(id) else { throw PageError.invalidParams("no such collage") }
+            guard inUse() != .collage(id: id) else {
+                throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
+            }
+            try collages.delete(id)
+            BackdropPlacementStore.shared.set(nil, for: BackdropSelection.collage(id: id).id)
+            return .object([:])
         case Self.prefix + "adjust":
             guard adjust() else {
                 throw PageError(code: "cmux.settings.backdrop.not_adjustable", message: "no window shows a picture to place")
@@ -98,6 +123,9 @@ public final class BackdropImagesPageProvider: PageProvider {
         let bytes = await Task.detached { images.usage() }.value
         return ["bytes": .number(Double(bytes))]
     }
+
+    /// The person's collages, beside their own images.
+    private var collages: BackdropCollages { BackdropCollages(folder: images.folder.appendingPathComponent("Collages", isDirectory: true)) }
 
     private static func error(_ refused: BackdropUserImages.ImportError) -> PageError {
         PageError(code: refused.code, message: refused.code)

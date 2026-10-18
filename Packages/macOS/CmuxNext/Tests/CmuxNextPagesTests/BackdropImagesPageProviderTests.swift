@@ -1,7 +1,9 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 
 /// The Settings page's own-background ops (`cmux.settings.backdrop.image.*`): a link refused by
@@ -68,5 +70,49 @@ import Testing
         shows = true
         _ = try await provider.call(BackdropImagesPageProvider.prefix + "adjust", params: [:], context: Self.context)
         #expect(asked == 2)
+    }
+
+    /// Collages through the page (backgrounds plan phase 7): save draws one and answers its id,
+    /// get reads it back, delete removes it but never the background in use.
+    @Test func collagesSaveReadAndDelete() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-own-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let images = BackdropUserImages(folder: folder)
+        let picture = folder.appendingPathComponent("Sea.png")
+        try BackdropCollagesFixture.png(to: picture)
+        var current: BackdropSelection?
+        let provider = BackdropImagesPageProvider(images: images, use: { _ in "" }, inUse: { current })
+        let call = { (op: String, params: JSONValue) in
+            try await provider.call(BackdropImagesPageProvider.prefix + op, params: params, context: Self.context)
+        }
+        let collage: JSONValue = ["name": "Sea", "fill": "#000000",
+                                  "layers": [["source": .string("file:\(picture.path)"), "x": 0, "y": 0, "width": 1, "height": 1,
+                                              "opacity": 1, "cornerRadius": 0]]]
+        let id = try #require(try await call("collage.save", ["collage": collage])["id"]?.stringValue)
+        #expect(try await call("collage.get", ["id": .string(id)])["name"]?.stringValue == "Sea")
+        do {
+            _ = try await call("collage.save", ["collage": ["name": "Bad", "fill": "#000000", "layers": [["source": "desktop"]]]])
+            Issue.record("a malformed collage was saved")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.backdrop.collage.invalid")
+        }
+        current = .collage(id: id)
+        await #expect(throws: PageError.self) { try await call("collage.delete", ["id": .string(id)]) }
+        current = nil
+        _ = try await call("collage.delete", ["id": .string(id)])
+        await #expect(throws: PageError.self) { try await call("collage.get", ["id": .string(id)]) }
+    }
+}
+
+/// A small PNG for the page tests.
+enum BackdropCollagesFixture {
+    static func png(to url: URL) throws {
+        let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+        #expect(CGImageDestinationFinalize(destination))
     }
 }

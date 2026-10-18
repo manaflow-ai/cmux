@@ -384,3 +384,47 @@ test("Adjust Placement… places a still picture by hand, and says so when no wi
   expect([...card.querySelectorAll("button")].some((b) => b.textContent === "Adjust Placement…")).toBe(false);
   none.unmount();
 });
+
+test("New Collage… arranges pictures, saves them as one background, and can edit and remove it", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const button = (text: string, root: ParentNode = picker()) =>
+    [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text);
+  const newTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((b) =>
+    b.textContent?.includes("New Collage…"),
+  )!;
+  await act(async () => newTile.click());
+  await settle();
+  const editor = () => page.container.querySelector<HTMLElement>('[data-card="collage-editor"]')!;
+  expect(button("Save Collage", editor())!.disabled).toBe(true);
+  // Two pictures from the grid, then the side-by-side layout.
+  for (let added = 0; added < 2; added++) {
+    await act(async () => button("Add Picture", editor())!.click());
+    await settle();
+    const choices = editor().querySelectorAll<HTMLButtonElement>('[data-card="collage-pictures"] button');
+    expect(choices.length).toBeGreaterThan(0);
+    await act(async () => choices[0]!.click());
+    await settle();
+  }
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Side by Side", editor())!.click());
+  await settle();
+  const left = editor().querySelectorAll<HTMLElement>(".collage-layer")[1]!;
+  expect(parseFloat(left.style.left)).toBeGreaterThan(50);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  const saved = runs(page, "cmux.settings.backdrop.image.collage.save").at(-1) as { collage: { layers: unknown[] } };
+  expect(saved.collage.layers.length).toBe(2);
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-1" });
+  expect(page.container.querySelector('[data-card="collage-editor"]')).toBeNull();
+  // Listed under Your collages; the one in use cannot be removed, but can be edited.
+  const group = picker().querySelector<HTMLElement>('[data-collection="collages"]')!;
+  expect(group.querySelector<HTMLButtonElement>('[aria-label="Remove Collage"]')!.disabled).toBe(true);
+  await act(async () => group.querySelector<HTMLButtonElement>('[aria-label="Edit Collage"]')!.click());
+  await settle();
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.collage.save").at(-1)).toMatchObject({ replacing: "c-1" });
+  page.unmount();
+});

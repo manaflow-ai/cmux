@@ -1011,6 +1011,60 @@ mark {
   opacity: 1;
 }
 
+/* Collages (backgrounds plan phase 7): the canvas is the window's 16:10 shape; the chosen
+   picture shows a ring and a corner handle. */
+.collage-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin: 8px 0;
+  overflow: hidden;
+  border-radius: 6px;
+  touch-action: none;
+}
+
+.collage-layer {
+  position: absolute;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+}
+
+.collage-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+.collage-layer.chosen {
+  outline: 2px solid var(--text);
+}
+
+.collage-handle {
+  position: absolute;
+  padding: 0;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text);
+  background: var(--input-bg);
+  cursor: nwse-resize;
+}
+
+.collage-fill {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Edit sits left of remove on a collage tile. */
+.backdrop-edit {
+  right: 28px;
+}
+
 /* Browse More Art (cx-t2x.8). */
 .art-browser {
   margin: 12px 0;
