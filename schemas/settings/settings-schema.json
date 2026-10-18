@@ -3833,7 +3833,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "cmux registers this Mac's name, device ID, platform, app bundle ID and version, and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -25388,7 +25388,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e9ecbd2c1f2c90cdd577a35656d9adb442a2d0e42842ad27d737005d5cc193d2",
+  "schema_hash" : "59cf1c0ba4d3afd665e533e00ebbd07ea496a28b4fcc84f8bb85e4650aaf9f9a",
   "sections" : [
     {
       "id" : "general",
