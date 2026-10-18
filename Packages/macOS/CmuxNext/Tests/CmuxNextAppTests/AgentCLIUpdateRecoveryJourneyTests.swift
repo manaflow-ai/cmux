@@ -39,7 +39,8 @@ struct AgentCLIUpdateRecoveryJourneyTests {
             _ = try await ledger.record([original, foreign])
             services.daemon.start { DaemonConnection(endpoint: owner.endpoint, configuration: connectionConfiguration) }
             await ObservationDeadline(owner: "AgentCLIUpdateRecoveryJourneyTests.attach").until({
-                services.daemon.identity?.sessionResourceID == session && services.daemon.connection != nil
+                guard case .connected = services.daemon.store.connectionState else { return false }
+                return services.daemon.identity?.sessionResourceID == session && services.daemon.connection != nil
             }, limit: .seconds(20))
             #expect(services.daemon.identity?.sessionResourceID == session)
 
