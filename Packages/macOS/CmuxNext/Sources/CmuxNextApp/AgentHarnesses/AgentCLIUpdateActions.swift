@@ -21,6 +21,7 @@ final class AgentCLIUpdateActions {
         let start: @MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobReceipt
         let observe: @MainActor (AgentCLIJobReceipt) async throws -> AgentCLIJobStatus
         var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)? = nil
+        var changes: (@MainActor () -> AsyncStream<Void>)? = nil
     }
 
     struct Persistence {
@@ -41,6 +42,7 @@ final class AgentCLIUpdateActions {
         let profile: String?
         let target: ActionTargetRef?
         @ObservationIgnored var work: Task<JSONValue, Error>?
+        @ObservationIgnored var following: Task<Void, Never>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
         var inputs: [AgentCLIUpdateIntent] = []
