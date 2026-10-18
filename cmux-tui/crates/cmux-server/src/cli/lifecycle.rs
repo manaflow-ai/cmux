@@ -380,7 +380,10 @@ fn postgres_state(layout: &Layout) -> &'static str {
     }
 }
 
-pub fn status(ctx: &Context<'_>, _args: &Args) -> Result<Output> {
+pub fn status(ctx: &Context<'_>, args: &Args) -> Result<Output> {
+    if args.has("binary-only") {
+        return Ok(super::binary::status(ctx));
+    }
     let layout = layout(ctx, false)?;
     let cfg = config(&layout)?;
     let store = Store::new(&layout);
