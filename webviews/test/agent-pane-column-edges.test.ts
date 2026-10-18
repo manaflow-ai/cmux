@@ -16,7 +16,9 @@ type Frame = { entry: string; variant: string; edge: string; blocks: Record<stri
 
 await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
   /** The frames and, in each, the blocks that sit in the column, by selector. A chat that has sent
-   *  shows no location strip (#20869), so only New Tab's frame names it. */
+   *  shows no location strip (#20869). The New Tab draws its strip as text over its card, its folder
+   *  icon on the field's text edge (#21133), so its frame names no block: it is here for the narrow
+   *  pane's card edge (below). */
   const FRAMES: Frame[] = [
     {
       entry: "agent-pane.bottom-stack",
@@ -51,7 +53,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       entry: "agent-pane.new-tab",
       variant: "empty",
       edge: ".nt-box",
-      blocks: { strip: ".acpmux-composer-strip" },
+      blocks: {},
     },
   ];
   const WIDTHS = [1100, 420];
@@ -193,7 +195,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       { entry: "agent-pane.composer", variant: "new-chat", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
-      { entry: "agent-pane.new-tab", variant: "empty", edge: ".nt-box" },
+      // The New Tab's strip is text a few px over its card, the card's rim whole (#21133;
+      // composer-top-strip-variants.test.ts pins it), so it has no join here.
     ];
     const offenders: string[] = [];
     for (const width of WIDTHS) {
