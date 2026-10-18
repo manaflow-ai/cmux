@@ -306,6 +306,25 @@ async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   if (!matched) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
 }
 
+async function findRestoredTerminal(localSocket, pattern, timeoutMs) {
+  const deadline = performance.now() + timeoutMs;
+  let lastIds = [];
+  while (performance.now() < deadline) {
+    const list = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (list.code === 0) {
+      let terminals = [];
+      try { terminals = JSON.parse(list.stdout || "[]"); } catch {}
+      lastIds = terminals.map((entry) => entry.id).filter(Boolean);
+      for (const entry of terminals) {
+        const screen = await runTui(["--socket", localSocket, "terminal", entry.id, "screen", "read"], 5_000);
+        if (screen.code === 0 && screen.stdout.includes(pattern)) return entry.id;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`restored terminal replay did not contain /${pattern}/ within ${timeoutMs}ms (terminals: ${lastIds.join(",") || "none"})`);
+}
+
 async function sessionHeaders(stackUser, expiresInMillis) {
   const session = await stackUser.createSession({ expiresInMillis, isImpersonation: true });
   const tokens = await session.getTokens();
@@ -672,8 +691,7 @@ try {
     // A relaunch gets a fresh local socket and can remap the remote terminal
     // id while restoring the same session. Resolve the restored terminal from
     // the new socket before waiting, rather than reusing the dead local id.
-    restoredTerminal = await ensureTerminal(relaunched.local_socket);
-    await waitForScreen(relaunched.local_socket, restoredTerminal, anchor, 30_000);
+    restoredTerminal = await findRestoredTerminal(relaunched.local_socket, anchor, 30_000);
   });
   await saveScreen(relaunched.local_socket, restoredTerminal, "03-after-relaunch");
 
