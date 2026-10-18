@@ -36,6 +36,22 @@ test("matrix index embeds only triage play fields, not raw frame payloads", () =
   expect(html).not.toContain("raw-experiment-trace");
 });
 
+test("matrix index escapes untrusted card text and play details", () => {
+  const html = renderIndex([
+    {
+      id: "<img src=x onerror=alert(1)>",
+      engine: "chromium",
+      screenshot: "capture.png",
+      params: { variant: "<script>alert(1)</script>" },
+      play: { status: "fail", steps: [{ status: "fail", step: "<b>click</b>", layoutShift: 0, longFrames: [], problems: ["<svg>"] }] },
+    },
+  ]);
+  expect(html).toContain("\\u003cimg src=x onerror=alert(1)>");
+  expect(html).toContain("\\u003cscript>alert(1)\\u003c/script>");
+  expect(html).not.toContain("<img src=x onerror");
+  expect(html).not.toContain("<b>click</b>");
+});
+
 test("matrix index exposes receipt metadata and triage state filtering", () => {
   const html = renderIndex(
     [{ id: "broken", engine: "chromium", screenshot: "broken.png", ready: "error" }],
