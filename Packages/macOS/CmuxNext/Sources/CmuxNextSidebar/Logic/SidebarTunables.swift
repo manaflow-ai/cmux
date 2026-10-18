@@ -28,11 +28,8 @@ public nonisolated enum SidebarCollapseMotionVariant: String, Sendable, CaseIter
 /// The title keeps its measured slot in every variant, so a late name never
 /// causes a row reflow or a one-frame blank replacement.
 public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// Set the title immediately, matching the existing behavior.
     case instant
-    /// Crossfade the old and new title in the same slot.
     case crossfade
-    /// Push the new title up through the old title, keeping the row geometry fixed.
     case lift
 
     public var tunableTitle: String {
@@ -95,8 +92,7 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. This is a debug-only comparison
-    /// point; instant remains the shipped default until the motion is reviewed.
+    /// agent-derived title after creation. Instant remains the shipped default.
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",

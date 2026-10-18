@@ -26,6 +26,6 @@ public nonisolated enum StatusIndicatorTunables {
 
     public static var all: [TunableDescriptor] {
         [style.descriptor, arcLength.descriptor, trackOpacity.descriptor, dotScale.descriptor, pulseLow.descriptor, nativeSteps.descriptor,
-         StatusIconSet.tunable.descriptor]
+         StatusIconSet.tunable.descriptor, StatusIndicatorPlan.staticShapes.descriptor]
     }
 }

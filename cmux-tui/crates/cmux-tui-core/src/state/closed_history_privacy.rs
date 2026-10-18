@@ -109,33 +109,63 @@ fn decode_key(key: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `url` without its secret query keys. Only web URLs (`http`, `https`,
-/// `ws`, `wss`) are touched, and the kept parts stay byte for byte: the
-/// query is filtered by its raw `&`-separated pairs, never re-encoded.
+/// `url` without its user info (`user:pass@`) and its secret query and
+/// fragment keys (`#access_token=`). Only web URLs (`http`, `https`, `ws`,
+/// `wss`) are touched, and the kept parts stay byte for byte: the query and
+/// fragment are filtered by their raw `&`-separated pairs, never re-encoded.
 pub(super) fn strip_url(url: &str) -> String {
     let lower = url.get(..6).unwrap_or(url).to_ascii_lowercase();
     if !["http:", "https:", "ws:", "wss:"].iter().any(|scheme| lower.starts_with(scheme)) {
         return url.to_string();
     }
-    let (before_fragment, fragment) = match url.find('#') {
-        Some(at) => url.split_at(at),
-        None => (url, ""),
+    let (before_fragment, fragment) = match url.split_once('#') {
+        Some((before, fragment)) => (before, Some(fragment)),
+        None => (url, None),
     };
-    let Some((base, query)) = before_fragment.split_once('?') else { return url.to_string() };
-    let pairs = query.split('&').collect::<Vec<_>>();
+    let (base, query) = match before_fragment.split_once('?') {
+        Some((base, query)) => (base, Some(query)),
+        None => (before_fragment, None),
+    };
+    let mut stripped = without_user_info(base);
+    if let Some(query) = query.and_then(|query| kept_pairs(query, true)) {
+        stripped.push('?');
+        stripped.push_str(&query);
+    }
+    // A fragment part is a key only when it has a value (`#section` stays).
+    if let Some(fragment) = fragment.and_then(|fragment| kept_pairs(fragment, false)) {
+        stripped.push('#');
+        stripped.push_str(&fragment);
+    }
+    stripped
+}
+
+/// `base` (scheme, authority and path) without user info in the authority.
+fn without_user_info(base: &str) -> String {
+    let Some(start) = base.find("://").map(|at| at + 3) else { return base.to_string() };
+    let end = base[start..].find('/').map_or(base.len(), |at| start + at);
+    match base[start..end].rfind('@') {
+        Some(at) => format!("{}{}", &base[..start], &base[start + at + 1..]),
+        None => base.to_string(),
+    }
+}
+
+/// The `&`-separated pairs of `part` that are not secrets, byte for byte;
+/// None when every pair was a secret. `bare_keys`: a pair without `=` is a
+/// key too.
+fn kept_pairs(part: &str, bare_keys: bool) -> Option<String> {
+    let pairs = part.split('&').collect::<Vec<_>>();
     let kept = pairs
         .iter()
-        .filter(|pair| !is_secret_key(&decode_key(pair.split('=').next().unwrap_or(""))))
+        .filter(|pair| {
+            let keyed = bare_keys || pair.contains('=');
+            !(keyed && is_secret_key(&decode_key(pair.split('=').next().unwrap_or(""))))
+        })
         .copied()
         .collect::<Vec<_>>();
     if kept.len() == pairs.len() {
-        return url.to_string();
+        return Some(part.to_string());
     }
-    if kept.is_empty() {
-        format!("{base}{fragment}")
-    } else {
-        format!("{base}?{}{fragment}", kept.join("&"))
-    }
+    (!kept.is_empty()).then(|| kept.join("&"))
 }
 
 /// A frontend browser's opaque session history (a JSON object) with every
@@ -194,4 +224,50 @@ pub(super) fn is_private_window(connection: &Connection, keys: &[String]) -> any
         |row| row.get(0),
     )?;
     Ok(usize::try_from(ephemeral)? == distinct.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_url;
+
+    #[test]
+    fn strip_url_drops_secret_query_keys_byte_for_byte() {
+        assert_eq!(strip_url("https://a.example/p?q=1&token=s"), "https://a.example/p?q=1");
+        assert_eq!(strip_url("https://a.example/p?token=s"), "https://a.example/p");
+        assert_eq!(strip_url("https://a.example/p?q=a%20b&x"), "https://a.example/p?q=a%20b&x");
+    }
+
+    #[test]
+    fn strip_url_drops_user_info() {
+        assert_eq!(strip_url("https://user:pass@a.example/p"), "https://a.example/p");
+        assert_eq!(strip_url("https://user@a.example"), "https://a.example");
+        // An `@` in the path is not user info.
+        assert_eq!(strip_url("https://a.example/@me"), "https://a.example/@me");
+    }
+
+    #[test]
+    fn strip_url_drops_secret_fragment_keys() {
+        assert_eq!(
+            strip_url("https://a.example/cb#access_token=t&x=1"),
+            "https://a.example/cb#x=1"
+        );
+        assert_eq!(strip_url("https://a.example/cb#access_token=t"), "https://a.example/cb");
+        // A fragment part without a value is an anchor, not a key.
+        assert_eq!(strip_url("https://a.example/doc#token"), "https://a.example/doc#token");
+        assert_eq!(strip_url("https://a.example/doc#section"), "https://a.example/doc#section");
+    }
+
+    #[test]
+    fn strip_url_strips_every_part_together() {
+        assert_eq!(
+            strip_url("https://user:pass@a.example/p?q=1&token=s#access_token=t&x=1"),
+            "https://a.example/p?q=1#x=1"
+        );
+    }
+
+    #[test]
+    fn strip_url_leaves_non_web_urls_alone() {
+        assert_eq!(strip_url("file:///tmp/a?token=s"), "file:///tmp/a?token=s");
+        assert_eq!(strip_url("cmux://history#access_token=t"), "cmux://history#access_token=t");
+    }
 }
