@@ -31,7 +31,10 @@ export function getEntryStore(): EntryStore {
 /** A frame store loads only the source named by the shell; stale source links fail explicitly. */
 export function createFrameEntryStore(sourcePath?: string): EntryStore {
   const sources = sourcePath ? entrySources.filter((source) => source.path === sourcePath) : entrySources;
-  return createEntryStore(sources, { concurrency: 1 });
+  // Direct frame URLs commonly carry `entry=` but no source hint. Keep those useful for copied
+  // links without making them compile the registry serially; `find()` resolves the requested entry
+  // as soon as it loads and the remaining bounded work can settle in the background.
+  return createEntryStore(sources, { concurrency: sourcePath ? 1 : 6 });
 }
 
 // The live dev server (dev-server/galleryLive.ts) names the entry files a save changed; each loads

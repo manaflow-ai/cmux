@@ -46,3 +46,18 @@ test("bounded loading keeps only the configured number of entry modules active",
   expect(peak).toBe(2);
   expect(store.getSnapshot().every((state) => state.status === "ready")).toBe(true);
 });
+
+test("find resolves a requested entry while other bounded loads are still running", async () => {
+  let releaseTarget!: (value: ReturnType<typeof entry>) => void;
+  let releaseSibling!: (value: ReturnType<typeof entry>) => void;
+  const sources: EntrySource[] = [
+    { path: "src/target.gallery.tsx", load: () => new Promise((resolve) => (releaseTarget = resolve)) },
+    { path: "src/sibling.gallery.tsx", load: () => new Promise((resolve) => (releaseSibling = resolve)) },
+  ];
+  const store = createEntryStore(sources, { concurrency: 2 });
+  const found = store.find("test.target");
+  await Promise.resolve();
+  releaseTarget(entry("test.target"));
+  await expect(found).resolves.toMatchObject({ entry: { id: "test.target" } });
+  releaseSibling(entry("test.sibling"));
+});
