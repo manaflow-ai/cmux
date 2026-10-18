@@ -9,7 +9,7 @@ final class DragLiftView: NSView {
     private let card = NSView()
     private let content: NSView
     private var stack: [NSView] = []
-    private let countBadge = NSTextField(labelWithString: "")
+    private let countBadge = ChromeLabel(labelWithString: "")
     let badgeBackground = NSView()
     private var lifted = false
     /// Landings started (`SidebarReorderLift.land`): only the last one's completion runs.

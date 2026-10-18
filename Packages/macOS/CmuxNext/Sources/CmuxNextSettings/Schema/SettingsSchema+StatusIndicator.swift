@@ -24,6 +24,18 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
             ),
             SettingDescriptor(
+                path + ["animation"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.animation", "Status Indicators"),
+                help: SettingsText.keyed("settings.statusIndicator.animation.help",
+                                        "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."),
+                kind: .choice([
+                    SettingChoice(StatusIndicatorAnimation.animated.rawValue, SettingsText.keyed("settings.choice.animated", "Animated")),
+                    SettingChoice(StatusIndicatorAnimation.`static`.rawValue, SettingsText.keyed("settings.choice.static", "Static")),
+                ]),
+                default: .string(defaults.animation.rawValue),
+                keywords: ["animation", "motion", "blink", "pulse", "flash", "static", "reduce motion", "accessibility", "headache"]
+            ),
+            SettingDescriptor(
                 path + ["size"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.size", "Size"),
                 kind: .number(SettingNumber(Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound),

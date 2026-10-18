@@ -99,6 +99,19 @@ class Decide(unittest.TestCase):
             GUI,
         )
 
+    def test_a_light_side_lane_borrows_the_std_gui_runners(self):
+        # The light minis run no GUI runner, so a light side lane's GUI suites take the std minis'
+        # live GUI label instead of the Blacksmith fallback; a live light GUI label still wins.
+        light_side, light_gui = "glaeda-side-light-xcode-26.6", "glaeda-gui-light-xcode-26.6"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        std_gui = runner("mini-a-glaeda-4", labels=(STD, GUI))
+        self.assertEqual(placement.gui_route_label(light_side, [light, std_gui]), GUI)
+        self.assertEqual(placement.gui_route_label(light_side, [light]), "")
+        self.assertEqual(placement.gui_route_label(light_side, [light, runner("mini-a-glaeda-4", labels=(STD, GUI),
+                                                                              status="offline")]), "")
+        live_light = runner("light-b-glaeda-4", labels=("glaeda-light-xcode-26.6", light_gui))
+        self.assertEqual(placement.gui_route_label(light_side, [light, live_light, std_gui]), light_gui)
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
