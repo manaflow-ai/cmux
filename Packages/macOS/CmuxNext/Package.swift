@@ -179,6 +179,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextKeepAwake",
+                "CmuxNextPhoneAccess",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -537,6 +538,20 @@ let package = Package(
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
+        // behind phone.allowConnections, the start-workspaces gate and the one-time
+        // migration. The App supplies the account and the Mac's name.
+        .target(
+            name: "CmuxNextPhoneAccess",
+            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextKeepAwake",
+                           "CmuxNextMobile", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextPhoneAccessTests",
+            dependencies: ["CmuxNextPhoneAccess"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
