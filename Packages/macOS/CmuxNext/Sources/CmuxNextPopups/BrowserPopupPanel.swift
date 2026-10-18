@@ -14,14 +14,14 @@ public final class BrowserPopupPanel: NSPanel {
     static let titleHeight: CGFloat = 28
 
     public let page: any BrowserTab
-    var onEscape: (() -> Void)?
-    var onClose: (() -> Void)?
+    public var onEscape: (() -> Void)?
+    public var onClose: (() -> Void)?
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let originLabel = ChromeLabel(labelWithString: "")
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
 
-    init(page: any BrowserTab, frame: CGRect) {
+    public init(page: any BrowserTab, frame: CGRect) {
         self.page = page
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                    backing: .buffered, defer: false)
