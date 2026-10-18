@@ -70,6 +70,20 @@ For an isolated worktree run, set `CMUX_GALLERY_FREESTYLE_LEDGER` to an absolute
 
 Publish an already captured matrix with `scripts/gallery-deploy.sh --matrix g5-pages-1 /path/to/output`. This uses the same publisher as `--publish-run` and launches no browser.
 
+To publish the same exact matrix to the HQ feed, provide the PR URL and the
+checked-out `feed-post` helper. The publisher hashes `index.html` and
+`results.json` locally and binds each manifest entry to its public gallery URL;
+the evidence receipt is bound to the supplied exact source head:
+
+```sh
+CMUX_FEED_POST=/path/to/cmuxterm-hq/tools/cmux-feed/feed-post \
+  scripts/gallery-deploy.sh --matrix g5-pages-1 /path/to/output \
+  --pr https://github.com/manaflow-ai/cmux/pull/12345 --head "$HEAD"
+```
+
+The feed step is deliberately opt-in because CI cannot reach the tailnet feed
+server. A normal matrix publish remains unchanged when `--pr` is omitted.
+
 For the native cmux-next lane, use `scripts/cmux-next/motion-evidence.py` with the socket of the exact
 tagged DEBUG app. It wraps `scripts/ci/frame-pacing/golden.py`, writes a `motion-evidence.json`
 manifest, and preserves the per-display-link traces and optional `debug.window_record` frames.
