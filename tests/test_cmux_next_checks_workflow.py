@@ -430,6 +430,15 @@ class PathRoutingStructure(unittest.TestCase):
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
 
+    def test_generated_files_use_cached_web_bundles_without_rebuilding(self):
+        """A cache hit must install the keyed bundles and skip the source build."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["generated-files"]["steps"]
+        build = next(step for step in steps if step.get("name") == "Build the web bundles")
+        self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+        install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
+        self.assertEqual(install["if"], "steps.web-bundle-cache.outputs.cache-hit == 'true'")
+
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
         token" failed on every stale PR; it is removed, not widened. A stale generated file
