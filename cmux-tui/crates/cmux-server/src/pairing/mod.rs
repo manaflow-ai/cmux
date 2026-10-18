@@ -158,14 +158,23 @@ pub fn enroll(
             let begun = Begun::parse(&response, &thumbprint, now_ms)
                 .map_err(|_| Error::verification("server.pair.invalid_begin"))?;
             // Store only the bounded, validated fields needed for same-code recovery.
-            identity
-                .save_response(&json!({"code":begun.code.as_str(),"expires_at":begun.expires_at,
-                "thumbprint":begun.thumbprint,"collect_secret":begun.collect_secret()}))?;
+            let mut saved = json!({"code":begun.code.as_str(),"expires_at":begun.expires_at,
+                "thumbprint":begun.thumbprint,"collect_secret":begun.collect_secret()});
+            if let Some(uri) = verification_uri(&response, &begun) {
+                saved["verification_uri"] = uri.into();
+            }
+            identity.save_response(&saved)?;
             store.save(&identity)?;
             begun
         }
     };
-    progress(&begun.public_progress())?;
+    let mut public_progress = begun.public_progress();
+    if let Some(response) = identity.begin_response()?
+        && let Some(uri) = verification_uri(&response, &begun)
+    {
+        public_progress["verification_uri"] = uri.into();
+    }
+    progress(&public_progress)?;
     match transport.wait(&api, &begun)? {
         Waited::Paired(paired) => {
             paired.validate().map_err(|_| Error::verification("server.pair.invalid_result"))?;
@@ -185,4 +194,19 @@ pub fn enroll(
             Err(Error::unreachable("server.pair.expired"))
         }
     }
+}
+
+fn verification_uri(response: &Value, begun: &Begun) -> Option<String> {
+    let text = response.get("verification_uri")?.as_str()?;
+    if text.len() > 2048
+        || text.to_ascii_lowercase().contains(&begun.collect_secret().to_ascii_lowercase())
+    {
+        return None;
+    }
+    let uri = url::Url::parse(text).ok()?;
+    let query = uri.query_pairs().collect::<Vec<_>>();
+    (uri.scheme()=="https" && uri.host_str().is_some() && uri.username().is_empty()
+        && uri.password().is_none() && uri.path()=="/pair" && uri.fragment().is_none()
+        && matches!(query.as_slice(),[(key,value)] if key.as_ref()=="c" && value.as_ref()==begun.code.as_str()))
+        .then(|| uri.to_string())
 }

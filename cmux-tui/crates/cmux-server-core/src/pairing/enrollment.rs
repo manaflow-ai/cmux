@@ -192,8 +192,7 @@ impl Begun {
     /// No secret, arbitrary server URL or key material is shown to a person.
     pub fn public_progress(&self) -> Value {
         json!({"state":"pending", "code":self.code.display(), "expires_at":self.expires_at,
-            "words":fingerprint_words(&self.thumbprint), "thumbprint":self.thumbprint,
-            "verification_uri":format!("https://cmux.com/pair?c={}",self.code.as_str())})
+            "words":fingerprint_words(&self.thumbprint), "thumbprint":self.thumbprint})
     }
 }
 

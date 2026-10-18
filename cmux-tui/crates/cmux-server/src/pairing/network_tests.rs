@@ -66,8 +66,10 @@ fn http(status: u16, body: String, extra: String) -> (String, JoinHandle<Vec<u8>
 }
 
 fn loopback_http() -> Network {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     Network {
         http: reqwest::blocking::Client::builder()
+            .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(2))
             .build()

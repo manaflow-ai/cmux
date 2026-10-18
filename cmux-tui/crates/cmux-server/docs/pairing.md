@@ -25,7 +25,8 @@ These states describe enrollment. Transport reachability and serving roles have
 their own health. An enrollment record is not an execution grant.
 
 For `pair --json`, public progress objects go to stderr and the final result
-goes to stdout. Machine fields, IDs and diagnostic codes are invariant; human
+goes to stdout. A validated HTTPS `verification_uri` from the selected API is
+included when available and preserved on resume. Machine fields, IDs and diagnostic codes are invariant; human
 instructions and status labels follow `LC_ALL`, `LC_MESSAGES` or `LANG` in the
 nine supported macOS languages. The default API is
 `https://cloud-api.cmux.dev`; `--api-origin` accepts a canonical HTTPS origin.

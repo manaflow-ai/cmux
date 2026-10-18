@@ -321,7 +321,8 @@ fn server_pairing_serializes_concurrent_enrollment_before_any_second_begin() {
 #[test]
 fn server_pairing_does_not_replace_a_corrupt_identity_with_new_keys() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("identity.json");
+    let path = dir.path().join("pairing/identity.json");
+    cmux_server::fsx::ensure_dir(path.parent().unwrap(), 0o700).unwrap();
     std::fs::write(&path, b"invalid-existing-identity").unwrap();
     #[cfg(unix)]
     {
@@ -340,15 +341,16 @@ fn server_pairing_does_not_replace_a_corrupt_identity_with_new_keys() {
 fn server_pairing_refuses_shared_or_symlinked_identity_files_without_touching_them() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("identity.json");
+    let path = dir.path().join("pairing/identity.json");
     let api = Api::new(vec![Err(Error::unreachable("fixture.connection_lost"))]);
     assert!(run(&path, &api, None, &mut vec![]).is_err());
+    assert_eq!(api.begins.load(Ordering::SeqCst), 1, "fixture never reached its intended wait");
     let bytes = std::fs::read(&path).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(pairing::status(&path).is_err());
     assert!(run(&path, &api, None, &mut vec![]).is_err());
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let target = dir.path().join("preserved");
+    let target = path.with_file_name("preserved");
     std::fs::rename(&path, &target).unwrap();
     symlink(&target, &path).unwrap();
     assert!(pairing::status(&path).is_err());
