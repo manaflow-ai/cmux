@@ -404,7 +404,7 @@ final class AgentTabStore {
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.
-            if let self, let view = views[resolve(provisional)], let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            if let self, let view = views[resolve(provisional)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
         model.onAppAction = { [weak self] id in
