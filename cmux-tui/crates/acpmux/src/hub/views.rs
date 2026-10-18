@@ -114,10 +114,15 @@ pub fn lane(summary: &Value) -> Value {
 /// leaves part of a secret unmasked. Null when there is neither, or when a
 /// person's own message is the last one (it says nothing new).
 fn lane_step(summary: &Value) -> Value {
-    let reply = || (summary["lastMessage"]["role"] == "agent").then(|| summary["lastMessage"]["text"].as_str()).flatten();
-    let line = summary["turn"]["prompt"].as_str().or_else(reply).map(|text| {
-        super::session::short_text(&crate::secret_scan::mask(text), LANE_STEP_CHARS)
-    });
+    let reply = || {
+        (summary["lastMessage"]["role"] == "agent")
+            .then(|| summary["lastMessage"]["text"].as_str())
+            .flatten()
+    };
+    let line = summary["turn"]["prompt"]
+        .as_str()
+        .or_else(reply)
+        .map(|text| super::session::short_text(&crate::secret_scan::mask(text), LANE_STEP_CHARS));
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 

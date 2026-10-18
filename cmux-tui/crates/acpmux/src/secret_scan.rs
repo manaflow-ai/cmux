@@ -154,7 +154,9 @@ pub fn find(text: &str) -> Vec<Found> {
                 continue;
             }
             // `sk-learn-preprocessing-pipelines` is a package, not a key: a key has digits and capitals.
-            let mixed = |s: &str| s.bytes().any(|b| b.is_ascii_digit()) && s.bytes().any(|b| b.is_ascii_uppercase());
+            let mixed = |s: &str| {
+                s.bytes().any(|b| b.is_ascii_digit()) && s.bytes().any(|b| b.is_ascii_uppercase())
+            };
             if rule.kind == SecretKind::OpenAiKey && !mixed(m.as_str()) {
                 continue;
             }
@@ -172,7 +174,9 @@ pub fn find(text: &str) -> Vec<Found> {
     let mut merged: Vec<Found> = Vec::new();
     for (_, f) in all {
         match merged.last_mut() {
-            Some(last) if f.range.start < last.range.end => last.range.end = last.range.end.max(f.range.end),
+            Some(last) if f.range.start < last.range.end => {
+                last.range.end = last.range.end.max(f.range.end)
+            }
             _ => merged.push(f),
         }
     }

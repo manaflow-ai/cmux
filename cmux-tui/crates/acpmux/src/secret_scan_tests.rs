@@ -41,7 +41,11 @@ fn provider_keys_become_their_kind() {
         (&aws, "[aws key]"),
         (&google, "[google key]"),
     ] {
-        assert_masked(&format!("use {secret} for the deploy"), &[secret], &format!("use {mask} for the deploy"));
+        assert_masked(
+            &format!("use {secret} for the deploy"),
+            &[secret],
+            &format!("use {mask} for the deploy"),
+        );
     }
 }
 
@@ -57,9 +61,17 @@ fn headers_urls_jwts_and_private_keys_keep_their_frame() {
         "curl -H 'Authorization: Bearer [auth token]' https://api.example.com",
     );
     let basic = "dXNlcjpodW50ZXIy";
-    assert_masked(&format!("Authorization: Basic {basic}"), &[basic], "Authorization: Basic [auth token]");
+    assert_masked(
+        &format!("Authorization: Basic {basic}"),
+        &[basic],
+        "Authorization: Basic [auth token]",
+    );
     let api_key = format!("k{}", body(20));
-    assert_masked(&format!("-H \"x-api-key: {api_key}\""), &[&api_key], "-H \"x-api-key: [auth token]\"");
+    assert_masked(
+        &format!("-H \"x-api-key: {api_key}\""),
+        &[&api_key],
+        "-H \"x-api-key: [auth token]\"",
+    );
 
     let password = "hunter2hunter2";
     assert_masked(
@@ -68,10 +80,22 @@ fn headers_urls_jwts_and_private_keys_keep_their_frame() {
         "clone https://[credentials]@git.example.com/repo.git",
     );
 
-    let pem = format!("-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n{}\n-----END OPENSSH PRIVATE KEY-----", body(64), body(64));
-    assert_masked(&format!("here is the key:\n{pem}\nthanks"), &[&body(64)], "here is the key:\n[private key]\nthanks");
+    let pem = format!(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n{}\n-----END OPENSSH PRIVATE KEY-----",
+        body(64),
+        body(64)
+    );
+    assert_masked(
+        &format!("here is the key:\n{pem}\nthanks"),
+        &[&body(64)],
+        "here is the key:\n[private key]\nthanks",
+    );
     // A pasted key cut off before its END line is still masked to the end of the text.
-    assert_masked(&format!("-----BEGIN RSA PRIVATE KEY-----\n{}", body(64)), &[&body(64)], "[private key]");
+    assert_masked(
+        &format!("-----BEGIN RSA PRIVATE KEY-----\n{}", body(64)),
+        &[&body(64)],
+        "[private key]",
+    );
 }
 
 #[test]
@@ -79,12 +103,21 @@ fn secret_assignments_mask_the_value_and_keep_the_name() {
     let value = "s3cr3t-Value-77";
     assert_masked(&format!("export API_KEY={value}"), &[value], "export API_KEY=[secret]");
     assert_masked(&format!("DB_PASSWORD=\"{value}\""), &[value], "DB_PASSWORD=[secret]");
-    assert_masked(&format!(r#"{{"client_secret": "{value}"}}"#), &[value], r#"{"client_secret": [secret]}"#);
+    assert_masked(
+        &format!(r#"{{"client_secret": "{value}"}}"#),
+        &[value],
+        r#"{"client_secret": [secret]}"#,
+    );
     // A known shape names its kind even inside an assignment.
     let github = format!("gh{}_{}", "p", body(36));
     assert_masked(&format!("GITHUB_TOKEN={github}"), &[&github], "GITHUB_TOKEN=[github token]");
     // Placeholders are not values.
-    for text in ["GITHUB_TOKEN=$GITHUB_TOKEN", "API_KEY=${{ secrets.API_KEY }}", "password: <your password>", "TOKEN=********"] {
+    for text in [
+        "GITHUB_TOKEN=$GITHUB_TOKEN",
+        "API_KEY=${{ secrets.API_KEY }}",
+        "password: <your password>",
+        "TOKEN=********",
+    ] {
         assert_eq!(mask(text), text);
     }
 }
