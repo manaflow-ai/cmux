@@ -9,6 +9,7 @@ export interface VirtualRange {
   total: number;
 }
 
+/** Find the first row intersecting the viewport for anchor compensation. */
 export function virtualFirstVisibleIndex(count: number, heights: Map<number, number>, scrollTop: number, estimate = 260): number {
   if (count <= 0) return 0;
   let offset = 0;
@@ -96,8 +97,8 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   if (scroll && delta) scroll.scrollTop += delta;
   if (state.measurementGeneration) state.measurementGeneration.current += 1;
   const anchorMoved = index === firstVisible || state.estimate.current !== previousEstimate;
-  if (state.anchorInvalidated) state.anchorInvalidated.current = anchorMoved;
-  if (!anchorMoved && state.anchorGeneration && state.measurementGeneration) {
+  if (state.anchorInvalidated && anchorMoved) state.anchorInvalidated.current = true;
+  if (!anchorMoved && state.anchorGeneration && state.measurementGeneration && !state.anchorInvalidated?.current) {
     // Measurements below the anchor cannot change which row is first visible.
     // Advance the generation in place so the next observer callback stays O(1).
     state.anchorGeneration.current = state.measurementGeneration.current;
