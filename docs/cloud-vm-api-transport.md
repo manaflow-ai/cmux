@@ -41,6 +41,22 @@ plan/approval checks and the VM API's entitlement, quota, idle and network
 policies still apply. In particular, the API adapter asks for no provider idle
 timer; dev/test tenants capped at 300 seconds cannot use that policy.
 
-Personal owners still need real Stack-team provisioning before they can use
-this transport. Hosted tests use fake API responses and owner RPCs; they do not
-establish a live provider rollout or production billing integration.
+On the first admitted personal Cloud create, TeamDO provisions a real Stack
+tenant using its existing server credential. The current personal owner and
+canonical Stack user are checked in the configured project. A private intent
+and nonce live in TeamDO's SQLite effect ledger; matching server-only metadata
+and the solo creator membership confirm the returned tenant. Selected teams,
+names and client-writable metadata cannot establish that mapping.
+
+Provisioning follows Cloud admission, approval, plan and bind-configuration
+checks. Reads, cleanup and sign-in never create an identity team. Concurrent
+creates share one owner flight. Once a POST may have happened, a restart or
+lost answer recovers by its exact marker; an empty lookup never resends it.
+Recovery alarms back off for at most 24 hours, then retain the unresolved intent
+for a later explicit retry. A confirmed no-mutation rejection waits for a new
+admitted create. A cancellation committed during identity I/O is rechecked
+before VM creation. Mapping supplies routing, not a new VM grant; existing
+Stack tenant membership, scoped keys and VM policy still govern access.
+
+Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
+they do not establish a live provider rollout or production billing integration.

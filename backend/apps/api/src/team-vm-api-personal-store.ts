@@ -52,7 +52,7 @@ export class PersonalTenantStore {
     return this.sql.transaction(() => {
       const before = this.read()
       if (!before || before.phase !== "prepared" || before.attempts !== intent.attempts || !samePersonalMarker(before.marker, intent.marker)) throw new Error("personal tenant send conflict")
-      this.sql.exec("UPDATE team_vm_api_personal SET phase='creating', attempts=attempts+1, next_at=? WHERE id=1", now + 5000)
+      this.sql.exec("UPDATE team_vm_api_personal SET phase='creating', attempts=attempts+1, created_at=?, next_at=? WHERE id=1", now, now + 5000)
       const row = this.read()
       if (!row || row.phase !== "creating") throw new Error("personal tenant send conflict")
       return row
@@ -65,7 +65,8 @@ export class PersonalTenantStore {
     if (!row || row.phase !== "ready" || row.tenant !== tenant || !samePersonalMarker(row.marker, intent.marker)) throw new Error("personal tenant receipt conflict")
   }
   retry(intent: PersonalTenantIntent, now: number, definitelyUnsent = false): void {
-    const next = now - intent.createdAt >= 24 * 3600_000 ? null : now + Math.min(3600_000, 5000 * 2 ** Math.min(intent.attempts, 10))
+    const deadline = intent.createdAt + 24 * 3600_000
+    const next = now >= deadline ? null : Math.min(deadline, now + Math.min(3600_000, 5000 * 2 ** Math.min(intent.attempts, 10)))
     this.sql.exec("UPDATE team_vm_api_personal SET phase=?, attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase=? AND attempts=? AND phase<>'ready'", definitelyUnsent ? "prepared" : intent.phase, next, JSON.stringify(intent.marker), intent.phase, intent.attempts)
   }
   parkPrepared(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase='prepared'") }

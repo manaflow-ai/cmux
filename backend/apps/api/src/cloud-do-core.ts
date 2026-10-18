@@ -348,6 +348,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       if (!planDenied && !bindDenied) try {
         driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "snapshot_delete" || row.op === "pause" ? "cleanup" : "operate", row.op === "create" && !row.cancel)
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
+      // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
+      if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       if (planDenied) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }

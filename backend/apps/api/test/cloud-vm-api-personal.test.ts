@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
+import { call, deliver, mirroredTeam, teamStub, useStack } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
 import { env } from "cloudflare:workers"
 import type { Env } from "../src/env.ts"
@@ -130,4 +130,20 @@ it("keeps stale retries from reopening an already-sent or completed reservation"
     expect(() => store.ready(sent, "other-team")).toThrow("receipt conflict")
     expect(store.read()).toMatchObject({ phase: "ready", tenant: STACK_TEAM })
   })
+})
+
+it("denies new work after the backing Stack team is deleted while retaining cleanup routing", async () => {
+  const t = await fixture()
+  expect(await ensure(t.personal)).toHaveProperty("status", "ready")
+  t.w.teams.set(STACK_TEAM, "Personal")
+  t.w.members.set(`${STACK_TEAM}:${t.stackUser}`, "Owner")
+  await useStack(STACK_TEAM, t.w)
+  expect((await deliver("team.created", { id: STACK_TEAM, display_name: "Personal" })).status).toBe(200)
+  expect(await read(t.personal)).toHaveProperty("tenant", STACK_TEAM)
+  t.w.teams.delete(STACK_TEAM)
+  expect((await deliver("team.deleted", { id: STACK_TEAM })).status).toBe(200)
+  expect(await read(t.personal)).toBeNull()
+  expect(await ensure(t.personal)).toHaveProperty("status", "unavailable")
+  expect(await inDO(teamStub(t.personal), async (instance) => instance.vmApiTenant(t.personal, "cleanup"))).toHaveProperty("tenant", STACK_TEAM)
+  expect(t.creates()).toBe(1)
 })

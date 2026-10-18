@@ -24,7 +24,7 @@ import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team
 import { ensurePersonalTenant, personalTenantTarget, type EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
 import { PersonalTenantStore } from "./team-vm-api-personal-store.ts"
 import { personalTenantStack, type PersonalTenantStack } from "./team-vm-api-personal-stack.ts"
-import { personalTeamIdFor, userIdFor } from "./domains/user.ts"
+import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
 import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
@@ -142,6 +142,14 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** Internal Cloud service routing only: never binds an unknown team or grants VM authority. */
+  async vmApiTenantState(entity: string): Promise<"unknown" | "active" | "deleted" | "invalid"> {
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return "invalid"
+    const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
+    if (!state?.team) return "unknown"
+    if (!vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, "cleanup")) return "invalid"
+    return state.team.deleted_at === undefined ? "active" : "deleted"
+  }
+
   async vmApiTenant(entity: string, purpose: VmApiTenantPurpose): Promise<VmApiTenant | null> {
     const state = this.boundEntity() === entity ? this.boundEngine?.currentState : undefined
     const shared = vmApiTenantOf(state, entity, this.env.STACK_PROJECT_ID, purpose)
@@ -153,7 +161,13 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (purpose === "cleanup") return target
     if (this.personalTenantOwner(entity) !== intent.marker.user) return null
     const source = await this.personalStackUser(intent.marker.user).catch(() => null)
-    return source === intent.marker.stack_user && userIdFor(this.env.STACK_PROJECT_ID, source) === intent.marker.user ? target : null
+    if (source !== intent.marker.stack_user || userIdFor(this.env.STACK_PROJECT_ID, source) !== intent.marker.user) return null
+    // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
+    const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
+    if (canonical === entity) return null
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const status = await mirror.vmApiTenantState(canonical).catch(() => null)
+    return status === "unknown" || status === "active" ? target : null
   }
 
   private readonly personalTenantStore = new PersonalTenantStore(this.sqlStore)
@@ -183,6 +197,11 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!this.personalTenantOwner(entity)) return Promise.resolve({ status: "unavailable" })
     if (this.personalTenantFlight) return this.personalTenantFlight
     this.personalTenantFlight = ensurePersonalTenant({ store: this.personalTenantStore, team: entity, project: this.env.STACK_PROJECT_ID, owner: () => this.personalTenantOwner(entity), stackUserOf: (user) => this.personalStackUser(user), stack: this.personalStack ?? personalTenantStack(this.env), now, allowCreate })
+      .then(async (reply) => {
+        if (reply.status !== "ready") return reply
+        const target = await this.vmApiTenant(entity, "operate")
+        return target ? { status: "ready" as const, target } : { status: "unavailable" as const }
+      })
       .finally(() => { this.personalTenantFlight = undefined; this.scheduleAlarm() })
     return this.personalTenantFlight
   }
