@@ -42,22 +42,27 @@ NEXT = "Packages/macOS/CmuxNext/Sources/"
 # Ordered: the first matching rule wins, so specific high paths sit above broad low ones.
 # Each rule is (tier, reason, patterns). Patterns are fnmatch globs on the repo path.
 # A pattern starting with "re:" is a regular expression searched in the path.
-RELEASE_WORDS = r"re:^(scripts|\.github/workflows)/(.*/)?([^/]*[-_])?(sign|codesign|notari[sz]\w*|appcast|sparkle|release)([-_.][^/]*)?$"
+RELEASE_WORDS = r"re:^(scripts|\.github/workflows)/(.*/)?([^/]*[-_])?(sign|codesign|notari[sz]\w*|appcast|sparkle|release|publish|deploy)([-_.][^/]*)?$"
 RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("low", "test", (
         "*/Tests/*", "*/tests/*", "tests/*", "*/test/*", "*_test.*", "*.test.*", "*Tests.swift",
-        "*/testdata/*", "*/fixtures/*", "*/snapshots/*",
     )),
     # Scripts that only mention a release: notes, benchmarks, end-to-end probes, compile checks.
     ("low", "CI and tooling", (
         r"re:^scripts/.*(release[-_]notes|[-_]perf[-_]|[-_]e2e\.|release-compile|derived-data)",
+    )),
+    # The merge gates themselves: a change here changes what every other pull request must show.
+    ("high", "merge gate or ownership", (
+        ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/cla*.yml",
+        "scripts/ci/risk_tier.py", "scripts/gh-merge-green", "scripts/ci/base_red_excuse.py",
+        "scripts/ci/revert_pr.py",
     )),
     ("high", "signing, release or update path", (
         "*.entitlements", ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*",
     )),
     ("high", "persistence, migration or protocol contract", (
         "*/migrations/*", "*migration*.swift", "*Migration*.swift", "*/migrate/*",
-        "backend/*", "web/convex/schema*", "schemas/defaults/*", "schemas/*/migrations/*",
+        "backend/*", "web/convex/schema*", "schemas/*",
         "cmux-tui/spec/*", "plans/cmux-next/daemon-capabilities.json", NEXT + "CmuxNextHistory/*",
     )),
     ("high", "vendored pin or package graph", (
@@ -67,7 +72,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "*/Package.resolved",
     )),
     ("low", "docs, plans or skills", (
-        "*.md", "*.mdx", "docs/*", "skills/*", "plans/*", "LICENSE*", "*.txt",
+        "*.md", "*.mdx", "docs/*", "skills/*", "plans/*", "LICENSE*",
     )),
     # Generated SDK bindings and UI-only crates under cmux-tui/ ship outside the daemon.
     ("medium", "SDK bindings or UI crate", (
@@ -82,6 +87,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         NEXT + "CmuxNextProcessEnvironment/*", NEXT + "CmuxNextMallocZone/*",
         NEXT + "CmuxNextCrashReporting/*", NEXT + "CmuxNextCLIInstall/*",
         NEXT + "CmuxNextComputerUse/*", NEXT + "CmuxNextBrowserHost/*",
+        NEXT + "CmuxNextBrowserImport/*", NEXT + "CmuxNextBrowserAutomation/*", NEXT + "CmuxNextCloud/*",
     )),
     ("high", "terminal input and rendering", (
         NEXT + "CmuxNextTerminal/*", NEXT + "CmuxNextTerminalGeometry/*", NEXT + "CmuxNextFocus/*",
@@ -106,11 +112,15 @@ GENERATED = (
 )
 
 PROOF_HEADING = re.compile(r"^##+\s*(proof|screenshots?|evidence)\b", re.I | re.M)
-LINK = re.compile(r"(!\[[^\]]*\]\([^)]+\)|<img\s|<video\s|https?://\S+)", re.I)
+# An embedded image or video, an uploaded attachment, or a link to a media file. A bare URL
+# ("CI only, see https://...") is not proof.
+LINK = re.compile(
+    r"(!\[[^\]]*\]\([^)]+\)|<img\s|<video\s|https://github\.com/user-attachments/\S+"
+    r"|https?://\S+\.(png|jpe?g|gif|webp|mov|mp4|webm)\b)", re.I)
 NOT_UI = re.compile(r"\bnot\s+ui\b\s*[:\-—]\s*\S+(\s+\S+){3,}", re.I)
-REVIEW = re.compile(r"^\s*[-*]?\s*\**review\**\s*:\s*(.+)$", re.I | re.M)
-RUNTIME = re.compile(r"^\s*[-*]?\s*\**runtime test\**\s*:\s*(.+)$", re.I | re.M)
-SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+REVIEW = re.compile(r"^[ \t]*[-*]?[ \t]*\**review\**[ \t]*:[ \t]*(\S.*)$", re.I | re.M)
+RUNTIME = re.compile(r"^[ \t]*[-*]?[ \t]*\**runtime test\**[ \t]*:[ \t]*(\S.*)$", re.I | re.M)
+SHA = re.compile(r"\b[0-9a-f]{7,40}\b", re.I)
 RUN_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/actions/runs/\d+")
 
 
@@ -169,6 +179,10 @@ def strip_comments(body: str) -> str:
     return re.sub(r"<!--.*?-->", "", body, flags=re.S)
 
 
+def on_pr(shas: list[str], commits: list[str]) -> bool:
+    return any(c.lower().startswith(s.lower()) for s in shas for c in commits)
+
+
 def missing_evidence(tier: str, body: str, commits: list[str] | None = None) -> list[str]:
     """What the description still needs for this tier. Empty means ready."""
     body = strip_comments(body or "")
@@ -184,13 +198,15 @@ def missing_evidence(tier: str, body: str, commits: list[str] | None = None) -> 
         shas = SHA.findall(review.group(1)) if review else []
         if not shas:
             missing.append("`Review:` naming the verdict and the commit SHA the independent review read")
-        elif commits is not None and not any(c.startswith(s) for s in shas for c in commits):
+        elif commits is not None and not on_pr(shas, commits):
             missing.append(f"`Review:` names {', '.join(shas)}, which is not a commit on this pull request")
         runtime = RUNTIME.search(body)
-        if not runtime or not (RUN_URL.search(runtime.group(1)) or SHA.search(runtime.group(1))):
+        line = runtime.group(1) if runtime else ""
+        runtime_shas = SHA.findall(line)
+        if not (RUN_URL.search(line) or (runtime_shas and (commits is None or on_pr(runtime_shas, commits)))):
             missing.append(
-                "`Runtime test:` naming the test and the CI run URL (or tagged build SHA) where it "
-                "executed this change")
+                "`Runtime test:` naming the test and the CI run URL (or the commit of this pull request "
+                "a tagged build ran) where it executed this change")
     return missing
 
 
@@ -218,8 +234,9 @@ def pr_mode(args: argparse.Namespace) -> int:
     labels = {label["name"] for label in pr.get("labels", [])}
     grade = classify(files, lines)
     missing = missing_evidence(grade.tier, pr.get("body") or "", commits)
-    waived = WAIVED_LABEL in labels
-    report = render(grade, missing, waived)
+    waiver = waived_by(args.repo, args.number) if WAIVED_LABEL in labels else None
+    waived = waiver is not None
+    report = render(grade, missing, waived, waiver)
     print(report)
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
@@ -230,7 +247,30 @@ def pr_mode(args: argparse.Namespace) -> int:
     return 0
 
 
-def render(grade: Grade, missing: list[str], waived: bool) -> str:
+def last_labeler(events: list[dict], name: str) -> str | None:
+    """Who added the label, if it is still on: the last add, cleared by a later removal."""
+    actor = None
+    for event in events:
+        if (event.get("label") or {}).get("name") != name:
+            continue
+        if event.get("event") == "labeled":
+            actor = (event.get("actor") or {}).get("login")
+        elif event.get("event") == "unlabeled":
+            actor = None
+    return actor
+
+
+def waived_by(repo: str, number: str) -> str | None:
+    """The maintainer (admin or maintain role) who added risk:waived, else None: a waiver from
+    anyone with only triage or write access doesn't count."""
+    actor = last_labeler(gh_items(f"repos/{repo}/issues/{number}/events?per_page=100"), WAIVED_LABEL)
+    if not actor:
+        return None
+    role = (gh_json("api", f"repos/{repo}/collaborators/{actor}/permission") or {}).get("role_name")
+    return actor if role in ("admin", "maintain") else None
+
+
+def render(grade: Grade, missing: list[str], waived: bool, waiver: str | None = None) -> str:
     out = [f"## Risk tier: {grade.tier}", ""]
     if grade.bumped:
         out.append(f"Raised from medium: {grade.counted_lines} changed lines outside tests and generated files "
@@ -240,7 +280,8 @@ def render(grade: Grade, missing: list[str], waived: bool) -> str:
         out.append(f"- {reason}: {shown}")
     out.append("")
     if waived:
-        out.append(f"`{WAIVED_LABEL}` is set: a maintainer accepted this pull request without the tier's evidence.")
+        out.append(f"`{WAIVED_LABEL}` is set by @{waiver}: a maintainer accepted this pull request "
+                   "without the tier's evidence.")
     elif missing:
         out.append("Before merge, the description needs:")
         out += [f"- {item}" for item in missing]

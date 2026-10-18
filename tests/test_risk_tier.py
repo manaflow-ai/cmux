@@ -58,6 +58,20 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier("scripts/cmux-next/sidebar-rows-perf-release.py"), "low")
         self.assertEqual(self.tier("scripts/ci/nightly_release_notes.py"), "low")
         self.assertEqual(self.tier("scripts/ci/notarize-nightly-dmg.sh"), "high")
+        self.assertEqual(self.tier(".github/workflows/sdk-publish-crates.yml"), "high")
+
+    def test_merge_gates_and_ownership_are_high(self):
+        for path in (".github/CODEOWNERS", ".github/workflows/risk-tier.yml", "scripts/ci/risk_tier.py",
+                     "scripts/gh-merge-green"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_data_files_inside_risky_trees_are_not_low(self):
+        self.assertEqual(self.tier("cmux-tui/crates/cmux-pty/CMakeLists.txt"), "high")
+        self.assertEqual(self.tier("cmux-tui/crates/cmux-tui-core/src/fs_ops/fixtures/answers.jsonl"), "high")
+        self.assertEqual(self.tier(NEXT + "CmuxNextServer/Resources/pairing-words.txt"), "high")
+        self.assertEqual(self.tier("schemas/control-plane/v1.json"), "high")
+        self.assertEqual(self.tier(NEXT + "CmuxNextBrowserImport/CookieImport.swift"), "high")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift", "cmux-tui/crates/cmux-pty/src/lib.rs"), "high")
@@ -81,6 +95,30 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.missing_evidence("medium", body), [])
         body = "## Proof\nNot UI: only the store's queue ordering changes, nothing renders differently\n"
         self.assertEqual(risk.missing_evidence("medium", body), [])
+
+    def test_a_bare_link_is_not_proof(self):
+        body = "## Proof\nCI only, see https://example.com/runs/1\n"
+        self.assertEqual(len(risk.missing_evidence("medium", body)), 1)
+        body = "## Proof\nhttps://github.com/user-attachments/assets/0d1e\n"
+        self.assertEqual(risk.missing_evidence("medium", body), [])
+
+    def test_a_field_name_with_its_value_on_the_next_line_does_not_count(self):
+        body = "## Proof\n![x](https://example.com/a.png)\r\nReview:\r\n0123456789ab\r\nRuntime test:\r\n" \
+            "https://github.com/manaflow-ai/cmux/actions/runs/1\r\n"
+        self.assertEqual(len(risk.missing_evidence("high", body, [HEAD])), 2)
+
+    def test_a_runtime_sha_must_be_a_commit_on_the_pull_request(self):
+        body = "## Proof\n![x](https://example.com/a.png)\nReview: SHIP at 0123456789AB\n" \
+            "Runtime test: tagged build at fedcba987654\n"
+        missing = risk.missing_evidence("high", body, [HEAD])
+        self.assertEqual(len(missing), 1)
+        self.assertIn("Runtime test", missing[0])
+
+    def test_the_last_labeler_counts_and_a_removal_clears_it(self):
+        added = {"event": "labeled", "label": {"name": "risk:waived"}, "actor": {"login": "leo"}}
+        removed = {"event": "unlabeled", "label": {"name": "risk:waived"}, "actor": {"login": "leo"}}
+        self.assertEqual(risk.last_labeler([added], "risk:waived"), "leo")
+        self.assertIsNone(risk.last_labeler([added, removed], "risk:waived"))
 
     def test_template_comment_is_not_proof(self):
         body = "## Proof\n<!-- Before/after screenshots https://example.com -->\n## Checklist\n"

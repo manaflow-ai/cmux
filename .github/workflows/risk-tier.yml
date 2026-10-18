@@ -12,40 +12,20 @@ on:
   pull_request_target:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review, labeled, unlabeled]
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - scripts/ci/risk_tier.py
-      - tests/test_risk_tier.py
-      - .github/workflows/risk-tier.yml
 
 permissions:
   contents: read
 
-concurrency:
-  group: risk-tier-${{ github.event_name }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
-  tests:
-    if: github.event_name == 'pull_request'
-    name: risk tier tests
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # read-only unit tests
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/risk_tier.py
-            tests/test_risk_tier.py
-          sparse-checkout-cone-mode: false
-      - run: python3 tests/test_risk_tier.py -v
-
   evidence:
-    # Our own label edits come from GITHUB_TOKEN and do not retrigger this; a person's do.
-    if: github.event_name == 'pull_request_target' && (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || startsWith(github.event.label.name, 'risk:'))
+    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
+    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
+    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
+    # check, so the newest finished run is always a real verdict.
     name: risk evidence
+    concurrency:
+      group: risk-evidence-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
     permissions:
@@ -56,7 +36,7 @@ jobs:
       - name: Checkout the base's classifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
           sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false

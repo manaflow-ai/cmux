@@ -20,14 +20,15 @@ changes. A file it can't place is medium, so a new directory is never graded low
 | --- | --- | --- |
 | low | docs, `*.md`, tests, skills, plans, `.github/` and `scripts/` tooling | green CI on the exact head |
 | medium | app UI: `Packages/`, `webviews/`, `App/`, `ios/`, `web/`, SDK bindings; anything unclassified | plus a screenshot or clip under `## Proof`, next to the matching reference from [cmux-design-references](https://github.com/manaflow-ai/cmux-design-references) when one exists |
-| high | `cmux-tui/` (daemon, acpmux, protocol), `CmuxNextDaemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, the terminal input path, `backend/`, migrations, `schemas/defaults/`, `cmux-tui/spec/`, vendored pins and `Package.resolved`, signing, release, update and entitlements | plus an independent review and a runtime test that executed the change |
+| high | `cmux-tui/` (daemon, acpmux, protocol, spec), `daemon/`, `server/`, `services/`, `workers/`, `backend/`, `schemas/`, migrations; the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, `Updater` and the terminal input path; vendored pins and `Package.resolved`; signing, release, publish and entitlements; the merge gates themselves (`CODEOWNERS`, `gh-merge-green`, this classifier) | plus an independent review and a runtime test that executed the change |
 
 A medium pull request that changes more than 1,000 lines outside tests and generated files is high.
 
 ## What the description needs
 
-Medium, under `## Proof`: an image, a video or a link to one. When nothing user-visible
-changes, write `Not UI: <why>` in a sentence instead.
+Medium, under `## Proof`: an embedded image or video, an uploaded attachment, or a link to an
+image or video file. A link to a CI run isn't proof. When nothing user-visible changes, write
+`Not UI: <why>` in a sentence instead.
 
 High, anywhere in the description, as their own lines:
 
@@ -38,7 +39,8 @@ Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/m
 
 - `Review:` names a commit on this pull request that an independent reviewer read
   ([cmux-review](../../skills/cmux-review/SKILL.md)). The author's own agent doesn't count.
-- `Runtime test:` names the test, and the run where it executed this change. Pull requests here
+- `Runtime test:` names the test, and the run URL where it executed this change, or the commit of
+  this pull request that a tagged build or a Testbox ran. Pull requests here
   skip `cmux-next swift test`, so dispatch it: `gh workflow run cmux-next.yml --ref <branch>`
   runs every tier on that branch. A `cargo test` run on a Testbox, or a tagged build you drove
   with `scripts/cmux-debug-cli.sh`, works too: give the command and the SHA it ran on.
@@ -67,7 +69,7 @@ and a regression test.
 
 ## Waiving
 
-A maintainer can add `risk:waived` to accept a pull request without its tier's evidence, for
+A maintainer (admin or maintain role; the check reads who added the label) can add `risk:waived` to accept a pull request without its tier's evidence, for
 example a base-red repair that has to land now. Agents never add it. A wrong tier is a bug in
 `scripts/ci/risk_tier.py`: fix the rule and its test in `tests/test_risk_tier.py`, instead of
 waiving.
