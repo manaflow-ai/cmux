@@ -108,10 +108,16 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfiguration(isBeginning _: Bool) {
+    func handleDisplayReconfiguration(isBeginning: Bool) {
         displayReconfigurationGeneration += 1
         didObserveDisplayReconfigurationSinceReconcile = true
         beginScreenChangeCaptureSuppression()
+        // An idle reconcile can run between the begin and end callbacks and
+        // clear the marker; the end callback re-sets it, so it must queue the
+        // pass that consumes it rather than wait for a later screen change.
+        if !isBeginning {
+            scheduleScreenChangeReconcileWhenIdle()
+        }
     }
 
     func handleScreenParametersDidChange() {
