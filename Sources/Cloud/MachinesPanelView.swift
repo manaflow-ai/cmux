@@ -116,6 +116,9 @@ struct MachinesPanelView: View {
     var body: some View {
         activationContent
         .onAppear {
+            // Every path that shows the panel lands here, so the footer's
+            // first-run dot retires however Cloud was opened.
+            SidebarCloudButtonPresentation.recordCloudOpened()
             activationCoordinator.reconcile()
             syncPolling(for: authState)
         }
@@ -191,6 +194,7 @@ struct MachinesPanelView: View {
             await devBackend.observe()
             if devBackend.status?.isReady == true, !activationCoordinator.isPreparing { viewModel.refresh() }
         }
+        .cloudOpenRepositoryDropTarget()
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
@@ -203,6 +207,12 @@ struct MachinesPanelView: View {
                     tabManager: tabManager,
                     preferredWindow: tabManager?.window,
                     debugSource: "cloudTree.newMachineButton"
+                )
+            }
+            CloudOpenRepositoryPanelButton {
+                AppDelegate.shared?.performOpenRepositoryInCloudAction(
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.openRepositoryButton"
                 )
             }
         }
@@ -234,6 +244,21 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
+        }
+        if includesCloud {
+            // Pinned under the tree like a sidebar footer; renders nothing
+            // once the user closes it or finishes every step.
+            CloudGettingStartedPanelSection(
+                viewModel: viewModel,
+                tabManager: tabManager,
+                dismissals: bannerDismissals
+            )
+            // At most one contextual tip, and only when Get started is gone.
+            CloudHintsPanelSection(
+                viewModel: viewModel,
+                dismissals: bannerDismissals,
+                presentation: teamPickerPresentation
+            )
         }
     }
 
@@ -294,6 +319,7 @@ struct MachinesPanelView: View {
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
             onNewMachine: requestNewMachine,
+            teachingHelp: CloudTeachingHelpContext.bound(viewModel: viewModel, tabManager: tabManager),
             status: { cloudStatus }
         )
         .disabled(activationCoordinator.isPreparing)
@@ -364,6 +390,9 @@ struct MachinesPanelView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+                Link(String(localized: "cloud.security.learnMore", defaultValue: "Learn more"), destination: CloudDocsLinks.overview)
+                    .cmuxFont(size: 12)
+                    .accessibilityIdentifier("CloudMachinesSignInUnavailableLearnMore")
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -501,6 +530,7 @@ struct MachinesPanelView: View {
             snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
+            unreadFailureTerminalIDs: viewModel.unreadFailureTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
@@ -710,17 +740,38 @@ struct MachinesPanelView: View {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
                     .foregroundColor(.secondary.opacity(0.55))
-                Text(String(localized: "machines.empty.title", defaultValue: "No machines yet"))
+                Text(String(localized: "machines.empty.headline", defaultValue: "No Cloud machines yet"))
                     .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.85))
+                // What Cloud is, in one line, before the one thing to do.
                 Text(String(
-                    localized: "machines.empty.subtitle",
-                    defaultValue: "A machine is a persistent cloud computer. It keeps your files forever and costs nothing while it sleeps."
+                    localized: "machines.empty.pitch",
+                    defaultValue: "A Cloud machine runs your agents and terminals while you’re away. It keeps your files and costs nothing while it sleeps."
                 ))
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
+                if viewModel.plan?.isPaidPlan != false {
+                    // The 60-second path: key, machine and agent in one surface.
+                    // An empty machine stays one quiet click away.
+                    Button {
+                        CloudFirstRunPresenter.shared.present(preferredWindow: tabManager?.window)
+                    } label: {
+                        Text(String(localized: "machines.empty.firstAgent", defaultValue: "Start Your First Agent"))
+                            .cmuxFont(size: 12)
+                    }
+                    .cloudProminentButtonStyle()
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("CloudMachinesEmptyStateFirstAgent")
+                    Button { requestNewMachine() } label: {
+                        Text(String(localized: "machines.empty.createEmpty", defaultValue: "New Empty Machine"))
+                            .cmuxFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
                 Button {
                     requestNewMachine()
                 } label: {
@@ -730,6 +781,7 @@ struct MachinesPanelView: View {
                 .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
+                }
                 if let plan = viewModel.plan, !plan.isPaidPlan {
                     // The upgrade nudge under the create button: same Pro flow
                     // as the header count's at-limit tooltip and the ＋ at the ceiling.
@@ -748,6 +800,12 @@ struct MachinesPanelView: View {
                         .cmuxFont(size: 11)
                         .foregroundColor(.secondary.opacity(0.7))
                 }
+                Link(
+                    String(localized: "machines.empty.learnMore", defaultValue: "How Cloud machines work"),
+                    destination: CloudDocsLinks.machines
+                )
+                .cmuxFont(size: 11)
+                .accessibilityIdentifier("CloudMachinesEmptyStateLearnMore")
             } else {
                 ProgressView()
                     .controlSize(.small)

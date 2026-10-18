@@ -21,6 +21,8 @@ struct CloudTeamPickerHeader<Status: View>: View {
     let isRefreshing: Bool
     let onRefresh: () -> Void
     let onNewMachine: () -> Void
+    /// The "What can I do here?" ? button; nil leaves it out.
+    var teachingHelp: CloudTeachingHelpContext? = nil
     @ViewBuilder let status: () -> Status
     @State private var panePresentation = CloudTeamPickerPresentation()
 
@@ -46,6 +48,7 @@ struct CloudTeamPickerHeader<Status: View>: View {
         .onDisappear {
             picker.isPresented = false
             picker.isInvitePresented = false
+            picker.isHelpPresented = false
         }
     }
 
@@ -67,6 +70,9 @@ struct CloudTeamPickerHeader<Status: View>: View {
                 }
             }
             Spacer(minLength: 0)
+            if let teachingHelp {
+                CloudTeachingHelpButton(context: teachingHelp, presentation: picker)
+            }
             if let accountFlow, accountFlow.confirmedTeamID != nil {
                 MachinesChromeLabelButton(
                     symbolName: "person.badge.plus",

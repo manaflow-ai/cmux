@@ -13,7 +13,7 @@ Installed `cmux vm <verb> --help` owns rollout availability; this reference docu
 
 - **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials. The guest `cmux self` and `cmux vm ls` commands are the exception: they run inside a machine through its edge-injected credential.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
-- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). `resize` is documented in the overview because its compact validation usage is emitted inline. Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
+- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). The overview keeps a quick start and groups the verbs (Machines, Work on a machine, Workspaces and terminals), with rarely used verbs one line each below `More:`; those (`fork`, `restore`, `shell`, `ssh`, `ssh-info`, `desktop`, `status`, `stats`, `rm`, `tools`, `handoff`, `promote-template`) also answer `--help` with their full flags. A machine label resolves to its id silently; set `CMUX_DEBUG=1` to print the resolution. Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
 - **Exit codes:** `0` success; `1` any error (socket missing, backend error, usage error, unknown `vm` verb); `2` missing or unknown top-level command. `cmux vm run` exits with the **remote command's exit code**; `cmux vm exec` prints `exit <n>` to stderr and exits `1` when the remote command fails; `cmux vm wait` and `cmux vm terminal wait` exit `1` on timeout (or a failed machine).
 - **Ids:** a machine's generated name (`brave-otter`) is its id everywhere; the display label from `vm rename` is cosmetic. Workspace ids are `ws_…`, terminal ids `term_…` (both from `cmux vm tree`). `--window <id|ref|index>` on the opening verbs picks the local window; `--workspace <id|ref|index>` the local workspace.
 - **Env:** `CMUX_VM_API_BASE_URL` overrides the backend origin (dev stacks). `HOME` is honored for the router's state files (`~/.cmuxterm/vm-run-pool.json`, `~/.cmuxterm/vm-run-bindings.json`).
@@ -63,6 +63,7 @@ cmux vm network <id>                   # outbound policy: mode, presets, domains
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
+cmux vm share <id> <port>              # who can open a port (private by default)
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
 ```
 
@@ -608,9 +609,48 @@ cmux vm env ls <id> [--show] [--json]                 # names; --show adds value
 cmux vm env rm <id> KEY [KEY2 …]
 ```
 
-Values are sourced by every login/interactive shell on the machine (a one-line hook in `~/.profile` and `~/.bashrc`, installed on first `set`), so every terminal cmux starts (`vm open`, `surface new-terminal`, `vm agent`, layout panes), `vm exec`, and the in-VM `cmux agent …` see them. Keys must match `[A-Za-z_][A-Za-z0-9_]*`.
+Values are sourced by every login/interactive shell on the machine (a one-line hook in `~/.profile` and `~/.bashrc`, installed on first `set`), so every terminal cmux starts (`vm open`, `surface new-terminal`, `vm agent`, layout panes), `vm exec`, and the in-VM `cmux agent …` see them. Keys must match `[A-Za-z_][A-Za-z0-9_]*`. In a `.env` file, `\"` is a quote inside double quotes, single quotes have no escapes, and a quoted value that does not close on its line or has text after its closing quote refuses the file by line number (Cloud Secrets imports skip such a line instead). A bad name or line is reported by line number and never echoed.
 
 Transport: `vm env set` uses the secret-safe receiver path rather than `vm.exec`. Values go to the app over the local socket and from there over the machine's cmux-tui link (Noise-authenticated end to end, on the private WireGuard network) into the machine's `cmux env receive`: a receiver terminal turns PTY echo off, prints `CMUX-ENV-READY`, reads base64 lines until `CMUX-ENV-END`, writes `~/.config/cmux/env` (0600), and answers `CMUX-ENV-OK keys=<n>`; the sender closes the terminal. For `--from-file` and stdin, the value is not placed in the command line, control plane, or provider API, and it is not shown on a screen or in scrollback (the daemon does not journal input). The direct `KEY=VALUE` form can appear in local shell history or process arguments, so do not use it for secrets. `ls` never prints a value without `--show`. Inside a machine, `cmux vm env set <peer> …` uses the same handshake toward a linked peer. Snapshots, forks, and templates carry the file (it lives in the work user's home): `cmux vm env rm` what must not travel before `vm promote-template`. A machine whose shim predates the verb is reported as such (reconnect: `cmux vm tree <id> --refresh`).
+
+## Cloud Secrets (API keys every machine receives)
+
+```bash
+cmux vm secrets [ls] [--scope all|project[:<key>]|machine:<id>] [--json]   # names, scopes, fingerprints; never values
+cmux vm secrets set NAME [NAME2 …] [--scope …|--project|--machine <id>] [--no-sync]
+                                                     # hidden prompt, or one value per NAME line on stdin; NAME=value in argv is refused
+cmux vm secrets import [<.env>|-] [--from-shell [NAME …]] [--gh] [--scope …] [--dry-run] [--no-sync]
+cmux vm secrets rm NAME [NAME2 …] [--scope …] [--no-sync]
+cmux vm secrets sync <id> [--project <key>|.]        # deliver now; a no-op when the machine is current
+cmux vm secrets status <id> [--verify] [--json]      # current|stale|missing|extra per name; --verify reads the machine's env names
+cmux vm secrets check [<dir>]                        # names .cmux/cloud.json `env` / devcontainer `secrets` declare vs the vault
+cmux vm secrets link|unlink <id> [--project <key>|.] # apply a project's secrets to a machine
+cmux secrets …                                       # alias of `cmux vm secrets`
+```
+
+The vault lives in this Mac's Keychain (this device only). Scopes: `all` (every machine), `project:<host/owner/repo>` (machines linked to that git remote), `machine:<id>`; the most specific wins on a name clash. Delivery uses the same end-to-end path as `vm env set` (the machine's `cmux env receive`, into `~/.config/cmux/env`), so values never pass through cmux servers; removal runs the names-only `cmux env rm`. When `GH_TOKEN` or `GITHUB_TOKEN` is delivered, git's GitHub credential helper is set to read it from the environment. New machines are synced on creation and machines already synced are updated after every change unless auto-sync is off; `vm agent` syncs its machine (linking the `--cwd` project) before the agent starts and warns instead of failing. Open a new terminal to pick up changed values.
+
+## Agent readiness (`cmux vm doctor`)
+
+```bash
+cmux vm doctor <id> [--agent claude|codex|opencode|pi|gh] [--probe] [--json]
+                                                     # AGENT · CREDENTIAL · ENDPOINT · STATUS, then one Fix: line per problem; exit 1 when one needs a fix
+```
+
+For each agent CLI on the machine (`gh` covers `gh` and git over HTTPS): whether it is installed (version from the image), which credential its next launch uses (a key from Cloud Secrets or `vm env set`, its own sign-in, cmux model routing, its own config, or none), and where that credential goes: the key's own provider, cmux model routing, or an endpoint of the user's (shown by host only). A user's key bound for cmux model routing is a problem whose fix is `cmux vm secrets sync <id>` (Cloud Secrets' routing guard). `--probe` also sends each key to its own provider in one minimal, no-cost request (a models or rate-limit listing at a constant https URL, on curl's stdin, never in argv) and reports only the HTTP status: "Key rejected by Anthropic (401)" comes with `Fix: Replace it in Cloud Secrets: cmux vm secrets set ANTHROPIC_API_KEY`. A key bound for cmux model routing or for the user's own endpoint is never sent. The check is one names-only script over `vm.exec` (socket method `vm.agent_readiness {id, agent?, probe?, fast?}`, also behind the Cloud Secrets sheet's Agents section): no value is in its command, its output, or anything printed. `vm agent` and `vm clone --agent` run its quick form (`fast`: no network on the machine, 5 s at most) before they start the agent and print one `Warning: <agent> may not start: … Fix: …` line on stderr when it has no usable credential; they never wait or fail on it.
+
+## Open a repo (`cmux vm clone`)
+
+```bash
+cmux vm clone <repo> [--machine <id>|--new] [--size <preset>] [--branch <b>] [--dir <remote-dir>] [--agent <claude|codex|opencode|pi> [-- <prompt>]] [--save-warm] [--cold] [--no-open] [--dry-run] [--json]
+cmux vm repo clone <repo> [same options]              # alias
+cmux vm clone owner/repo --agent claude -- "fix the flaky test"
+cmux vm clone .                                         # this checkout's origin remote and branch
+```
+
+`<repo>` is an https URL (also `/tree/<branch>`), `git@github.com:o/r.git`, `o/r`, or `.`. The machine is `--machine` (an id or a label, resolved before anything runs), else the one this repo (or `.` directory) was cloned onto last, else your only running machine (a hand-made one; stderr says `Using <label> (your only running machine). Use --new for a fresh one.`), else `vm agent`'s router (an idle pool machine, then a new one). Several running machines are never guessed between, and `vm run`'s rule that hand-made machines are never drafted is unchanged. On a machine the clone just provisioned, the daemon's first workspace (`workspace-1`) is renamed for the repo and reused instead of left beside a second workspace (`--json` reports `adopted_initial_workspace`). Cloud Secrets sync first (`vm.secrets_sync` with the repo's project key), so a `GH_TOKEN` from `cmux vm secrets import --gh` authenticates private GitHub clones; no credential is ever in the clone command. The checkout lands in `work/<repo>`; a re-run fetches and checks out instead of cloning again. A workspace named after the repo opens with a terminal in the checkout (with a non-default `--dir`, `<repo> (<dir name>)`, so each checkout keeps its own workspace; one already open locally is focused, not opened again), and `--agent` starts that agent there. A repo's `.cmux/cloud.json` `setup` commands run with Cloud Secrets in reach, so only `.` runs them unasked; any other repo is asked about on a terminal and skipped without one (`Setup skipped: run again with --setup …`), and updating an existing checkout never re-runs them. `--setup` runs them without asking; `--skip-setup` never does. As an agent, pass `--setup` only for a repository the user trusts. Phase timings print on stderr and `Open: cmux vm open <m>/<ws>` on stdout, with the machine's label as `<m>` when the label names only that machine.
+
+**Warm starts.** `--save-warm` snapshots the machine after setup and before `--agent` starts (`vm.snapshot`, named `cmux warm start <project>`) and records it on this Mac (`~/.cmuxterm/vm-warm-starts.json`, one per repository; the one it replaces is deleted). `"warm": true` in `.cmux/cloud.json` does the same after the first successful trusted setup of a new checkout. Later, a clone of that repository that needs a new machine (`--new`, or nothing to reuse) restores the snapshot (`vm.restore`) instead of provisioning, cloning and setting up: the checkout is fetched, setup is skipped (`--setup` refreshes dependencies), the machine's `~/.config/cmux/env` is cleared and Cloud Secrets are delivered again, and stderr says `Warm start from snapshot (saved 3 days ago) 4.1s`. A restore that fails never blocks the clone: `Warm start from snapshot <id> failed (<reason>); cloning on a fresh machine instead.` `--cold`, `--machine` and `--size` never restore. `cmux vm snapshot warm` lists warm starts, `cmux vm snapshot warm rm <repo>` forgets one (and deletes its snapshot unless `--keep-snapshot`). A paused machine the clone reuses is woken first with one line (`Waking brave-otter… 2.3s`); `vm agent` and `vm open` do the same, and `vm exec` is woken by the backend inside its own request.
 
 ## Surfaces and display
 
@@ -714,6 +754,10 @@ Provider-dependent: `cmux vm ls --json` → `capabilities.snapshot` / `capabilit
 
 ```bash
 cmux vm snapshot <id> [--name <name>] [--json]    # alias: cmux vm checkpoint
+cmux vm snapshot ls <id> [--json]
+cmux vm snapshot rm <id> <snapshot-id> [--json]
+cmux vm snapshot warm [ls] [--json]               # this Mac's warm starts, one per repository
+cmux vm snapshot warm rm <repo> [--keep-snapshot] [--json]
 ```
 
 Socket `vm.snapshot {id, name?}`. Text `OK snapshot=<snapshot id>`; `--json` the payload (`snapshot_id` or `id`). Sidebar: machine row › Checkpoint.
@@ -747,14 +791,22 @@ Socket `vm.snapshot` with a template-oriented name (`template-<id>-<unix time>`)
 ### `cmux vm ports`
 
 ```bash
-cmux vm ports <id> [--json]
+cmux vm ports <id> [--all] [--json]
 ```
 
-A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`): the TCP ports listening **inside** the machine. `--json`: the exec payload.
+A `vm.exec` of `ss -ltnp` (or `netstat -ltnp`), classified by the same rules as the sidebar's Ports tab (`CloudListeningPortKind.classify`). The default table lists only your servers: `PORT · PROCESS · PRIVATE URL · SHARED`. PRIVATE URL is the machine's VPC address (works only through `cmux vpn up`; `*` marks a 127.0.0.1-only listener that opens in cmux but not from other apps). SHARED is `none`, `you`, `team` or `PUBLIC` from `cmux cloud domains` (`?` when publications could not be read). System listeners (SSH 22, DNS 53, cmux-tui 1337 and other `cmux*` processes, the image's 8080, Desktop VNC/noVNC, container runtimes) are hidden; `--all` shows them with a KIND column. `--json`: the raw exec payload plus `ports: [{port, processes, pids, addresses, kind, system, loopback_only, private_url, shared}]`.
+
+### `cmux vm share`
+
+```bash
+cmux vm share <id> <port> [--team [--team-id <id>] | --public [--yes] | --personal | --private] [--json]
+```
+
+One port's audience; the same plan the app's preview-tab share control and the Ports row's Share submenu run (`CloudPortSharePlan`), over the same `vm.publication_list|create|update|delete` methods as `cmux cloud domains`. With no flag it prints who can open the port (`private`, a link only you can open, `team`, `PUBLIC`) and each link. `--team` / `--personal` give the port a sign-in link for your team / only you; `--public` lets anyone with the link open it without signing in and asks `[y/N]` first (`--yes` confirms for scripts; without a terminal and `--yes` it refuses). A port with several links ends with every link at the chosen audience. `--private` stops sharing: generated links are deleted, a custom domain is kept but narrowed to you (remove it with `cmux cloud domains rm <hostname>`). A new public link is created private and then opened, so a failure never leaves it public. `--json`: `{machine, port, shared: none|personal|team|public, changed, links: [{id, hostname, url, shared, generated}]}`. The Ports tab's badge (Private / Team / Public) follows the change.
 
 ### Port URLs: `cmux vm open <id> <port>`
 
-See `vm open`: `cmux vm open <id> 3000` opens an HTTP port on the machine as a browser pane (`vm.port_open`); `--print` only mints and prints the URL (`vm.open_port`, `--json` → `{open_url, …}`). The URL points at the machine's **private VPC address** — reachable only through the owner's WireGuard tunnel (`cmux vpn up`), never a public ingress; the daemon's own port is refused, and the lease carries an expiry. Only share URLs minted this way; never guess provider URLs (they resolve for the machine's owner only).
+See `vm open`: `cmux vm open <id> 3000` opens an HTTP port on the machine as a browser pane (`vm.port_open`); `--print` only mints and prints the URL (`vm.open_port`, `--json` → `{open_url, …}`). Both first check that something listens on the port and otherwise fail, naming your listening ports; `--force` skips the check (a server still starting). The pane opens in the local workspace already showing the machine (else where you are) and is titled `:<port> · <machine>` until the page names itself. The URL points at the machine's **private VPC address** — reachable only through the owner's WireGuard tunnel (`cmux vpn up`), never a public ingress; the daemon's own port is refused, and the lease carries an expiry. Only share URLs minted this way; never guess provider URLs (they resolve for the machine's owner only).
 
 ## Account and plan
 
@@ -814,6 +866,9 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
 | `vm.env_set` | `vm env set` |
+| `vm.secrets_list`, `vm.secrets_set`, `vm.secrets_rm` | `vm secrets ls`, `vm secrets set` / `import` (`dry_run` for `--dry-run`), `vm secrets rm` |
+| `vm.secrets_sync`, `vm.secrets_status` | `vm secrets sync`, `vm secrets status`; `vm agent` calls `vm.secrets_sync` before launching |
+| `vm.secrets_link`, `vm.secrets_unlink`, `vm.secrets_check` | `vm secrets link`, `vm secrets unlink`, `vm secrets check` |
 | `vm.file_put` | `vm push` |
 | `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
 | `vm.reflection` | `vm self` |
@@ -844,7 +899,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.terminal_close` | `vm terminal close` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
-| `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
+| `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`, `vm share`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
 | `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
 

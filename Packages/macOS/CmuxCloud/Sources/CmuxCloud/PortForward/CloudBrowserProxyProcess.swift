@@ -21,8 +21,12 @@ public actor CloudBrowserProxyProcess {
     private var endpoint: CloudBrowserProxyEndpoint?
     private var stopped = false
     public nonisolated let addresses: [String]
+    private let quitRegistry: CloudBrowserProxyQuitRegistry
 
-    public init(addresses: [String]) { self.addresses = addresses }
+    public init(addresses: [String], quitRegistry: CloudBrowserProxyQuitRegistry) {
+        self.addresses = addresses
+        self.quitRegistry = quitRegistry
+    }
 
     /// The browser carrier authenticates with its generated proxy credential
     /// and its explicit state directory. It must not inherit app login material
@@ -52,7 +56,10 @@ public actor CloudBrowserProxyProcess {
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = output
         child.standardError = errors
+        let quitToken = UUID()
+        let quitRegistry = self.quitRegistry
         child.terminationHandler = { terminated in
+            quitRegistry.unregister(quitToken)
             ended.resolve(terminated.terminationStatus)
             ready.resolve(nil)
         }
@@ -60,6 +67,9 @@ public actor CloudBrowserProxyProcess {
             await releaseClaim()
             throw error
         }
+        // App quit cannot await `stop()`; the registry kills this child synchronously.
+        quitRegistry.register(quitToken, pid: child.processIdentifier)
+        if !child.isRunning { quitRegistry.unregister(quitToken) }
         process = child
         exit = ended
         let lines = CloudLinkPipe.lines(from: output.fileHandleForReading)

@@ -289,7 +289,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertEqual(log.methods, ["vm.env_set"], log.methods.description)
+        // `-` reads stdin, which a label retry could not read twice: the machine is looked
+        // up first (this mock has no list, so it stands as typed), then one env_set.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
         // dotenv rules applied on the Mac (comments, `export`, matching quotes, inline
         // comment); every value reaches the app byte for byte, quotes and padding included.
         XCTAssertEqual(vmEnvSetEntryLines(log), [
@@ -307,6 +309,57 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains("postgres://"), "values never echo back: \(result.stdout)")
     }
 
+    func testVMEnvSetFromStdinResolvesAMachineLabelBeforeReadingStdin() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-env-label")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let log = VMLayoutEnvRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            log.append(request)
+            let params = (request["params"] as? [String: Any]) ?? [:]
+            switch method {
+            case "vm.list":
+                return self.v2Response(id: id, ok: true, result: ["vms": [["id": "vm-f944", "displayName": "proud-white-sloth", "status": "running"]]])
+            case "vm.env_set" where params["id"] as? String == "vm-f944":
+                let keys = ((params["entries"] as? [[String: Any]]) ?? []).compactMap { $0["key"] as? String }
+                return self.v2Response(id: id, ok: true, result: ["machine": "vm-f944", "keys": keys, "count": keys.count])
+            default:
+                return self.v2Response(id: id, ok: false, error: [
+                    "code": "vm_error", "message": "The Cloud VM request failed.",
+                    "data": ["http_status": 404, "backend_code": "vm_not_found"],
+                ])
+            }
+        }
+        let result = runProcessWithInput(
+            executablePath: cliPath,
+            arguments: ["vm", "env", "set", "proud-white-sloth", "-"],
+            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+            standardInput: "FROM_STDIN=1\nSECOND=2\n",
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        // Resolved before the verb ran, so stdin was read once and reached the one request.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
+        XCTAssertEqual(vmEnvSetEntryLines(log), ["FROM_STDIN=1", "SECOND=2"])
+        XCTAssertFalse(result.stderr.contains("is the label of"), result.stderr)
+        // The summary names the machine the way it was typed, never the id behind it.
+        XCTAssertTrue(result.stdout.contains("OK set 2 variables on proud-white-sloth: FROM_STDIN, SECOND"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("vm-f944"), result.stdout)
+    }
+
     func testVMEnvSetRejectsInvalidKeysWithoutTouchingTheSocket() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-env-bad")
@@ -315,21 +368,104 @@ extension CLINotifyProcessIntegrationRegressionTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
+        let tempDir = try vmLayoutEnvTempDir("env-bad")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let badNameFile = tempDir.appendingPathComponent("bad-name.env")
+        try "GOOD=1\n1BAD_pasted_token=value\n".write(to: badNameFile, atomically: true, encoding: .utf8)
+        let bareLineFile = tempDir.appendingPathComponent("bare-line.env")
+        try "GOOD=1\nsk-bare-pasted-token\n".write(to: bareLineFile, atomically: true, encoding: .utf8)
+        // Text in the name position, or a line with no `=`, may be a pasted value: the
+        // error names the problem (and the line) but never echoes the text.
+        let cases: [(arguments: [String], expected: String)] = [
+            (["env", "set", "brave-otter", "1BAD_pasted_token=value"], "vm env set: a name is not a valid variable name"),
+            (["env", "set", "brave-otter", "sk-bare-pasted-token"], "vm env set: an argument is not KEY=VALUE"),
+            (["env", "set", "brave-otter", "--from-file", badNameFile.path], "line 2: the name is not a valid variable name"),
+            (["env", "set", "brave-otter", "--from-file", bareLineFile.path], "line 2: expected KEY=VALUE"),
+            (["env", "rm", "brave-otter", "GOOD", "1BAD_pasted_token"], "vm env rm: a name is not a valid variable name"),
+        ]
         for namespace in ["vm", "cloud"] {
-            var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
-            environment["CMUX_SOCKET_PASSWORD"] = "invalid-env-fixture-password"
-            let result = runProcess(
-                executablePath: cliPath,
-                arguments: [namespace, "env", "set", "brave-otter", "1BAD=value"],
-                environment: environment,
-                timeout: 30
-            )
+            for testCase in cases {
+                var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+                environment["CMUX_SOCKET_PASSWORD"] = "invalid-env-fixture-password"
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: [namespace] + testCase.arguments,
+                    environment: environment,
+                    timeout: 30
+                )
 
-            XCTAssertEqual(result.status, 2, "\(namespace): stdout=\(result.stdout) stderr=\(result.stderr)")
-            XCTAssertTrue(result.stderr.contains("invalid variable name '1BAD'"), result.stderr)
+                XCTAssertEqual(result.status, 2, "\(namespace) \(testCase.arguments): stdout=\(result.stdout) stderr=\(result.stderr)")
+                XCTAssertTrue(result.stderr.contains(testCase.expected), "\(testCase.arguments): \(result.stderr)")
+                XCTAssertFalse(result.stderr.contains("1BAD_pasted_token"), result.stderr)
+                XCTAssertFalse(result.stderr.contains("sk-bare-pasted-token"), result.stderr)
+            }
         }
         var connection = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
         XCTAssertEqual(Darwin.poll(&connection, 1, 0), 0, "a rejected assignment must not connect to the socket")
+    }
+
+    /// The `.env` rules match Cloud Secrets' parser (CloudSecretDotenv): inside double
+    /// quotes `\"` is a quote, inside single quotes nothing is an escape, and a quoted
+    /// value with text after its closing quote, or one whose quote never closes on its
+    /// line, refuses the file by line number without echoing the value.
+    func testVMEnvSetDotenvQuotingMatchesTheCloudSecretsRules() throws {
+        let cliPath = try bundledCLIPath()
+        let tempDir = try vmLayoutEnvTempDir("env-quotes")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let goodSocketPath = makeSocketPath("vm-env-quotes")
+        let goodListenerFD = try bindUnixSocket(at: goodSocketPath)
+        let state = MockSocketServerState()
+        let log = VMLayoutEnvRequestLog()
+        defer {
+            Darwin.close(goodListenerFD)
+            unlink(goodSocketPath)
+        }
+        let goodFile = tempDir.appendingPathComponent("quotes.env")
+        try "\u{FEFF}ESCAPED=\"say \\\"hi\\\"\"\r\nWIN_PATH='C:\\dir\\'\r\nBACKSLASH=\"a\\\\b\" # comment\r\n"
+            .write(to: goodFile, atomically: true, encoding: .utf8)
+        let serverHandled = startVMEnvSetMock(listenerFD: goodListenerFD, state: state, log: log)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "env", "set", "brave-otter", "--from-file", goodFile.path],
+            environment: vmLayoutEnvEnvironment(socketPath: goodSocketPath),
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(vmEnvSetEntryLines(log), [
+            "ESCAPED=say \"hi\"",
+            "WIN_PATH=C:\\dir\\",
+            "BACKSLASH=a\\\\b",
+        ])
+
+        let badSocketPath = makeSocketPath("vm-env-quotes-bad")
+        let badListenerFD = try bindUnixSocket(at: badSocketPath)
+        defer {
+            Darwin.close(badListenerFD)
+            unlink(badSocketPath)
+        }
+        let cases: [(name: String, text: String, expected: String)] = [
+            ("trailing", "GOOD=1\nTRAILING=\"sk-quoted-secret\"oops\n", "line 2: the value of TRAILING has text after its closing quote"),
+            ("unclosed", "GOOD=1\nUNCLOSED=\"sk-quoted-secret\n", "line 2: the value of UNCLOSED opens a quote that does not close on its line"),
+            ("single", "GOOD=1\nSINGLE='sk-quoted-secret\\'tail'\n", "line 2: the value of SINGLE has text after its closing quote"),
+        ]
+        for testCase in cases {
+            let file = tempDir.appendingPathComponent("\(testCase.name).env")
+            try testCase.text.write(to: file, atomically: true, encoding: .utf8)
+            let rejected = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "env", "set", "brave-otter", "--from-file", file.path],
+                environment: vmLayoutEnvEnvironment(socketPath: badSocketPath),
+                timeout: 30
+            )
+            XCTAssertEqual(rejected.status, 2, "\(testCase.name): stdout=\(rejected.stdout) stderr=\(rejected.stderr)")
+            XCTAssertTrue(rejected.stderr.contains(testCase.expected), "\(testCase.name): \(rejected.stderr)")
+            XCTAssertFalse(rejected.stderr.contains("sk-quoted-secret"), rejected.stderr)
+        }
+        var connection = pollfd(fd: badListenerFD, events: Int16(POLLIN), revents: 0)
+        XCTAssertEqual(Darwin.poll(&connection, 1, 0), 0, "a refused .env file must not connect to the socket")
     }
 
     func testVMEnvListForwardsFlagsAndPrintsStdoutVerbatim() throws {
@@ -877,6 +1013,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
+    }
+
+    // MARK: - vm tree
+
+    func testVMTreeResolvesAMachineLabelAndNamesAnUnknownOne() throws {
+        let vms: [[String: Any]] = [["id": "vm-f944", "displayName": "proud-white-sloth", "status": "running"]]
+        // The catalog filters by id: a label reaches it as the machine's id.
+        let (labeled, labeledLog) = try runVMCommandAgainstMock(
+            "vm-tree-label",
+            arguments: ["vm", "tree", "proud-white-sloth"]
+        ) { method, params in
+            switch method {
+            case "vm.list": return ["vms": vms]
+            case "surface.catalog":
+                guard params["machine"] as? String == "vm-f944" else { return ["machines": [], "resources": []] }
+                return ["machines": [["id": "vm-f944", "name": "proud-white-sloth"]], "resources": []]
+            default: return nil
+            }
+        }
+        XCTAssertEqual(labeled.status, 0, "stdout=\(labeled.stdout) stderr=\(labeled.stderr)")
+        XCTAssertEqual(labeledLog.methods, ["vm.list", "surface.catalog"], labeledLog.methods.description)
+        XCTAssertEqual(labeledLog.params(ofFirst: "surface.catalog")?["machine"] as? String, "vm-f944")
+        XCTAssertFalse(labeled.stdout.contains("No cloud machines"), labeled.stdout)
+
+        // A name nothing knows is said to be unknown, not "no cloud machines".
+        let (unknown, unknownLog) = try runVMCommandAgainstMock(
+            "vm-tree-unknown",
+            arguments: ["vm", "tree", "ghost"]
+        ) { method, _ in
+            switch method {
+            case "vm.list": return ["vms": vms]
+            case "surface.catalog": return ["machines": [], "resources": []]
+            default: return nil
+            }
+        }
+        XCTAssertNotEqual(unknown.status, 0, unknown.stdout)
+        XCTAssertEqual(unknownLog.params(ofFirst: "surface.catalog")?["machine"] as? String, "ghost")
+        XCTAssertTrue(unknown.stderr.contains("No machine named ghost. Run `cmux vm ls`."), unknown.stderr)
+        XCTAssertFalse(unknown.stdout.contains("No cloud machines"), unknown.stdout)
+
+        // Without a machine, an empty catalog still teaches `vm new`.
+        let (empty, _) = try runVMCommandAgainstMock(
+            "vm-tree-empty",
+            arguments: ["vm", "tree"]
+        ) { method, _ in
+            method == "surface.catalog" ? ["machines": [], "resources": []] : nil
+        }
+        XCTAssertEqual(empty.status, 0, "stdout=\(empty.stdout) stderr=\(empty.stderr)")
+        XCTAssertTrue(empty.stdout.contains("No cloud machines. Try: cmux vm new"), empty.stdout)
     }
 
     func testVMExecTimeoutFlagBecomesTimeoutMsAndStaysOutOfTheCommand() throws {

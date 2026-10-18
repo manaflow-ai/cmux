@@ -9,6 +9,11 @@ import Foundation
 final class MachineDeleteCoordinator {
     static let shared = MachineDeleteCoordinator()
 
+    /// Posted whenever the optimistic deletion projection changes. Panels use
+    /// this to redraw their derived rows and usage count in the same turn as a
+    /// delete confirmation, rather than waiting for the next fleet poll.
+    static let didChangeNotification = Notification.Name("cmux.cloud.machineDeletionDidChange")
+
     private struct Request {
         let token: UUID
         let task: Task<Bool, Error>
@@ -19,6 +24,7 @@ final class MachineDeleteCoordinator {
     private let didHide: @MainActor (String) -> Void
     private let didRetire: @MainActor (String) -> Void
     private let didRestore: @MainActor (String) -> Void
+    private let notificationCenter: NotificationCenter
     private var requests: [String: Request] = [:]
     private var accountEpoch: UInt64 = 0
     private var accessDidEndObserver: NSObjectProtocol?
@@ -43,13 +49,18 @@ final class MachineDeleteCoordinator {
             )
         },
         didHide: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.detachLocalPresentations(of: $0) },
-        didRetire: @escaping @MainActor (String) -> Void = { MachineDeleteCoordinator.retireLocalPresentations(of: $0) },
+        didRetire: @escaping @MainActor (String) -> Void = {
+            MachineDeleteCoordinator.retireLocalPresentations(of: $0)
+            // A destroyed machine's ledger entry and machine-scoped secrets go with it.
+            CloudSecretsService.shared.forgetMachine($0)
+        },
         didRestore: @escaping @MainActor (String) -> Void = { MachineCreateCoordinator.shared.machineDeletionFailed($0) }
     ) {
         self.destroyMachine = destroyMachine
         self.didHide = didHide
         self.didRetire = didRetire
         self.didRestore = didRestore
+        self.notificationCenter = notificationCenter
         accessDidEndObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
@@ -84,6 +95,7 @@ final class MachineDeleteCoordinator {
     func begin(_ machineID: String) -> Bool {
         guard deletions.begin(machineID) else { return false }
         didHide(machineID)
+        publishChange()
         return true
     }
 
@@ -100,7 +112,7 @@ final class MachineDeleteCoordinator {
     /// presentations.
     /// - Parameter machineID: The exact provider machine identifier.
     func beginCleanup(_ machineID: String) {
-        deletions.beginCleanup(machineID)
+        if deletions.beginCleanup(machineID) { publishChange() }
     }
 
     /// Stops the machine's creates, then closes its local workspaces and
@@ -194,6 +206,7 @@ final class MachineDeleteCoordinator {
     func launchEnded(_ machineID: String) {
         guard deletions.isPending(machineID), requests[machineID] == nil,
               deletions.finish(machineID, result: .failed) == .restored else { return }
+        publishChange()
         didRestore(machineID)
     }
 
@@ -211,6 +224,11 @@ final class MachineDeleteCoordinator {
         case .ignored:
             break
         }
+        publishChange()
+    }
+
+    private func publishChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 
     /// Sign-out and account or team switches forget every deletion without
@@ -218,6 +236,6 @@ final class MachineDeleteCoordinator {
     private func endAccount() {
         accountEpoch &+= 1
         requests.removeAll()
-        deletions.endAccount()
+        if deletions.endAccount() { publishChange() }
     }
 }

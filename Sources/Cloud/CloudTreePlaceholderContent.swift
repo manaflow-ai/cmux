@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 struct CloudTreePlaceholderContent: View {
@@ -47,8 +48,44 @@ struct CloudTreePlaceholderContent: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .layoutPriority(0)
+            if let action = placeholder.action {
+                // The next step, in the accent color: the whole row is its
+                // button (the outline's click runs `CloudTreePlaceholder.Action`).
+                Text(Self.actionTitle(action))
+                    .cmuxFont(size: style.detailSize + 1, weight: .medium, design: style.fontDesign)
+                    .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
             Spacer(minLength: 0)
         }
         .padding(.trailing, style.rowGrid.trailingPadding)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(placeholder.action == nil ? [] : .isButton)
+    }
+
+    static func actionTitle(_ action: CloudTreePlaceholder.Action) -> String {
+        switch action {
+        case .newTerminal:
+            return String(localized: "cloudTree.placeholder.action.newTerminal", defaultValue: "New Terminal")
+        case .newWorkspace:
+            return String(localized: "cloudTree.placeholder.action.newWorkspace", defaultValue: "New Workspace")
+        }
+    }
+}
+
+/// Runs an empty category's next step through the same tree actions as the
+/// category's hover "+" and context menu, so all three create identically.
+enum CloudTreePlaceholderActionDispatch {
+    @MainActor
+    static func perform(_ action: CloudTreePlaceholder.Action, machine: SurfaceMachineID, actions: CloudTreeNodeActions) {
+        switch action {
+        case .newTerminal:
+            actions.newTerminal(machine, nil)
+        case .newWorkspace:
+            actions.newWorkspace(machine)
+        }
     }
 }

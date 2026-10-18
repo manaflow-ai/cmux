@@ -47,7 +47,9 @@ extension SurfaceCatalog {
             displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines,
             pendingDisplayCreations: activeDisplayCreations.isEmpty ? nil : activeDisplayCreations,
             cloudDisplayMemberships: cloudDisplayMemberships()
-        )
+        // Link-delivery receiver workspaces are plumbing: no tree row, count,
+        // starter-workspace pick or local adoption may ever see one.
+        ).hidingInternalReceiverWorkspaces()
     }
 
     /// Projects deletion and rename intents over provider state for all

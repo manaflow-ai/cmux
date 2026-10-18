@@ -17,6 +17,8 @@ extension CmuxTuiSurfaceProvider {
         try CloudFileDelivery.validate(request)
         let wire = CloudFileDelivery.wire(request.data)
         var receiver: SurfaceResource?
+        receiverDeliveriesInFlight += 1
+        defer { receiverDeliveriesInFlight -= 1 }
         return try await CloudFileDelivery.withReceiverWorkspace(
             createWorkspace: { try await self.createFileReceiverWorkspace() },
             closeWorkspace: { try await self.removeFileReceiverWorkspace($0, receiver: receiver) },
@@ -39,7 +41,9 @@ extension CmuxTuiSurfaceProvider {
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let result = try await link.run(arguments: CloudTuiRequests.createWorkspaceArguments(
             socketPath: connected.socketPath,
-            name: "\(CloudFileDelivery.receiverTitle) \(UUID().uuidString)",
+            name: SurfaceRemoteWorkspace.internalReceiverWorkspaceName(
+                title: CloudFileDelivery.receiverTitle, clientID: receiverClientID
+            ),
             empty: true
         ))
         guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
@@ -50,33 +54,9 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func removeFileReceiverWorkspace(_ workspaceID: String, receiver: SurfaceResource?) async throws {
-        try await CloudEnvDelivery.removeReceiverResources(
-            terminalIDs: receiver.map { [$0.id.key] } ?? [],
-            discoverTerminalIDs: {
-                guard await self.refreshCurrentGraph(force: true) else {
-                    throw CloudFileDelivery.DeliveryError.workspaceCleanupFailed(workspaceID)
-                }
-                return self.catalog.snapshot.resources(on: self.machine).filter {
-                    $0.kind == .terminal && $0.remoteWorkspaces.contains { $0.id == workspaceID }
-                }.map { $0.id.key }
-            },
-            closeTerminal: { terminalID in
-                do {
-                    try await self.closeTerminal(
-                        SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID)
-                    )
-                } catch {
-                    guard Self.isSelectorNotFound(error) else { throw error }
-                }
-            },
-            closeWorkspace: {
-                do {
-                    try await self.closeRemoteWorkspace(id: workspaceID)
-                } catch {
-                    guard Self.isSelectorNotFound(error) else { throw error }
-                }
-            }
-        )
+        try await removeReceiverWorkspace(workspaceID, terminalIDs: receiver.map { [$0.id.key] } ?? []) {
+            CloudFileDelivery.DeliveryError.workspaceCleanupFailed(workspaceID)
+        }
     }
 
     private func deliverFileWire(_ wire: Data, terminalID: String, expectedBytes: Int) async throws -> CloudFileDelivery.Outcome {

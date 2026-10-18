@@ -15,13 +15,17 @@ extension MachinesPanelViewModel {
     }
 
     /// The plan's usage without machines being deleted, so the Cloud Machines
-    /// header count leaves with the row instead of at the next list read.
+    /// header count leaves with the row instead of at the next list read. It
+    /// never counts fewer active machines than the tree lists: rows that
+    /// arrived from the stream or the catalog after the last list read hold a
+    /// slot that read's count does not include yet.
     var visibleUsage: CloudMachinesUsage? {
-        Self.usage(
+        let listed = MachineSnapshotBuilder.includingCatalogMachines(visibleMachines, catalog: visibleCatalog)
+        return Self.usage(
             plan?.usage ?? NewMachineSheetDataCache.shared?.currentData?.plan?.usage,
             machines: machines,
             hiding: MachineDeleteCoordinator.shared.hiddenMachineIDs
-        )
+        )?.reconciled(listedActiveCount: MachineSnapshotBuilder.activeCount(of: listed))
     }
 
     /// Uses scope-checked sheet-cache usage while the panel's next list read is pending.

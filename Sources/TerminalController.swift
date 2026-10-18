@@ -423,6 +423,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.native_pricing.show",
+        "debug.cloud_secrets.show", "debug.cloud_panel.show", "debug.cloud_first_run.show",
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
@@ -3525,6 +3526,8 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case let method where TerminalController.isCloudDebugMethod(method):
+            return v2DebugCloudUI(id: id, method: method, params: params)
         case "debug.cloudtree.rows":
             // The Cloud sidebar's rows from the same builder the sidebar uses, so
             // dogfood can assert what is listed (duplicate rows were invisible to

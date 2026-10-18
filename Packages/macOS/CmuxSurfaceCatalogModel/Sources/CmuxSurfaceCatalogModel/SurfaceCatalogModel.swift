@@ -305,6 +305,8 @@ public struct CloudVMTerminalState: Hashable, Codable, Sendable {
     public var cols: Int?
     public var rows: Int?
     public var running: Bool?
+    /// The durable exit receipt of an exited terminal; nil while it runs.
+    public var exit: SurfaceTerminalExit? = nil
 
     public init(
         id: String,
@@ -314,8 +316,10 @@ public struct CloudVMTerminalState: Hashable, Codable, Sendable {
         lifecycle: String,
         cols: Int? = nil,
         rows: Int? = nil,
-        running: Bool? = nil
+        running: Bool? = nil,
+        exit: SurfaceTerminalExit? = nil
     ) {
+        self.exit = exit
         self.id = id
         self.tabIDs = tabIDs
         self.title = title
@@ -1805,8 +1809,17 @@ public struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     /// For browsers and screens: the private URL the projection loads after the
     /// browser Network Extension is ready.
     public var url: String?
+    /// For an exited cloud terminal: how its process ended. A failed run with
+    /// no tab left stays listed so the failure is not silently lost.
+    public var exit: SurfaceTerminalExit? = nil
 
     public var machine: SurfaceMachineID { id.machine }
+
+    /// An exited cloud terminal whose run failed and that no daemon tab shows
+    /// any more. It cannot be opened as a pane; its row explains the failure.
+    public var isFailedExitedTerminal: Bool {
+        kind == .terminal && lifecycle == .exited && exit?.isFailure == true && remoteViews?.isEmpty != false
+    }
     public var kind: SurfaceResourceKind { id.kind }
 
     /// How many remote views (daemon tabs) show this resource; 0 when views are not modeled.

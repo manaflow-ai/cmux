@@ -7,7 +7,7 @@ enum CmuxTuiRemoteRouting {
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
     private static let vmAgentValueOptions: Set<String> = [
-        "--agent", "--machine", "--cwd", "--name", "--remote-workspace", "--size", "--timeout",
+        "--agent", "--machine", "--cwd", "--remote-cwd", "--name", "--remote-workspace", "--size", "--timeout",
     ]
 
     /// The value of a `--focus <value>` / `--focus=<value>` flag: exactly true/false,

@@ -48,6 +48,15 @@ public struct CloudVMNotificationRow: Hashable, Sendable {
         readBy.contains(clientID)
     }
 
+    /// The row reports a failure: the daemon posts `agent.error.reported`
+    /// ("Claude reported an error") and `cmux notify --level error` at this
+    /// level. It is the one signal that an agent failed while its terminal is
+    /// still alive, for example in the shell `cmux vm clone` keeps after the
+    /// agent exits, so the process exit alone never shows it.
+    public var reportsFailure: Bool {
+        level.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "error"
+    }
+
     /// Rows of the accepted state, oldest first. The document keeps the
     /// collection verbatim even though the typed graph does not model it, so
     /// this never re-parses the whole snapshot.
@@ -251,6 +260,19 @@ public enum CloudNotificationSyncReducer: Sendable {
         }
         return result
     }
+
+    /// Terminals with an unread notification that reports a failure
+    /// (``CloudVMNotificationRow/reportsFailure``): the amber attention mark
+    /// on the Cloud tree's terminal and workspace rows. Always a subset of
+    /// ``unreadTerminalIDs(rows:clientID:state:)``, so reading the
+    /// notification clears both marks together.
+    public static func unreadFailureTerminalIDs(
+        rows: [CloudVMNotificationRow],
+        clientID: String,
+        state: CloudNotificationSyncState
+    ) -> Set<String> {
+        unreadTerminalIDs(rows: rows.filter(\.reportsFailure), clientID: clientID, state: state)
+    }
 }
 
 /// Where a daemon notification lands locally: the workspace bound to the
@@ -291,12 +313,15 @@ public final class CloudNotificationSync {
     private let resolveTarget: TargetResolver
     private let send: AckSender
     private let unreadChanged: UnreadObserver
+    private let failuresChanged: UnreadObserver
     private let withdraw: Withdrawer
     private let newKey: () -> String
 
     public private(set) var state: CloudNotificationSyncState
     public private(set) var rows: [CloudVMNotificationRow] = []
     public private(set) var unreadTerminalIDs: Set<String> = []
+    /// The unread terminals whose notification reports a failure.
+    public private(set) var unreadFailureTerminalIDs: Set<String> = []
     private var hasAppliedSnapshot = false
     /// Rows whose delivery was transiently declined or had no local placement.
     /// A catalog change or later feed fold retries only this small set instead
@@ -322,6 +347,7 @@ public final class CloudNotificationSync {
         deliver: @escaping Deliverer,
         send: @escaping AckSender,
         unreadChanged: @escaping UnreadObserver = { _ in },
+        failuresChanged: @escaping UnreadObserver = { _ in },
         withdraw: @escaping Withdrawer = { _ in }
     ) {
         self.machineID = machineID
@@ -332,6 +358,7 @@ public final class CloudNotificationSync {
         self.deliver = deliver
         self.send = send
         self.unreadChanged = unreadChanged
+        self.failuresChanged = failuresChanged
         self.withdraw = withdraw
         state = store.load(machineID: machineID)
     }
@@ -470,6 +497,14 @@ public final class CloudNotificationSync {
             store.save(next, machineID: machineID)
         }
         let unread = CloudNotificationSyncReducer.unreadTerminalIDs(rows: rows, clientID: clientID, state: next)
+        let failures = CloudNotificationSyncReducer.unreadFailureTerminalIDs(rows: rows, clientID: clientID, state: next)
+        // Failures first: the unread observer's change notification then
+        // carries both sets, so the tree never paints a blue dot that turns
+        // amber a turn later.
+        if failures != unreadFailureTerminalIDs {
+            unreadFailureTerminalIDs = failures
+            failuresChanged(failures)
+        }
         if unread != unreadTerminalIDs {
             unreadTerminalIDs = unread
             unreadChanged(unread)

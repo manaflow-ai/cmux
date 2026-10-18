@@ -40,7 +40,10 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
     /// Machine ids to unread terminal ids from notification syncs.
     @Published private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// Unread terminals whose notification reports a failure, per machine.
+    @Published private(set) var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     private var unreadObserver: NSObjectProtocol?
+    private var deletionObserver: NSObjectProtocol?
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
@@ -296,6 +299,13 @@ final class MachinesPanelViewModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
+        deletionObserver = NotificationCenter.default.addObserver(
+            forName: MachineDeleteCoordinator.didChangeNotification,
+            object: MachineDeleteCoordinator.shared,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.objectWillChange.send() }
+        }
         readUnreadTerminalIDs()
         vmSync?.setEventHandler { [weak self] event in
             self?.vmSyncDidEmit(event)
@@ -358,7 +368,7 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
-        for observer in authScopeObservers + [treeChangeObserver, unreadObserver, createChangeObserver].compactMap({ $0 }) {
+        for observer in authScopeObservers + [treeChangeObserver, unreadObserver, deletionObserver, createChangeObserver].compactMap({ $0 }) {
             NotificationCenter.default.removeObserver(observer)
         }
         if let wakeObserver { wakeNotificationCenter.removeObserver(wakeObserver) }
@@ -423,6 +433,8 @@ final class MachinesPanelViewModel: ObservableObject {
         localWorkspaces = updated
     }
     private func readUnreadTerminalIDs() {
+        let failures = CloudNotificationSyncHub.shared.unreadFailureTerminalIDs
+        if failures != unreadFailureTerminalIDs { unreadFailureTerminalIDs = failures }
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }
         #if DEBUG
@@ -898,7 +910,8 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshStats()
         refreshUsage()
         readCatalog()
-        plan = MachineSnapshotBuilder.planSnapshot(activeCount: rows.count, limits: lastLimits, machines: rows)
+        // Count slots the way the server does: paused machines are listed but free theirs.
+        plan = MachineSnapshotBuilder.planSnapshot(activeCount: MachineSnapshotBuilder.activeCount(of: rows), limits: lastLimits, machines: rows)
         #if DEBUG
         cmuxDebugLog("cloud.machines.list stream upserts=\(upserts.count) deletions=\(deletions.count) authoritative=\(authoritative) count=\(rows.count)")
         #endif

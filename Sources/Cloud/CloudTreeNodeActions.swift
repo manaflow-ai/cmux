@@ -111,6 +111,17 @@ struct CloudTreeNodeActions {
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
+    /// The final output of a terminal whose process exited (its exit snapshot),
+    /// for a failed run's details popover. Nil when the machine cannot answer.
+    var readTerminalExitOutput: @MainActor (_ resource: SurfaceResource) async -> String? = { _ in nil }
+    /// The fix a failed run's popover offers when its agent could not
+    /// authenticate: Cloud Secrets, scoped to the run's machine.
+    var addAPIKey: @MainActor (_ machine: SurfaceMachineID) -> Void = { machine in
+        CloudSecretsSheetPresenter.shared.present(
+            machineID: machine.cloudMachineID,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        )
+    }
     /// Moves an exact Cloud browser tab into another workspace on the same machine.
     var moveCloudBrowser: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ remoteWorkspaceID: String) -> Void = { _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -659,6 +670,13 @@ struct CloudTreeNodeActions {
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
+        actions.readTerminalExitOutput = { resource in
+            guard let provider = catalog().provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
+                  let output = try? await provider.readOutput(terminalID: resource.id.key, after: nil, maxBytes: nil) else {
+                return nil
+            }
+            return ((output["value"] as? [String: Any]) ?? output)["text"] as? String
+        }
         actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
             // `run` owns progress, cancellation and failure presentation for every Cloud action.
             run(openingLabel(resource.machine)) { catalog in

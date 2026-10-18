@@ -73,3 +73,73 @@ extension CmuxTuiSurfaceProvider {
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 }
+
+extension CmuxTuiSurfaceProvider {
+    /// `readScreen`, except that a terminal whose process already exited answers
+    /// with its final screen and exit receipt instead of the screen read's error.
+    /// The daemon stops resolving an exited terminal's screen once its tab is
+    /// gone, but keeps the exit receipt (`terminal.wait_exit`) and the exit
+    /// snapshot (`terminal.output` from offset 0), which together are the
+    /// answer a caller wanted: what it printed last and how it ended.
+    func readScreenReportingExit(terminalID: String) async throws -> [String: Any] {
+        do {
+            return try await readScreen(terminalID: terminalID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let readError = error
+            // A 1 ms wait answers at once: `exited` with the receipt, or `pending`.
+            guard let receipt = try? await waitForExit(terminalID: terminalID, timeoutMs: 1),
+                  let exited = CloudTerminalExitedScreenResponse.exitReceipt(receipt) else {
+                throw readError
+            }
+            let output = try? await readOutput(terminalID: terminalID, after: nil, maxBytes: nil)
+            return CloudTerminalExitedScreenResponse.response(exit: exited, output: output)
+        }
+    }
+}
+
+/// The `vm.terminal_read` answer for a terminal whose process exited: the same
+/// `text` field a live read returns (the final screen), plus `exited: true`,
+/// `exit_code` (nil for a signal or unknown outcome), `outcome` and a
+/// human `message`. Callers that read only `text` keep working.
+enum CloudTerminalExitedScreenResponse {
+    /// The exit outcome when `receipt` (a `terminal.wait_exit` answer, possibly
+    /// wrapped in `value`) says the process exited; nil while it is pending.
+    static func exitReceipt(_ receipt: [String: Any]) -> SurfaceTerminalExit? {
+        let body = (receipt["value"] as? [String: Any]) ?? receipt
+        guard (body["state"] as? String) == "exited" else { return nil }
+        return SurfaceTerminalExit(receipt: body)
+    }
+
+    static func response(exit: SurfaceTerminalExit, output: [String: Any]?) -> [String: Any] {
+        let body = output.map { ($0["value"] as? [String: Any]) ?? $0 }
+        let text = (body?["text"] as? String) ?? ""
+        var result: [String: Any] = [
+            "text": text,
+            "exited": true,
+            "message": message(exit),
+        ]
+        var outcome: [String: Any] = ["kind": exit.kind.rawValue]
+        if let code = exit.code { outcome["code"] = code }
+        if let signal = exit.signal { outcome["signal"] = signal }
+        if let reason = exit.reason { outcome["reason"] = reason }
+        result["outcome"] = outcome
+        if exit.kind == .exit, let code = exit.code {
+            result["exit_code"] = code
+        } else {
+            result["exit_code"] = NSNull()
+        }
+        if let exitedAt = exit.exitedAtMilliseconds { result["exited_at"] = String(exitedAt) }
+        return result
+    }
+
+    /// Plain, non-localized: socket and CLI output is a machine contract.
+    static func message(_ exit: SurfaceTerminalExit) -> String {
+        switch exit.kind {
+        case .exit: return "process exited (code \(exit.code.map(String.init) ?? "unknown"))"
+        case .signal: return "process ended by signal \(exit.signal.map(String.init) ?? "unknown")"
+        case .unknown: return "process ended (\(exit.reason ?? "unknown outcome"))"
+        }
+    }
+}

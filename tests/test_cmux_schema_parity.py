@@ -70,6 +70,8 @@ NOT_IN_CMUX_JSON = frozenset({
     "browser.disabled",
     "browser.importHintDismissed",
     "browser.importHintVariant",
+    # Cloud Secrets delivery preference (Settings and the Cloud Secrets sheet).
+    "cloud.secrets.autoSync",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",

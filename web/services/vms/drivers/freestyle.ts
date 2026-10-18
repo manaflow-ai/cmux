@@ -17,6 +17,7 @@ import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { workUserExecCommand } from "./workUserExecCommand";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
@@ -1402,9 +1403,13 @@ export class FreestyleProvider implements VMProvider {
           // terminals and coding agents. Leaving `linuxUser` unset asks the
           // provider for its uid-1000 account (`cmux` on current images), while
           // preserving the provider's legacy fallback to root on older images.
-          // Driver maintenance stays explicitly root below, as does cmux's own
-          // guest maintenance that asks for it.
-          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
+          // The provider starts that account with the base image's stale
+          // HOME, so the work-user prelude restores the real one (and the
+          // machine env) first. Driver maintenance stays explicitly root
+          // below, as does cmux's own guest maintenance that asks for it.
+          const r = await vm.exec(opts?.asRoot
+            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }
+            : { command: workUserExecCommand(command), timeoutMs });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });

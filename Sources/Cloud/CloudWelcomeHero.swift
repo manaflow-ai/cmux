@@ -21,7 +21,7 @@ struct CloudWelcomeHero: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             row(symbol: "chevron.down", name: "gentle-blue-meerkat")
-            row(symbol: "folder.fill", name: "workspace-1", isChild: true, isOpen: true)
+            row(symbol: "folder.fill", name: "todo-app", isChild: true, isOpen: true)
             leafRow(symbol: "terminal", name: "codex", depth: 2)
             leafRow(symbol: "terminal", name: "npm run dev", depth: 2)
             HStack(spacing: 2) {

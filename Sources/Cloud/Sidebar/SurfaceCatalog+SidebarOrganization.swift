@@ -3,7 +3,11 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
-    func sidebarNodes(on machine: SurfaceMachineID? = nil, unread: [String: Set<String>] = [:]) -> [CloudTreeNode] {
+    func sidebarNodes(
+        on machine: SurfaceMachineID? = nil,
+        unread: [String: Set<String>] = [:],
+        unreadFailures: [String: Set<String>] = [:]
+    ) -> [CloudTreeNode] {
         let input: SurfaceCatalogSnapshot
         if let machine {
             input = SurfaceCatalogSnapshot(
@@ -17,7 +21,7 @@ extension SurfaceCatalog {
         }
         return CloudSidebarOrganizationTree(nodes: CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: input, localWorkspaces: [],
-            unreadTerminalIDs: unread, includeLocalMachine: false
+            unreadTerminalIDs: unread, unreadFailureTerminalIDs: unreadFailures, includeLocalMachine: false
         )).arrange(using: sidebarOrganization.state)
     }
 

@@ -20,6 +20,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
@@ -73,6 +74,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
+            unreadFailureTerminalIDs: unreadFailureTerminalIDs,
             source: source,
             devicesSection: devicesSection,
             coderouter: coderouter,
@@ -627,6 +629,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 // A Ports status row's text never acts; only its own button refreshes or wakes.
                 guard placeholder.portStatus == nil else { return }
+                // "No terminals yet — New Terminal": the empty category's next step.
+                if let action = placeholder.action {
+                    CloudTreePlaceholderActionDispatch.perform(action, machine: machineID, actions: nodeActions)
+                    return
+                }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
@@ -770,6 +777,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     items.append(item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(.local, group, .split, nil) })
                 }
                 return items
+            case .terminal(let row) where row.exitFailure != nil:
+                // A failed tabless run cannot be opened, renamed or killed.
+                return [
+                    item(String(localized: "cloudTree.menu.showExitDetails", defaultValue: "Show Last Lines\u{2026}")) { [weak self] in self?.open(node) },
+                    item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(row.resource.id.rawValue) },
+                ]
             case .terminal(let row):
                 var items = resourceMenuItems(
                     row.resource,
@@ -831,14 +844,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     })
                 }
                 return items
-            case .port(let resource, let url, let openIn):
-                return resourceMenuItems(
-                    resource,
-                    isLocal: false,
-                    openInLocalWorkspace: openIn,
-                    openAction: { [weak self] in self?.open(node) },
-                    portURL: url
-                )
+            case .port(let resource, _, _):
+                // CloudTreeOutlineView+Ports.swift: private open/copy, Share…, sharing status.
+                return portMenuItems(resource, openAction: { [weak self] in self?.open(node) })
             case .portsGroup(let machine):
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(machine) }]
             case .browsersGroup:

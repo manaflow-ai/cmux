@@ -4,6 +4,8 @@ import {
   type DocsChannel,
 } from "@/app/lib/docs-channel";
 import {
+  cloudOpenRepoDocsLocales,
+  cloudSecretsDocsLocales,
   cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
@@ -135,6 +137,18 @@ export const navItems: NavEntry[] = [
       { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
       { titleKey: "cloudMachines", href: "/docs/cloud/machines" },
       { titleKey: "cloudWorkspaces", href: "/docs/cloud/workspaces" },
+      {
+        titleKey: "cloudOpenRepo",
+        href: "/docs/cloud/open-repo",
+        locales: cloudOpenRepoDocsLocales,
+        contentLocales: cloudOpenRepoDocsLocales,
+      },
+      {
+        titleKey: "cloudSecrets",
+        href: "/docs/cloud/secrets",
+        locales: cloudSecretsDocsLocales,
+        contentLocales: cloudSecretsDocsLocales,
+      },
       { titleKey: "cloudNetworking", href: "/docs/cloud/networking" },
       {
         titleKey: "cloudSecurity",

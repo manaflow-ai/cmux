@@ -106,6 +106,9 @@ public actor CloudMachineLinkManager {
     /// Races the private addresses of a dual-stack machine through the hub.
     /// Tests that expect every address to fail pass a short deadline.
     let privateRouteConnector: CloudHubConnector
+    /// Where this manager's browser carriers register, so app termination can
+    /// end them synchronously; the app passes the one its SSH links share.
+    private let browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -134,9 +137,11 @@ public actor CloudMachineLinkManager {
         },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
         breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
-        privateRouteConnector: CloudHubConnector = CloudHubConnector()
+        privateRouteConnector: CloudHubConnector = CloudHubConnector(),
+        browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry = CloudBrowserProxyQuitRegistry()
     ) {
         self.privateRouteConnector = privateRouteConnector
+        self.browserProxyQuitRegistry = browserProxyQuitRegistry
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
         self.resumeMachine = resumeMachine
@@ -462,7 +467,7 @@ public actor CloudMachineLinkManager {
         guard resolvedClientCapabilities(clientURL: clientURL).contains(remoteNetwork ? "cloud-browser-network" : "browser-proxy") else {
             throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
         }
-        let proxy = CloudBrowserProxyProcess(addresses: addresses)
+        let proxy = CloudBrowserProxyProcess(addresses: addresses, quitRegistry: browserProxyQuitRegistry)
         browserProxies[key] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
             let knownFingerprint = self.paths.deviceFingerprint(for: machineID)

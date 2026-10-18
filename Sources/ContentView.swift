@@ -7631,6 +7631,8 @@ struct ContentView: View {
 
         var contributions: [CommandPaletteCommandContribution] = [Self.commandPaletteFindWorkContribution()]
         contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteCloudTeachingContributions())
+        contributions.append(contentsOf: Self.commandPaletteCloudOpenRepositoryContributions())
         contributions.append(Self.commandPaletteCloudAvailabilityInfoContribution())
         contributions.append(contentsOf: Self.commandPaletteComputerUseContributions())
 
@@ -9164,6 +9166,8 @@ struct ContentView: View {
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
         registerCloudCommandHandlers(&registry)
+        registerCloudTeachingCommandHandlers(&registry)
+        registerCloudOpenRepositoryCommandHandlers(&registry)
         registerComputerUseCommandPaletteHandlers(&registry)
         registerSavedLayoutCommandHandlers(&registry)
         registerKeymapPresetCommandHandlers(&registry)

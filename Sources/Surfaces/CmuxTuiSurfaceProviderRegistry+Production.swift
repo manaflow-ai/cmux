@@ -25,7 +25,8 @@ extension CmuxTuiSurfaceProviderRegistry {
                         return (app.defaultForegroundColor.hexString(), app.defaultBackgroundColor.hexString())
                     }
                 },
-                breadcrumb: { event, fields in StartupBreadcrumbLog.append(event, fields: fields) }
+                breadcrumb: { event, fields in StartupBreadcrumbLog.append(event, fields: fields) },
+                browserProxyQuitRegistry: AppDelegate.shared?.cloudBrowserProxyQuitRegistry ?? CloudBrowserProxyQuitRegistry()
             ),
             sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
                 ?? SSHClipboardWriteTrustStore(defaults: .standard),

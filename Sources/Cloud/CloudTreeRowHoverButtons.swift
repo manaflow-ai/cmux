@@ -133,7 +133,8 @@ struct CloudTreeRowHoverButtons: View {
                 }
             }
         case .terminal(let row):
-            if !row.resource.machine.isLocal {
+            // A failed tabless run has nothing to kill; its click shows details.
+            if !row.resource.machine.isLocal, row.exitFailure == nil {
                 if let view = row.remoteView {
                     xmark(String(localized: "cloudTree.menu.closeTab", defaultValue: "Close Tab…")) {
                         nodeActions.closeRemoteTab(row.resource.id, view)
@@ -171,7 +172,7 @@ struct CloudTreeRowHoverButtons: View {
         case .device(let row):
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
-            return !row.resource.machine.isLocal
+            return !row.resource.machine.isLocal && row.exitFailure == nil
         case .display(_, _, let remoteView):
             return remoteView?.isCloudDisplayMembershipView == true
         default:

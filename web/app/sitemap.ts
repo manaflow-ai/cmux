@@ -6,6 +6,8 @@ import {
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
+  cloudSecretsDocsLocales,
+  cloudOpenRepoDocsLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
@@ -109,6 +111,8 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/docs/cloud", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/cloud/machines", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/cloud/workspaces", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/cloud/open-repo", lastModified: "2026-10-15", changeFrequency: "monthly" as const, priority: 0.8, locales: cloudOpenRepoDocsLocales },
+    { path: "/docs/cloud/secrets", lastModified: "2026-10-15", changeFrequency: "monthly" as const, priority: 0.8, locales: cloudSecretsDocsLocales },
     { path: "/docs/cloud/networking", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/cloud/cli", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/cloud/troubleshooting", lastModified: "2026-09-27", changeFrequency: "monthly" as const, priority: 0.8 },

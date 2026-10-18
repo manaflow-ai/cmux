@@ -15491,6 +15491,183 @@
         }
       }
     },
+    "settings.cloudMachines.secrets.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionar…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwalten…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer…"
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.secrets.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API keys every Cloud machine receives. Kept in this Mac’s Keychain and sent over each machine’s encrypted link, never to cmux servers."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 클라우드 머신이 받는 API 키입니다. 이 Mac의 키체인에 보관되며 각 머신의 암호화된 링크를 통해 전송됩니다. cmux 서버로는 절대 전송되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての Cloud マシンが受け取る API キーです。この Mac のキーチェーンに保管され、各マシンの暗号化されたリンク経由で送信されます。cmux のサーバに送られることはありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台云端机器都会收到的 API 密钥。保存在这台 Mac 的钥匙串中，并通过每台机器的加密链接发送，绝不会发送到 cmux 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每部雲端機器都會收到的 API 金鑰。儲存在這部 Mac 的鑰匙圈中，並透過每部機器的加密連線傳送，絕不會傳送到 cmux 伺服器。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claves de API que recibe cada máquina en la nube. Se guardan en el llavero de este Mac y se envían a través de la conexión cifrada de cada máquina, nunca a los servidores de cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفاتيح API التي يتلقاها كل جهاز سحابي. تُحفظ في سلسلة المفاتيح على جهاز Mac هذا وتُرسل عبر الاتصال المشفّر لكل جهاز، وليس إلى خوادم cmux أبدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel, die jede Cloud-Maschine erhält. Im Schlüsselbund dieses Mac gespeichert und über die verschlüsselte Verbindung jeder Maschine gesendet, nie an cmux-Server."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clés API reçues par chaque machine Cloud. Conservées dans le trousseau de ce Mac et envoyées via la liaison chiffrée de chaque machine, jamais aux serveurs cmux."
+          }
+        }
+      }
+    },
+    "settings.cloudMachines.secrets.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Secrets"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 시크릿"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud シークレット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机密"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機密"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secretos de Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسرار Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Secrets"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secrets Cloud"
+          }
+        }
+      }
+    },
     "settings.account.pro.appStoreSubtitle": {
       "extractionState": "manual",
       "localizations": {

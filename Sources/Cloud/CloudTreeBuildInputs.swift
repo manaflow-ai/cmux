@@ -10,6 +10,7 @@ struct CloudTreeBuildInputs: Equatable {
     var snapshot: SurfaceCatalogSnapshot
     var localWorkspaces: [CloudTreeLocalWorkspace] = []
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    var unreadFailureTerminalIDs: [String: Set<String>] = [:]
     var pinnedMachineIDs: Set<String> = []
     var includeLocalMachine = CloudTreeNodeBuilder.includesLocalMachine
     var source: CloudTreeMachineSource = .cloud
@@ -27,6 +28,7 @@ struct CloudTreeBuildInputs: Equatable {
             pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot, localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
+            unreadFailureTerminalIDs: unreadFailureTerminalIDs,
             pinnedMachineIDs: pinnedMachineIDs.union(machines.filter(\.isPinned).map(\.id)),
             includeLocalMachine: includeLocalMachine,
             source: source, devicesSection: devicesSection,

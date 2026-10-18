@@ -145,6 +145,7 @@ extension TerminalController {
                     organizationSlug: organizationSlug,
                     confirmPublic: confirmPublic
                 )
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["publication": publication.foundationObject]
             }
         case "vm.publication_verify":
@@ -191,6 +192,7 @@ extension TerminalController {
                     teamID: access.teamID,
                     confirmPublic: confirmPublic
                 )
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["publication": publication.foundationObject]
             }
         case "vm.publication_grants", "vm.publication_grant", "vm.publication_ungrant":
@@ -218,6 +220,7 @@ extension TerminalController {
             }
             return v2CloudCall(id: id, method: method, params: params) {
                 try await VMClient.shared.deletePublication(id: publicationID)
+                await CloudPortSharingStore.publicationsDidChange()
                 return ["deleted": true, "id": publicationID]
             }
         case "vm.create":
@@ -273,6 +276,9 @@ extension TerminalController {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
                 let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
                 _ = await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, attach: vm.createAttach, scope: scope)
+                // Background delivery of Cloud Secrets over the link just recorded;
+                // never delays the create receipt.
+                await CloudSecretsService.shared.scheduleAutoSync(machineID: vm.id)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -761,6 +767,11 @@ extension TerminalController {
             return socketWorkerVMTerminalOutputResponse(id: id, params: params)
         case "vm.env_set":
             return socketWorkerVMEnvSetResponse(id: id, params: params)
+        case "vm.secrets_list", "vm.secrets_set", "vm.secrets_rm", "vm.secrets_sync",
+             "vm.secrets_status", "vm.secrets_link", "vm.secrets_unlink", "vm.secrets_check":
+            return socketWorkerVMSecretsResponse(method: method, id: id, params: params)
+        case "vm.agent_readiness":
+            return socketWorkerVMAgentReadinessResponse(id: id, params: params)
         case "vm.terminal_rename":
             return socketWorkerVMTerminalRenameResponse(id: id, params: params)
         case "vm.tab_rename":
@@ -883,6 +894,10 @@ extension TerminalController {
         }
         if let slug = vm.slug, !slug.isEmpty {
             payload["slug"] = slug
+        }
+        // The VPC address behind every private port URL (`cmux vm ports`).
+        if let privateAddress = vm.preferredPrivateAddress {
+            payload["privateAddress"] = privateAddress
         }
         if let createdBy = vm.createdBy {
             // A known account with no recorded name sends an explicit null for

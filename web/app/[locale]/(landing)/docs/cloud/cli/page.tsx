@@ -80,6 +80,7 @@ cmux vm open <machine> <port> [--print]`}</CodeBlock>
       <CodeBlock lang="bash">{`cmux vm exec [--timeout <seconds>] <id> -- <command...>
 cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <size>] [--timeout <seconds>] -- <command...>
 cmux vm route [--cwd <dir>] [--new] [--provision] [--size <size>]
+cmux vm clone <repo> [--machine <id> | --new] [--size <size>] [--branch <b>] [--dir <remote-dir>] [--agent claude|codex|opencode|pi [-- <prompt>]] [--no-open] [--dry-run] [--json]
 cmux vm agent --agent claude|codex|opencode|pi [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--wait [--output] [--timeout <seconds>]] [--new] [--size <size>] -- <prompt>
 cmux vm dev <machine> [<local-dir>] [--name <workspace>] [--layout <file>] [--command "<cmd>"] [--port <n>] [--remote <path>] [--sync|--no-sync] [--no-open] [--dry-run]
 cmux vm prompt [--open claude|codex|opencode|pi]`}</CodeBlock>
@@ -109,7 +110,14 @@ cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 cmux vm pull <id> <remote-path> [local-path]
 cmux vm env set <machine> KEY=VALUE... | --from-file <.env> | -
 cmux vm env ls <machine> [--show]
-cmux vm env rm <machine> KEY...`}</CodeBlock>
+cmux vm env rm <machine> KEY...
+cmux vm secrets [ls] [--scope all|project[:<key>]|machine:<id>] [--json]
+cmux vm secrets set NAME... [--project [<key>] | --machine <id>] [--no-sync]
+cmux vm secrets import [<.env>|-] [--from-shell [NAME...]] [--gh] [--project [<key>]] [--dry-run]
+cmux vm secrets rm NAME... [--project [<key>] | --machine <id>]
+cmux vm secrets status <machine> [--verify] [--json]
+cmux vm secrets sync|link <machine> [--project <key>|.]
+cmux vm secrets check [<dir>]`}</CodeBlock>
 
       <DocsHeading level={2} id="domains">{t("domainsTitle")}</DocsHeading>
       <p>{t("domainsDesc")}</p>

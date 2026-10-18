@@ -42,6 +42,18 @@ enum SidebarFooterButtonMetrics {
     /// The cloud glyph is 2.5 pt wider than the 14 pt account and help glyphs,
     /// so half that keeps the visible gap after Help equal to the one before it.
     static let cloudLeadingInset: CGFloat = 1.5
+    /// The labeled Cloud entry: footer-height capsule, label one step under
+    /// the 13 pt workspace rows so it reads as chrome, count at the same size
+    /// but quieter (Linear's "Priority 4" chip weighting).
+    static let cloudLabelFontSize: CGFloat = 12
+    static let cloudLabelSpacing: CGFloat = 4
+    static let cloudLabelLeadingPadding: CGFloat = 4
+    static let cloudLabelTrailingPadding: CGFloat = 6
+    static let cloudCountOpacity = 0.7
+    /// A 6 pt status dot tucked on the cloud's upper right, like the unread
+    /// and attention dots on workspace rows.
+    static let cloudMarkSize: CGFloat = 6
+    static let cloudMarkOffset = CGSize(width: 2, height: -1)
     static let hoverOpacity = 0.08
 }
 
@@ -333,36 +345,101 @@ struct SidebarMobileConnectButton: View {
 /// Opens Cloud Machines in the right sidebar, introducing Cloud first while
 /// it is off. Follows the "Show Cloud and Device Icons in Sidebar" setting and
 /// stays hidden when managed policy disables Cloud.
+///
+/// Labeled ("Cloud", plus the running count) so the entry point names itself;
+/// it falls back to the bare glyph when the footer is too narrow. The status
+/// comes from ``SidebarCloudButtonPresentation``.
 struct SidebarCloudButton: View {
     @LiveSetting(\.sidebar.showCloudDeviceIcons) private var showsCloudDeviceIcons
+    @AppStorage(SidebarCloudButtonPresentation.introductionSeenKey) private var hasOpenedCloud = false
     @State private var anchorView: NSView?
     private let title = String(localized: "sidebar.cloud.button", defaultValue: "Cloud")
 
     var body: some View {
         if showsCloudDeviceIcons, CloudMachinesFeature.isAvailable {
+            // Reads only the catalog's `machines`, reduced to a small value.
+            let presentation = SidebarCloudButtonPresentation.resolve(
+                machines: SurfaceCatalog.shared.machines.values,
+                hasOpenedCloud: hasOpenedCloud
+            )
             Button {
+                SidebarCloudButtonPresentation.recordCloudOpened()
                 AppDelegate.shared?.performSidebarCloudButtonAction(preferredWindow: anchorView?.window)
             } label: {
-                SidebarFooterCircularIcon(
-                    systemName: "cloud",
-                    style: SidebarFooterCircularIconStyle.standard.resized(to: SidebarFooterButtonMetrics.cloudIconSize)
-                )
-                .frame(
-                    width: SidebarFooterButtonMetrics.buttonSize,
-                    height: SidebarFooterButtonMetrics.buttonSize
-                )
+                SidebarCloudButtonLabel(title: title, presentation: presentation)
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
-            .frame(
-                width: SidebarFooterButtonMetrics.buttonSize,
-                height: SidebarFooterButtonMetrics.buttonSize
-            )
             .background(TitlebarControlAnchorView { anchorView = $0 })
-            .safeHelp(title)
+            .safeHelp(presentation.help)
             .hintableAccessibilityLabel(title)
+            .accessibilityValue(presentation.accessibilityValue)
             .accessibilityIdentifier("SidebarCloudButton")
             .padding(.leading, SidebarFooterButtonMetrics.cloudLeadingInset)
             .onAppear { ProductAnalytics.app.track(.cloudButtonShown) }
+        }
+    }
+}
+
+/// The Cloud entry's face: glyph, word and quiet count in a footer-height
+/// capsule, or the glyph alone when space is short. One status mark rides on
+/// the glyph in either form.
+struct SidebarCloudButtonLabel: View {
+    let title: String
+    let presentation: SidebarCloudButtonPresentation
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+
+    private var tint: Color {
+        SidebarAppearanceColorResolver().readableSecondary(for: colorScheme, over: readabilityBackdrop)
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: SidebarFooterButtonMetrics.cloudLabelSpacing) {
+                glyph
+                Text(title)
+                    .cmuxFont(size: SidebarFooterButtonMetrics.cloudLabelFontSize, weight: .medium)
+                    .foregroundStyle(tint)
+                if let count = presentation.countText {
+                    Text(count)
+                        .cmuxFont(size: SidebarFooterButtonMetrics.cloudLabelFontSize, monospacedDigit: true)
+                        .foregroundStyle(tint.opacity(SidebarFooterButtonMetrics.cloudCountOpacity))
+                }
+            }
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.leading, SidebarFooterButtonMetrics.cloudLabelLeadingPadding)
+            .padding(.trailing, SidebarFooterButtonMetrics.cloudLabelTrailingPadding)
+            .frame(height: SidebarFooterButtonMetrics.buttonSize)
+
+            glyph
+                .frame(width: SidebarFooterButtonMetrics.buttonSize, height: SidebarFooterButtonMetrics.buttonSize)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var glyph: some View {
+        SidebarFooterCircularIcon(
+            systemName: "cloud",
+            style: SidebarFooterCircularIconStyle.standard.resized(to: SidebarFooterButtonMetrics.cloudIconSize)
+        )
+        .overlay(alignment: .topTrailing) {
+            if let color = markColor {
+                Circle()
+                    .fill(color)
+                    .frame(width: SidebarFooterButtonMetrics.cloudMarkSize, height: SidebarFooterButtonMetrics.cloudMarkSize)
+                    .offset(x: SidebarFooterButtonMetrics.cloudMarkOffset.width, y: SidebarFooterButtonMetrics.cloudMarkOffset.height)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var markColor: Color? {
+        switch presentation.mark {
+        case .quiet: nil
+        case .attention: Color(nsColor: .systemOrange)
+        case .introduction: cmuxAccent.color
         }
     }
 }

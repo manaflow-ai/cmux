@@ -579,8 +579,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         catalog: SurfaceCatalog.shared,
         clientURL: { CloudTuiClientPaths.clientURL() },
         paths: CloudTuiClientPaths(),
-        sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
+        sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
+        browserProxyQuitRegistry: cloudBrowserProxyQuitRegistry
     )
+    /// Every browser carrier the Cloud and SSH links start, so termination can
+    /// end them synchronously; composition-root owned.
+    let cloudBrowserProxyQuitRegistry = CloudBrowserProxyQuitRegistry()
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
     /// Owns the process-scoped idle-sleep assertion shared by every local and
@@ -1748,6 +1752,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
         if !isRunningUnderXCTest {
             startSudoApprovalCoordinator()
+            CloudSecretsService.activateForApp(bridge: .shared, presenter: .shared)
         }
         // Prewarm the restorable-agent index (see closedPanelHistoryEntry) and the agent
         // message journal off the main thread, so the first close or command palette open
@@ -2598,6 +2603,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         // No Cloud session survives the app, so neither does the tunnel.
         cloudTunnelCoordinator?.appWillTerminate()
+        // Browser carriers hang in cleanup once the hub is gone, so their
+        // --exit-with-parent watch cannot end them; kill them before the hub.
+        cloudBrowserProxyQuitRegistry.terminateAllForAppQuit()
         CmuxTuiSurfaceProviderRegistry.shared.terminateWireGuardHubForAppQuit()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         caffeineController.setEnabled(false)
@@ -15709,6 +15717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if handleCloudTeamPickerShortcut(event) { return true }
+        if handleCloudTeachingShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
             reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true

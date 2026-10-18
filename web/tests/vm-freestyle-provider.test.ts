@@ -19,6 +19,7 @@ import {
   normalizeFreestyleExecTimeout,
 } from "../services/vms/drivers/freestyle";
 import type { VMProvider } from "../services/vms/drivers/types";
+import { workUserExecCommand } from "../services/vms/drivers/workUserExecCommand";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
@@ -462,7 +463,7 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toEqual(["echo hi"]);
+    expect(fake.execs).toEqual([workUserExecCommand("echo hi")]);
     expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
   });
@@ -471,6 +472,8 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
     expect(result.exitCode).toBe(0);
+    // Root maintenance runs verbatim: the work-user home prelude is not for it.
+    expect(fake.execs).toEqual(["true"]);
     expect(fake.execUsers).toEqual(["root"]);
   });
 
@@ -479,7 +482,7 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "cmux self --json");
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
-    expect(fake.execs).toEqual(["cmux self --json"]);
+    expect(fake.execs).toEqual([workUserExecCommand("cmux self --json")]);
     expect(fake.execUsers).toEqual([undefined]);
   });
 
@@ -922,9 +925,9 @@ describe("Freestyle client configuration", () => {
     }
   });
 
-  test("public vm exec leaves the guest user to the provider default", () => {
+  test("public vm exec leaves the guest user to the provider default, behind the work-user home prelude", () => {
     expect(driverSource).toContain(
-      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+      "const r = await vm.exec(opts?.asRoot\n            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }\n            : { command: workUserExecCommand(command), timeoutMs });",
     );
   });
 
