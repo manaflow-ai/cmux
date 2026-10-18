@@ -274,7 +274,10 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
+  const { pinned, groups } = useMemo(
+    () => sidebarSections(sessions, query, groupProjects),
+    [sessions, query, groupProjects],
+  );
   const active = useMemo(
     () =>
       sortByRecency(

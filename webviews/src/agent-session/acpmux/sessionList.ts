@@ -311,6 +311,7 @@ export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): A
 export function sidebarSections(
   all: AcpmuxSessionEntry[],
   query = "",
+  groupProjects = true,
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
@@ -322,10 +323,12 @@ export function sidebarSections(
       query,
     ),
   );
-  const groups = groupByProject(
-    sessions.filter((session) => !session.pinned),
-    sessions,
-  );
+  const groups = groupProjects
+    ? groupByProject(
+        sessions.filter((session) => !session.pinned),
+        sessions,
+      )
+    : [];
   if (!query.trim()) return { pinned, groups };
   // Projects and their headers come from every session, so a search only hides rows.
   return {
