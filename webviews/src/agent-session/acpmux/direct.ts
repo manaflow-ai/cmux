@@ -2156,7 +2156,14 @@ export class AcpmuxDirectClient {
     try {
       await this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(input, attachments),
+        // A recording goes only to a harness that takes voice input; one moved to another
+        // harness (a switch, a held prompt put back) goes as its transcript.
+        prompt: promptBlocks(
+          input,
+          this.summary?.agentCapabilities?.promptCapabilities?.audio === true
+            ? attachments
+            : attachments.filter((attachment) => attachment.kind !== "audio"),
+        ),
         _meta: {
           acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),

@@ -98,6 +98,9 @@ export function useDictation(
   const attachAudio = useRef(audio?.attach);
   attachAudio.current = audio?.attach;
   const acceptsAudio = audio?.accepts === true;
+  /// A session that ends after the chat moved to a harness without audio keeps its words only.
+  const acceptsAudioNow = useRef(acceptsAudio);
+  acceptsAudioNow.current = acceptsAudio;
 
   // The host decides for every start (the mic, its shortcut, the palette), so it hears each change.
   useEffect(() => {
@@ -125,7 +128,8 @@ export function useDictation(
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
       // The recording joins the composer before the words do, so an auto-send takes both.
-      if (update.state === "idle" && !update.cancelled && update.audio) attachAudio.current?.(update.audio);
+      if (update.state === "idle" && !update.cancelled && update.audio && acceptsAudioNow.current)
+        attachAudio.current?.(update.audio);
       // A session the shortcut started writes where the user will type, as undoable edits.
       if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
       const splice = applyDictation(field.text(), anchor.current, update);

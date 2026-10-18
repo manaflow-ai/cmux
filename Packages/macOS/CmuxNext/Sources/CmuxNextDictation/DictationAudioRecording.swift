@@ -9,8 +9,8 @@ import os
 /// The level meter feeds it each tap buffer (``DictationAudioLevelMeter/recording``).
 /// Each buffer is downmixed to its first channel and box-averaged to 16 kHz in
 /// the tap, so the session holds 32 KB a second, never the input's rate.
-/// Past ``maximumDuration`` it keeps nothing more and ``wav()`` returns nil:
-/// a clip that long goes as its transcript alone.
+/// Past ``maximumDuration``, or from input below 16 kHz, it keeps nothing
+/// more and ``wav()`` returns nil: that session goes as its transcript alone.
 ///
 /// Lock carve-out: the tap is a synchronous real-time audio callback, so it
 /// cannot hop to an actor. The lock guards an append to one buffer.
@@ -22,9 +22,10 @@ public final class DictationAudioRecording: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
     // Guarded by `lock`.
     private var samples: [Int16] = []
-    private var overflowed = false
+    /// Ran past ``maximumDuration`` or came in below 16 kHz.
+    private var discarded = false
     /// The input samples summed toward the next output sample, and how many.
-    private var pending: (sum: Float, count: Double) = (0, 0)
+    private var pending: (sum: Double, count: Double) = (0, 0)
 
     public init() {}
 
@@ -35,34 +36,51 @@ public final class DictationAudioRecording: @unchecked Sendable {
         append(input, sampleRate: buffer.format.sampleRate)
     }
 
-    /// Folds samples at `sampleRate` in (tests feed these directly).
+    /// Folds samples at `sampleRate` in (tests feed these directly). Each output sample is the
+    /// mean of the input span it covers; an input sample that straddles two spans is split between
+    /// them by weight, so a rate that is no whole multiple of 16 kHz (44.1, 24 kHz) stays level.
+    /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
     public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
-        guard sampleRate > 0 else { return }
-        // Input samples per output sample; at or below 16 kHz each input sample is one output sample.
-        let step = max(1, sampleRate / Self.sampleRate)
         let limit = Int(Self.sampleRate * Self.maximumDuration)
         lock.lock()
         defer { lock.unlock() }
-        guard !overflowed else { return }
-        for value in input {
-            pending.sum += value.isFinite ? value : 0
-            pending.count += 1
-            guard pending.count >= step else { continue }
-            guard samples.count < limit else {
-                overflowed = true
-                samples = []
-                return
-            }
-            let mean = max(-1, min(1, pending.sum / Float(pending.count)))
-            samples.append(Int16(mean * Float(Int16.max)))
-            pending = (0, pending.count - step)
+        guard !discarded else { return }
+        guard sampleRate >= Self.sampleRate else {
+            discard()
+            return
         }
+        // Input samples per output sample.
+        let step = sampleRate / Self.sampleRate
+        for value in input {
+            let sample = Double(value.isFinite ? value : 0)
+            var left = 1.0
+            while left > 0 {
+                let take = min(left, step - pending.count)
+                pending.sum += sample * take
+                pending.count += take
+                left -= take
+                guard pending.count >= step - 1e-9 else { continue }
+                guard samples.count < limit else {
+                    discard()
+                    return
+                }
+                let mean = max(-1, min(1, pending.sum / step))
+                samples.append(Int16(mean * Double(Int16.max)))
+                pending = (0, 0)
+            }
+        }
+    }
+
+    /// Keeps nothing more; ``wav()`` returns nil. Called with `lock` held.
+    private func discard() {
+        discarded = true
+        samples = []
     }
 
     /// The recording as a WAV file, or nil when it is empty or ran past ``maximumDuration``.
     public func wav() -> Data? {
         lock.lock()
-        let samples = overflowed ? [] : samples
+        let samples = discarded ? [] : samples
         lock.unlock()
         guard !samples.isEmpty else { return nil }
         let rate = UInt32(Self.sampleRate)
