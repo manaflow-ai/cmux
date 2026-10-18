@@ -952,9 +952,16 @@ merged_head_checks() {
     elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
       # A red the base already has is not this PR's: check the base tree with
       # the same install, and refuse only for files the base does not flag.
-      local base_output new_files
-      git -C "$merged" checkout --quiet --detach "$base_sha" 2>/dev/null
-      if base_output=$(cd "$merged/webviews" && "$bun" x vp check 2>&1); then
+      local base_output new_files base_tree
+      base_tree="$tmp/base"
+      mkdir -p "$base_tree"
+      # The merged tree is an archive, not a Git worktree. Materialize the
+      # base webviews separately for the red-base comparison instead of trying
+      # to checkout the base in the archive (which exits 128 and hides the
+      # actual vp diagnostic).
+      if ! git -C "$repo_dir" archive "$base_sha" -- webviews | tar -x -C "$base_tree"; then
+        base_output=''
+      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && "$bun" x vp check 2>&1); then
         new_files=$(vp_flagged_files <<<"$output")
       else
         new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
