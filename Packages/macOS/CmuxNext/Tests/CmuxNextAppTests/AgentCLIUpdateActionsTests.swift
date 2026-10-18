@@ -54,7 +54,8 @@ import Testing
 
     private func make() -> (Owner, AgentCLIUpdateActions, ActionRegistry) {
         let owner = Owner()
-        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() })
+        let ledger = AgentCLIUpdateRecoveryTests.Ledger()
+        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() }, persistence: ledger.port)
         let registry = ActionRegistry.standard()
         updates.bind(into: registry)
         return (owner, updates, registry)

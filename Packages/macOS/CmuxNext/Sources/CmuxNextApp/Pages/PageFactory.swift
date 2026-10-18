@@ -124,6 +124,10 @@ struct PageFactory {
                 guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
                 return try await updates.runSettings(id: id, context: context, registry: services.registry)
             },
+            runResume: { [weak services] key, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.resumeRetained(key: key, context: context, registry: services.registry)
+            },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
             refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
         )

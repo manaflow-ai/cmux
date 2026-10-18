@@ -69,7 +69,8 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
                 id: "agent.harness.updateAll", title: t("action.agent.harness.updateAll", "Update Agent CLIs"),
                 keywords: ["agent", "harness", "cli", "update", "upgrade", "version", "outdated", "npm", "brew", "codex", "claude", "gemini"],
                 category: .agents, symbol: "arrow.down.circle",
-                arguments: [id],
+                arguments: [id, ActionArgument(name: "intent", title: t("argument.agent.harness.intent", "Update intent"), kind: .string, isRequired: false)],
+                // A retained intent selects the original owner, family and key.
                 // A terminal tab the person watches: scripts run the updates themselves.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),

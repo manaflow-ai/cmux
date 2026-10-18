@@ -29,18 +29,23 @@ final class AgentCLIUpdateActions {
         let attach: @MainActor (AgentCLIUpdateIntent, AgentCLIJobReceipt) async throws -> Void
     }
 
-    private let capture: @MainActor (ActionInvocation) throws -> Route
-    private let persistence: Persistence?
-    private let captureRecovered: @MainActor (ResourceID, ResourceID) throws -> Route
-    private var intents: [String: Intent] = [:]
+    let capture: @MainActor (ActionInvocation) throws -> Route
+    let persistence: Persistence?
+    let captureRecovered: @MainActor (ResourceID, ResourceID) throws -> Route
+    var intents: [String: Intent] = [:]
+    var retained: [AgentCLIStoredIntent] = []
+    var settled: Set<String> = []
 
     @Observable final class Intent {
-        let route: Route
+        var route: Route
         let profile: String?
         let target: ActionTargetRef?
         @ObservationIgnored var work: Task<JSONValue, Error>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
+        var inputs: [AgentCLIUpdateIntent] = []
+        var busy = false
+        var restored = false
 
         init(route: Route, profile: String?, target: ActionTargetRef?) {
             self.route = route
@@ -56,23 +61,23 @@ final class AgentCLIUpdateActions {
         self.captureRecovered = captureRecovered
     }
 
-    /// Restores only the original owner/key and reads its creation receipt.
-    func recover() async throws {}
-
-    /// Explicit user consent can resume a previously recorded, unstarted intent.
-    func resumeRetained(key: String, context: PageCallContext, registry: ActionRegistry) async throws -> JSONValue {
-        throw PageError.unavailable(AgentHarnessStrings.unsupported)
-    }
-
     func bind(into registry: ActionRegistry) {
         registry.bind("agent.harness.updateAll", run: { [self, weak registry] invocation in
             guard invocation.origin == .user, invocation.callerApp == nil,
                   ActionRunScope.current?.origin == .user else {
                 throw ActionFailure(message: RefusalStrings.personOnlyFromPage)
             }
+            if let original = invocation["intent"]?.stringValue {
+                registry?.track(Task {
+                    do { _ = try await self.resume(original); return nil }
+                    catch { return ActionWorkFailure(AgentHarnessCenter.text(error), mayHaveApplied: true, terminalMayAppear: true) }
+                })
+                return
+            }
             let key = DaemonCommandScope.current?.idempotencyKey ?? UUID().uuidString.lowercased()
             let intent: Intent
             if let existing = intents[key] {
+                guard !existing.restored else { throw ActionFailure(message: AgentHarnessStrings.unsupported) }
                 guard existing.profile == invocation["id"]?.stringValue, existing.target == invocation.target else {
                     throw ActionFailure(message: AgentHarnessStrings.unsupported)
                 }
@@ -105,6 +110,19 @@ final class AgentCLIUpdateActions {
         let scope = DaemonCommandScope(idempotencyKey: key)
         let invocation = ActionInvocation(target: .init(kind: .machine, id: MachineRegistry.localID),
             arguments: id.map { ["id": .string($0)] } ?? [:], origin: .user)
+        return try await runRegistry(invocation, scope: scope, registry: registry)
+    }
+
+    /// A new gesture authorizes the retained intent, never a replacement key.
+    func resumeRetained(key: String, context: PageCallContext, registry: ActionRegistry) async throws -> JSONValue {
+        guard context.userGesture || context.isConfirmedUser else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        return try await runRegistry(ActionInvocation(arguments: ["intent": .string(key)], origin: .user),
+            scope: DaemonCommandScope(idempotencyKey: key), registry: registry)
+    }
+
+    private func runRegistry(_ invocation: ActionInvocation, scope: DaemonCommandScope, registry: ActionRegistry) async throws -> JSONValue {
         let work = DaemonCommandScope.$current.withValue(scope) {
             registry.capturingWork { registry.perform("agent.harness.updateAll", invocation: invocation) }
         }
@@ -112,12 +130,17 @@ final class AgentCLIUpdateActions {
         for task in work {
             if let failure = await task.value { throw PageError.unavailable(failure.message) }
         }
-        return .array(intents[key]?.jobs ?? [])
+        return state
     }
 
     /// Explicit refresh observes retained terminals, never starts a new update.
     func refresh() async {
-        for intent in intents.values where intent.route.isCurrent() {
+        do { try await recover() } catch { return }
+        await observeRetained()
+    }
+
+    private func observeRetained() async {
+        for intent in intents.values where intent.route.isCurrent() && !intent.busy {
             for receipt in intent.receipts {
                 guard intent.route.isCurrent() else { break }
                 do {
@@ -129,6 +152,9 @@ final class AgentCLIUpdateActions {
                     if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
                     if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
                     if case .unknown = status.outcome { job["state"] = "unknown" }
+                    if status.state == .exited, let outcome = status.outcome, outcome != .unknown, let key = job["intent_key"]?.stringValue {
+                        settled.insert(key)
+                    }
                     intent.jobs[index] = .object(job)
                 } catch {
                     // Keep the receipt and original route; a failed observation is no completion.
@@ -145,6 +171,11 @@ final class AgentCLIUpdateActions {
     }
 
     private func start(_ intent: Intent, key: String) async throws -> JSONValue {
+        guard let persistence else { throw DaemonError.notConnected }
+        intent.busy = true
+        defer { intent.busy = false }
+        try await recover()
+        await observeRetained()
         guard intent.route.isCurrent() else { throw DaemonError.notConnected }
         let inventory = try await intent.route.inventory()
         guard intent.route.isCurrent() else { throw DaemonError.notConnected }
@@ -156,9 +187,12 @@ final class AgentCLIUpdateActions {
         guard !families.isEmpty, intent.profile == nil || families.count == 1 else {
             throw ActionFailure(message: AgentHarnessStrings.unsupported)
         }
+        var inputs: [AgentCLIUpdateIntent] = []
         for family in families {
             guard intent.route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
-            guard !intents.values.contains(where: { other in
+            guard !retained.contains(where: { row in
+                row.intent.machine == intent.route.machine && row.intent.cli == family && !settled.contains(row.intent.key)
+            }), !intents.values.contains(where: { other in
                 other !== intent && other.jobs.contains { job in
                     job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
                         && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
@@ -167,18 +201,18 @@ final class AgentCLIUpdateActions {
             // Batch children derive from the original intent and family, not row order.
             let childKey = intent.profile != nil ? key
                 : SHA256.hash(data: Data("cmux/agent-update/\(family)/\(key)".utf8)).map { String(format: "%02x", $0) }.joined()
-            var job: [String: JSONValue] = ["machine": .string(intent.route.machine.rawValue),
-                "session": .string(intent.route.session.rawValue), "cli": .string(family), "state": "unknown",
-                "profiles": .array(rows.filter { $0.family?.rawValue == family }.map { .string($0.id) })]
-            intent.jobs.append(.object(job))
-            let receipt = try await intent.route.start(cli, childKey)
-            guard receipt.machine == intent.route.machine, receipt.session == intent.route.session, receipt.cli == cli else {
-                throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
-            }
-            intent.receipts.append(receipt)
-            job["terminal"] = .string(receipt.path.terminalID.rawValue)
-            job["state"] = "created"
-            intent.jobs[intent.jobs.count - 1] = .object(job)
+            inputs.append(try AgentCLIUpdateIntent(key: childKey, rootKey: key, machine: intent.route.machine,
+                session: intent.route.session, cli: cli, profiles: rows.filter { $0.family?.rawValue == family }.map(\.id)))
+        }
+        intent.inputs = inputs
+        intent.jobs = inputs.map(Self.job)
+        // Commit the entire batch before the first request can start an updater.
+        try await persistence.record(inputs)
+        for input in inputs {
+            guard intent.route.isCurrent() else { throw DaemonError.notConnected }
+            let receipt = try await intent.route.start(input.family, input.key)
+            try remember(receipt, for: input, in: intent)
+            try await persistence.attach(input, receipt)
             guard intent.route.isCurrent() else { throw DaemonError.notConnected }
         }
         return .array(intent.jobs)

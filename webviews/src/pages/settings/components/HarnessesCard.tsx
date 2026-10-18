@@ -185,6 +185,16 @@ export function HarnessesCard() {
         <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" role="status" data-agent-update-job={job.state}>
           {agentDisplayName(job.cli)}{" · "}
           {jobText(job)}
+          {job.can_resume && job.intent_key && job.state === "unknown" && !job.terminal && (
+            <button
+              type="button"
+              className="button"
+              data-harness-action="resumeUpdate"
+              onClick={() => void store.runHarnesses({ action: "resumeUpdate", intent: job.intent_key })}
+            >
+              {t("settingsWindow.harnesses.resumeUpdate")}
+            </button>
+          )}
         </div>
       ))}
       {harnesses?.problem && (
