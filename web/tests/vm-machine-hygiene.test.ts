@@ -104,6 +104,7 @@ function runRaw(m: Machine, args: string[], env: Record<string, string | undefin
       HOME: m.home,
       TMPDIR: m.tmp,
       CMUX_HYGIENE_SANDBOX: m.root,
+      CMUX_HYGIENE_SANDBOX_APPLY: "1",
       ...env,
     },
   });
@@ -436,18 +437,54 @@ describe("cmux-machine-hygiene", () => {
     }
   });
 
-  test("deletes nothing when the mount list is empty or does not parse", async () => {
+  test("does not start in the sandbox without a parsable mount list", async () => {
     const m = machine();
     const app = project(m, "app", "node_modules", "package.json");
     age(app, 30);
-    for (const lines of [[], ["this is not a mount line"], ["/dev/root on / type ext4 (rw)", "garbage on /x"]]) {
+    const cases = [
+      [],
+      ["this is not a mount line"],
+      ["/dev/root on / type ext4 (rw)", "garbage on /x"],
+      // Two " on /" make the target ambiguous.
+      ["/dev/root on / type ext4 (rw)", `u@h:/a on /b on ${m.code} type fuse.sshfs (rw)`],
+    ];
+    for (const lines of cases) {
       mounts(m, lines);
-      const report = await run(m, ["--apply", "--only", "project-artifacts"]);
-      expect(report.items).toContainEqual(
-        expect.objectContaining({ path: path.join(app, "node_modules"), reason: "mounts-unknown" }),
-      );
+      const result = await runRaw(m, ["--apply", "--home", m.home, "--root", m.code, "--tmp-dir", m.tmp]);
+      expect({ lines, status: result.status, refused: result.stderr.includes("no mount evidence") }).toEqual({
+        lines,
+        status: 3,
+        refused: true,
+      });
       expect(existsSync(path.join(app, "node_modules", "pkg", "index.js"))).toBe(true);
     }
+  });
+
+  test("never removes anything under a mount nested in home", async () => {
+    const m = machine();
+    const app = project(m, "app", "node_modules", "package.json");
+    age(app, 30);
+    // A bind mount shares the device, so only the mount list can tell.
+    mounts(m, ["/dev/root on / type ext4 (rw)", `/dev/root on ${app} type ext4 (rw,bind)`]);
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(app, "node_modules"), reason: "under-mount" }),
+    );
+    expect(existsSync(path.join(app, "node_modules", "pkg", "index.js"))).toBe(true);
+  });
+
+  test("refuses a sandbox that is a mount point, and --apply in it without the test flag", async () => {
+    const m = machine();
+    mounts(m, ["/dev/root on / type ext4 (rw)", `tmpfs on ${m.root} type tmpfs (rw)`]);
+    const mounted = await runRaw(m, ["--home", m.home, "--root", m.code, "--tmp-dir", m.tmp]);
+    expect(mounted.status).toBe(3);
+    expect(mounted.stderr).toContain("mount point");
+    mounts(m, ["/dev/root on / type ext4 (rw)"]);
+    const noFlag = await runRaw(m, ["--apply", "--home", m.home, "--root", m.code, "--tmp-dir", m.tmp], {
+      CMUX_HYGIENE_SANDBOX_APPLY: undefined,
+    });
+    expect(noFlag.status).toBe(2);
+    expect(noFlag.stdout).toBe("");
   });
 
   test("refuses --apply without an explicit home and root", async () => {
