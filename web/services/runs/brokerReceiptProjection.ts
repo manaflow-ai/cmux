@@ -132,14 +132,32 @@ function eventPayload(receipt: AgentBrokerReceipt): Record<string, unknown> {
   };
 }
 
+function validateProjectionInput(input: BrokerReceiptProjectionInput): void {
+  for (const [value, label] of [[input.runId, "runId"], [input.attemptId, "attemptId"], [input.leaseToken, "leaseToken"], [input.tenantId, "tenantId"], [input.owner, "owner"], [input.hostClass, "hostClass"], [input.effectKey, "effectKey"], [input.sourceSha, "sourceSha"], [input.scopeRevision, "scopeRevision"], [input.jobId, "jobId"]] as const) requireSafeText(value, label);
+  if (!Number.isSafeInteger(input.leaseGeneration) || input.leaseGeneration < 0) throw new BrokerReceiptProjectionError("correlation_mismatch", "leaseGeneration is invalid");
+  if (input.afterSequence !== undefined && (!Number.isSafeInteger(input.afterSequence) || input.afterSequence < 0)) throw new BrokerReceiptProjectionError("sequence_conflict", "afterSequence is invalid");
+}
+
+function validateReceipt(receipt: AgentBrokerReceipt, input: BrokerReceiptProjectionInput, job: AgentBrokerJob, previous: number, previousLeaseGeneration: number): void {
+  if (receipt.jobId !== input.jobId || receipt.owner !== input.owner || receipt.hostClass !== input.hostClass || receipt.effectKey !== input.effectKey) {
+    throw new BrokerReceiptProjectionError("correlation_mismatch", "broker receipt correlation does not match the run projection");
+  }
+  if (!Number.isSafeInteger(receipt.sequence) || receipt.sequence <= previous) throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt sequence is stale or reordered");
+  if (!Number.isSafeInteger(receipt.leaseGeneration) || receipt.leaseGeneration < previousLeaseGeneration || receipt.leaseGeneration > job.leaseGeneration) {
+    throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt lease generation is stale or from the future");
+  }
+  for (const [field, expected] of [["tenantId", input.tenantId], ["sourceSha", input.sourceSha], ["scopeRevision", input.scopeRevision]] as const) {
+    const actual = optionalReceiptField(receipt, field);
+    if (actual !== undefined && actual !== expected) throw new BrokerReceiptProjectionError("correlation_mismatch", `broker receipt ${field} does not match the run projection`);
+  }
+}
+
 /** Project a validated broker journal page into replay-safe, non-terminal Run events. */
 export async function projectBrokerReceipts(
   input: BrokerReceiptProjectionInput,
   dependencies: ProjectionDependencies = defaultDependencies,
 ): Promise<{ readonly events: readonly Awaited<ReturnType<typeof ingestRunEvent>>[]; readonly nextSequence: number | null }> {
-  for (const [value, label] of [[input.runId, "runId"], [input.attemptId, "attemptId"], [input.leaseToken, "leaseToken"], [input.tenantId, "tenantId"], [input.owner, "owner"], [input.hostClass, "hostClass"], [input.effectKey, "effectKey"], [input.sourceSha, "sourceSha"], [input.scopeRevision, "scopeRevision"], [input.jobId, "jobId"]] as const) requireSafeText(value, label);
-  if (!Number.isSafeInteger(input.leaseGeneration) || input.leaseGeneration < 0) throw new BrokerReceiptProjectionError("correlation_mismatch", "leaseGeneration is invalid");
-  if (input.afterSequence !== undefined && (!Number.isSafeInteger(input.afterSequence) || input.afterSequence < 0)) throw new BrokerReceiptProjectionError("sequence_conflict", "afterSequence is invalid");
+  validateProjectionInput(input);
 
   const job = await dependencies.getJob(input.jobId, input.tenantId);
   assertCorrelation(job, input);
@@ -148,21 +166,7 @@ export async function projectBrokerReceipts(
   let previousLeaseGeneration = 0;
   const events: Awaited<ReturnType<typeof ingestRunEvent>>[] = [];
   for (const receipt of page.receipts) {
-    if (receipt.jobId !== input.jobId || receipt.owner !== input.owner || receipt.hostClass !== input.hostClass || receipt.effectKey !== input.effectKey) {
-      throw new BrokerReceiptProjectionError("correlation_mismatch", "broker receipt correlation does not match the run projection");
-    }
-    if (!Number.isSafeInteger(receipt.sequence) || receipt.sequence <= previous) {
-      throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt sequence is stale or reordered");
-    }
-    if (!Number.isSafeInteger(receipt.leaseGeneration) || receipt.leaseGeneration < previousLeaseGeneration || receipt.leaseGeneration > job.leaseGeneration) {
-      throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt lease generation is stale or from the future");
-    }
-    for (const [field, expected] of [["tenantId", input.tenantId], ["sourceSha", input.sourceSha], ["scopeRevision", input.scopeRevision]] as const) {
-      const actual = optionalReceiptField(receipt, field);
-      if (actual !== undefined && actual !== expected) {
-        throw new BrokerReceiptProjectionError("correlation_mismatch", `broker receipt ${field} does not match the run projection`);
-      }
-    }
+    validateReceipt(receipt, input, job, previous, previousLeaseGeneration);
     previous = receipt.sequence;
     previousLeaseGeneration = receipt.leaseGeneration;
     const event = await dependencies.ingestRunEvent({
