@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
 import AppKit
@@ -52,15 +53,15 @@ enum DebugTabSwitch {
         guard isRecording, let start = started.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         pending.append(Pending(start: start, applied: CACurrentMediaTime()))
         if let host = window?.contentView?.layer {
-            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host)
+            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host) { committed(at: $0) }
             probes[ObjectIdentifier(host)] = probe
-            probe.layer.setNeedsDisplay()
+            probe.mark()
         }
         client.activate()
     }
 
     /// The commit that displayed a probe ended: it carried every switch shown before it.
-    fileprivate static func committed(at time: CFTimeInterval) {
+    private static func committed(at time: CFTimeInterval) {
         for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time { pending[index].commit = time }
     }
 
@@ -71,7 +72,7 @@ enum DebugTabSwitch {
         case "stop":
             let report = self.report
             (started, pending, isRecording) = ([:], [], false)
-            for probe in probes.values { probe.layer.removeFromSuperlayer() }
+            for probe in probes.values { probe.remove() }
             probes = [:]
             client.deactivate()
             return report
@@ -86,24 +87,3 @@ enum DebugTabSwitch {
     }
 }
 
-/// An empty 1-point layer in a window's content layer (drawn nowhere). Marked for display when a
-/// switch shows, Core Animation displays it inside the commit that carries the switch; the run loop
-/// block queued from there runs once that commit's run loop source returns: the commit's end.
-private final class CommitProbe {
-    final class Layer: CALayer {
-        override func display() {
-            // wakeup-allow: one block per probe display, only while debug.tab_switch records
-            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-                MainActor.assumeIsolated { DebugTabSwitch.committed(at: CACurrentMediaTime()) } // main-proof: queued on the main run loop
-            }
-            CFRunLoopWakeUp(CFRunLoopGetMain())
-        }
-    }
-
-    let layer = Layer()
-
-    @MainActor init(host: CALayer) {
-        layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
-        host.addSublayer(layer)
-    }
-}
