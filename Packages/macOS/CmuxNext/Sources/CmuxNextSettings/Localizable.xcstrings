@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sessions.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Follow-Up Tasks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح مهام متابعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži naredne zadatke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå opfølgende opgaver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folgeaufgaben vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tareas de seguimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer des tâches de suivi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci attività successive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のタスクを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំកិច្ចការបន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후속 작업 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå oppfølgingsoppgaver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj kolejne zadania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir tarefas de acompanhamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующие задачи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำงานต่อเนื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Takip görevleri öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступні завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý việc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议后续任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議後續任務"
+          }
+        }
+      }
+    },
+    "settings.sessions.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء اقتراح مهام تالية تبدؤها كمحادثات فرعية بجانب المحادثة الحالية. يحصل عليها الوكلاء الذين يبدؤون بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti mogu predložiti sljedeće zadatke, koje pokrećete kao podređene razgovore pored trenutnog. Važi za agente pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå næste opgaver, som du starter som underchats ved siden af den aktuelle. Gælder for agenter, der startes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können nächste Aufgaben vorschlagen, die du als Unterchats neben dem aktuellen startest. Gilt für Agenten, die nach der Änderung starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden sugerir próximas tareas, que inicias como chats secundarios junto al actual. Se aplica a los agentes que se inicien después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent suggérer des tâches suivantes, que vous lancez comme chats enfants à côté du chat actuel. S’applique aux agents lancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti possono suggerire le prossime attività, che avvii come chat secondarie accanto a quella attuale. Vale per gli agenti avviati dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが次のタスクを提案し、現在のチャットの横に子チャットとして開始できます。変更後に開始したエージェントに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចណែនាំកិច្ចការបន្ទាប់ ដែលអ្នកចាប់ផ្ដើមជាការជជែករងនៅក្បែរការជជែកបច្ចុប្បន្ន។ អនុវត្តចំពោះភ្នាក់ងារដែលចាប់ផ្ដើមក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 다음 작업을 제안하면 현재 채팅 옆에 하위 채팅으로 시작할 수 있습니다. 변경 후 시작된 에이전트에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan foreslå neste oppgaver, som du starter som underchatter ved siden av den nåværende. Gjelder agenter som startes etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą proponować kolejne zadania, które uruchamiasz jako czaty podrzędne obok bieżącego. Dotyczy agentów uruchomionych po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes podem sugerir próximas tarefas, que você inicia como chats filhos ao lado do atual. Vale para agentes iniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут предлагать следующие задачи, которые вы запускаете как дочерние чаты рядом с текущим. Действует для агентов, запущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์สามารถแนะนำงานถัดไป ซึ่งคุณเริ่มเป็นแชตย่อยข้างแชตปัจจุบันได้ มีผลกับเอเจนต์ที่เริ่มหลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar sonraki görevleri önerebilir; bunları mevcut sohbetin yanında alt sohbet olarak başlatırsınız. Değişiklikten sonra başlatılan ajanlar için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть пропонувати наступні завдання, які ви запускаєте як дочірні чати поруч із поточним. Діє для агентів, запущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử có thể gợi ý việc tiếp theo, bạn bắt đầu chúng thành cuộc trò chuyện con bên cạnh cuộc hiện tại. Áp dụng cho tác tử khởi động sau khi thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体可以建议后续任务，你可以在当前聊天旁把它们作为子聊天开始。更改后启动的智能体生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
+          }
+        }
+      }
+    },
     "settings.sessions.allowFullAccess": {
       "extractionState": "manual",
       "localizations": {

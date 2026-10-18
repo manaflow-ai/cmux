@@ -242,6 +242,8 @@ extension SettingsSchema {
         "sessions.keepAwake": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
         "sessions.allowFullAccess": .destructive,
+        // On, every agent gets tools that start child chats: the person turns that on.
+        "sessions.promptSuggestions": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

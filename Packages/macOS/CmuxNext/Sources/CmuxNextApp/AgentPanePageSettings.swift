@@ -30,6 +30,8 @@ final class AgentPanePageSettings {
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
+        // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
+        AgentPaneSuggestedTasks.shared.setting = { settings.snapshot.sessions.promptSuggestions }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
             for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
