@@ -57,7 +57,12 @@ describe("durable agent broker repository", () => {
       const first = await repo().enqueueJob(firstEnvelope, new Date("2026-10-17T10:00:00.000Z"));
       const retry = await repo().enqueueJob(firstEnvelope, new Date("2026-10-17T10:00:01.000Z"));
       expect(retry.id).toBe(first.id);
-      await expect(repo().enqueueJob({ ...firstEnvelope, requestDigest: requestDigest({ operation: "different" }) })).rejects.toBeInstanceOf(repo().AgentBrokerIdempotencyConflictError);
+      const conflictingPayload = { ...firstEnvelope.payload, operation: "different" };
+      await expect(repo().enqueueJob({
+        ...firstEnvelope,
+        payload: conflictingPayload,
+        requestDigest: requestDigest(conflictingPayload),
+      })).rejects.toBeInstanceOf(repo().AgentBrokerIdempotencyConflictError);
 
       const leaseA = await repo().claimJob({ workerId: "huge-blue-a", hostClass: "huge-blue", ttlMs: 5_000, now: new Date("2026-10-17T10:00:02.000Z") });
       expect(leaseA?.job.id).toBe(first.id);
