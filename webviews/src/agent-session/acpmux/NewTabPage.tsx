@@ -171,8 +171,15 @@ export function recentSessions(
   count = RECENT_COUNT,
   fold = true,
 ): AcpmuxSessionEntry[] {
+  // Snapshots already carry normalized entries from the direct client. Keep their identity so a
+  // New Tab render does not allocate and normalize every recent chat again. Gallery and older
+  // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
-    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    .map((session) =>
+      typeof (session as AcpmuxSessionEntry).displayTitle === "string"
+        ? session
+        : sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>),
+    )
     .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   const order = (entries: AcpmuxSessionEntry[]) =>
