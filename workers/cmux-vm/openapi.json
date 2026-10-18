@@ -6057,7 +6057,26 @@
             "type": "string"
           },
           "missingScope": {
-            "$ref": "#/components/schemas/ReportedScope"
+            "type": "string",
+            "x-extensible-enum": [
+              "vm:read",
+              "vm:write",
+              "vm:exec",
+              "vm:files",
+              "vm:terminal",
+              "snapshot:*",
+              "snapshot:read",
+              "snapshot:write",
+              "domain:*",
+              "deploy:*",
+              "git:*",
+              "mesh:read",
+              "mesh:write",
+              "mesh:join",
+              "acl:read",
+              "acl:write",
+              "admin"
+            ]
           },
           "_tag": {
             "type": "string",
@@ -6067,28 +6086,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "ReportedScope": {
-        "type": "string",
-        "x-extensible-enum": [
-          "vm:read",
-          "vm:write",
-          "vm:exec",
-          "vm:files",
-          "vm:terminal",
-          "snapshot:*",
-          "snapshot:read",
-          "snapshot:write",
-          "domain:*",
-          "deploy:*",
-          "git:*",
-          "mesh:read",
-          "mesh:write",
-          "mesh:join",
-          "acl:read",
-          "acl:write",
-          "admin"
-        ]
       },
       "ServiceUnavailable": {
         "type": "object",
@@ -6884,7 +6881,26 @@
           "scopes": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ReportedScope"
+              "type": "string",
+              "x-extensible-enum": [
+                "vm:read",
+                "vm:write",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "mesh:read",
+                "mesh:write",
+                "mesh:join",
+                "acl:read",
+                "acl:write",
+                "admin"
+              ]
             }
           },
           "resourceAllowlist": {
@@ -6958,7 +6974,26 @@
           "scopes": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ReportedScope"
+              "type": "string",
+              "x-extensible-enum": [
+                "vm:read",
+                "vm:write",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "mesh:read",
+                "mesh:write",
+                "mesh:join",
+                "acl:read",
+                "acl:write",
+                "admin"
+              ]
             }
           },
           "resourceAllowlist": {

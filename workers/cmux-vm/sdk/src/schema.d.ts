@@ -852,11 +852,10 @@ export interface components {
         };
         Forbidden: {
             message: string;
-            missingScope?: components["schemas"]["ReportedScope"];
+            missingScope?: string;
             /** @enum {string} */
             _tag: "Forbidden";
         };
-        ReportedScope: string;
         ServiceUnavailable: {
             message: string;
             /** @enum {string} */
@@ -1072,7 +1071,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: components["schemas"]["ReportedScope"][];
+            scopes: string[];
             resourceAllowlist: string[] | null;
             createdAt: string;
             expiresAt: string | null;
@@ -1085,7 +1084,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: components["schemas"]["ReportedScope"][];
+            scopes: string[];
             resourceAllowlist: string[] | null;
             createdBy: string;
             createdAt: string;
