@@ -78,6 +78,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxNextAppExecutable",
     platforms: [.macOS("14.0")],
+    products: [.executable(name: "cmux-next-exe", targets: ["cmux-next-exe"])],
     dependencies: [.package(path: "$root/Packages/macOS/CmuxNext")],
     targets: [
         .executableTarget(
@@ -122,9 +123,17 @@ at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
 # (about 20-30 GB); the logs stay.
 trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$work/spm"' EXIT
 
+# The package's scheme: the executable product's, else the whole package's.
+scheme="$(cd "$work/app-exe" && xcodebuild -list -json 2>"$work/list.err" | python3 -I -c '
+import json, sys
+s = (json.load(sys.stdin).get("workspace") or {}).get("schemes") or []
+print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxNextAppExecutable") if n in s), ""))
+print("schemes:", s, file=sys.stderr)')" || true
+[[ -n "$scheme" ]] || { tail -20 "$work/list.err"; echo "import-set-xcode.sh: no scheme for the app executable package" >&2; exit 1; }
+echo "==> scheme $scheme"
 xcb() {   # LABEL: one build in $D, the slot build's Swift settings
   local t0=$SECONDS
-  if ! (cd "$work/app-exe" && xcodebuild -scheme cmux-next-exe -configuration Debug \
+  if ! (cd "$work/app-exe" && xcodebuild -scheme "$scheme" -configuration Debug \
       -destination 'platform=macOS,arch=arm64' -derivedDataPath "$D" -clonedSourcePackagesDirPath "$work/spm" \
       -skipPackagePluginValidation -skipMacroValidation \
       SWIFT_ENABLE_BATCH_MODE=YES DEBUG_INFORMATION_FORMAT= GCC_GENERATE_DEBUGGING_SYMBOLS=NO \
