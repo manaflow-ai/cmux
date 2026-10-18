@@ -50,7 +50,8 @@
     "typecheck": "tsgo --noEmit",
     "lint": "eslint",
     "lint:complexity": "bun scripts/check-complexity.mjs",
-    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts"
+    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts",
+    "dogfood:runspec": "bun scripts/dogfood-run-spec.ts"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.1.0",
