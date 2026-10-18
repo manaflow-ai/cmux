@@ -24,6 +24,9 @@ export type AttemptPromotionSource = {
   readonly userId: string;
   readonly runId: string;
   readonly attemptId: string;
+  /** Run-level terminal state and deterministic winner fence from the snapshot. */
+  readonly runStatus: string;
+  readonly winningAttemptId: string | null;
   readonly status: AttemptStatus | string;
   readonly provider: string;
   readonly billingTeamId?: string | null;
@@ -188,7 +191,7 @@ function assertPromotable(source: AttemptPromotionSource, now = Date.now()): {
   readonly providerTerminalId: string;
   readonly sessionId: string;
 } {
-  if (source.status !== "succeeded") {
+  if (source.runStatus !== "succeeded" || source.winningAttemptId !== source.attemptId || source.status !== "succeeded") {
     throw new PromotionNotReadyError("the winning attempt has not completed successfully");
   }
   if (!terminalRetained(source, now)) {
@@ -349,6 +352,8 @@ export function runSnapshotPromotionSource(snapshot: RunSnapshot, attemptId: str
     userId,
     runId: snapshot.run.id,
     attemptId: attempt.id,
+    runStatus: snapshot.run.status,
+    winningAttemptId: snapshot.attempts.find((candidate) => candidate.status === "succeeded")?.id ?? null,
     status: attempt.status,
     provider: snapshot.run.provider,
     billingTeamId: snapshot.run.billingTeamId,

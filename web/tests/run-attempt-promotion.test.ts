@@ -67,6 +67,8 @@ function source(overrides: Partial<AttemptPromotionSource> = {}): AttemptPromoti
     userId: "owner",
     runId: "run-1",
     attemptId: "attempt-1",
+    runStatus: "succeeded",
+    winningAttemptId: "attempt-1",
     status: "succeeded",
     provider: "cloud-vm",
     billingTeamId: "team-1",
