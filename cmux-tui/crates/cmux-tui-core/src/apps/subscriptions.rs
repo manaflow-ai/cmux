@@ -92,7 +92,7 @@ impl Supervisor {
             ));
         }
         let (demand_event, result) = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let event = Self::inventory_demand_locked(&mut inner);
             let demand = &inner.inventory_demand;
             let result = if inner.providers.get("agent_cli") != Some(&client)
