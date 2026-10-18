@@ -163,10 +163,14 @@ describe("Run HTTP routes with a live database", () => {
       authedUser = user(owner);
       const response = await snapshotRoute.GET(new Request(`https://cmux.test/api/runs/${first.id}`, { headers: authHeaders() }), routeParams(first.id));
       expect(response.status).toBe(200);
-      const body = await json<{ run: { id: string; billingTeamId: string | null }; attempts: unknown[] }>(response);
+      const body = await json<{ run: { id: string; [key: string]: unknown }; attempts: unknown[] }>(response);
       expect(body.run.id).toBe(first.id);
       expect(body.attempts).toHaveLength(2);
-      expect(body.run.billingTeamId).toBe(TEAM_ID);
+      expect(body.run).not.toHaveProperty("billingTeamId");
+      const [persisted] = await sql!<{ billing_team_id: string | null }[]>`
+        select billing_team_id from runs where id = ${first.id}
+      `;
+      expect(persisted?.billing_team_id).toBe(TEAM_ID);
 
       const conflict = await createRunRoute.POST(createRequest(owner, key, 3));
       expect(conflict.status).toBe(409);
@@ -407,7 +411,12 @@ describe("Run HTTP routes with a live database", () => {
       authedUser = user(`${other}-foreign`, foreignTeam);
       const ownForeign = await snapshotRoute.GET(new Request(`https://cmux.test/api/runs/${foreign.id}`, { headers: authHeaders() }), routeParams(foreign.id));
       expect(ownForeign.status).toBe(200);
-      expect((await json<{ run: { billingTeamId: string | null } }>(ownForeign)).run.billingTeamId).toBe(foreignTeam);
+      const ownForeignBody = await json<{ run: { [key: string]: unknown } }>(ownForeign);
+      expect(ownForeignBody.run).not.toHaveProperty("billingTeamId");
+      const [persistedForeign] = await sql!<{ billing_team_id: string | null }[]>`
+        select billing_team_id from runs where id = ${foreign.id}
+      `;
+      expect(persistedForeign?.billing_team_id).toBe(foreignTeam);
     } finally {
       await deleteRuns(owner, other, `${other}-foreign`);
     }
