@@ -14,7 +14,7 @@ beforeEach(async () => { h = await makeHarness(); });
 afterEach(async () => { await h.dispose(); });
 
 const service = async () => {
-  const key = await h.addServiceKey({ id: "cloud-driver", labels: LABELS, scopes: ["vm:read", "vm:write", "snapshot:*"] });
+  const key = await h.addServiceKey({ id: "cloud-driver", labels: LABELS, scopes: ["vm:read", "vm:write", "snapshot:read", "snapshot:write"] });
   return { ...bearer(key), "x-cmux-team-id": TEAM };
 };
 const create = async (headers: Record<string, string>, path: string) => {
