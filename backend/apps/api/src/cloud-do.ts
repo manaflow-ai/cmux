@@ -144,12 +144,13 @@ export class CloudDO extends CloudIdle {
   private readonly stateChecks = new Map<string, number>()
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
-    const driver = row?.status === "running" ? await this.driverFor(row) : null
-    if (!row || !driver) return
+    if (row?.status !== "running") return
     // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
     const now = Date.now() + this.skewMs
     const last = this.stateChecks.get(row.id)
     if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    const driver = await this.driverFor(row)
+    if (!driver) return
     this.stateChecks.set(row.id, now)
     const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
     // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.

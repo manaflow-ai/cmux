@@ -88,6 +88,8 @@ describe("generated VM API Cloud transport", () => {
     expect(x.calls.map((r) => new URL(r.url).pathname)).toContain(`/v1/vms/${ID}/start`)
     const short = fake(() => json(vm()))
     await expect(short.raw.resize(ID, { cpu: 4, memory: 8192, storage: 32768 })).rejects.toThrow("unconfirmed growth")
+    const malformed = fake(() => json({ ...vm(), resources: { vcpus: 2, memoryMib: "Infinity", diskMib: 16384 } }))
+    await expect(malformed.raw.resources(ID)).rejects.toThrow("invalid VM resources")
   })
 
   it("finds, creates, restores and deletes only public snapshots in the caller's discovery namespace", async () => {

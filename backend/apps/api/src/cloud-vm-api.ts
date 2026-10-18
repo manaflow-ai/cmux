@@ -34,7 +34,7 @@ export class VmApiCloudDriver implements RawCloudDriver {
     return { role: "cloud", cmux_next_team: this.team, [NAME_LABEL]: name, ...(machine ? { cmux_next_machine: machine } : {}) }
   }
   private tag(vm: Vm): Record<string, unknown> {
-    if (!VM_ID.test(vm.id) || vm.labels?.cmux_next_team !== this.team || vm.labels.role !== "cloud") throw unavailable("unconfirmed VM ownership", true)
+    if (!VM_ID.test(vm?.id) || vm.labels?.cmux_next_team !== this.team || vm.labels.role !== "cloud") throw unavailable("unconfirmed VM ownership", true)
     return { cmux_next_team: vm.labels.cmux_next_team, cmux_next_machine: vm.labels.cmux_next_machine }
   }
   private async vms(labels: Readonly<Record<string, string>>): Promise<Vm[]> {
@@ -83,7 +83,8 @@ export class VmApiCloudDriver implements RawCloudDriver {
     const r = await this.request(() => this.client.GET("/v1/vms/{vmId}", { params: { path: { vmId: id } } }))
     if (r.response.status === 404) return null
     const vm = this.value(r)
-    if (vm.id !== id) throw unavailable("wrong VM answer", true)
+    if (vm?.id !== id) throw unavailable("wrong VM answer", true)
+    if (![vm.resources?.vcpus, vm.resources?.memoryMib, vm.resources?.diskMib].every((n) => Number.isSafeInteger(n) && n > 0)) throw unavailable("invalid VM resources")
     this.tag(vm)
     return vm
   }
