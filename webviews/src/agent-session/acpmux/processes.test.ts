@@ -36,22 +36,15 @@ const process = (sessionId: string, state: string = "running") => ({
 test("background processes are listed, surfaced in snapshots, and expose tail/kill", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  let socket:
-    | (MockAcpmuxSocket & { sendProcessUpdate: (value: unknown) => void })
-    | undefined;
+  let socket: (MockAcpmuxSocket & { sendProcessUpdate: (value: unknown) => void }) | undefined;
   let snapshot: any;
   class ProcessHost extends MockAcpmuxSocket {
     constructor() {
       super(() => Promise.resolve());
       const answer = (this as any).answer.bind(this);
-      (this as any).answer = async (
-        method: string,
-        params: Record<string, unknown>,
-      ) => {
-        if (method === "_acpmux/process/list")
-          return { processes: [process(String(params.sessionId))] };
-        if (method === "_acpmux/process/tail")
-          return { data: "bG9nCg==", fromByte: 0, nextByte: 4, eof: false };
+      (this as any).answer = async (method: string, params: Record<string, unknown>) => {
+        if (method === "_acpmux/process/list") return { processes: [process(String(params.sessionId))] };
+        if (method === "_acpmux/process/tail") return { data: "bG9nCg==", fromByte: 0, nextByte: 4, eof: false };
         if (method === "_acpmux/process/kill") return {};
         return answer(method, params);
       };
@@ -75,12 +68,7 @@ test("background processes are listed, surfaced in snapshots, and expose tail/ki
   try {
     expect(snapshot.processes).toHaveLength(1);
     expect(snapshot.processes[0].state).toBe("running");
-    expect(
-      snapshot.rows.some(
-        (row: any) =>
-          row.kind === "backgroundTask" && row.backgroundTask.processId,
-      ),
-    ).toBe(true);
+    expect(snapshot.rows.some((row: any) => row.kind === "backgroundTask" && row.backgroundTask.processId)).toBe(true);
 
     const tail = await client.tailProcess(snapshot.processes[0].id);
     expect(tail).toEqual({
@@ -93,10 +81,7 @@ test("background processes are listed, surfaced in snapshots, and expose tail/ki
     socket!.sendProcessUpdate(process(String(mockHost.sessionId), "killed"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(snapshot.processes[0].state).toBe("killed");
-    expect(
-      snapshot.rows.find((row: any) => row.backgroundTask?.processId)
-        ?.backgroundTask.state,
-    ).toBe("stopped");
+    expect(snapshot.rows.find((row: any) => row.backgroundTask?.processId)?.backgroundTask.state).toBe("stopped");
   } finally {
     client.close();
   }

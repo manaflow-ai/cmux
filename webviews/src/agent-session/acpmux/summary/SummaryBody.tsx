@@ -225,8 +225,7 @@ function BackgroundTaskSummaryRow({ task }: { task: SummaryBackgroundTask }) {
               return;
             }
             setBusy(true);
-            void task
-              .onTail!()
+            void task.onTail!()
               .then((tail) => {
                 try {
                   const bytes = Uint8Array.from(atob(tail.data), (char) => char.charCodeAt(0));
@@ -249,8 +248,7 @@ function BackgroundTaskSummaryRow({ task }: { task: SummaryBackgroundTask }) {
           disabled={busy}
           onClick={() => {
             setBusy(true);
-            void task
-              .onStop!()
+            void task.onStop!()
               .catch(() => undefined)
               .finally(() => setBusy(false));
           }}

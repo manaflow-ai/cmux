@@ -3209,13 +3209,12 @@ function normalizeProcess(value: unknown, fallbackSessionId?: string): AcpmuxPro
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   const id = typeof raw.id === "string" ? raw.id : "";
-  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : fallbackSessionId ?? "";
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : (fallbackSessionId ?? "");
   const state = PROCESS_STATES.find((candidate) => candidate === raw.state);
   if (!id || !sessionId || !state || typeof raw.toolCallId !== "string") return undefined;
   const startedAt = Number(raw.startedAt);
   if (!Number.isFinite(startedAt)) return undefined;
-  const stringField = (key: string) =>
-    typeof raw[key] === "string" && raw[key] ? (raw[key] as string) : undefined;
+  const stringField = (key: string) => (typeof raw[key] === "string" && raw[key] ? (raw[key] as string) : undefined);
   const numberField = (key: string) => (Number.isFinite(Number(raw[key])) ? Number(raw[key]) : undefined);
   return {
     id,

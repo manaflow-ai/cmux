@@ -62,11 +62,15 @@ test("a context-menu item opens a copy submenu and child actions close the menu"
   });
   const target = container.querySelector("button")!;
   await act(async () =>
-    target.dispatchEvent(new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })),
+    target.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
   );
   await act(async () => await Promise.resolve());
   expect(document.querySelector('[role="menu"]')).not.toBeNull();
-  const copy = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.startsWith("Copy"))!;
+  const copy = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Copy"),
+  )!;
   await act(async () => copy.click());
   const deeplink = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
     (item) => item.textContent === "Copy deeplink",

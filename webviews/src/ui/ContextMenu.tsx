@@ -273,7 +273,11 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       {item.children?.length ? <span className="ui-context-menu-submenu-arrow">›</span> : null}
                     </button>
                     {item.children?.length && submenu === item.id ? (
-                      <div className="ui-context-menu-submenu" role="menu" onPointerDown={(event) => event.stopPropagation()}>
+                      <div
+                        className="ui-context-menu-submenu"
+                        role="menu"
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
                         {item.children.map((child) => (
                           <button
                             key={child.id}
@@ -284,8 +288,16 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                             aria-label={child.ariaLabel ?? (typeof child.label === "string" ? child.label : undefined)}
                             onClick={() => run(child)}
                           >
-                            {child.icon ? <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>{child.icon}</span> : null}
-                            {typeof child.label === "string" ? <span className="ui-menu-label">{child.label}</span> : child.label}
+                            {child.icon ? (
+                              <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                                {child.icon}
+                              </span>
+                            ) : null}
+                            {typeof child.label === "string" ? (
+                              <span className="ui-menu-label">{child.label}</span>
+                            ) : (
+                              child.label
+                            )}
                           </button>
                         ))}
                       </div>

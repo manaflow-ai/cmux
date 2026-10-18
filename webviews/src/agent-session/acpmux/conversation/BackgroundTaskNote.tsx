@@ -16,12 +16,12 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
     state === "running"
       ? `${t("bgTask.state.running")}: ${command}`
       : state === "completed"
-      ? t("bgTask.completed", { command })
-      : state === "failed"
-        ? t("bgTask.failed", { command })
-        : reason
-          ? t("bgTask.stoppedReason", { reason, command })
-          : t("bgTask.stopped", { command });
+        ? t("bgTask.completed", { command })
+        : state === "failed"
+          ? t("bgTask.failed", { command })
+          : reason
+            ? t("bgTask.stoppedReason", { reason, command })
+            : t("bgTask.stopped", { command });
   return (
     <div className="cv-tools">
       <div className="cv-tool cv-bgtask" data-state={state}>
@@ -40,8 +40,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
                 return;
               }
               setBusy(true);
-              void task
-                .onTail!()
+              void task.onTail!()
                 .then((tail) => {
                   try {
                     const bytes = Uint8Array.from(atob(tail.data), (char) => char.charCodeAt(0));
@@ -64,8 +63,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             disabled={busy}
             onClick={() => {
               setBusy(true);
-              void task
-                .onStop!()
+              void task.onStop!()
                 .catch(() => undefined)
                 .finally(() => setBusy(false));
             }}
