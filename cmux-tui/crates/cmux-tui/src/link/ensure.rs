@@ -232,7 +232,7 @@ pub(super) fn matches_enrollment(state: &LinkState, status: &Value) -> anyhow::R
     if config.server_identity.is_none() {
         return Ok(true);
     }
-    let public = super::state::public_key(&state.private_key()?);
+    let public = super::state::public_key(&*state.private_key()?);
     Ok(status["identity_source"] == "server_pairing"
         && status["install"] == config.install
         && status["public_key"] == STANDARD.encode(public))
