@@ -93,25 +93,30 @@ def http_api(method: str, path: str, payload: dict | None = None):
         return json.loads(response.read() or b"null")
 
 
-def bot_comments(api: Api, repo: str, pr: int, marker: str) -> list[dict]:
-    """This bot's comments marked with marker, oldest first: status comments start with MARKER;
-    any other marker matches anywhere in a comment that is not a status comment (the merge
-    receipt put its marker last)."""
+def list_comments(api: Api, repo: str, pr: int) -> list[dict]:
     found, page = [], 1
     while page <= 30:
         items = api("GET", f"/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}", None) or []
-        found += [{"id": c["id"], "body": c.get("body") or ""} for c in items
-                  if (c.get("user") or {}).get("login") == BOT and marks(c.get("body") or "", marker)]
+        found += items
         if len(items) < 100:
             break
         page += 1
-    return sorted(found, key=lambda c: int(c["id"]))
+    return found
 
 
 def marks(body: str, marker: str) -> bool:
+    """Status comments start with MARKER; any other marker matches anywhere in a comment that
+    is not a status comment (the merge receipt put its marker last)."""
     if marker == MARKER:
         return body.startswith(MARKER)
     return marker in body and not body.startswith(MARKER)
+
+
+def bot_comments(comments: list[dict], marker: str) -> list[dict]:
+    """This bot's comments marked with marker, oldest first."""
+    found = [{"id": c["id"], "body": c.get("body") or ""} for c in comments
+             if (c.get("user") or {}).get("login") == BOT and marks(c.get("body") or "", marker)]
+    return sorted(found, key=lambda c: int(c["id"]))
 
 
 def own_text(body: str, key: str) -> str:
@@ -119,64 +124,71 @@ def own_text(body: str, key: str) -> str:
     return parse(body).get(key, "") if body.startswith(MARKER) else body
 
 
-def write(api: Api, repo: str, pr: int, comment_id: int | None, body: str) -> None:
-    if comment_id is None:
-        api("POST", f"/repos/{repo}/issues/{pr}/comments", {"body": body})
+Write = tuple[str, str, "dict | None"]  # (method, path, payload)
+
+
+def plan(repo: str, pr: int, comments: list[dict], key: str, text: str | None,
+         legacy: str | None = None) -> list[Write]:
+    """The writes that put `text` in section `key`, given the pull request's comments; [] when
+    it is there already. The oldest status comment is kept and any newer one folded into it;
+    with no status comment, the oldest legacy comment becomes it (edited, so the timeline gets
+    no new entry); every other legacy comment is deleted."""
+    text = text.strip() if text else None
+    found = bot_comments(comments, MARKER)
+    old = bot_comments(comments, legacy) if legacy else []
+    writes: list[Write] = []
+    if not found:
+        if text is not None and old:
+            writes.append(("PATCH", f"repos/{repo}/issues/comments/{old[0]['id']}", {"body": render({key: text})}))
+            old = old[1:]
+        elif text is not None:
+            writes.append(("POST", f"repos/{repo}/issues/{pr}/comments", {"body": render({key: text})}))
     else:
-        api("PATCH", f"/repos/{repo}/issues/comments/{comment_id}", {"body": body})
+        sections: dict[str, str] = {}
+        for comment in reversed(found):  # the oldest comment wins a clash
+            sections.update(parse(comment["body"]))
+        if text is None:
+            sections.pop(key, None)
+        else:
+            sections[key] = text
+        body = render(sections)
+        if body != found[0]["body"] or len(found) > 1:
+            writes.append(("PATCH", f"repos/{repo}/issues/comments/{found[0]['id']}", {"body": body}))
+        writes += [("DELETE", f"repos/{repo}/issues/comments/{c['id']}", None) for c in found[1:]]
+    writes += [("DELETE", f"repos/{repo}/issues/comments/{c['id']}", None) for c in old]
+    return writes
 
 
-def delete(api: Api, repo: str, comment_id: int) -> None:
-    api("DELETE", f"/repos/{repo}/issues/comments/{comment_id}", None)
+def apply(read: Callable[[], list[dict]], call: Callable[[str, str, "dict | None"], object],
+          repo: str, pr: int, key: str, text: str | None, *, legacy: str | None = None,
+          sleep: Callable[[float], None] | None = time.sleep) -> str:
+    """Read, plan, write; then (unless sleep is None, as in a dry run) wait, read again and
+    write again while another writer's stale copy replaced this section."""
+    did = "unchanged"
+    for _ in range(ATTEMPTS):
+        writes = plan(repo, pr, read(), key, text, legacy)
+        if not writes:
+            return did
+        for method, path, payload in writes:
+            call(method, path, payload)
+        did = "written"
+        if sleep is None:
+            return did
+        # Another writer may have read the comment before this write and write over it.
+        sleep(float(os.environ.get("PR_STATUS_SETTLE_SECONDS") or random.uniform(1.5, 3.0)))
+    return did + " (unconfirmed: another writer kept replacing the comment)"
 
 
 def upsert(repo: str, pr: int, key: str, text: str | None, *, legacy: str | None = None,
-           api: Api = http_api, sleep: Callable[[float], None] = time.sleep) -> str:
-    """Set (or with None, remove) one section; returns what it did."""
-    text = text.strip() if text else None
-    did = "unchanged"
-    for _ in range(ATTEMPTS):
-        found = bot_comments(api, repo, pr, MARKER)
-        if not found:
-            if text is None:
-                did = "none"
-                break
-            write(api, repo, pr, None, render({key: text}))
-            did = "created"
-        else:
-            primary, extras = found[0], found[1:]
-            sections: dict[str, str] = {}
-            for comment in reversed(found):  # the oldest comment wins a clash
-                sections.update(parse(comment["body"]))
-            if text is None:
-                sections.pop(key, None)
-            else:
-                sections[key] = text
-            body = render(sections)
-            if body != primary["body"] or extras:
-                write(api, repo, pr, int(primary["id"]), body)
-                did = "updated" if did == "unchanged" else did
-            for extra in extras:
-                delete(api, repo, int(extra["id"]))
-            if body == primary["body"] and not extras:
-                break
-        # Another writer may have read the comment before this write and will write over it:
-        # wait, re-read, and repeat when this section did not survive.
-        sleep(float(os.environ.get("PR_STATUS_SETTLE_SECONDS") or random.uniform(1.5, 3.0)))
-        again = bot_comments(api, repo, pr, MARKER)
-        if len(again) <= 1 and (parse(again[0]["body"]).get(key) if again else None) == text:
-            break
-    else:
-        did += " (unconfirmed: another writer kept replacing the comment)"
-    if legacy:
-        for old in bot_comments(api, repo, pr, legacy):
-            delete(api, repo, int(old["id"]))
-    return did
+           api: Api = http_api, sleep: Callable[[float], None] | None = time.sleep) -> str:
+    """Set (or with None, remove) one section over the REST API; returns what it did."""
+    return apply(lambda: list_comments(api, repo, pr), lambda m, p, b: api(m, "/" + p.lstrip("/"), b),
+                 repo, pr, key, text, legacy=legacy, sleep=sleep)
 
 
 def section(repo: str, pr: int, key: str, *, api: Api = http_api) -> str | None:
     """The section's current text, or None."""
-    found = bot_comments(api, repo, pr, MARKER)
+    found = bot_comments(list_comments(api, repo, pr), MARKER)
     return parse(found[0]["body"]).get(key) if found else None
 
 

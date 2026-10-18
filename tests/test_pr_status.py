@@ -54,7 +54,7 @@ def upsert(gh, key, text, **kw):
 class PrStatusTests(unittest.TestCase):
     def test_a_clean_pull_request_gets_no_comment(self):
         gh = FakeGitHub()
-        self.assertEqual(upsert(gh, "checks", None), "none")
+        self.assertEqual(upsert(gh, "checks", None), "unchanged")
         self.assertEqual(gh.comments, {})
 
     def test_sections_share_one_comment_in_display_order(self):
@@ -107,13 +107,15 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(list(gh.comments), [first])
         self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "review": "links", "checks": "red: web / lint"})
 
-    def test_the_legacy_comment_is_deleted_but_a_persons_comment_is_kept(self):
+    def test_the_legacy_comment_becomes_the_status_comment_and_a_persons_is_kept(self):
         gh = FakeGitHub()
-        gh.add("<!-- cmux-red-checks -->\nred: web / lint")
+        old = gh.add("<!-- cmux-red-checks -->\nred: web / lint")
+        gh.add("<!-- cmux-red-checks -->\nan older duplicate")
         person = gh.add("<!-- cmux-red-checks --> quoted by a person", user="teamleaderleo")
         upsert(gh, "checks", "red: web / lint", legacy="<!-- cmux-red-checks -->")
-        self.assertEqual(sorted(gh.comments)[0], person)
-        self.assertEqual(len(gh.comments), 2)
+        self.assertEqual(sorted(gh.comments), [old, person])
+        self.assertEqual(gh.writes, ["PATCH", "DELETE"])
+        self.assertEqual(pr_status.parse(gh.comments[old]["body"]), {"checks": "red: web / lint"})
 
     def test_a_marker_at_the_end_of_a_legacy_comment_counts(self):
         gh = FakeGitHub()

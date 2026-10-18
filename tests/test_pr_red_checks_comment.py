@@ -3,7 +3,7 @@
 
 Runs the script as the workflow does (env vars, real HTTP) and checks what it writes: the `checks`
 line of the PR's status comment naming each red web/size check, an in-place edit to green when they
-pass, the old red-checks comment deleted, and no write for a clean PR or an unchanged red list.
+pass, the old red-checks comment edited into the status comment, and no write for a clean PR or an unchanged red list.
 """
 import json
 import os
@@ -117,11 +117,10 @@ def test_green_again_edits_the_line_in_place_and_keeps_the_others():
                        status(bead="Bead: `cx-abc1`", checks="web and size checks: green"))]
 
 
-def test_the_old_red_checks_comment_is_replaced():
+def test_the_old_red_checks_comment_becomes_the_status_comment():
     old = LEGACY + "\n" + RED_LINE
     writes = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 3, "body": old}]).run()
-    assert writes == [("POST", "/repos/o/r/issues/7/comments", status(checks=RED_LINE)),
-                      ("DELETE", "/repos/o/r/issues/comments/3", None)]
+    assert writes == [("PATCH", "/repos/o/r/issues/comments/3", status(checks=RED_LINE))]
 
 
 def test_clean_or_pending_pr_gets_no_comment():
