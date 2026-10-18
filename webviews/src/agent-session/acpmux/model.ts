@@ -1,4 +1,5 @@
 import { editedPaths } from "./toolPaths";
+import { RECEIVED_GROUP } from "./conversation/receivedMessages";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
@@ -46,6 +47,10 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A prompt another session sent this chat (conversation/receivedMessages.ts).
+  message?: AcpmuxAgentMessage;
+  /// How many received lines a "Received N messages" row folds.
+  count?: number;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -144,6 +149,10 @@ export type AcpmuxSessionOffer = {
 /// The `_meta.provenance` acpmux puts on the prompt that brings a started offer's result back to
 /// the chat that offered it (cx-lo9yf).
 export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title: string };
+
+/// A message another session sent this chat (`_meta.provenance` kind `agent_message`, cx-55d27):
+/// its sender's name, that sender's chat when it is one acpmux runs, and the sender's own words.
+export type AcpmuxAgentMessage = { msgId: string; title: string; sessionId?: string; body: string };
 
 export type AcpmuxPermission = {
   permissionId: string;
@@ -462,6 +471,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A received message's 26px line, or the line folding several (conversation/ReceivedMessage.tsx).
+  if (row.message || row.kind === RECEIVED_GROUP) return 34;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -590,6 +601,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // So is another session's message, until it opens (conversation/ReceivedMessage.tsx).
+  if (row.message) return 26 + 16;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {

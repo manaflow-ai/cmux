@@ -243,6 +243,8 @@ import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
+import { ReceivedGroup, ReceivedMessage } from "./conversation/ReceivedMessage";
+import { RECEIVED_GROUP, RECEIVED_MESSAGE, groupReceived } from "./conversation/receivedMessages";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -519,10 +521,20 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, githubRepository, expanded, onToggleActivity }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
+    // Another session's message: its received line, which opens to the sender's words.
+    if (row.kind === "user" && row.message)
+      return (
+        <ReceivedMessage
+          message={row.message}
+          open={expanded}
+          onToggle={() => onToggleActivity(row.id)}
+          onOpen={openOfferChat}
+        />
+      );
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
@@ -650,7 +662,11 @@ const RenderRow = memo(
     const call = tool && canRender() ? renderCall(tool) : undefined;
     return call ? <RenderCard call={call} /> : null;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
 );
 
 const SummaryRow = memo(
@@ -749,6 +765,36 @@ const OfferResultRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// Another session's message waiting behind the turn, and received lines folded together
+/// (conversation/ReceivedMessage.tsx).
+const ReceivedMessageRow = memo(
+  function ReceivedMessageRow({ row, expanded, onToggleActivity }: RowProps) {
+    return row.message ? (
+      <ReceivedMessage
+        message={row.message}
+        open={expanded}
+        onToggle={() => onToggleActivity(row.id)}
+        onOpen={openOfferChat}
+      />
+    ) : null;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const ReceivedGroupRow = memo(
+  function ReceivedGroupRow({ row, expanded, onToggleActivity }: RowProps) {
+    return <ReceivedGroup row={row} open={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -766,6 +812,8 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
+  [RECEIVED_MESSAGE]: ReceivedMessageRow,
+  [RECEIVED_GROUP]: ReceivedGroupRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -2681,7 +2729,8 @@ function AcpmuxPane() {
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
-      return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
+      // Received lines in a row fold last, over the drawn rows.
+      return groupReceived(withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks), expanded);
     });
   }, [
     childRows,

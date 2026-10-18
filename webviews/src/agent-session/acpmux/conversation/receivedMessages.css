@@ -1,0 +1,73 @@
+/* A message from another session (ReceivedMessage.tsx): one muted 26px line, as the received
+   line of a started task's result (offer/suggestedTasks.css), and its words under it when open. */
+.cv-received {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.cv-received__line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  margin-inline-start: -6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font: inherit;
+  font-size: var(--text-control);
+  white-space: pre;
+  cursor: default;
+}
+.cv-received__line:hover {
+  background: var(--acpmux-composer-hover);
+}
+.cv-received__sender {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  text-overflow: ellipsis;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--agent-text) 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-received__chevron {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acpmux-composer-dim);
+}
+.cv-received__sender:focus-visible,
+.cv-received__chevron:focus-visible,
+.cv-received__group:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+/* The sender's words: muted body type, as written. */
+.cv-received__body {
+  max-width: 100%;
+  margin: 2px 0 6px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received__line {
+    transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+  }
+}
