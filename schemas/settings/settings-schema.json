@@ -550,17 +550,6 @@
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
             }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
           }
         ],
         "id" : "agents",
@@ -595,7 +584,8 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge"
+              "notifications.dockBadge",
+              "notifications.dockBounce"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -22260,174 +22250,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPetEnabled.help",
-        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetEnabled",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "floating",
-        "notifications",
-        "reply",
-        "dock"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetEnabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetEnabled",
-        "text" : "Show Chief Pet"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
-        "machine",
-        "machine-cyan",
-        "machine-blue",
-        "moon",
-        "moon-blue",
-        "fox"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb",
-            "text" : "Orb"
-          },
-          "value" : "orb"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-spark",
-            "text" : "Orb Spark"
-          },
-          "value" : "orb-spark"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-hood",
-            "text" : "Hooded Orb"
-          },
-          "value" : "orb-hood"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine",
-            "text" : "Machine"
-          },
-          "value" : "machine"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-cyan",
-            "text" : "Cyan Machine"
-          },
-          "value" : "machine-cyan"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-blue",
-            "text" : "Blue Machine"
-          },
-          "value" : "machine-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon",
-            "text" : "Moon"
-          },
-          "value" : "moon"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon-blue",
-            "text" : "Blue Moon"
-          },
-          "value" : "moon-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.fox",
-            "text" : "Fox"
-          },
-          "value" : "fox"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "orb",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetMascot",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "character",
-        "avatar",
-        "pixel"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetMascot"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetMascot",
-        "text" : "Character"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -23206,6 +23028,77 @@
       "title" : {
         "key" : "settings.notifications.dockBadge",
         "text" : "Unread Count on Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOnce",
+            "text" : "Once"
+          },
+          "value" : "once"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceUntilActive",
+            "text" : "Until You Switch to cmux"
+          },
+          "value" : "untilActive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "once",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.dockBounce.help",
+        "text" : "When a notification alerts while cmux isn't the active app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.dockBounce",
+      "keywords" : [
+        "dock",
+        "bounce",
+        "attention",
+        "badge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "dockBounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.dockBounce",
+        "text" : "Bounce Dock Icon"
       },
       "validation" : "portable"
     },
@@ -25384,7 +25277,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c9007852e254ab7d1642b9b066e9c19a9ea473fadada36fbf00e1bf994620a62",
+  "schema_hash" : "502fa1bb751069c138334d83a806a719d993de32235251b4d3b9035f24c81d78",
   "sections" : [
     {
       "id" : "general",
