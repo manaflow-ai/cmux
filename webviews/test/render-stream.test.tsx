@@ -55,7 +55,7 @@ afterAll(() => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { Markdown, mergeRenderBlocks, parseMarkdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
 
 beforeEach(() => {
   act(() => root?.unmount());
@@ -106,7 +106,8 @@ test("one frame posts growing HTML, coalesces tokens, and finalizes once without
   draw("<p>First second third</p>", { closed: true });
   await wait(65);
   expect(host.querySelector("iframe")).toBe(frame);
-  expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second third</p>", done: true });
+  expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second third</p>", done: true,
+  });
   const count = posted.filter((msg) => msg.type !== "cmux-render-theme").length;
   receive("cmux-render-ready");
   draw("<p>First second third</p>", { closed: true });
@@ -134,7 +135,7 @@ test("a whole tool page posts done immediately after the runtime is ready", asyn
 
 test("with the lab off the same open fence stays code", () => {
   draw("<h1>Building</h1>", { live: false });
-  expect(host.querySelector("iframe")).toBeNull();
+  expect(host.querySelector("iframe") === null).toBe(true);
   expect(host.querySelector(".acpmux-render-card")).toBeNull();
   expect(host.querySelector("pre")?.textContent).toContain("<h1>Building</h1>");
 });
@@ -142,12 +143,14 @@ test("with the lab off the same open fence stays code", () => {
 test("a component reserves no space or source while open and runs only when closed", async () => {
   const code = "function App() { return <button>Pick</button>; }";
   draw(code, { lang: "cmux-react" });
-  expect(host.querySelector("iframe")).toBeNull();
-  expect(host.querySelector(".acpmux-render-card")).toBeNull();
+  const { frame, posted } = messages();
+  expect(host.querySelector<HTMLElement>(".acpmux-render-card")?.style.display).toBe("none");
   expect(host.querySelector("pre")).toBeNull();
   expect(host.textContent).toBe("");
+  expect(posted.some((message) => message.type === "cmux-render-react-prepare")).toBe(true);
+  expect(posted.some((message) => message.type === "cmux-render-stream")).toBe(false);
   draw(code, { lang: "cmux-react", closed: true });
-  const { posted } = messages();
+  expect(host.querySelector("iframe")).toBe(frame);
   await wait(65);
   expect(posted.at(-1)?.html).toContain("Babel.transform");
   expect(posted.at(-1)?.done).toBe(true);
@@ -160,6 +163,90 @@ test("ordinary fences keep code, interrupted render fences keep their partial pa
   expect(host.querySelector("iframe") !== null).toBe(true);
   draw("function App() {", { streaming: false, lang: "cmux-react" });
   expect(host.textContent).toBe("");
+  expect(host.querySelector("iframe") === null).toBe(true);
+});
+
+test("stopping an open React fence removes its prepared frame", () => {
+  draw("function App() {", { lang: "cmux-react" });
+  const { posted } = messages();
+  expect(posted.some((message) => message.type === "cmux-render-react-prepare")).toBe(true);
+  draw("function App() {", { lang: "cmux-react", streaming: false });
+  expect(host.querySelector("iframe") === null).toBe(true);
+  expect(host.textContent).toBe("");
+});
+
+test.each([
+  (page: string) => page,
+  (page: string) => page.split("\n").map((line) => `> ${line}`).join("\n"),
+  (page: string) => "- Page\n" + page.split("\n").map((line) => `  ${line}`).join("\n"),
+])("a stopped React fence stays unmounted while its prose reveal catches up: %#", async (nested) => {
+  const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+  const saved = { ...revealFrames };
+  revealFrames.request = () => 1;
+  revealFrames.cancel = () => {};
+  try {
+    const start = nested("```cmux-react\nfunction App() {");
+    act(() => root!.render(<RevealedMarkdown text={start} streaming />));
+    expect(host.querySelector("iframe") !== null).toBe(true);
+    act(() => root!.render(<RevealedMarkdown text={start + " return null;"} streaming={false} />));
+    expect(host.querySelector("iframe") === null).toBe(true);
+  } finally {
+    Object.assign(revealFrames, saved);
+  }
+});
+
+test("a completed React fence does not send an eager prepare request", () => {
+  draw("function App() { return null; }", { lang: "cmux-react", closed: true, streaming: false });
+  const { posted } = messages();
+  expect(posted.some((message) => message.type === "cmux-render-react-prepare")).toBe(false);
+  expect(posted.at(-1)?.done).toBe(true);
+});
+
+test("received renders wait for every preceding block and keep their frame at their turn", () => {
+  const received = "First.\n\nSecond.\n\n```cmux-render\n<p>Page</p>\n```";
+  const show = (text: string) => act(() =>
+    root!.render(<Markdown streaming receivedText={received}>{text}</Markdown>),
+  );
+  show("First.");
+  expect(host.querySelector("iframe") === null).toBe(true);
+  show("First.\n\nSecond");
+  const frame = host.querySelector("iframe");
+  expect(frame).not.toBeNull();
+  expect([...host.querySelector(".cv-md")!.children].map((node) => node.tagName)).toEqual(["P", "P", "DIV"]);
+  show(received);
+  expect(host.querySelector("iframe")).toBe(frame);
+});
+
+test("an appended received render leaves the last revealed ordinary fence open", () => {
+  const shown = "```js\nconst value = 1";
+  const received = shown + "\n```\n\n```cmux-render\n<p>Page</p>";
+  act(() => root!.render(<Markdown streaming receivedText={received}>{shown}</Markdown>));
+  expect(host.querySelector("iframe")).not.toBeNull();
+  expect(host.querySelector(".cv-code-handoff") === null).toBe(true);
+  expect(host.querySelector("pre")?.textContent).toContain("const value = 1");
+});
+
+test.each([
+  "> ```cmux-render\n> <p>Page</p>\n> ```",
+  "- Page\n  ```cmux-render\n  <p>Page</p>\n  ```",
+])("unchanged nested render merges preserve block and array identity: %s", (text) => {
+  const shown = parseMarkdown(text);
+  const merged = mergeRenderBlocks(shown, parseMarkdown(text));
+  expect(merged).toBe(shown);
+  expect(merged[0]).toBe(shown[0]);
+});
+
+test.each([
+  ["> Intro", "> Intro\n>\n> Earlier.\n>\n> ```cmux-render\n> <p>Page</p>"],
+  ["- Intro", "- Intro\n\n  Earlier.\n\n  ```cmux-render\n  <p>Page</p>"],
+])("nested renders never skip unrevealed children or leave sparse arrays: %s", (shown, received) => {
+  const blocks = mergeRenderBlocks(parseMarkdown(shown), parseMarkdown(received));
+  const block = blocks[0]!;
+  const children = block.type === "blockquote" ? block.children : block.type === "list" ? block.items[0]!.children : [];
+  expect(children.length).toBe(Object.keys(children).length);
+  expect(children.some((child) => child.type === "code")).toBe(false);
+  act(() => root!.render(<Markdown streaming receivedText={received}>{shown}</Markdown>));
+  expect(host.querySelector("iframe") === null).toBe(true);
 });
 
 test("the transport ending before reveal catches up retains the streaming frame", async () => {
@@ -189,7 +276,8 @@ test("the transport ending before reveal catches up retains the streaming frame"
       expect(host.querySelector("iframe")).toBe(frame);
     }
     await wait(65);
-    expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second</p>", done: true });
+    expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second</p>", done: true,
+    });
   } finally {
     Object.assign(revealFrames, saved);
   }
@@ -279,3 +367,88 @@ test("the runtime preserves growing nodes, strips partial scripts, then executes
     child.window.close();
   }
 });
+
+test("received fences feed immediately while prose still waits for reveal", async () => {
+  const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+  const saved = { ...revealFrames };
+  revealFrames.request = () => 1;
+  revealFrames.cancel = () => {};
+  try {
+    act(() => root!.render(<RevealedMarkdown text="Intro" streaming />));
+    const received = "Intro before the page.\n\n```cmux-render\n<p>Received</p>";
+    act(() => root!.render(<RevealedMarkdown text={received} streaming />));
+    expect(host.querySelector("iframe")).not.toBeNull();
+    expect(host.querySelector("p")?.textContent).toBe("Intro");
+    const { frame, posted } = messages();
+    expect(posted.at(-1)).toEqual({
+      type: "cmux-render-stream",
+      html: "<p>Received</p>",
+      done: false,
+    });
+    act(() => root!.render(<RevealedMarkdown text={received + "\n```\n\nLater prose"} streaming />));
+    await wait(85);
+    expect(host.querySelector("iframe")).toBe(frame);
+    expect(posted.at(-1)).toEqual({
+      type: "cmux-render-stream",
+      html: "<p>Received</p>",
+      done: true,
+    });
+    expect(host.textContent).not.toContain("Later prose");
+  } finally {
+    Object.assign(revealFrames, saved);
+  }
+});
+
+test.each([
+  ["> Intro", "> Intro before the page.\n>\n> ```cmux-render\n> <p>Quoted</p>"],
+  ["- Intro", "- Intro before the page.\n\n  ```cmux-render\n  <p>Listed</p>"],
+])("received nested fences bypass reveal without exposing nested prose: %s", async (initial, received) => {
+  const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+  const saved = { ...revealFrames };
+  revealFrames.request = () => 1;
+  revealFrames.cancel = () => {};
+  try {
+    act(() => root!.render(<RevealedMarkdown text={initial} streaming />));
+    act(() => root!.render(<RevealedMarkdown text={received} streaming />));
+    expect(host.querySelector("iframe")).not.toBeNull();
+    expect(host.textContent).not.toContain("before the page");
+    expect(host.textContent).toContain("Intro");
+    const { posted } = messages();
+    expect(posted.at(-1)?.html).toMatch(/<p>(Quoted|Listed)<\/p>/);
+  } finally {
+    Object.assign(revealFrames, saved);
+  }
+});
+
+test.each(["cmux-render", "cmux-react"])(
+  "partial closing delimiters never enter the received %s page",
+  async (lang) => {
+    const { RevealedMarkdown, revealFrames } =
+      await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+    const saved = { ...revealFrames };
+    revealFrames.request = () => 1;
+    revealFrames.cancel = () => {};
+    const code = lang === "cmux-render" ? "<p>Page</p>" : "function App() { return <svg />; }";
+    try {
+      const prefix = "```" + lang + "\n" + code;
+      act(() => root!.render(<RevealedMarkdown text={prefix} streaming />));
+      const { frame, posted } = messages();
+      for (const ticks of ["`", "``"]) {
+        act(() => root!.render(<RevealedMarkdown text={prefix + "\n" + ticks} streaming />));
+        await wait(85);
+        expect(
+          posted
+            .filter((message) => message.type === "cmux-render-stream")
+            .some((message) => message.html.endsWith("`")),
+        ).toBe(false);
+        expect(host.querySelector("iframe")).toBe(frame);
+      }
+      act(() => root!.render(<RevealedMarkdown text={prefix + "\n```"} streaming />));
+      await wait(85);
+      expect(posted.at(-1)?.done).toBe(true);
+      expect(host.querySelector("iframe")).toBe(frame);
+    } finally {
+      Object.assign(revealFrames, saved);
+    }
+  },
+);

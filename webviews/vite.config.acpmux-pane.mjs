@@ -7,7 +7,7 @@ import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 import {
   DEV_RENDER_FRAME_PATH,
-  RENDER_FRAME_DOC,
+  LIVE_RENDER_FRAME_DOC,
   RENDER_POLICY,
 } from "./src/agent-session/acpmux/conversation/renderFrameShell.ts";
 
@@ -53,7 +53,7 @@ export default defineConfig({
           response.setHeader("Content-Security-Policy", RENDER_POLICY);
           response.setHeader("Cache-Control", "no-store");
           response.setHeader("Referrer-Policy", "no-referrer");
-          response.end(RENDER_FRAME_DOC);
+          response.end(LIVE_RENDER_FRAME_DOC);
         });
         // A pane render error the page posts (PaneBoundary.tsx), appended to a log a session can read.
         server.middlewares.use("/__cmux-pane-error", (request, response) => {

@@ -1,14 +1,14 @@
 // Agent HTML stays in one opaque frame. liveRender streams into its runtime; the lab off
 // keeps the original Run gate and card controls (Lucas 2026-10-18).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
+import { translate, useT } from "../i18n";
 import { useLab } from "../labs";
 import { ArtifactContext, documentName } from "./artifactPreview";
 import { Expand } from "./icons";
 import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
-import { isReactRender, reactRenderPage, renderBridgeScript, RENDER_FRAME_DOC } from "./renderFrameDoc";
-import { devRenderFrameURL } from "./renderFrameShell";
+import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFrameDoc";
+import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
 import { useRenderRequests } from "./useRenderRequests";
 import { ChatSessionContext, TranscriptRowContext } from "./viewIdentity";
 import { renderStreamScript } from "./renderStreamRuntime";
@@ -51,24 +51,44 @@ export function useRenderFrame(
     if (!frozen) setHeight(measured.current);
   }, [frozen]);
   const schedule = useRef<() => void>(() => {});
-  useEffect(() => {
+  useLayoutEffect(() => {
     let booted = false,
       ready = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let animation: number | undefined;
+    let lastFlush = -Infinity;
+    let preparingReact = false;
     let sent: { html: string; done: boolean } | undefined;
     const flush = () => {
       timer = undefined;
+      animation = undefined;
       if (!ready) return;
       const { html, streaming } = latest.current;
+      if (isReactRender(html) && streaming && !preparingReact) {
+        preparingReact = true;
+        frame.current?.contentWindow?.postMessage(
+          { type: "cmux-render-react-prepare", errorText: translate("render.loadFailed") },
+          "*",
+        );
+      }
       if (isReactRender(html) && streaming) return;
       const page = isReactRender(html) ? reactRenderPage(html) : html;
       const done = !streaming;
       if (sent?.html === page && sent.done === done) return;
       frame.current?.contentWindow?.postMessage({ type: "cmux-render-stream", html: page, done }, "*");
       sent = { html: page, done };
+      lastFlush = performance.now();
     };
     schedule.current = () => {
-      if (ready && timer === undefined) timer = setTimeout(flush, 50);
+      if (!ready || timer !== undefined || animation !== undefined) return;
+      if (!sent) return flush();
+      const nextFrame = () => {
+        timer = undefined;
+        animation = requestAnimationFrame(flush);
+      };
+      const remaining = 50 - (performance.now() - lastFlush);
+      if (remaining > 0) timer = setTimeout(nextFrame, remaining);
+      else nextFrame();
     };
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
@@ -76,7 +96,7 @@ export function useRenderFrame(
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown };
-      if (message.type === "cmux-render-ready" && !booted) {
+      if (message.type === "cmux-render-ready" && !booted && !ready) {
         booted = true;
         const css = live ? embeddedFrameCSS() : renderFrameCSS();
         const theme = getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light";
@@ -94,7 +114,9 @@ export function useRenderFrame(
           "*",
         );
       } else if (live && message.type === "cmux-render-stream-ready") {
+        if (ready) return;
         ready = true;
+        theme();
         schedule.current();
       } else if (live && message.type === "cmux-render-request")
         latest.current.request?.(data as Record<string, unknown>, target);
@@ -111,15 +133,20 @@ export function useRenderFrame(
       }
     };
     addEventListener("message", onMessage);
-    const theme = () =>
+    let themeCSS: string | undefined;
+    const theme = () => {
+      const css = embeddedFrameCSS();
+      if (css === themeCSS) return;
+      themeCSS = css;
       frame.current?.contentWindow?.postMessage(
         {
           type: "cmux-render-theme",
           theme: getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light",
-          css: embeddedFrameCSS(),
+          css,
         },
         "*",
       );
+    };
     const observer = live ? new MutationObserver(theme) : undefined;
     observer?.observe(document.documentElement, { attributes: true });
     observer?.observe(document.body, { attributes: true });
@@ -128,6 +155,7 @@ export function useRenderFrame(
     scheme?.addEventListener("change", theme);
     return () => {
       clearTimeout(timer);
+      if (animation !== undefined) cancelAnimationFrame(animation);
       schedule.current = () => {};
       removeEventListener("message", onMessage);
       observer?.disconnect();
@@ -163,11 +191,13 @@ export function RenderCard({
     ranRenders.add(call.html);
     setRan(true);
   };
-  if (live && streaming && isReactRender(call.html)) return null;
   const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
-    <div className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}>
+    <div
+      className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}
+      style={live && streaming && isReactRender(call.html) ? { display: "none" } : undefined}
+    >
       {!live && (
         <div className="acpmux-render-card-head">
           <span className="acpmux-render-card-title">{title}</span>
@@ -211,7 +241,7 @@ export function RenderCard({
           ref={frame}
           className={panel ? "acpmux-artifact-frame" : "acpmux-render-card-frame"}
           src={live && !canRender() ? (devServer() ? devRenderFrameURL(location.href) : undefined) : RENDER_FRAME_URL}
-          srcDoc={live && !canRender() && !devServer() ? RENDER_FRAME_DOC : undefined}
+          srcDoc={live && !canRender() && !devServer() ? LIVE_RENDER_FRAME_DOC : undefined}
           title={title}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"

@@ -346,7 +346,7 @@ test("copy uses the pane clipboard helper and reports success", async () => {
 
 test("the injected bridge resolves replies and updates its theme style in place", async () => {
   const { renderBridgeScript } = await import("../src/agent-session/acpmux/conversation/renderFrameDoc");
-  const child = new JSDOM(renderBridgeScript("light", "body{color:red}"));
+  const child = new JSDOM(renderBridgeScript("light", "body{color:red}"), { pretendToBeVisual: true });
   try {
     const win = child.window;
     const requests: Record<string, unknown>[] = [];
@@ -580,6 +580,10 @@ test("the live frame reports body content height even when the root has a tall v
   );
   try {
     const win = child.window;
+    win.requestAnimationFrame = (callback) => {
+      callback(0);
+      return 1;
+    };
     const messages: Record<string, unknown>[] = [];
     const observers: (() => void)[] = [];
     let height = 220;
@@ -596,6 +600,7 @@ test("the live frame reports body content height even when the root has a tall v
         observers.push(callback);
       }
       observe() {}
+      unobserve() {}
       disconnect() {}
     };
     // oxlint-disable-next-line typescript/no-implied-eval -- Execute the generated frame bridge against its DOM.
@@ -867,6 +872,10 @@ test.each(["body{min-height:100vh}", "html,body{height:100%}", "canvas{position:
   async (css) => {
     const { renderBridgeScript } = await import("../src/agent-session/acpmux/conversation/renderFrameDoc");
     const child = new JSDOM(renderBridgeScript("light", "body{margin:4px 0}" + css) + "<canvas></canvas>");
+    child.window.requestAnimationFrame = (callback) => {
+      callback(0);
+      return 1;
+    };
     try {
       const win = child.window;
       const messages: { height: number }[] = [];
@@ -896,6 +905,7 @@ test.each(["body{min-height:100vh}", "html,body{height:100%}", "canvas{position:
             observers.push(callback);
           }
           observe() {}
+          unobserve() {}
           disconnect() {}
         },
         win.getComputedStyle.bind(win),

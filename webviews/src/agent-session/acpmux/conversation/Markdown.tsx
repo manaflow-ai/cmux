@@ -45,7 +45,13 @@ export type MdBlock =
   /** `[^id]: text`, drawn in the notes under the reply (`Markdown`), not where it is written. */
   | { type: "footnote"; id: string; text: string };
 
-export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
+export type MdListItem = {
+  text: string;
+  task?: boolean;
+  checked?: boolean;
+  children: MdBlock[];
+  renderPlaceholder?: true;
+};
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 /// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
@@ -565,6 +571,7 @@ function Block({
   code = "final",
   tail,
   renderId,
+  turnStreaming = false,
 }: {
   renderId?: string;
   block: MdBlock;
@@ -577,6 +584,7 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  turnStreaming?: boolean;
 }): ReactNode {
   const liveRender = useLab("liveRender");
   const rowId = useContext(TranscriptRowContext);
@@ -604,7 +612,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} renderId={renderId} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} renderId={renderId} turnStreaming={turnStreaming} />
         </blockquote>
       );
     case "list": {
@@ -616,7 +624,7 @@ function Block({
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
         >
-          {block.items.map((it, i) => (
+          {block.items.map((it, i) => it.renderPlaceholder ? null : (
             <li key={i} className={it.task ? "cv-task" : undefined}>
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
               {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
@@ -625,7 +633,13 @@ function Block({
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} renderId={`${renderId}/item/${i}`} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  renderId={`${renderId}/item/${i}`}
+                  turnStreaming={turnStreaming}
+                />
               )}
             </li>
           ))}
@@ -666,6 +680,7 @@ function Block({
     case "code": {
       // One frame follows the fence from its first token through completion (Lucas 2026-10-18).
       if (liveRender && code !== "plain" && /^(cmux-render|cmux-react)$/i.test(block.lang)) {
+        if (block.open && block.lang.toLowerCase() === "cmux-react" && !turnStreaming) return null;
         const render = renderFence(block.lang, block.code) ?? {
           html: block.lang.toLowerCase() === "cmux-react" ? REACT_MARKER + block.code : block.code,
         };
@@ -698,17 +713,19 @@ function Blocks({
   opts,
   depth,
   renderId,
+  turnStreaming,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   renderId?: string;
+  turnStreaming?: boolean;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} renderId={`${renderId}/${i}`} />
+          <BlockView block={b} opts={opts} depth={depth} renderId={`${renderId}/${i}`} turnStreaming={turnStreaming} />
         </Fragment>
       ))}
     </>
@@ -751,9 +768,13 @@ const BlockView = memo(Block);
 export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
+  /// Render fences follow transport text while the surrounding prose follows reveal.
+  receivedText?: string;
   className?: string;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
+  /// Transport activity, separate from prose still catching up after the turn stops.
+  turnStreaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
   fresh?: Reveal[];
   now?: number;
@@ -767,12 +788,68 @@ function noteRank(block: MdBlock, opts: InlineOptions): number {
   return block.type === "footnote" ? (opts.notes?.numbers.get(block.id) ?? Number.MAX_SAFE_INTEGER) : 0;
 }
 
+const receivedRender = (block: MdBlock) => block.type === "code" && /^(cmux-render|cmux-react)$/i.test(block.lang);
+
+function containsRender(block: MdBlock): boolean {
+  return (
+    receivedRender(block) ||
+    (block.type === "blockquote" && block.children.some(containsRender)) ||
+    (block.type === "list" && block.items.some((item) => item.children.some(containsRender)))
+  );
+}
+
+/// Only fences bypass reveal, including inside quotes and lists (Lucas 2026-10-19).
+export function mergeRenderBlocks(shown: MdBlock[], received: MdBlock[]): MdBlock[] {
+  const blocks = shown.slice();
+  received.forEach((block, index) => {
+    if (index > blocks.length || !containsRender(block)) return;
+    const before = shown[index];
+    if (receivedRender(block) && block.type === "code") {
+      // A closing delimiter can arrive one backtick at a time. It is never page content.
+      const code = block.open ? block.code.replace(/(?:^|\n)[ \t]*`{1,2}[ \t]*$/, "") : block.code;
+      blocks[index] =
+        before?.type === "code" && before.code === code && before.lang === block.lang && before.open === block.open
+          ? before
+          : code === block.code ? block : { ...block, code };
+    } else if (block.type === "blockquote") {
+      const children = before?.type === "blockquote" ? before.children : [];
+      const merged = mergeRenderBlocks(children, block.children);
+      blocks[index] =
+        before?.type === "blockquote" && merged === before.children
+          ? before
+          : { ...block, children: merged };
+    } else if (block.type === "list") {
+      const items = before?.type === "list" ? before.items : [];
+      const merged = block.items.map((item, at) => {
+        const old = items[at];
+        if ((!old || old.renderPlaceholder) && !item.children.some(containsRender))
+          return old ?? { ...item, text: "", children: [], renderPlaceholder: true as const };
+        const text = old?.text ?? "";
+        const children = mergeRenderBlocks(old?.children ?? [], item.children);
+        if (
+          old && !old.renderPlaceholder && old.text === text && old.children === children &&
+          old.task === item.task && old.checked === item.checked
+        ) return old;
+        return { ...item, text, children };
+      });
+      blocks[index] =
+        before?.type === "list" && before.ordered === block.ordered && before.start === block.start &&
+        merged.length === items.length && merged.every((item, at) => item === items[at])
+          ? before
+          : { ...block, items: merged };
+    }
+  });
+  return blocks.length === shown.length && blocks.every((block, index) => block === shown[index]) ? shown : blocks;
+}
+
 /** Assistant-message Markdown. A growing source (a streaming reply) is parsed incrementally. */
 export function Markdown({
   children,
+  receivedText,
   className = "",
   linkIcon,
   streaming = false,
+  turnStreaming = streaming,
   fresh,
   now = 0,
   waiting = false,
@@ -782,14 +859,41 @@ export function Markdown({
   const liveRender = useLab("liveRender");
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
+  const receivedParser = useRef<IncrementalMarkdown | null>(null);
+  receivedParser.current ??= new IncrementalMarkdown();
+  const receivedRenders = useMemo(
+    () =>
+      liveRender && receivedText !== undefined && /```cmux-(?:render|react)\b/i.test(receivedText)
+        ? receivedParser.current!.update(receivedText).filter(({ block }) => containsRender(block))
+        : [],
+    [liveRender, receivedText],
+  );
   // safeTail holds a last fence line; a completed render can take over now.
   const closedRender =
     liveRender &&
     /(?:^|\n)[ \t]*```[ \t]*$/.test(children) &&
     /^[ \t]*```(?:cmux-render|cmux-react)\b/i.test(children.match(/^[ \t]*```[^\n]*$/gm)?.at(-2) ?? "");
-  const blocks = acpmuxPerf.timed("markdown.parse", () =>
-    parser.current!.update(children, { streaming: streaming && !closedRender }),
+  const revealedBlocks = useMemo(
+    () => acpmuxPerf.timed("markdown.parse", () =>
+      parser.current!.update(children, { streaming: streaming && !closedRender }),
+    ),
+    [children, streaming, closedRender],
   );
+  // Both parsers key by block index, so reveal catching up never remounts a running page.
+  const renderByKey = new Map(receivedRenders.map((entry) => [entry.key, entry]));
+  const blocks = useMemo(() => {
+    const blocks = [...revealedBlocks];
+    for (const entry of receivedRenders) {
+      if (Number(entry.key) > Number(revealedBlocks.at(-1)?.key ?? -1) + 1) continue;
+      const index = blocks.findIndex((shown) => shown.key === entry.key);
+      const before = index < 0 ? undefined : blocks[index];
+      const block = mergeRenderBlocks(before ? [before.block] : [], [entry.block])[0]!;
+      const merged = block === before?.block ? before : { key: entry.key, block };
+      if (index < 0) blocks.push(merged);
+      else blocks[index] = merged;
+    }
+    return blocks;
+  }, [revealedBlocks, receivedRenders]);
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
@@ -820,9 +924,12 @@ export function Markdown({
       : undefined;
   // An odd number of fence lines: the last block is a fence still arriving.
   const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
-  const draw = (entry: KeyedBlock, index: number) => {
+  const draw = (entry: KeyedBlock) => {
     const live = !atMount.current!.has(entry.key);
-    const open = openFence && index === blocks.length - 1;
+    const fromReceived = renderByKey.has(entry.key) && receivedRender(entry.block);
+    const open = fromReceived
+      ? entry.block.type === "code" && !!entry.block.open
+      : openFence && entry.key === revealedBlocks.at(-1)?.key;
     if (open) streamedFences.current.add(entry.key);
     return (
       <BlockView
@@ -831,24 +938,24 @@ export function Markdown({
         renderId={entry.key}
         opts={opts}
         depth={0}
+        turnStreaming={turnStreaming}
         enter={streaming && live}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
-        tail={index === blocks.length - 1 ? freshTail : undefined}
+        tail={entry.key === revealedBlocks.at(-1)?.key && !receivedRender(entry.block) ? freshTail : undefined}
       />
     );
   };
   // Footnote definitions draw as the reply's notes, under a rule, in reference order (an
   // unreferenced note last).
   const notes = blocks
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => entry.block.type === "footnote")
-    .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+    .filter((entry) => entry.block.type === "footnote")
+    .sort((a, b) => noteRank(a.block, opts) - noteRank(b.block, opts));
   return (
     <div className={`cv-md selectable ${className}${streaming && waiting ? " is-waiting" : ""}`}>
-      {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
+      {blocks.map((entry) => (entry.block.type === "footnote" ? null : draw(entry)))}
       {notes.length > 0 && (
         <section className="cv-footnotes" role="doc-endnotes">
-          <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
+          <ol>{notes.map(draw)}</ol>
         </section>
       )}
     </div>

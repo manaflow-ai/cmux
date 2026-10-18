@@ -654,6 +654,17 @@ rows.forEach(row => { row.onclick = () => {
 </script>`;
 }
 
+/// A small interactive SVG exercises cold and warm component starts (Lucas 2026-10-19).
+export function liveReactDemoSource(): string {
+  return `function App() {
+  const [count, setCount] = React.useState(0);
+  return <button onClick={() => setCount(count + 1)}>
+    <svg width="32" height="24" viewBox="0 0 32 24"><path d="M2 22 L10 14 L18 18 L30 2" fill="none" stroke="currentColor" /></svg>
+    <output>{count}</output>
+  </button>;
+}`;
+}
+
 /// An extra worked turn for the live-render lab, added only by the mock's lab branch.
 export function liveRenderTurn(): SeedStep[] {
   const html = liveRenderDemoHTML();
