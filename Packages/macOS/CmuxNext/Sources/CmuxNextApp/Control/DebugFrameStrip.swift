@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// `debug.new_tab {action: "frame_strip"}` (DEBUG builds): the window as the window server
 /// composited it, frame after frame, around one key sent through the real key path (`key`, default
 /// `n`, with `modifiers`, default `["command"]`: Cmd-N; `t` for Cmd-T) or a `gesture` (`plus`,
-/// `drag_new`). Frames are read off the main actor back to back for `duration_ms` (default 700) after
+/// `drag_new`). `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
+/// apart, inside one recording (a fast selection burst retargets moves in flight). Frames are read off the main actor back to back for `duration_ms` (default 700) after
 /// the key, and some before it. The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
@@ -30,6 +31,8 @@ enum DebugFrameStrip {
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
         let sent: JSONValue
+        // When the first key went in (a burst's later keys come after it).
+        var firstSent: (ms: Double, time: CFTimeInterval)?
         if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
@@ -39,10 +42,23 @@ enum DebugFrameStrip {
             }
             sent = .string(dragged ? "drag_new" : "drag_new: no tab")
         } else {
-            sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": params["modifiers"] ?? .array([.string("command")]),
-                                  "window": .string(controller.state.id)], services: services)
+            let keyParams: [String: JSONValue] = ["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": params["modifiers"] ?? .array([.string("command")]),
+                                                  "window": .string(controller.state.id)]
+            sent = DebugKey.send(keyParams, services: services)
+            firstSent = (BenchSpans.ms(.now - start), CACurrentMediaTime())
+            let count = max(1, Int(params["repeat"]?.doubleValue ?? 1))
+            if count > 1 {
+                let interval = max(1, Int(params["repeat_interval_ms"]?.doubleValue ?? 40))
+                let gap = DemandTimer(owner: "debug.frame_strip.repeat")
+                for _ in 1..<count {
+                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                        gap.schedule(after: .milliseconds(interval)) { @MainActor in done.resume() }
+                    }
+                    _ = DebugKey.send(keyParams, services: services)
+                }
+            }
         }
-        let sentAt = BenchSpans.ms(.now - start), sentTime = CACurrentMediaTime()
+        let (sentAt, sentTime) = firstSent ?? (BenchSpans.ms(.now - start), CACurrentMediaTime())
         let frames = await recording.value
         let spans = BenchSpans.end()
         let pane = controller.content?.focusedPane

@@ -51,6 +51,10 @@ parser.add_argument("--loop", type=int, default=0)
 # scrolls) and record Move Tab Right/Left, Next Tab, Cmd-9/Cmd-1 (a reveal that scrolls the strip)
 # and a close there.
 parser.add_argument("--crowded", type=int, default=0)
+# perf-tabs-polish (cx-8w027.18): frame strip scale (1 = full scale, for inner tab motion), and a fast
+# selection burst in the crowded strip (several Next Tab keys inside one recording).
+parser.add_argument("--strip-scale", type=float, default=0.25)
+parser.add_argument("--burst", type=int, default=4)
 opts = parser.parse_args()
 WIDTH, HEIGHT = (int(v) for v in opts.size.split("x"))
 BINARY = os.path.join(opts.app, "Contents/MacOS",
@@ -162,10 +166,12 @@ def set_config(values, settings):
         rpc("debug.motion", change)
 
 
-def strip(name, folder, key_name, modifiers, content="focused", gesture=None):
+def strip(name, folder, key_name, modifiers, content="focused", gesture=None, repeat=1):
     rpc("debug.motion", {"action": "start"})
-    params = {"action": "frame_strip", "key": key_name, "modifiers": modifiers, "dir": folder,
+    params = {"action": "frame_strip", "key": key_name, "modifiers": modifiers, "dir": folder, "scale": opts.strip_scale,
               "duration_ms": opts.duration_ms, "content": "none" if content == "panes" else content, "tolerance": 0.0005}
+    if repeat > 1:
+        params.update({"repeat": repeat, "repeat_interval_ms": 40})
     if gesture:
         params["gesture"] = gesture
     reply = rpc("debug.new_tab", params) or {}
@@ -293,6 +299,11 @@ def crowded_strip(out):
                                  ("close-crowded", "w", ["command"])):
         gestures.append(strip(f"crowded-{name}", os.path.join(out, f"crowded-{name}"), key_name, mods))
         time.sleep(0.5)  # test harness wait: the strip settles before the next gesture
+    if opts.burst > 1:
+        # A selection burst: each key retargets the reveal and the occlusion masks in flight.
+        for name, key_name, mods in (("next-burst", "tab", ["control"]), ("prev-burst", "tab", ["control", "shift"])):
+            gestures.append(strip(f"crowded-{name}", os.path.join(out, f"crowded-{name}"), key_name, mods, repeat=opts.burst))
+            time.sleep(0.5)  # test harness wait
     for _ in range(max(0, opened - 1)):
         key("w", ["command"])
         time.sleep(0.15)  # test harness wait
