@@ -19,7 +19,7 @@ extension AgentPaneView {
             restart.bezelStyle = .rounded
             views.append(restart)
         }
-        for case let label as NSTextField in views {
+        for case let label as ChromeLabel in views {
             label.alignment = .center
             label.textColor = themeTokens.textSecondary.nsColor
         }
