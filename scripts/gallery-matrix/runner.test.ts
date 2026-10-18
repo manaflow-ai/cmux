@@ -168,6 +168,12 @@ test("capture receipts fail quality when results mix checkout heads", () => {
   expect(captureReceipt(cases, results, "mixed-head").quality).toBe("fail");
 });
 
+test("capture receipts fail quality when the rendered source differs from the scenario", () => {
+  const cases = parseManifest([{ id: "a", path_or_url: "frame.html", params: { entry: "a", source: "src/a.gallery.tsx" } }]);
+  const results = [{ id: "a", engine: "chromium", ready: "1", params: { entry: "a", source: "src/other.gallery.tsx" }, revision: { sha: "head-a", source: "src/other.gallery.tsx" } }];
+  expect(captureReceipt(cases, results, "mismatched-source").quality).toBe("fail");
+});
+
 test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);

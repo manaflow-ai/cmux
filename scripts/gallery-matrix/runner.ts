@@ -48,7 +48,8 @@ export function captureReceipt(
   const complete = results.length === expected && identities.size === expected && expected > 0;
   const provenanceComplete = results.every((result) => {
     const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
-    return typeof revision?.sha === "string" && revision.sha.length > 0 && typeof revision.source === "string" && revision.source.length > 0;
+    const declaredSource = cases.find((item) => item.id === result.id)?.params?.source ?? (result.params as Record<string, unknown> | undefined)?.source;
+    return typeof revision?.sha === "string" && revision.sha.length > 0 && typeof revision.source === "string" && revision.source.length > 0 && (declaredSource === undefined || declaredSource === revision.source);
   });
   const observedShas = new Set(results.map((result) => (result.revision as { sha?: unknown } | undefined)?.sha).filter((sha): sha is string => typeof sha === "string" && sha.length > 0));
   const exactHead = observedShas.size === 1;
