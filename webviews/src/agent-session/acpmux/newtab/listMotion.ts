@@ -50,6 +50,9 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
   useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
   useLayoutEffect(() => {
+    // `signature` is the dependency; reconstructing the immutable key list
+    // here keeps the effect from closing over a fresh caller array every render.
+    const currentKeys = signature ? signature.split("\n") : [];
     const root = list.current;
     if (observed.current?.root !== root) {
       observed.current?.observer.disconnect();
@@ -65,7 +68,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== keys.length) {
+    if (!root || elements.length !== currentKeys.length) {
       places.current = new Map();
       shown.current = "";
       return;
@@ -73,13 +76,13 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [keys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const after = measure(root, elements, keys);
+    const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = keys;
+    shownKeys.current = currentKeys;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -88,7 +91,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = keys[index];
+      const key = currentKeys[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
@@ -108,5 +111,5 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-  });
+  }, [list, rows, signature]);
 }
