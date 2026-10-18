@@ -25,7 +25,6 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
-      - .github/workflows/cmux-next.yml
       - App/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
@@ -156,7 +155,6 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
-      - tests/test_cmux_next_web_bundle_cache.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -341,7 +339,6 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
-      - tests/test_cmux_next_web_bundle_cache.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -1225,7 +1222,6 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
-          python3 tests/test_cmux_next_web_bundle_cache.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
@@ -1418,7 +1414,6 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-          lookup-only: true
 
       - name: Build the web bundles for this source key
         if: steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -1664,11 +1659,11 @@ jobs:
   # cmux-tui wait: the live-daemon suites skip unless the same-tree binary is
   # already published, and daemon-test runs them against it.
   swift-test:
-    needs: [path_route, macos-placement, push-head-preflight]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # Swift is a batch cadence check. A contributor PR gets the fast
     # tier; the full-ci batch integration PR and base pushes run the minis-first
     # Swift suites and serve as the backstop.
-    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next swift test
     continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
@@ -1778,6 +1773,26 @@ jobs:
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
 
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
       - name: Source key of the web bundles
@@ -1791,30 +1806,6 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-
-      # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
-      # sources (cx-vn5) with the bun webviews/package.json pins.
-      - name: Setup Bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-
-      # The minis share ~/.bun with workflows that install another bun; this
-      # job runs on its own copy of the pinned one (private-bun.sh).
-      - name: Give this job its own bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        run: scripts/cmux-next/private-bun.sh
-
-      # The webviews app's `vp build` must run on node: on bun it emits
-      # different bytes (build-web-bundles.sh).
-      - name: Setup Node
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.11.1"
-
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
@@ -1922,10 +1913,10 @@ jobs:
   # which the gate above waits for on Linux. Only the daemon tier runs it:
   # daemon, Rust core, FFI and control paths, a full-ci PR and every push.
   daemon-test:
-    needs: [path_route, macos-placement, push-head-preflight]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ inputs.same_tree_origin != 'push' && !cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon'))) }}
+    if: ${{ inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon'))) }}
     name: cmux-next daemon tests
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2018,6 +2009,26 @@ jobs:
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
       - name: Source key of the web bundles
@@ -2031,30 +2042,6 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-
-      # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
-      # sources (cx-vn5) with the bun webviews/package.json pins.
-      - name: Setup Bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-
-      # The minis share ~/.bun with workflows that install another bun; this
-      # job runs on its own copy of the pinned one (private-bun.sh).
-      - name: Give this job its own bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        run: scripts/cmux-next/private-bun.sh
-
-      # The webviews app's `vp build` must run on node: on bun it emits
-      # different bytes (build-web-bundles.sh).
-      - name: Setup Node
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.11.1"
-
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
@@ -2163,8 +2150,8 @@ jobs:
             || echo "::warning::could not post the $CONTEXT status"
 
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next generated files
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2248,6 +2235,26 @@ jobs:
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
       - name: Source key of the web bundles
@@ -2261,30 +2268,6 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-
-      # The package's resources include the web bundles (agent pane, pages,
-      # Activity, palette ranker) and the tests read them: build them from the
-      # sources (cx-vn5) with the bun webviews/package.json pins.
-      - name: Setup Bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-
-      # The minis share ~/.bun with workflows that install another bun; this
-      # job runs on its own copy of the pinned one (private-bun.sh).
-      - name: Give this job its own bun
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        run: scripts/cmux-next/private-bun.sh
-
-      # The webviews app's `vp build` must run on node: on bun it emits
-      # different bytes (build-web-bundles.sh).
-      - name: Setup Node
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.11.1"
-
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
@@ -2398,7 +2381,7 @@ jobs:
 
   release-compile:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.path_route.outputs.full == 'true') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next Release compile (Xcode 26)
     # Release is part of the full-ci batch cadence and every base push. Ordinary
     # PRs use the fast tier; the batch tip is the native merge gate.
