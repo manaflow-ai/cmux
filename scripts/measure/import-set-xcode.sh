@@ -169,7 +169,7 @@ lines.insert(k + 1, "import " + sys.argv[3])
 open(sys.argv[2], "w").write("\n".join(lines))
 PY
 at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
-trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe"' EXIT
+trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe" "$work/relink"' EXIT
 
 # The package's scheme: the executable product's, else the whole package's.
 scheme="$(cd "$work/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$work/spm" 2>"$work/list.err" | python3 -I -c '
@@ -213,9 +213,10 @@ fixed() {   # LABEL: the slot recipe's sequence (check, build, done, one more bu
 plain() { touch "$work/$1.start"; xcb "$1"; }
 
 # Compare a build tree with a clean build of the same tree at the same path.
-compare() {   # LABEL SHIPPED_DIR CLEAN_DIR EXPECT(match|stale-objects|stale-dylib|info) CLEAN_LABEL
-  local leg="${1%%~*}"
-  python3 -I - "$2" "$3" "$work/$leg.start" "$1" "$4" "$module" "$work/$leg-again.log" "$work/$leg.log" "$work/$5.log" <<'PY' || { [[ "$4" == info ]] || fails=$((fails + 1)); }
+compare() {   # LABEL SHIPPED_DIR CLEAN_DIR EXPECT(match|stale-objects|stale-dylib|info|probe) CLEAN_LABEL
+  # probe: as match, but the caller reads the exit code and counts the result.
+  local leg="${1%%~*}" rc=0
+  python3 -I - "$2" "$3" "$work/$leg.start" "$1" "$4" "$module" "$work/$leg-again.log" "$work/$leg.log" "$work/$5.log" <<'PY' || rc=$?
 import glob, hashlib, os, re, shlex, struct, sys
 shipped, clean, start, label, expect, module, slog_again, slog, clog = sys.argv[1:10]
 since = os.stat(start).st_mtime_ns
@@ -451,7 +452,7 @@ else:
     print(msg)
     ok_parts["link_command (diagnostic)"] = eq
 
-if expect in ("match", "info"):
+if expect in ("match", "info", "probe"):
     ok = all(v for k, v in ok_parts.items() if "diagnostic" not in k)
 elif expect == "stale-objects":
     ok = any(k == "set" and kept for _r, k, kept, _a, _b in odiff)
@@ -461,6 +462,74 @@ bad = [k for k, v in ok_parts.items() if not v]
 print(f"RESULT {label} {'PASS' if ok else 'FAIL'} (expected {expect}; differ: {', '.join(bad) or 'nothing'})")
 sys.exit(0 if ok or expect == "info" else 1)
 PY
+  if [[ "$4" == probe ]]; then return $rc; fi
+  if (( rc != 0 )); then fails=$((fails + 1)); fi
+}
+
+# A leg that must equal a clean build of its tree. Apple ld does not link the
+# same inputs to the same bytes every time (fleet step 6c0430b0: two clean
+# builds of one tree differ only in __TEXT,__objc_stubs order, __stubs, the
+# UUID and the signature), so the leg passes when it equals either clean build
+# of the tree, objects and products included.
+match_any() {   # LEG REF1 LABEL1 REF2 LABEL2
+  if compare "$1" "$D" "$2" probe "$3"; then
+    result "$1 PASS (equals clean build $3)"
+  elif compare "$1~vs-$5" "$D" "$4" probe "$5"; then
+    result "$1 PASS (equals clean build $5, the other clean build of this tree)"
+  else
+    result "$1 FAIL (equals neither clean build of this tree)"
+    fails=$((fails + 1))
+  fi
+}
+
+# Link the clean A executable again with its own link command, 5 times per
+# linker mode, while its DerivedData is in place: is the link deterministic,
+# and does a linker option make it so?
+relink_probe() {
+  python3 -I - "$work/clean-A.log" "$work/relink" <<'PY' || true   # mask-ok: a diagnostic never fails the run
+import hashlib, os, shlex, subprocess, sys
+log, out = sys.argv[1:3]
+os.makedirs(out, exist_ok=True)
+lines = open(log, errors="replace").read().splitlines()
+cwd, argv = None, None
+for i, l in enumerate(lines):
+    if l.startswith("Ld ") and "/Build/Products/Debug/cmux-next-exe " in l:
+        for c in lines[i + 1:i + 12]:
+            s = c.strip()
+            if not s:
+                break
+            if s.startswith("cd "):
+                cwd = shlex.split(s)[1]
+            elif not s.startswith("export ") and "/Debug/cmux-next-exe" in s:
+                argv = shlex.split(s)
+if not argv:
+    print("RESULT relink no link command in clean-A.log")
+    sys.exit(0)
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()[:12]
+exe_sha = sha(argv[argv.index("-o") + 1])
+for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducible"]),
+                    ("objc_stubs_small", ["-Xlinker", "-objc_stubs_small"]), ("O0", ["-Xlinker", "-O0"])):
+    shas, err = [], ""
+    for n in range(5):
+        a = list(argv)
+        a[a.index("-o") + 1] = os.path.join(out, f"{name}-{n}")
+        if "-dependency_info" in a:
+            a[a.index("-dependency_info") + 2] = os.path.join(out, f"{name}-{n}.dat")
+        r = subprocess.run(a + extra, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if r.returncode:
+            err = r.stdout.decode(errors="replace").strip().splitlines()[-1:] 
+            break
+        shas.append(sha(os.path.join(out, f"{name}-{n}")))
+        os.remove(os.path.join(out, f"{name}-{n}"))
+    print(f"RESULT relink {name}: links={len(shas)} distinct_outputs={len(set(shas))} outputs={sorted(set(shas))} "
+          f"xcodebuild_output={exe_sha} {'error=' + str(err) if err else ''}")
+PY
+  rm -rf "$work/relink"
 }
 
 # A clean build into a reference directory; the index is not compared.
@@ -470,7 +539,7 @@ reference() {   # LABEL SIDE DIR
 
 echo "==> leaf $leaf, module $module"
 echo "==> clean references at the test DerivedData path, each twice"
-reference clean-A A "$RA"
+at A; plain clean-A; relink_probe; mv "$D" "$RA"; rm -rf "$RA/Index.noindex"
 python3 -I - "$work/pins.json" "$work/app-exe/Package.resolved" <<'PY'
 import json, sys
 want = {p["identity"]: p["state"] for p in json.load(open(sys.argv[1]))["pins"]}
@@ -506,14 +575,13 @@ for dd in sys.argv[1:3]:
     print(f"RESULT force-load names in {os.path.basename(dd)} objects (objects): " + " ".join(f"{k}:{v}" for k, v in c.most_common(12)))
 PY
 echo "==> clean vs clean (is the clean build deterministic)"
-compare clean-A2 "$RA2" "$RA" match clean-A
-compare clean-B2 "$RB2" "$RB" match clean-B
+compare clean-A2 "$RA2" "$RA" info clean-A
+compare clean-B2 "$RB2" "$RB" info clean-B
 
 echo "==> rollout: a warm slot at A without a record (every Swift module compiled in full once)"
 at A; plain base-A
 fixed rollout
-compare rollout "$D" "$RA" match clean-A
-compare "rollout~vs-clean-A2" "$D" "$RA2" info clean-A2
+match_any rollout "$RA" clean-A "$RA2" clean-A2
 
 echo "==> cost: check and done without a change, and a no-op build"
 t0=$(python3 -c 'import time; print(time.time())')
@@ -526,13 +594,13 @@ t3=$(python3 -c 'import time; print(time.time())')
 result "no-change check_seconds=$(python3 -c "print(round($t1-$t0,2))") noop_build_seconds=$(python3 -c "print(round($t2-$t1,1))") done_seconds=$(python3 -c "print(round($t3-$t2,2))")"
 
 echo "==> fix-add: A -> B with the check"
-at B; fixed fix-add; compare fix-add "$D" "$RB" match clean-B; compare "fix-add~vs-clean-B2" "$D" "$RB2" info clean-B2
+at B; fixed fix-add; match_any fix-add "$RB" clean-B "$RB2" clean-B2
 echo "==> fix-remove: B -> A with the check"
-at A; fixed fix-remove; compare fix-remove "$D" "$RA" match clean-A; compare "fix-remove~vs-clean-A2" "$D" "$RA2" info clean-A2
+at A; fixed fix-remove; match_any fix-remove "$RA" clean-A "$RA2" clean-A2
 echo "==> nofix-add: A -> B without the check (the defect)"
 at B; plain nofix-add; compare nofix-add "$D" "$RB" stale-objects clean-B
 echo "==> repair: the stale B with the check (the record still says A)"
-fixed repair; compare repair "$D" "$RB" match clean-B; compare "repair~vs-clean-B2" "$D" "$RB2" info clean-B2
+fixed repair; match_any repair "$RB" clean-B "$RB2" clean-B2
 echo "==> nofix-remove: B -> A without the check (the defect)"
 at A; plain nofix-remove
 compare nofix-remove "$D" "$RA" "$( (( force_module )) && echo stale-dylib || echo stale-objects)" clean-A
