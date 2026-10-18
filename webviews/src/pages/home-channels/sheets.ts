@@ -50,18 +50,6 @@ const grantFields = (grant: HomeChiefGrantChange) => ({
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
 
-/** A picture file the daemon takes, as base64, or why not. */
-export async function readPicture(
-  file: File,
-): Promise<{ mediaType: string; data: string } | { error: "type" | "size" }> {
-  if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) return { error: "type" };
-  if (file.size > 1024 * 1024) return { error: "size" };
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return { mediaType: file.type, data: btoa(binary) };
-}
-
 export class HomeSheets {
   private snapshot: SheetsSnapshot = {
     ready: false,
@@ -289,12 +277,13 @@ export class HomeSheets {
   }
 
   /** Saves a Chief's profile: what changed of personality, instructions and the grant goes first,
-   * through the host (the person's click, one request); the name, role and picture from the page. */
+   * through the host (the person's click, one request); the name, role and picture from the page.
+   * `picture` null clears it: the default shows again. */
   async updateChief(
     before: HomeChief,
     profile: HomeChiefProfile,
     grant: HomeChiefGrantChange | undefined,
-    picture: { mediaType: string; data: string } | undefined,
+    picture: { mediaType: string; data: string } | null | undefined,
   ): Promise<boolean> {
     if (!this.client) return false;
     const taught: Record<string, unknown> = {};
@@ -318,10 +307,10 @@ export class HomeSheets {
           role: profile.role,
           idempotencyKey: this.key("profile"),
         });
-      if (picture)
+      if (picture !== undefined && (picture !== null || before.avatar))
         await this.client.call(HomeOps.chiefAvatarSet, {
           chief: before.id,
-          ...picture,
+          ...(picture ?? { clear: true }),
           idempotencyKey: this.key("picture"),
         });
       await this.loadChiefs();
