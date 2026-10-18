@@ -149,7 +149,6 @@ final class ChiefPetCapsule: NSView {
         for label in [title, detail] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
-            label.cell?.truncatesLastVisibleLine = true
             addSubview(label)
         }
         setAccessibilityElement(true)
