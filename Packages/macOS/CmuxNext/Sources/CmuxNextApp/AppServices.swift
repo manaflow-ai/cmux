@@ -20,6 +20,9 @@ import os
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// Process variables used to resolve the agent pane source. Tests inject
+    /// this snapshot instead of mutating the process-wide C environment.
+    let agentPaneEnvironment: [String: String]
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
@@ -209,7 +212,8 @@ final class AppServices {
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared,
+         agentPaneEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
         DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
@@ -219,6 +223,7 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
+        self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
