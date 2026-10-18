@@ -304,8 +304,8 @@ if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100"
 fi
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
-  | sort_by(.name, (.id // 0))
-  | group_by(.name)[]
+  | sort_by(.name, (.app.id // -1), (.id // 0))
+  | group_by([.name, (.app.id // -1)])[]
   | last
   | [.name,.status,(.conclusion // ""),(.app.slug // "")]
   | @tsv

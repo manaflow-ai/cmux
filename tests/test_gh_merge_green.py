@@ -963,6 +963,15 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
+    def test_unknown_preview_app_is_not_hidden_by_newer_provider_namesake(self):
+        result, merged, _ = self.run_case(checks=[
+            {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+            {"id": 2, "name": "Vercel", "status": "in_progress", "app": {"id": 99, "slug": "unknown"}},
+            {"id": 3, "name": "Vercel", "status": "completed", "conclusion": "success", "app": {"id": 42, "slug": "vercel"}},
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
     def test_changed_files_failure_fails_closed(self):
         result, merged, _ = self.run_case(
             statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
