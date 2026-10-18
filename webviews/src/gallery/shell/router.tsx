@@ -14,7 +14,6 @@ import {
 import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
-import { readyEntries } from "../entryStore";
 import { getEntryStore } from "../registry";
 import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
@@ -84,13 +83,10 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/",
     validateSearch: validateShellSearch,
-    beforeLoad: async ({ search }) => {
-      const entry = readyEntries(await getEntryStore().settled())[0];
-      if (entry)
-        throw redirect({
-          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,
-        });
-    },
+    // Do not wait for the registry to settle here. The shell can render its loading state and
+    // promote the first ready entry while the bounded registry loads continue in the background.
+    // Waiting on every entry made the base gallery URL compile and evaluate the whole registry
+    // before showing any UI.
     component: Outlet,
   });
   const entryRoute = createRoute({
