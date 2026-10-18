@@ -92,7 +92,7 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
 
   it("an expired ticket is refused", async () => {
     const a = await person("exp")
-    const m = await mint(a.token)
+    const m = await mint(a.token, "feed")
     const { stub, key } = await shard(m.body.ticket!)
     await runInDurableObject(stub, async (_i, state) => {
       const r = (await state.storage.get(key)) as { principal: Principal; expires_at: number }
