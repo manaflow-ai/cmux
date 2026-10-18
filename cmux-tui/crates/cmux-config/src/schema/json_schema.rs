@@ -103,7 +103,12 @@ fn kind_schema(row: &Row) -> Value {
         Kind::FontFamily | Kind::Sound | Kind::Url | Kind::Text => json!({ "type": "string" }),
         Kind::HostList => json!({ "type": "array", "items": { "type": "string" } }),
         Kind::TimeRange => {
-            let time = json!({ "type": "string", "pattern": "^\\+?0*([0-9]|1[0-9]|2[0-3]):\\+?0*([0-9]|[1-5][0-9])$" });
+            // "HH:MM", hours 0-23 and minutes 0-59; the owner skips empty
+            // parts and takes a leading "+" or zeros.
+            let time = json!({
+                "type": "string",
+                "pattern": "^:*\\+?0*([0-9]|1[0-9]|2[0-3]):+\\+?0*([0-9]|[1-5][0-9]):*$",
+            });
             json!({
                 "type": "object",
                 "properties": { "start": time, "end": time },

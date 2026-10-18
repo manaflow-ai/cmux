@@ -63,6 +63,8 @@ fn json_schema_allows_keys_outside_the_schema() {
         "appearance": { "theme": "light:Catppuccin Latte,dark:Catppuccin Mocha", "glassTransparency": 0.4 },
         "sidebar": { "side": "right", "density": "compact" },
         "terminal": { "fontFamily": "Berkeley Mono", "fontSize": 13 },
+        // Forms the owner reads as 09:30 and 22:00.
+        "notifications": { "quietHours": { "start": "9::30", "end": ":22:00" } },
     });
     let validator = validator();
     let errors: Vec<String> =
