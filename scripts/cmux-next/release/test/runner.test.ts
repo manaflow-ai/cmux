@@ -51,7 +51,7 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
         const before = (await sql.query<{ v: string }>(probe))[0]?.v
         await expect(applyPending(sql, vm, [...base, file("0012_x.sql", body)], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
         expect((await sql.query<{ v: string }>(probe))[0]?.v).toBe(before)
-        expect((await applied(sql)).length).toBe(9)
+        expect((await applied(sql)).length).toBe(base.length)
       } finally {
         await sql.end()
       }
@@ -91,7 +91,7 @@ describe("lock and statement timeouts (P1-4)", () => {
     expect(Date.now() - started).toBeLessThan(10_000)
     await holder.query("ROLLBACK")
     await holder.end()
-    expect((await applied(sql)).length).toBe(9)
+    expect((await applied(sql)).length).toBe(base.length)
     await sql.end()
   })
 })

@@ -15,9 +15,10 @@ import { readMigrations, sha256 } from "../lint.ts"
 import { readReceipts, writeReceipt } from "../receipts.ts"
 import { connectUrl, type Sql } from "../runner.ts"
 import { TREES } from "../trees.ts"
-import { addMigration, addRequirement, adminSql, createOwnedDb, createOwnerRole, dbUrl, dropDb, fakeProvider, gitInit, requireScratch, tempRoot, uniquePrefix, type FakeProvider } from "./helpers.ts"
+import { addMigration, addRequirement, adminSql, createOwnedDb, createOwnerRole, dbUrl, dropDb, fakeProvider, gitInit, requireScratch, tempRoot, uniquePrefix, REAL, type FakeProvider } from "./helpers.ts"
 
 const vm = TREES["cmux-vm"]
+const baseCount = readMigrations(REAL(""), vm).length
 const created: Array<string> = []
 const roles: Array<string> = []
 const HOUR = 3600_000
@@ -143,7 +144,7 @@ describe("apply rehearses in the same run, under the same lock", () => {
     expect(await w.run("apply", ...S)).toBe(1)
     expect(w.errors.join()).toContain("0012_bad.sql")
     for (const b of branchesMade(w)) expect(await w.provider.exists("cmux-prod", b)).toBe(false)
-    expect((await rows(w, w.staging)).length).toBe(9)
+    expect((await rows(w, w.staging)).length).toBe(baseCount)
   })
 
   it("P2-7 takes the database lock before anything else: a held lock refuses before any branch exists", async () => {
@@ -173,7 +174,7 @@ describe("apply rehearses in the same run, under the same lock", () => {
     w.provider.staleFrom = empty
     expect(await w.run("apply", ...S)).toBe(1)
     expect(w.errors.join()).toContain("differs from staging")
-    expect((await rows(w, w.staging)).length).toBe(9)
+    expect((await rows(w, w.staging)).length).toBe(baseCount)
   })
 
   it("a create that fails after the branch appeared still deletes that branch", async () => {
@@ -269,7 +270,7 @@ describe("production", () => {
     expect(w.errors.at(-1)).toContain("staging does not have")
     expect(await w.run("apply", ...S)).toBe(0)
     expect(await w.run("apply", ...P)).toBe(0)
-    expect((await rows(w, w.production)).length).toBe(10)
+    expect((await rows(w, w.production)).length).toBe(baseCount + 1)
   })
 
   it("a production rehearsal that cannot act as the owner role fails (staging only warns)", async () => {
@@ -438,7 +439,7 @@ describe("acceptance migration 0009 and the receipt format", () => {
     expect(apply.before).toEqual([])
     expect(apply.after?.at(-1)).toBe("0011_cmux_vm_creation_receipt_index.sql")
     expect(apply.rollback?.[0]).toContain("wrangler rollback")
-    expect(apply.rollback?.[1]).toContain("ALTER TABLE cmux_vm.mesh_devices DROP COLUMN IF EXISTS public_ipv6")
+    expect(apply.rollback).toContainEqual(expect.stringContaining("ALTER TABLE cmux_vm.mesh_devices DROP COLUMN IF EXISTS public_ipv6"))
     expect(apply.runId).toBe("gh:4242/1")
   })
 })

@@ -17,13 +17,13 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../..
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const migration = `${migration1}\n${migration2}\n${creationReceipts}\n${creationReceiptIndex}`;
+const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex];
 
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
 beforeEach(async () => {
   pg = new PGlite();
-  await pg.exec(migration);
+  for (const migration of migrations) await pg.exec(migration);
   layer = sqlStoresLayer.pipe(
     Layer.provide(
       Layer.succeed(SqlClient, {
@@ -39,7 +39,7 @@ beforeEach(async () => {
 
 describe("migration", () => {
   it("is idempotent and creates nothing outside the cmux_vm schema", async () => {
-    await pg.exec(migration);
+    for (const migration of migrations) await pg.exec(migration);
     const tables = await pg.query<{ name: string }>(
       `SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,

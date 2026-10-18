@@ -124,8 +124,8 @@ it("keeps undersized allocations pending without growing them", async () => {
 it("requires a bounded original key and never treats an unknown key as create permission", async () => {
   const t = await setup();
   const before = t.upstreamRequests.length;
-  for (const [method, path] of [["GET", "/v1/vm-creations/by-key"], ["POST", "/v1/vm-creations/by-key/reconcile"]]) {
-    expect((await t.request(path!, { authorization: `Bearer ${t.token}`, "x-cmux-team-id": "team_alpha" }, { method })).status).toBe(400);
+  for (const [method, path] of [["GET", "/v1/vm-creations/by-key"], ["POST", "/v1/vm-creations/by-key/reconcile"]] as const) {
+    expect((await t.request(path, { authorization: `Bearer ${t.token}`, "x-cmux-team-id": "team_alpha" }, { method })).status).toBe(400);
   }
   expect((await t.status()).status).toBe(404);
   expect((await t.reconcile()).status).toBe(404);
