@@ -263,7 +263,14 @@ def new_tab_chat(folder, prompt, model=None, effort=None):
     picked = chips()
     send_from_composer(prompt)
     answer_trust()
-    new = wait(lambda: sorted(set(sessions()) - before), 20, 0.3)
+    # The chip picks started a deferred session in the page's first folder: the chat is the new
+    # session in `folder` that took this prompt.
+    cwd = os.path.realpath(os.path.join(PROJECTS, folder))
+
+    def started():
+        return [sid for sid, s in sessions().items() if sid not in before and s.get("lastPrompt") == prompt
+                and os.path.realpath(s.get("cwd") or "") == cwd]
+    new = wait(started, 20, 0.3)
     session_id = new[0] if new else None
     wait(lambda: shown_session() == session_id, 10, 0.2)
     wait(lambda: page("chat_state").get("lastAssistant"), 10, 0.3)
@@ -335,6 +342,9 @@ def pass1():
         elif shown_now == chat1:
             check(P, "after a relaunch a chat keeps its start picks",
                   "Haiku" in now["model"] and now["effort"] == "Low" and full_access(now["mode"]), json.dumps(now))
+        else:
+            check(P, "after a relaunch the pane shows one of the chats", False, f"shows {shown_now}")
+            break
         key("]" if shown_now == chat1 else "[", ["command", "shift"])
         blank = blank_frames(400)
         check(P, "after a relaunch the first switch to the other chat shows no blank pane", (blank or 0) <= 17,
@@ -366,16 +376,22 @@ def focused_kind():
 
 
 def blank_frames(ms=500):
-    """Polls the focused pane's native state right after a switch: the ms it showed no content."""
-    start = time.time()
-    blank_until = None
+    """Polls the focused pane's native state right after a switch: how long, in ms, it showed no
+    content (the polls that read blank, each counted for the time to the next poll)."""
+    start = last = time.time()
+    blank = 0.0
+    was_blank = False
     while (time.time() - start) * 1000 < ms:
         panes = [p for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []]
         focused = next((p for p in panes if p.get("focused")), None)
-        if focused and (focused.get("blank") or not focused.get("content_installed") or focused.get("phase") == "loading"):
-            blank_until = (time.time() - start) * 1000
+        now = time.time()
+        if was_blank:
+            blank += (now - last) * 1000
+        was_blank = bool(focused and (focused.get("blank") or not focused.get("content_installed")
+                                      or focused.get("phase") == "loading"))
+        last = now
         time.sleep(0.016)
-    return blank_until
+    return round(blank) or None
 
 
 def pass2():
@@ -399,11 +415,10 @@ def pass2():
         for k, mods in switches * workspaces:
             key(k, mods)
             sent = time.time()
-            if focused_kind() != "agent":
-                # A workspace's terminal: no chat page to watch.
-                time.sleep(0.3)
-                continue
             watch = page("layout_watch", ms=1200)
+            if "error" in watch or focused_kind() != "agent":
+                # A workspace's terminal: no chat page to watch.
+                continue
             latency = (time.time() - sent) * 1000 - 1200
             blank = blank_frames(200)
             entry = {"key": "+".join(mods + [k]), "session": shown_session(), "watch": watch,
@@ -412,6 +427,9 @@ def pass2():
             results.append(entry)
     with open(os.path.join(OUT, "switches.json"), "w") as f:
         json.dump(results, f, indent=1)
+    if not check(P, f"switches reach at least {opts.chats} chats", len({r["session"] for r in results}) >= min(opts.chats, 10),
+                 f"{len(results)} switches measured, {len({r['session'] for r in results})} chats"):
+        return
     slow = [r for r in results if r["first_content_ms"] is None or r["first_content_ms"] > opts.first_content_ms]
     check(P, f"each of {len(results)} switches shows its chat within {opts.first_content_ms:.0f} ms",
           not slow, json.dumps([(r["key"], r["first_content_ms"]) for r in slow])[:600])

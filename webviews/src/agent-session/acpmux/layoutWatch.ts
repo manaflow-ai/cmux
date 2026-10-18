@@ -9,7 +9,7 @@
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
 type Box = { x: number; y: number; w: number; h: number };
-type Frame = { at: number; boxes: Map<string, Box>; scrollTop: number };
+type Frame = { at: number; boxes: Map<string, Box>; scrollTop: number; empty: boolean };
 
 const ROWS = ".cv-message, .cv-worked, .cv-tool, .cv-turn-actions";
 const MAX_ROWS = 40;
@@ -55,11 +55,16 @@ function read(start: number): Frame {
   const rows = [...document.querySelectorAll(ROWS)];
   // The newest rows are the ones on screen when a chat opens at its latest message.
   for (const row of rows.slice(-MAX_ROWS)) add(nameOf(row, "row"), row);
-  return { at: performance.now() - start, boxes, scrollTop: Math.round(scroller()?.scrollTop ?? 0) };
+  return {
+    at: performance.now() - start,
+    boxes,
+    scrollTop: Math.round(scroller()?.scrollTop ?? 0),
+    empty: emptyChat(),
+  };
 }
 
 const shown = (frame: Frame) =>
-  frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || emptyChat());
+  frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty);
 const emptyChat = () => document.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
 
 export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
