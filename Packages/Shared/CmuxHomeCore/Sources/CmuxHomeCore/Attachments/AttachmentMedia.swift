@@ -3,6 +3,7 @@ import CoreGraphics
 import CryptoKit
 import Foundation
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 /// Hashing, the blob cache layout and media inspection for attachments.
@@ -664,20 +665,46 @@ enum AttachmentMedia {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension)")
         do {
-            if #available(macOS 15, iOS 18, *) {
-                try await session.export(to: output, as: fileType)
-            } else {
-                session.outputURL = output
-                session.outputFileType = fileType
-                await session.export()
-                guard session.status == .completed else { throw refused }
-            }
+            try await export(session, to: output, as: fileType)
             guard await !movieHasLocation(AVURLAsset(url: output)) else { throw refused }
         } catch {
             try? FileManager.default.removeItem(at: output)
             throw refused
         }
         return output
+    }
+
+    /// Exports `session` to `url` as `fileType`.
+    ///
+    /// Not `export(to:as:)` or `export()`: before macOS 26 both resume a continuation from
+    /// the export's completion handler, which crashed the process on macOS 15 (signal 11 in
+    /// `AVExportSessionExportAsynchronouslyCompletionHandler`). Here the handler resumes a
+    /// continuation at most once, and cancelling the task cancels the export.
+    ///
+    /// - Throws: `CancellationError` when cancelled, otherwise the export's error.
+    static func export(_ session: AVAssetExportSession, to url: URL, as fileType: AVFileType) async throws {
+        session.outputURL = url
+        session.outputFileType = fileType
+        nonisolated(unsafe) let cancelling = session
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                (session as any CompletionHandlerExport).exportAsynchronously {
+                    let first = resumed.withLock { done in
+                        defer { done = true }
+                        return !done
+                    }
+                    if first { continuation.resume() }
+                }
+            }
+        } onCancel: {
+            cancelling.cancelExport()
+        }
+        switch session.status {
+        case .completed: return
+        case .cancelled: throw CancellationError()
+        default: throw session.error ?? CocoaError(.fileWriteUnknown)
+        }
     }
 
     /// Media facts are best effort: a file whose media cannot be read still
@@ -739,3 +766,11 @@ enum AttachmentMedia {
         return target
     }
 }
+
+/// The completion-handler export, deprecated in favor of `export(to:as:)`, whose
+/// back-deployed body crashed on macOS 15 (``AttachmentMedia/export(_:to:as:)``).
+private protocol CompletionHandlerExport: AnyObject {
+    func exportAsynchronously(completionHandler handler: @escaping @Sendable () -> Void)
+}
+
+extension AVAssetExportSession: CompletionHandlerExport {}
