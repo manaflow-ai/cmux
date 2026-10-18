@@ -2138,11 +2138,11 @@
         ],
         "responses": {
           "200": {
-            "description": "VmCreationStatus",
+            "description": "VmCreationCancellation",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VmCreationStatus"
+                  "$ref": "#/components/schemas/VmCreationCancellation"
                 }
               }
             }
@@ -2218,7 +2218,7 @@
             }
           }
         },
-        "description": "Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Cancellation keys cannot be reused.",
+        "description": "Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused.",
         "summary": "Cancel a pending VM creation"
       }
     },
@@ -7867,11 +7867,16 @@
               "pending",
               "committed",
               "deleted",
-              "unresolved",
-              "cancelling",
-              "cancelled"
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
             ],
-            "description": "Committed means ownership recorded, not running. Cancelling retains uncertain provider work; only verified rejection/deletion reaches cancelled. Cancelled keys cannot be reused."
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
           },
           "id": {
             "anyOf": [
@@ -7935,6 +7940,32 @@
         },
         "additionalProperties": false,
         "description": "Original accepted creation intent. Contains no provider identifiers or proxy credentials."
+      },
+      "VmCreationCancellation": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "cancelling",
+              "cancelled",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
       },
       "ExecRequest": {
         "type": "object",

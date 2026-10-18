@@ -18,9 +18,20 @@ export const VmCreationReceipt = Schema.Struct({
 export type VmCreationReceipt = typeof VmCreationReceipt.Type;
 
 export class VmCreationStatus extends Schema.Class<VmCreationStatus>("VmCreationStatus")({
-  state: Schema.Literal("pending", "committed", "deleted", "unresolved", "cancelling", "cancelled").annotations({ description: "Committed means ownership recorded, not running. Cancelling retains uncertain provider work; only verified rejection/deletion reaches cancelled. Cancelled keys cannot be reused." }),
+  state: Schema.Literal("pending", "committed", "deleted", "unresolved"),
+  cancellation: Schema.optional(Schema.Literal("requested", "completed")).annotations({ description: "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key." }),
   id: Schema.NullOr(VmId),
   receipt: Schema.optional(VmCreationReceipt),
+}) {}
+
+/** Internal lifecycle distinguishes cancellation from ordinary resource deletion. */
+export interface VmCreationState {
+  readonly state: "pending" | "committed" | "deleted" | "unresolved" | "cancelling" | "cancelled";
+  readonly id: VmId | null;
+  readonly receipt?: VmCreationReceipt;
+}
+export class VmCreationCancellation extends Schema.Class<VmCreationCancellation>("VmCreationCancellation")({
+  state: Schema.Literal("cancelling", "cancelled", "deleted"), id: VmId, receipt: Schema.optional(VmCreationReceipt),
 }) {}
 
 export class VmCreationsGroupDefinition extends HttpApiGroup.make("vmCreations")
@@ -33,6 +44,6 @@ export class VmCreationsGroupDefinition extends HttpApiGroup.make("vmCreations")
     .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
     .annotateContext(describe("Reconcile a retained VM creation", "vm:write", "Records a verified allocation or finishes a previously requested cancellation. Never creates, starts or grows a VM. Provider absence alone is not cancellation.")))
   .add(HttpApiEndpoint.post("cancelVmCreation", "/v1/vm-creations/by-key/cancel")
-    .setHeaders(GroupCreationKeyHeaders).addSuccess(VmCreationStatus)
+    .setHeaders(GroupCreationKeyHeaders).addSuccess(VmCreationCancellation)
     .addError(Conflict).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
-    .annotateContext(describe("Cancel a pending VM creation", "vm:write", "Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Cancellation keys cannot be reused."))) {}
+    .annotateContext(describe("Cancel a pending VM creation", "vm:write", "Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused."))) {}

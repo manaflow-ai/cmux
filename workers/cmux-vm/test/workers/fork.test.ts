@@ -82,11 +82,11 @@ describe("forkVm", () => {
     expect(JSON.stringify(body)).not.toMatch(/sh-|vm-/);
   });
 
-  it("resumes from the kept snapshot on a retry with the same idempotency key, without a second snapshot", async () => {
+  it("resumes a confirmed rejection from the kept snapshot without a second snapshot", async () => {
     const source = h.addVm(TENANT_A, "running");
     const key = await h.addKey(TENANT_A, ["vm:write"]);
     const headers = { "idempotency-key": "fork-1" };
-    h.upstream.fail("create", 503);
+    h.upstream.fail("create", 429);
 
     const failed = await fork(key, source.vmId, headers);
     expect(failed.status).toBe(503);

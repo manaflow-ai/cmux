@@ -30,8 +30,9 @@ export const teamVmApiService = (tenant: string) => {
     if (u.pathname.startsWith("/v1/vm-creations/by-key")) {
       const intent = key ? intents.get(key) : undefined, m = intent ? vms.get(intent.id) : undefined
       if (control.creationState === "missing" || control.forbidden || !m || m.actor !== control.actor) return notFound()
-      if (r.method === "POST") control.creationState = "committed"
-      return Response.json({ state: control.creationState, id: m.id, receipt: { id: m.id, displayName: m.displayName, labels: m.labels,
+      if (r.method === "POST" && control.creationState === "pending") control.creationState = "committed"
+      return Response.json({ state: control.creationState === "cancelling" ? "pending" : control.creationState === "cancelled" ? "deleted" : control.creationState,
+        ...(control.creationState === "cancelling" ? { cancellation: "requested" } : control.creationState === "cancelled" ? { cancellation: "completed" } : {}), id: m.id, receipt: { id: m.id, displayName: m.displayName, labels: m.labels,
         idleTimeoutSeconds: 300, bootImage: { ...m.image, displayName: "Team VM" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } } })
     }
     if (u.pathname === "/v1/vms" && r.method === "GET") {

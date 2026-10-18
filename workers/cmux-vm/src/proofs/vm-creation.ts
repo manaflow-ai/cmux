@@ -1,7 +1,7 @@
 /** Trusted: retained creation evidence is usable only within the current caller's tenant and restrictions. */
 import { defineProof, type Named, type Proof } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
-import { VmCreationStatus } from "../api/creations.ts";
+import type { VmCreationState } from "../api/creations.ts";
 import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
@@ -23,6 +23,8 @@ export const pendingVmCreationEvidenceOf = <C, V>(proof: PendingVmCreation<C, V>
   return value;
 };
 
+const stateOf = (status: VmCreationState): VmCreationState => status;
+
 const allowed = (principal: Principal, id: string, labels: Readonly<Record<string, string>>, createdBy: string) =>
   (principal.resourceAllowlist === null || principal.resourceAllowlist.has(id)) && carriesRequiredLabels(principal, labels)
   && (principal.actor.kind !== "service" || actorRef(principal.actor) === createdBy);
@@ -39,25 +41,25 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
       || (receipt?.receipt.id === progress.vmId && !allowed(caller.value, progress.vmId, receipt.labels, receipt.createdBy))) return yield* Effect.fail(vmNotFound());
     const parsed = parseVmId(progress.vmId);
     if (Option.isNone(parsed) || parsed.value !== progress.intent.receipt.id) return yield* Effect.fail(unavailable());
-    return { status: new VmCreationStatus({ state: progress.phase === "cancelled" ? "cancelled" : "cancelling", id: parsed.value, receipt: progress.intent.receipt }),
+    return { status: stateOf({ state: progress.phase === "cancelled" ? "cancelled" : "cancelling", id: parsed.value, receipt: progress.intent.receipt }),
       pending: { key, intent: progress.intent, createdBy: progress.createdBy, ...(progress.snapshotId === undefined ? {} : { snapshotId: progress.snapshotId }) } };
   }
   if (receipt !== null && (record === null || (journalId !== null && journalId === receipt.receipt.id))) {
     if (!allowed(caller.value, receipt.receipt.id, receipt.labels, receipt.createdBy)
       || !carriesRequiredLabels(caller.value, receipt.receipt.labels)) return yield* Effect.fail(vmNotFound());
-    return { status: new VmCreationStatus({ state: receipt.deleted ? "deleted" : "committed", id: receipt.receipt.id, receipt: receipt.receipt }), pending: null };
+    return { status: stateOf({ state: receipt.deleted ? "deleted" : "committed", id: receipt.receipt.id, receipt: receipt.receipt }), pending: null };
   }
   if (record === null) return yield* Effect.fail(vmNotFound());
   if (progress?.phase === "creating" && progress.intent !== undefined) {
     if (!allowed(caller.value, progress.vmId, progress.intent.receipt.labels, progress.createdBy)) return yield* Effect.fail(vmNotFound());
     const parsed = parseVmId(progress.vmId);
     if (Option.isNone(parsed) || parsed.value !== progress.intent.receipt.id) return yield* Effect.fail(unavailable());
-    return { status: new VmCreationStatus({ state: "pending", id: parsed.value, receipt: progress.intent.receipt }),
+    return { status: stateOf({ state: "pending", id: parsed.value, receipt: progress.intent.receipt }),
       pending: { key, intent: progress.intent, createdBy: progress.createdBy, ...(progress.snapshotId === undefined ? {} : { snapshotId: progress.snapshotId }) } };
   }
   // Legacy journals do not prove labels, image or network intent. Never reinterpret them as a new request.
   if (caller.value.actor.kind === "service" || caller.value.resourceAllowlist !== null || caller.value.requiredLabels !== undefined) return yield* Effect.fail(vmNotFound());
-  return { status: new VmCreationStatus({ state: "unresolved", id: null }), pending: null };
+  return { status: stateOf({ state: "unresolved", id: null }), pending: null };
 });
 
 export const readVmCreation = <C>(caller: Named<C, Principal>, rawKey: string) => lookup(caller, rawKey).pipe(Effect.map((result) => result.status));

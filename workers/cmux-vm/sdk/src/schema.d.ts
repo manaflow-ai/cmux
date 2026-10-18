@@ -320,7 +320,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a pending VM creation
-         * @description Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Cancellation keys cannot be reused.
+         * @description Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused.
          */
         post: operations["vmCreations.cancelVmCreation"];
         delete?: never;
@@ -1247,11 +1247,13 @@ export interface components {
             _tag: "ForkIncomplete";
         };
         VmCreationStatus: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted" | "unresolved";
             /**
-             * @description Committed means ownership recorded, not running. Cancelling retains uncertain provider work; only verified rejection/deletion reaches cancelled. Cancelled keys cannot be reused.
+             * @description Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key.
              * @enum {string}
              */
-            state: "pending" | "committed" | "deleted" | "unresolved" | "cancelling" | "cancelled";
+            cancellation?: "requested" | "completed";
             id: string | null;
             receipt?: components["schemas"]["VmCreationReceipt"];
         };
@@ -1266,6 +1268,13 @@ export interface components {
             idleTimeoutSeconds: number;
             bootImage?: components["schemas"]["VmImage"];
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
+        };
+        VmCreationCancellation: {
+            /** @enum {string} */
+            state: "cancelling" | "cancelled" | "deleted";
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            receipt?: components["schemas"]["VmCreationReceipt"];
         };
         ExecRequest: {
             /**
@@ -3136,13 +3145,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description VmCreationStatus */
+            /** @description VmCreationCancellation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VmCreationStatus"];
+                    "application/json": components["schemas"]["VmCreationCancellation"];
                 };
             };
             /** @description The request did not match the expected schema */

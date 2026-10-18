@@ -50,11 +50,23 @@ impl<'a> Printer<'a> {
 
     pub fn creation(&mut self, body: &[u8]) -> Result<(), CliError> {
         let _: cmux_vm_client::types::VmCreationStatus = decode(body)?;
+        self.creation_body(body)
+    }
+
+    pub fn creation_cancellation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationCancellation = decode(body)?;
+        self.creation_body(body)
+    }
+
+    fn creation_body(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);
         }
         let value: serde_json::Value = decode(body)?;
-        for field in ["state", "id"] {
+        for field in ["state", "id", "cancellation"] {
+            if field == "cancellation" && value.get(field).is_none() {
+                continue;
+            }
             let text = value[field]
                 .as_str()
                 .unwrap_or("unknown")

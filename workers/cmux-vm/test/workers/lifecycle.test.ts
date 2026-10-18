@@ -199,13 +199,13 @@ describe("idempotency keys on create", () => {
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(2);
   });
 
-  it("lets a failed create be retried with the same key", async () => {
+  it("retries a confirmed capacity rejection with the same key", async () => {
     const t = await harness();
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     const headers = { "idempotency-key": "create-3" };
-    t.upstream.fail("create", 503);
+    t.upstream.fail("create", 429);
 
-    expect((await createVm(t, key, {}, headers)).status).toBe(503);
+    expect((await createVm(t, key, {}, headers)).status).toBe(429);
     expect((await createVm(t, key, {}, headers)).status).toBe(201);
   });
 });

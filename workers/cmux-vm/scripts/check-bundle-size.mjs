@@ -6,7 +6,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-const BUDGET_GZIP_BYTES = 384 * 1024; // 298 KiB at S1
+// Durable create cancellation adds the send fence, proof-bound cleanup and compatible status projection.
+// No dependency was added; keep a bounded 4 KiB increase over the previous 384 KiB gate.
+const BUDGET_GZIP_BYTES = 388 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

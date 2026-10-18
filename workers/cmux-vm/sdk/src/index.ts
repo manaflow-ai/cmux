@@ -22,6 +22,7 @@ export type RetiredVm = components["schemas"]["RetiredVm"];
 export type FileStat = components["schemas"]["FileStat"];
 export type VmInstanceIdentity = components["schemas"]["VmInstanceIdentity"];
 export type VmCreationReceipt = components["schemas"]["VmCreationReceipt"];
+export type VmCreationCancellation = components["schemas"]["VmCreationCancellation"];
 export type VmCreationStatus = components["schemas"]["VmCreationStatus"];
 export type VmState = Vm["state"];
 export type CreateVmRequest = components["schemas"]["CreateVmRequest"];

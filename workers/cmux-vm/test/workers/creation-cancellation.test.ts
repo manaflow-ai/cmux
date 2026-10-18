@@ -5,8 +5,8 @@ type Harness = Awaited<ReturnType<typeof makeHarness>>;
 let h: Harness | undefined;
 afterEach(async () => { await h?.dispose(); h = undefined; });
 const KEY = "cancel-original-create";
-const setup = async () => {
-  h = await makeHarness({ maxVms: 1 });
+const setup = async (maxVms = 1) => {
+  h = await makeHarness({ maxVms });
   const t = h, token = await t.addKey("team_alpha", ["vm:read", "vm:write"]);
   const headers = { authorization: `Bearer ${token}`, "idempotency-key": KEY };
   const create = (key = KEY, resources?: { readonly vcpus: number }) => t.request("/v1/vms", { ...headers, "idempotency-key": key }, { method: "POST", body: { displayName: "cancelled team allocation", labels: { role: "team-vm" }, ...(resources === undefined ? {} : { resources }) } });
@@ -25,8 +25,8 @@ it("cancels a retained allocation, keeps its tombstone, and frees quota without 
   expect(t.upstream.vms.size).toBe(0);
   expect(t.resources).toHaveLength(1);
   expect(t.isDeleted(t.resources[0]!.cmuxId)).toBe(true);
-  expect(await (await t.status()).json()).toMatchObject({ state: "cancelled" });
-  expect(await (await t.reconcile()).json()).toMatchObject({ state: "cancelled" });
+  expect(await (await t.status()).json()).toMatchObject({ state: "deleted", cancellation: "completed" });
+  expect(await (await t.reconcile()).json()).toMatchObject({ state: "deleted", cancellation: "completed" });
   expect((await t.create()).status).toBe(409);
   expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
   expect((await t.create("fresh-intent")).status).toBe(201);
@@ -64,7 +64,7 @@ it("retains an in-flight cancellation until its late allocation can be verified 
     expect((await t.create("different-intent")).status).toBe(429);
   } finally { resume.release(); await original; }
   expect((await original).status).not.toBe(201);
-  expect(await (await t.reconcile()).json()).toMatchObject({ state: "cancelled" });
+  expect(await (await t.reconcile()).json()).toMatchObject({ state: "deleted", cancellation: "completed" });
   expect(t.upstream.vms.size).toBe(0);
   expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
 });
@@ -79,7 +79,7 @@ it("never resends an uncertain provider create or reports a 404 as cancellation"
   const cancellation = await t.cancel(); expect(cancellation.status).toBe(200);
   expect(await cancellation.json()).toMatchObject({ state: "cancelling" });
   expect((await t.create()).status).toBe(409);
-  expect(await (await t.reconcile()).json()).toMatchObject({ state: "cancelling" });
+  expect(await (await t.reconcile()).json()).toMatchObject({ state: "pending", cancellation: "requested" });
   expect((await t.create("replacement")).status).toBe(429);
   expect(sends).toBe(1);
 });
@@ -144,4 +144,28 @@ it("preserves a known rejected create's retryability before cancellation", async
   expect((await t.create()).status).toBe(429);
   expect((await t.create()).status).toBe(201);
   expect(t.upstream.vms.size).toBe(1);
+});
+
+
+it("does not treat a provider 503 as a confirmed rejection that permits another send", async () => {
+  const t = await setup(); t.upstream.fail("create", 503);
+  expect((await t.create()).status).toBe(503);
+  expect((await t.create()).status).toBe(503);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+  expect((await t.cancel()).status).toBe(200);
+  expect(await (await t.status()).json()).toMatchObject({ state: "pending", cancellation: "requested" });
+});
+
+
+it("retains an uncertain fork and its original snapshot without another provider create", async () => {
+  const t = await setup(2), source = t.addVm("team_alpha");
+  const fork = () => t.request(`/v1/vms/${source.vmId}/fork`, t.headers, { method: "POST", body: {} });
+  t.upstream.fail("create", 503);
+  expect((await fork()).status).toBe(503);
+  expect((await fork()).status).toBe(503);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+  expect(t.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelling" });
+  expect(t.upstream.vms.size).toBe(1);
+  expect(t.upstream.snapshots.size).toBe(1);
 });

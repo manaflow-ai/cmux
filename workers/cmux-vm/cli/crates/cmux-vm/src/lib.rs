@@ -558,7 +558,9 @@ async fn dispatch(
                             ));
                         }
                     }
-                    fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?
+                    return out.creation_cancellation(
+                        &fetch_body(client.vm_creations_cancel_vm_creation(&key, None)).await?,
+                    );
                 }
                 CreationCommand::Reconcile(args) => {
                     let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(
