@@ -20,11 +20,11 @@ type AttemptFailure = { readonly ok: false; readonly response: Response };
 
 
 function safeError(error: unknown): string {
-  const outer = error instanceof Error ? error.message : String(error);
-  const cause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
-  const inner = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
-  const code = cause && typeof cause === "object" && "code" in cause && typeof (cause as { code?: unknown }).code === "string" ? ` [${(cause as { code: string }).code}]` : "";
-  return `${outer}${inner && inner !== outer ? `: ${inner}` : ""}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
+  const source = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const cause = source.cause && typeof source.cause === "object" ? source.cause as Record<string, unknown> : undefined;
+  const detail = typeof cause?.message === "string" ? cause.message : typeof source.message === "string" ? source.message : String(error);
+  const code = typeof cause?.code === "string" ? ` [${cause.code}]` : "";
+  return `${detail}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
 }
 
 function errorResponse(message: string, status = 400): Response {
