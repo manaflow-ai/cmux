@@ -63,7 +63,7 @@ public final class BackdropImagesPageProvider: PageProvider {
         case Self.prefix + "remove":
             let selection = try own(params)
             // Removing a background something shows would leave its windows blank.
-            guard !isShown(selection) else {
+            guard await !isShown(selection) else {
                 throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
             }
             let images = images
@@ -91,14 +91,17 @@ public final class BackdropImagesPageProvider: PageProvider {
                 throw PageError(code: refused.code, message: refused.code)
             }
         case Self.prefix + "collage.get":
-            guard let id = params["id"]?.stringValue, let collage = collages.collage(id) else { throw PageError.invalidParams("no such collage") }
+            let collages = collages
+            guard let id = params["id"]?.stringValue,
+                  let collage = await Task.detached(operation: { collages.collage(id) }).value else { throw PageError.invalidParams("no such collage") }
             return try JSONValue.parse(JSONEncoder().encode(collage))
         case Self.prefix + "collage.delete":
             guard let id = params["id"]?.stringValue, BackdropCollages.isValidID(id) else { throw PageError.invalidParams("no such collage") }
-            guard !isShown(.collage(id: id)) else {
+            guard await !isShown(.collage(id: id)) else {
                 throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
             }
-            try collages.delete(id)
+            let collages = collages
+            try await Task.detached { try collages.delete(id) }.value
             BackdropPlacementStore.shared.set(nil, for: BackdropSelection.collage(id: id).id)
             return .object([:])
         case Self.prefix + "adjust":
@@ -128,12 +131,16 @@ public final class BackdropImagesPageProvider: PageProvider {
     /// Whether the app's background or any workspace's own background is `selection`. Workspace
     /// backgrounds are the app's `workspace-backgrounds.json` beside the backgrounds folder
     /// (`WorkspaceBackgroundStore`): `{"<session>/<workspace>": "<background id>"}`.
-    private func isShown(_ selection: BackdropSelection) -> Bool {
+    private func isShown(_ selection: BackdropSelection) async -> Bool {
         if selection == inUse() { return true }
         let file = images.folder.deletingLastPathComponent().appendingPathComponent("workspace-backgrounds.json")
+        return await Task.detached { Self.aWorkspaceShows(selection, file: file) }.value
+    }
+
+    /// Read off the main actor. A file that does not read is taken to show it: removing a
+    /// background can wait, a blank workspace cannot be undone.
+    private nonisolated static func aWorkspaceShows(_ selection: BackdropSelection, file: URL) -> Bool {
         guard FileManager.default.fileExists(atPath: file.path) else { return false }
-        // A file that does not read is taken to show it: removing a background can wait, a blank
-        // workspace cannot be undone.
         guard let data = try? Data(contentsOf: file),
               let workspaces = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
         return workspaces.values.contains { ($0 as? String) == selection.id }
