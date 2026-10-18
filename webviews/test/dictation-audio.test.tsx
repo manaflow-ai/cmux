@@ -137,8 +137,10 @@ test("voice input follows the picked model", () => {
   ];
   expect(takesAudio({ audio: true }, picker("hears"))).toBe(true);
   expect(takesAudio({ audio: true }, picker("reads"))).toBe(false);
-  // A harness that names no modalities is taken at its word.
-  expect(takesAudio({ audio: true }, picker("unknown"))).toBe(true);
+  // A model without a list, beside models with one, takes none (as cmux-codex-acp rules).
+  expect(takesAudio({ audio: true }, picker("unknown"))).toBe(false);
+  // A harness that names no modalities at all is taken at its word.
+  expect(takesAudio({ audio: true }, [{ category: "model", currentValue: "x", options: [{ value: "x" }] }])).toBe(true);
   expect(takesAudio({ audio: true }, undefined)).toBe(true);
   expect(takesAudio({ audio: false }, picker("hears"))).toBe(false);
   expect(takesAudio(undefined, picker("hears"))).toBe(false);

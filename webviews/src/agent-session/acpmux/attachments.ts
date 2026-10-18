@@ -185,9 +185,11 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
 }
 
 /// Whether a session takes voice input through its picked model: the harness advertises ACP
-/// `promptCapabilities.audio`, and the current model option, when it names its input modalities
-/// (`_meta.inputModalities`, cmux-codex-acp), lists `audio`. A Codex model that does not hear
-/// audio would only be told the recording could not be read.
+/// `promptCapabilities.audio`, and, when its model options name their input modalities
+/// (`_meta.inputModalities`, cmux-codex-acp), the picked model lists `audio`; a model without a
+/// list there takes none, as the harness itself rules. A harness that names no modalities at all
+/// is taken at its word. A Codex model that does not hear audio would only be told the recording
+/// could not be read.
 export function takesAudio(promptCapabilities: unknown, configOptions: unknown): boolean {
   if ((promptCapabilities as { audio?: unknown } | undefined)?.audio !== true) return false;
   const model = Array.isArray(configOptions)
@@ -195,13 +197,12 @@ export function takesAudio(promptCapabilities: unknown, configOptions: unknown):
         (option) => option?.category === "model",
       )
     : undefined;
-  const picked = Array.isArray(model?.options)
-    ? (model.options as { value?: unknown; _meta?: { inputModalities?: unknown } }[]).find(
-        (option) => option?.value === model.currentValue,
-      )
-    : undefined;
-  const modalities = picked?._meta?.inputModalities;
-  return !Array.isArray(modalities) || modalities.includes("audio");
+  const options = Array.isArray(model?.options)
+    ? (model.options as { value?: unknown; _meta?: { inputModalities?: unknown } }[])
+    : [];
+  if (!options.some((option) => Array.isArray(option?._meta?.inputModalities))) return true;
+  const modalities = options.find((option) => option?.value === model?.currentValue)?._meta?.inputModalities;
+  return Array.isArray(modalities) && modalities.includes("audio");
 }
 
 /// A dictation session's recording as a chip, for a harness that takes voice input
