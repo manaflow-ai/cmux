@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextFocus
 
 // The places a key can reach after the dispatcher: the window hook, the
 // Chromium hooks and main-menu key equivalents. Each runs nothing for a key

@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTabs
 import Observation
+import CmuxNextFocus
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
