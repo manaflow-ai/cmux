@@ -14,7 +14,6 @@ public final class ChiefPetController {
     /// How long a finished notice stays up.
     static let doneSeconds: Double = 8
 
-    private let enabled: @MainActor @Sendable () -> Bool
     private let makePanel: () -> ChiefPetPanel
     /// Opening and sending, the App's (a click on a notice opens its tab).
     let actions: ChiefPetActions
@@ -32,15 +31,13 @@ public final class ChiefPetController {
     private var expiries: [UInt64: DemandTimer] = [:]
     private var watch: Task<Void, Never>?
     private var isOn = false
+    private(set) var mascot = ChiefPetMascot.standard
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
 
-    /// `enabled`: whether the pet shows, read under observation; nil reads `ChiefPetTunables.enabled`.
-    public init(enabled: (@MainActor @Sendable () -> Bool)? = nil,
-         makePanel: @escaping () -> ChiefPetPanel,
+    public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
          clock: any Clock<Duration> = ContinuousClock()) {
-        self.enabled = enabled ?? { ChiefPetTunables.enabled.value }
         self.makePanel = makePanel
         self.actions = actions
         self.clock = clock
@@ -53,14 +50,25 @@ public final class ChiefPetController {
         ChiefPetHooks(alerted: { [weak self] in self?.arrive($0) }, read: { [weak self] in self?.read(tab: $0) })
     }
 
-    /// Follows the switch: shows the pet when it turns on, hides it when it turns off.
-    public func start() {
+    /// Follows `enabled` (`home.chiefPetEnabled`) and `mascot` (`home.chiefPetMascot`, a
+    /// `ChiefPetMascot` id), read under observation: shows the pet when it turns on, hides it when
+    /// it turns off, and draws the chosen character.
+    public func start(enabled: @escaping @MainActor @Sendable () -> Bool,
+                      mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.standard.rawValue }) {
         // task-owner: lives as long as the app services; event-driven (Observation)
-        watch = Task { [weak self, enabled] in
-            for await on in ObservationStream({ enabled() }) {
+        watch = Task { [weak self] in
+            for await (on, id) in ObservationStream({ (enabled(), mascot()) }) {
+                self?.setMascot(ChiefPetMascot(rawValue: id) ?? .standard)
                 self?.sync(on)
             }
         }
+    }
+
+    /// Draws `mascot` from now on (the panel keeps it while hidden).
+    func setMascot(_ mascot: ChiefPetMascot) {
+        guard mascot != self.mascot else { return }
+        self.mascot = mascot
+        panel?.pet.image = mascot.image
     }
 
     func sync(_ on: Bool) {
@@ -141,6 +149,7 @@ public final class ChiefPetController {
     private func panelOnce() -> ChiefPetPanel {
         if let panel { return panel }
         let made = makePanel()
+        if mascot != .standard { made.pet.image = mascot.image }
         made.onClick = { [weak self] in self?.toggleReply() }
         // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in

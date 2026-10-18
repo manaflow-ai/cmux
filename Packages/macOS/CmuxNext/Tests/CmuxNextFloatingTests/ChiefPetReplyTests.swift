@@ -48,7 +48,7 @@ import Testing
         let name = "ChiefPetReplyTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
-        return ChiefPetController(enabled: { false }, makePanel: { ChiefPetPanel(defaults: defaults) },
+        return ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                   actions: ChiefPetActions(open: { recorder.opened.append($0) }, send: { target, text in
                                       recorder.sent.append((target, text))
                                       return recorder.succeeds

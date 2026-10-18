@@ -116,7 +116,7 @@ import Testing
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
         var opened = 0
-        let controller = ChiefPetController(enabled: { false }, makePanel: { ChiefPetPanel(defaults: defaults) },
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { if $0 == .chief { opened += 1 } }, send: { _, _ in true }))
         defer { controller.sync(false) }
         controller.sync(true)
