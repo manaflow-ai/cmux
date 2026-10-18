@@ -58,8 +58,8 @@ BUDGET = {
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-2.9): the new pane's mount snapshot,
-    # one re-run that changes nothing (open), the shell's first title; the new tab's surface
-    # change sends one topology (FocusTopology keys tabs by surface). Bound 2 / 2 / 1.
+    # one re-run that changes nothing, the shell's first title; the new pane's first apply after
+    # the split sends one more topology. The last two causes are open. Bound 2 / 2 / 1.
     "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
