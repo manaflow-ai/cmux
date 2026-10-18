@@ -167,4 +167,9 @@ pub(crate) fn prompt_text(blocks: &[Value]) -> String {
 pub(super) struct Applied {
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// The approval digest of the preset contents `session/new` resolved
+    /// with, and the one its harness last spawned with
+    /// (`start_gate/preset_bind.rs`).
+    pub preset_resolved: Option<String>,
+    pub preset_spawned: Option<String>,
 }

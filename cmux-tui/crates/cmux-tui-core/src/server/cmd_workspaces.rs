@@ -333,19 +333,58 @@ pub(super) fn close_provider_managed_workspace(
     Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
 }
 
+/// Workspace name provenance (hq#1957): `source`, `expected_generation` and
+/// `expected_name_revision` on `rename-workspace` and `workspace.rename`, and
+/// `name_source`/`name_revision` on every workspace (`extra` in resource
+/// snapshots). An automatic rename never replaces a user name.
+pub const WORKSPACE_NAME_SOURCE_CAPABILITY: &str = "workspace-name-source-v1";
+
+/// The `rename-workspace` fields besides the mutation envelope.
+#[derive(serde::Deserialize)]
+pub(super) struct WorkspaceRenameRequest {
+    #[serde(default)]
+    pub(super) workspace: Option<WorkspaceId>,
+    #[serde(default)]
+    pub(super) key: Option<String>,
+    pub(super) name: String,
+    /// `workspace-name-source-v1`: who chose the name (absent = `user`).
+    #[serde(default)]
+    pub(super) source: Option<crate::resource_name::NameSource>,
+    /// `workspace-name-source-v1`: the decimal name revision an automatic
+    /// rename read; required with `source: auto`.
+    #[serde(default)]
+    pub(super) expected_name_revision: Option<String>,
+    /// `workspace-name-source-v1`: with `source: auto`, hand the current name
+    /// (`name` must equal it) back to the automatic namer.
+    #[serde(default)]
+    pub(super) release: bool,
+}
+
 pub(super) fn rename_workspace(
     mux: &Arc<Mux>,
     client: u64,
-    workspace: Option<WorkspaceId>,
-    key: Option<String>,
-    name: String,
+    request: WorkspaceRenameRequest,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
+    let WorkspaceRenameRequest { workspace, key, name, source, expected_name_revision, release } =
+        request;
+    let name_revision = expected_name_revision
+        .as_deref()
+        .map(crate::resource_name::parse_name_revision)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("bad request: expected_name_revision: {error}"))?;
+    let name_authority = crate::resource_name::WorkspaceNameUpdate::from_request(
+        source,
+        mutation.expected_generation.clone(),
+        name_revision,
+        release,
+    )?;
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let result = mux.rename_workspace_with_mutation(
+    let result = mux.rename_workspace_with_name_authority(
         workspace,
         key.as_deref(),
         name,
+        &name_authority,
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,

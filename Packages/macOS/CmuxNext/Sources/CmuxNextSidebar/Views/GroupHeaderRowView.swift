@@ -156,7 +156,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
-    var countLabel: NSTextField { count }
+    var countLabel: ChromeLabel { count }
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
@@ -171,7 +171,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
     /// plus the cell's text inset on both sides. The label's bare measured width is short of it
     /// (a live capture cut "Frontend" to "Fronte…" and clipped the count's digit).
-    private static func drawnWidth(_ label: NSTextField) -> CGFloat {
+    private static func drawnWidth(_ label: ChromeLabel) -> CGFloat {
         let font = label.font ?? SidebarStyle.headerFont
         let text = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width)
         return max(ceil(label.intrinsicContentSize.width), text + 2 * Metrics.space2)

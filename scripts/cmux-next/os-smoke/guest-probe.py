@@ -33,6 +33,18 @@ STALLS_SEEN = [0]
 def step(name, ok, detail=None):
     result["steps"][name] = {"ok": bool(ok), **({"detail": detail} if detail is not None else {})}
     print("%-9s %s %s" % (name, "ok" if ok else "FAIL", "" if detail is None else json.dumps(detail)[:400]), flush=True)
+    if not ok and "did not finish within" in json.dumps(detail):
+        # What a timed-out action.run waited on (data.waiting_on: its stages and command tickets).
+        def find_waits(value):
+            if isinstance(value, dict):
+                if "waiting_on" in value:
+                    return value["waiting_on"]
+                for v in value.values():
+                    found = find_waits(v)
+                    if found is not None:
+                        return found
+            return None
+        print("waiting   %s %s" % (name, json.dumps(find_waits(detail))[:1500]), flush=True)
     if not ok and "did not finish within" in json.dumps(detail) and DEBUG_ROUTER:
         # A control deadline passed: the main-thread stalls since the last report say what held it.
         records = (rpc("debug.hangs", {"after": STALLS_SEEN[0]}) or {}).get("records") or []
@@ -374,7 +386,12 @@ try:
               "cef": rpc("debug.cef") if debug_router() else None})
         if not result["steps"]["browser"]["ok"] and debug_router():
             # The run's artifacts are deleted with the VM: the step log keeps Chromium's state.
-            print("cefdiag   %s" % json.dumps({k: v for k, v in (rpc("debug.cef") or {}).items() if k != "devtools"})[:1500], flush=True)
+            diag = rpc("debug.cef") or {}
+            print("cefdiag   %s" % json.dumps({k: v for k, v in diag.items() if k not in ("devtools", "start_steps", "pump", "windows")})[:1200], flush=True)
+            steps = diag.get("start_steps") or []
+            origin = min([m.get("start_uptime_ns") or 0 for m in steps] or [0])
+            print("cefsteps  %s" % json.dumps([[m.get("name"), round(((m.get("start_uptime_ns") or 0) - origin) / 1e6), round(m.get("ms") or 0)]
+                                               for m in sorted(steps, key=lambda m: m.get("start_uptime_ns") or 0)])[:1500], flush=True)
         step("snapshot", snap("browser", "window.png"), result["snapshots"].get("browser"))
         # The engine's own frame of the page (no screen capture), then the screen again 5 s
         # later: a page the engine rendered but the window never showed is a compositing bug.
@@ -511,6 +528,18 @@ finally:
                         time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
                         "--predicate", 'process CONTAINS "cmux" OR process CONTAINS "ghostty" OR senderImagePath CONTAINS "cmux"'],
                        stdout=f, stderr=subprocess.STDOUT, timeout=120)
+    # Privacy: which TCC services the app asked for during the run (none expected; the early
+    # LocalAuthentication ask must not be one).
+    try:
+        tcc = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",
+                              time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
+                              "--predicate", 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "%s"' % (bundle_id or "-none-")],
+                             capture_output=True, text=True, timeout=120).stdout
+    except subprocess.TimeoutExpired:
+        tcc = "log show timed out"
+    services = sorted(set(re.findall(r"kTCCService\w+", tcc)))
+    result["tcc_services"] = services
+    print("tcc       %s" % json.dumps({"services": services, "lines": len([l for l in tcc.splitlines() if bundle_id in l])}), flush=True)
     # Which process opened any other app (System Settings, a browser) during the run.
     with open(os.path.join(OUT, "launches.log"), "w") as f:
         subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",
