@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWorkspaceNaming
 
