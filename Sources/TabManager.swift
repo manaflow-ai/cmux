@@ -3024,8 +3024,9 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
         let showsBatchConfirmation: Bool
-        var dontAskAgain: CloseWarningKinds
+        let dontAskAgain: CloseWarningKinds
         if containsPinned {
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults)
                 .shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut)
@@ -3033,15 +3034,23 @@ class TabManager: ObservableObject {
         } else if plan.willCloseWindow {
             // A batch that closes the whole window follows the window warning
             // policy. The tab warning must not suppress this prompt.
-            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+            let windowWarns = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
                 || hasActiveProcess
-            dontAskAgain = .window
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = windowWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.window, .safety] : .window,
+                ordinaryWarns: windowWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         } else {
-            showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            let workspaceWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
                 || hasActiveProcess
-            dontAskAgain = .workspace
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = workspaceWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.workspace, .safety] : .workspace,
+                ordinaryWarns: workspaceWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         }
         if showsBatchConfirmation {
             guard confirmClose(
@@ -3331,14 +3340,19 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
+        let warnsWithoutAlwaysConfirm = needsCloseConfirmation
+            || shouldConfirmWorkspaceClose(
+                requiresConfirmation: needsCloseConfirmation,
+                source: source
+            )
         let showsCloseConfirmation = requiresConfirmation
-            && (needsCloseConfirmation
-                || shouldConfirmWorkspaceClose(
-                    requiresConfirmation: needsCloseConfirmation,
-                    source: source
-                ))
-        var dontAskAgain: CloseWarningKinds = .workspace
-        if needsCloseConfirmation { dontAskAgain.insert(.safety) }
+            && (warnsWithoutAlwaysConfirm || alwaysConfirm)
+        let dontAskAgain = Self.workspaceCloseDontAskAgain(
+            ordinary: needsCloseConfirmation ? [.workspace, .safety] : .workspace,
+            ordinaryWarns: warnsWithoutAlwaysConfirm,
+            alwaysConfirm: alwaysConfirm
+        )
         if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -3391,6 +3405,21 @@ class TabManager: ObservableObject {
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
             && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// What "Don't ask again" turns off on a workspace close prompt. When the
+    /// prompt shows only because of `app.alwaysConfirmWorkspaceClose`, it turns
+    /// off just that setting and leaves the ordinary workspace and window
+    /// warnings alone. When the ordinary warning would have asked too, it turns
+    /// off both, so the same close does not ask next time.
+    static func workspaceCloseDontAskAgain(
+        ordinary: CloseWarningKinds,
+        ordinaryWarns: Bool,
+        alwaysConfirm: Bool
+    ) -> CloseWarningKinds {
+        guard alwaysConfirm else { return ordinary }
+        guard ordinaryWarns else { return .alwaysConfirmWorkspace }
+        return ordinary.union(.alwaysConfirmWorkspace)
     }
 
     /// Applies the user-configured warning toggles without turning the
