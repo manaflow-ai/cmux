@@ -190,6 +190,8 @@ final class AppServices {
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
+    /// The Chief pet floating over every app (`ChiefPetTunables.enabled`).
+    private(set) lazy var chiefPet = makeChiefPet()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
@@ -337,6 +339,8 @@ final class AppServices {
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
         notifications.start(services: self)
+        // Showcase captures draw the app's own windows only.
+        if !environment.showcase { chiefPet.start() }
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
             self?.notifications.noteMouseDown(in: event.window)
