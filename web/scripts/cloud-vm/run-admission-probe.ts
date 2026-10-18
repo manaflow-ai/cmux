@@ -92,7 +92,12 @@ export async function runAdmissionProbe(): Promise<boolean> {
       // Synthetic scope is safe to retain so failed cleanup can be resumed.
       receipt.cleanupScope = { ...scope, idempotencyKey: key };
     }
-    await closeCloudDbForTests();
+    try {
+      await closeCloudDbForTests();
+    } catch (error) {
+      receipt.ok = false;
+      receipt.close = { ok: false, ...safeRunAdmissionError(error) };
+    }
   }
   console.log(JSON.stringify(receipt, null, 2));
   return receipt.ok === true;
