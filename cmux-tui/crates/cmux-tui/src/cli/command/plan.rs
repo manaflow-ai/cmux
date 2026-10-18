@@ -102,6 +102,17 @@ impl super::CommandPlan {
             other => other,
         }
     }
+
+    /// `agent list`: the `agent.list` request printed as a ranked roster.
+    pub(super) fn agent_roster(self, view: AgentRosterView) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentRoster(view);
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
 }
 
 #[cfg(test)]

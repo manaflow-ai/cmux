@@ -1385,7 +1385,39 @@ fn parse_agent(
                 )?;
                 params.insert("state".into(), Value::String(state));
             }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
+            // `--needs-me` is the daemon's blocked filter.
+            if flags.boolean("needs-me") {
+                match params.get("state").and_then(Value::as_str) {
+                    None | Some("blocked") => {
+                        params.insert("state".into(), Value::String("blocked".into()));
+                    }
+                    Some(state) => {
+                        return Err(UsageError::new(format!(
+                            "--needs-me lists blocked agents; it conflicts with --state {state}"
+                        )));
+                    }
+                }
+            }
+            let sort = match flags.take("sort").as_deref() {
+                None | Some("needs-me") => AgentSort::NeedsMe,
+                Some("recent") => AgentSort::Recent,
+                Some("none") => AgentSort::None,
+                Some(_) => {
+                    return Err(UsageError::new("--sort must be one of needs-me, recent, none"));
+                }
+            };
+            let limit = match flags.take("limit") {
+                Some(limit) => Some(
+                    limit
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|limit| *limit >= 1)
+                        .ok_or_else(|| UsageError::new("--limit must be a positive integer"))?,
+                ),
+                None => None,
+            };
+            Ok(request(ResourceOperation::AgentList, &selectors, flags, params)?
+                .agent_roster(AgentRosterView { sort, limit }))
         }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;

@@ -669,7 +669,8 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let agents = json_cli(&server, &["agent", "list", "--terminal", &terminal]);
     assert_success(&agents);
     let agents = json_output(&agents);
-    assert_eq!(agents[0]["state"].as_str(), Some("idle"));
+    assert_eq!(agents["agents"][0]["state"].as_str(), Some("idle"));
+    assert_eq!(agents["counts"]["idle"], 1);
 
     let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
     if !send_key.status.success() {
