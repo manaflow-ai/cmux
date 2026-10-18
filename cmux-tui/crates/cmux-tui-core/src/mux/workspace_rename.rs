@@ -340,3 +340,30 @@ impl Mux {
         }))
     }
 }
+
+/// The public `upsert` of one workspace, with its name provenance.
+pub(super) fn workspace_resource_upsert(
+    sequence: usize,
+    session_id: &str,
+    workspace_id: &WorkspacePublicId,
+    name: &str,
+    name_provenance: (crate::resource_name::NameSource, u64),
+    index: usize,
+    focused: bool,
+) -> Value {
+    let (name_source, name_revision) = name_provenance;
+    serde_json::json!({
+        "kind":"upsert",
+        "sequence":sequence,
+        "resource":"workspace",
+        "id":workspace_id,
+        "value":{
+            "id":workspace_id,
+            "session_id":session_id,
+            "name":name,
+            "index":index,
+            "focused":focused,
+            "extra":crate::resource_name::workspace_name_extra(name_source, name_revision),
+        },
+    })
+}
