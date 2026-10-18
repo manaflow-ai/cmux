@@ -2632,7 +2632,7 @@ class TerminalController {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
                     continue
                 }
-                handleEventsStreamRequest(
+                await handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
                     authorizationGeneration: authorizationGeneration,
