@@ -116,6 +116,10 @@ export function requiredReportArgs(outcomes: boolean): readonly string[] {
     : ["base", "head", "head-manifest", "capture-manifest", "base-sha", "head-sha", "out", "pr"];
 }
 
+export function isExactSha(value: string): boolean {
+  return /^[0-9a-f]{40}$/.test(value);
+}
+
 export function comparisonReceipt(
   base: EvidenceReceipt | undefined,
   head: EvidenceReceipt | undefined,
@@ -239,6 +243,10 @@ if (import.meta.main) {
   });
   const required = requiredReportArgs(Boolean(values.outcomes));
   for (const name of required) if (!values[name]) throw new Error(`--${name} is required`);
+  if (!values.outcomes) {
+    for (const name of ["base-sha", "head-sha"] as const)
+      if (!isExactSha(values[name]!)) throw new Error(`--${name} must be a full 40-character lowercase commit SHA`);
+  }
   const out = values.out!;
   mkdirSync(out, { recursive: true });
   if (!values.outcomes) {
