@@ -2,9 +2,9 @@ import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
-/// The Now Playing player on the New Tab page: what plays (the sidebar card's source, the App's
-/// `NowPlayingSources`) for every agent page, and its controls back to the App. App-wide like Now
-/// Playing itself: the App sets ``track`` and ``onCommand``; each page gets the track at load and
+/// The Now Playing player on the New Tab page: what plays (the sidebar card's sources,
+/// `NowPlayingSources`) for every agent page, and its controls back to them. App-wide like Now
+/// Playing itself: CmuxNextNowPlaying's `NewTabNowPlaying` sets ``track`` and ``onCommand``; each page gets the track at load and
 /// handshake and again on every change. Not an AgentPaneView extension: that type is at its size limit.
 @MainActor
 public final class AgentPaneNowPlaying {
