@@ -78,8 +78,10 @@ extension WorkspaceContentController {
                      generation: UInt64? = nil) {
         // The coordinator lands an expectation against the topology it holds at once (reducer
         // `Expect`), and again on each later topology: no re-apply or topology send here. A tab
-        // the store has goes by its id, which a later surface change (a split's confirm) keeps.
-        let key: FocusState.Expectation.Key = daemon.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue))
+        // the store has under its public id goes by that id, which a later surface change (a
+        // split's confirm) keeps; a tab without one yet can get a new record (`TabModel.identity`).
+        let known = daemon.store.tab(surface: surface).flatMap { $0.resourceID == nil ? nil : $0.id }
+        let key: FocusState.Expectation.Key = known.map { .tab($0) } ?? .surface(String(surface.rawValue))
         focus.expect(key, target: target, awayFrom: paneKey, generation: generation)
     }
 }

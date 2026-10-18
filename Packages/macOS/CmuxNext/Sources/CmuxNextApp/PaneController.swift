@@ -41,9 +41,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item (I1, I2): `structure()` reads no tab field.
-    private lazy var tabItems = ObservedItems<TabModel, StripTabItem>(item: { [weak self] in self?.tabItem($0) }, same: ==,
-                                                                     changed: { [weak self] in self?.tabItemChanged() })
-    private var lastStructure: Structure? // the strip's list as last observed; a tab item change applies with it
+    /// The kind rides along: `focusPane` reads it, so a kind change that draws the same still applies.
+    private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
+        item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
+        same: { $0.0 == $1.0 && $0.1 == $1.1 }, changed: { [weak self] in self?.tabItemChanged() })
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
@@ -138,14 +139,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         compose(structure(file, line), refresh: true)
     }
 
-    /// One tab's strip item changed (`tabItems`): the strip applies it.
-    private func tabItemChanged() {
-        if let lastStructure { apply(compose(lastStructure)) }
-    }
+    /// One tab's strip item changed (`tabItems`): the strip applies it, with the list as it is
+    /// now (an untracked read; the list's own change may not have applied yet).
+    private func tabItemChanged() { apply(compose(structure())) }
 
     private func compose(_ structure: Structure, refresh: Bool = false) -> Snapshot {
-        lastStructure = structure
-        let items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh) + structure.local
+        let items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.local
         let result = Snapshot(items: items, groups: structure.groups, defaultIndex: structure.defaultIndex,
                               connected: structure.connected, generation: structure.generation, hidesStrip: structure.hidesStrip)
         #if DEBUG
