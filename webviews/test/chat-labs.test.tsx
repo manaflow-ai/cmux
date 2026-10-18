@@ -390,6 +390,58 @@ test("a folded offscreen prompt discards its old drawn height and reused layout 
   }
 });
 
+test.each(["messageTimes", "liveRender", "codeWrap", "planProgress", "contextMeter", "shared wrap"] as const)(
+  "%s discards a measured offscreen row height like a fresh transcript",
+  async (setting) => {
+    const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+    if (setting === "shared wrap") act(() => configureLabs({ labs: { codeWrap: true } }));
+    const text = Array.from({ length: 40 }, (_, n) => `line ${n}`).join("\n");
+    const rows = Array.from({ length: 80 }, (_, n) => prompt(`setting-${n}`, text));
+    const transcript = (shown: AcpmuxRow[]) => (
+      <>
+        <VirtualTranscript rows={shown} sessionId="settings" expanded={new Set()} onToggleActivity={() => {}} />
+        <PlainCode code="wrap control" lang="text" />
+      </>
+    );
+    const prototype = dom.window.HTMLElement.prototype;
+    const rect = prototype.getBoundingClientRect;
+    const viewport = Object.getOwnPropertyDescriptor(prototype, "clientHeight");
+    Object.defineProperty(prototype, "clientHeight", { configurable: true, get: () => 600 });
+    prototype.getBoundingClientRect = function () {
+      const bounds = rect.call(this);
+      return this.getAttribute("data-row-id") === "setting-0"
+        ? new dom.window.DOMRect(bounds.x, bounds.y, bounds.width, 3000)
+        : bounds;
+    };
+    try {
+      await draw(transcript([rows[0]!]));
+      await draw(transcript(rows));
+      const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+      await act(async () => {
+        scroller.scrollTop = 70_000;
+        scroller.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+      });
+      expect(host.querySelector('[data-row-id="setting-0"]')).toBeNull();
+      const height = () => parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+      const cached = height();
+      if (setting === "shared wrap") await act(async () => button("Wrap lines")!.click());
+      else await act(async () => configureLabs({ labs: { [setting]: true } }));
+      const changed = height();
+      act(() => root!.unmount());
+      root = undefined;
+      await draw(transcript(rows));
+      expect(cached).not.toBe(height());
+      expect(changed).toBe(height());
+      await act(async () => configureLabs(undefined));
+      expect(height()).toBe(changed);
+    } finally {
+      prototype.getBoundingClientRect = rect;
+      if (viewport) Object.defineProperty(prototype, "clientHeight", viewport);
+      else Reflect.deleteProperty(prototype, "clientHeight");
+    }
+  },
+);
+
 test("Find reopens a prompt for the next occurrence after the reader collapses it", async () => {
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
   const { useChatFind } = await import("../src/agent-session/acpmux/conversation/chatFind");

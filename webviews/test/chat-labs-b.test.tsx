@@ -242,7 +242,7 @@ let command: (name: string) => boolean;
 function HelpPane() {
   const help = useShortcutsHelp();
   command = help.command;
-  useComposerKeyboard(() => true, help.command);
+  useComposerKeyboard(() => true);
   return (
     <>
       <ChatHeaderTools
@@ -282,6 +282,8 @@ test("shortcutsHelp renders live bindings in groups and reacts to rebinds and un
   ]);
   expect([...dialog()!.querySelectorAll("kbd")].map((node) => node.textContent)).toContain("⌃N");
   expect(dialog()!.textContent).not.toContain("⇧⌘I");
+  expect(dialog()!.querySelectorAll("dt").length).toBeGreaterThan(0);
+  expect([...dialog()!.querySelectorAll("dt")].map((node) => node.textContent)).not.toContain("Keyboard shortcuts");
   await draw(helpPane({ ...bindings, "palette.newAgentChat": "⌥N", "palette.toggleDictation": "", splitRight: "" }));
   expect([...dialog()!.querySelectorAll("kbd")].map((node) => node.textContent)).toContain("⌥N");
   expect(dialog()!.textContent).not.toContain("⌃N");
@@ -304,7 +306,7 @@ test("the header overflow opens shortcuts help and Close dismisses it", async ()
   expect(dom.window.document.activeElement === button("Chat actions")).toBe(true);
 });
 
-test("? follows the existing keyboard route, Escape dismisses, and the disabled lab keeps typing", async () => {
+test("? keeps typing with shortcutsHelp on or off, and Escape dismisses menu help", async () => {
   await draw(helpPane());
   expect(command("shortcutsHelp")).toBe(false);
   expect(button("Chat actions")?.disabled).toBe(true);
@@ -316,8 +318,12 @@ test("? follows the existing keyboard route, Escape dismisses, and the disabled 
   inserted = [];
   if (dom.window.document.activeElement instanceof dom.window.HTMLElement) dom.window.document.activeElement.blur();
   expect((await key("?", { shiftKey: true })).defaultPrevented).toBe(true);
+  expect(dialog()).toBeNull();
+  expect(inserted).toEqual(["?"]);
+  await act(async () => {
+    command("shortcutsHelp");
+  });
   expect(dialog()).not.toBeNull();
-  expect(inserted).toEqual([]);
   await key("Escape");
   expect(dialog()).toBeNull();
 });

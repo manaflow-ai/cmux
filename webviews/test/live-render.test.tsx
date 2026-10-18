@@ -418,20 +418,64 @@ test("untitled tool cards use the page title and component cards use their title
   }
 });
 
-test("identical cards in a reply keep separate state and stop choices", async () => {
+test.each([
+  ["top level", (page: string) => page + "\n\n" + page],
+  [
+    "quote",
+    (page: string) =>
+      (page + "\n\n" + page)
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n"),
+  ],
+  [
+    "list item",
+    (page: string) =>
+      "- Pages\n" +
+      (page + "\n" + page)
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n"),
+  ],
+  [
+    "list items",
+    (page: string) =>
+      ["First", "Second"]
+        .map(
+          (name) =>
+            `- ${name}\n` +
+            page
+              .split("\n")
+              .map((line) => `  ${line}`)
+              .join("\n"),
+        )
+        .join("\n"),
+  ],
+  [
+    "quote in list",
+    (page: string) =>
+      "- Pages\n" +
+      (page + "\n" + page)
+        .split("\n")
+        .map((line) => `  > ${line}`)
+        .join("\n"),
+  ],
+])("identical cards at %s keep separate state and stop choices", async (name, nested) => {
   await draw();
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
   const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
   const page = "```cmux-render\n<p>identical</p>\n```";
-  act(() =>
-    root!.render(
-      <ChatSessionContext.Provider value="two-cards">
-        <TranscriptRowContext.Provider value="reply">
-          <Markdown>{page + "\n\n" + page}</Markdown>
-        </TranscriptRowContext.Provider>
-      </ChatSessionContext.Provider>,
-    ),
-  );
+  const mount = (html: string) =>
+    act(() =>
+      root!.render(
+        <ChatSessionContext.Provider value={`two-cards-${name}`}>
+          <TranscriptRowContext.Provider value="reply">
+            <Markdown>{nested(html)}</Markdown>
+          </TranscriptRowContext.Provider>
+        </ChatSessionContext.Provider>,
+      ),
+    );
+  mount(page);
   const frames = [...host.querySelectorAll("iframe")];
   expect(frames).toHaveLength(2);
   const replies: Record<string, unknown>[] = [];
@@ -450,6 +494,24 @@ test("identical cards in a reply keep separate state and stop choices", async ()
   expect(replies.at(-1)?.value).toBeNull();
   click("Stop");
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  act(() => root!.unmount());
+  const { createRoot } = await import("react-dom/client");
+  root = createRoot(host);
+  mount(page.replace("identical", "updated"));
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  click("Run");
+  expect(host.querySelectorAll("iframe")).toHaveLength(2);
+  const remounted = host.querySelector("iframe")!;
+  remounted.contentWindow!.postMessage = (data) => replies.push(data);
+  void act(() =>
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        source: remounted.contentWindow,
+        data: { type: "cmux-render-request", id: "2", method: "state.get", params: {} },
+      }),
+    ),
+  );
+  expect(replies.at(-1)?.value).toBe("first");
 });
 
 test("a tool card keeps state and Stop when its HTML changes under the same row id", async () => {

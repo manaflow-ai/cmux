@@ -11,7 +11,7 @@ import { useSyncExternalStore } from "react";
 /// - `messageTimes`: show a prompt's send time on hover or focus.
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
 /// - `planProgress`: keep the running plan's current step above the composer.
-/// - `shortcutsHelp`: show the chat's live keys from its menu or with ? outside a field.
+/// - `shortcutsHelp`: show the chat's live keys from its menu.
 ///
 /// Turn one on with `"labs": {"liveRender": true}` in `agent-pane/layout.json` (the App pushes the
 /// file to every chat), or in the dev server with `?data-lab-live-render=on`. Each switch is also

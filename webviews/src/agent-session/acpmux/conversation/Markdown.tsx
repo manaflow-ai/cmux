@@ -605,7 +605,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} renderId={renderId} />
         </blockquote>
       );
     case "list": {
@@ -625,7 +625,9 @@ function Block({
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              {it.children.length > 0 && (
+                <Blocks blocks={it.children} opts={opts} depth={depth + 1} renderId={`${renderId}/item/${i}`} />
+              )}
             </li>
           ))}
         </L>
@@ -697,12 +699,22 @@ function Block({
   }
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  renderId,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  renderId?: string;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block block={b} opts={opts} depth={depth} renderId={`${renderId}/${i}`} />
         </Fragment>
       ))}
     </>

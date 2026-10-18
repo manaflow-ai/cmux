@@ -58,7 +58,7 @@ export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenCha
     { title: t("shortcutsHelp.conversation"), entries: bound(CONVERSATION) },
     {
       title: t("shortcutsHelp.navigation"),
-      entries: [...bound(NAVIGATION), { id: "help", label: t("shortcutsHelp.title"), key: "?" }],
+      entries: bound(NAVIGATION),
     },
   ];
   if (!enabled) return null;
@@ -92,7 +92,7 @@ export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
-/// Menu, pane keyboard routing and bridge commands open one dialog.
+/// Menu and bridge commands open one dialog (Lucas 2026-10-18).
 export function useShortcutsHelp() {
   const enabled = useLab("shortcutsHelp");
   const t = useT();

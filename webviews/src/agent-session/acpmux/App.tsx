@@ -170,6 +170,7 @@ import {
 import { callChipHost } from "./chips/host";
 import { ChatSessionContext, TranscriptRowContext } from "./conversation/viewIdentity";
 import { PromptToggleAnchor, usePromptRevision } from "./conversation/promptCollapse";
+import { useCodeWrap } from "./conversation/codeWrap";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -1187,14 +1188,22 @@ export function VirtualTranscript({
   const chatWidth = useChatWidth();
   const promptCollapse = useLab("promptCollapse");
   const liveRender = useLab("liveRender");
+  const messageTimes = useLab("messageTimes");
+  const codeWrap = useLab("codeWrap");
+  const [wrap] = useCodeWrap(codeWrap);
+  const planProgress = useLab("planProgress");
+  const contextMeter = useLab("contextMeter");
   const promptAnchor = useRef<{ button: HTMLButtonElement; top: number } | undefined>(undefined);
   const anchorPrompt = useCallback((button: HTMLButtonElement) => {
     promptAnchor.current = { button, top: button.getBoundingClientRect().top };
   }, []);
   const promptRevision = usePromptRevision(sessionId ?? "");
   const collapseRevision = promptCollapse ? promptRevision : 0;
-  // Folding changes estimates and DOM heights, including rows outside the mounted window.
-  const geometry = useMemo(() => ({ promptCollapse, collapseRevision }), [promptCollapse, collapseRevision]);
+  // Layout choices invalidate offscreen estimates and drawn heights too (Lucas 2026-10-18).
+  const geometry = useMemo(
+    () => ({ promptCollapse, collapseRevision, messageTimes, liveRender, codeWrap, wrap, planProgress, contextMeter }),
+    [promptCollapse, collapseRevision, messageTimes, liveRender, codeWrap, wrap, planProgress, contextMeter],
+  );
   const measuredGeometry = useRef(geometry);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
@@ -3372,7 +3381,7 @@ function AcpmuxPane() {
     if (!prompt.current) return false;
     prompt.current.focus();
     return true;
-  }, shortcutsCommand);
+  });
   /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
