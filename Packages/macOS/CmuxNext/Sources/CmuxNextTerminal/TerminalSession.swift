@@ -107,6 +107,8 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// Last frames shown while this session attached (``showLastFrame(_:)``).
+    private(set) var lastFrameHolds = 0
     /// Local-history restores whose history did not match the owner's (or
     /// failed): each one asked the owner for READY + history.
     private(set) var localHistoryMismatches = 0
@@ -231,6 +233,7 @@ public final class TerminalSession {
     /// content the owner sends is parsed and drawn (no empty pane while it attaches).
     public func showLastFrame(_ frame: TerminalLastFrame) {
         guard !surfaceHasContent, let surface = frame.take() else { return }
+        lastFrameHolds += 1
         frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
     }
 

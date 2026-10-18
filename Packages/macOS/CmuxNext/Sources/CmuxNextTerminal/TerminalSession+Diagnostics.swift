@@ -42,6 +42,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var localSnapshots: Int = 0
     /// Kitty images the owner left out of its image replays.
     public var skippedImages: Int = 0
+    /// Evicted-terminal last frames this session showed while it attached (cx-8w027.10 b).
+    public var lastFrameHolds: Int = 0
+    /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
+    public var holdingFrame: Bool = false
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -79,7 +83,9 @@ extension TerminalSession {
             swappedSurfaces: swappedSurfaces,
             localHistoryMismatches: localHistoryMismatches,
             localSnapshots: localSnapshots,
-            skippedImages: skippedImages
+            skippedImages: skippedImages,
+            lastFrameHolds: lastFrameHolds,
+            holdingFrame: frameHold.isHolding
         )
     }
 }
