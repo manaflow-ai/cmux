@@ -47,11 +47,11 @@ public final class AgentPaneNewTabFrame {
                 guard let self, let view, let host, view.model.newTab != nil, view.isDescendant(of: host),
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-                let takenAt = generation
-                guard size != .zero, shows(redraw), image(size: size, appearance: appearance) == nil,
+                let takenAt = self.generation
+                guard size != .zero, self.shows(redraw), self.image(size: size, appearance: appearance) == nil,
                       let snapshot = try? await view.webView.takeSnapshot(configuration: nil),
-                      takenAt == generation, shows(redraw) else { return }
-                frame = (snapshot, size, appearance, takenAt)
+                      takenAt == self.generation, self.shows(redraw) else { return }
+                self.frame = (snapshot, size, appearance, takenAt)
             }
         }
     }
