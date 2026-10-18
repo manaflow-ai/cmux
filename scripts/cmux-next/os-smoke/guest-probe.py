@@ -300,6 +300,8 @@ try:
                                                                       "shell_ran_it": bool(ran), "errors": typed_errors[:3]})
             # A fresh profile (no Chromium tab ever opened) pays nothing at launch: Chromium is not
             # started (ChromiumWarmup warms at launch only after a Chromium tab in the last 7 days).
+            # Observed past the app's 3 s launch preload delay (a bounded wait, the app does nothing).
+            wait(lambda: False, max(0.0, 4.5 - (time.time() - started)), alive)
             lazy = rpc("debug.cef") or {}
             lazy_ps = [l for l in subprocess.run(["/bin/ps", "-axo", "command"], capture_output=True, text=True).stdout.splitlines() if APP in l]
             result["lazy_launch"] = {k: lazy.get(k) for k in ("state", "trigger", "likely", "preloaded", "spare_window",
@@ -345,6 +347,7 @@ try:
         # The first tab's open: every main-thread stall (50 ms watchdog threshold) from the request
         # to the page's title. Goal: none over 100 ms.
         first_stalls, cursor = stalls_after(cursor, 0) if debug_router() else ([], cursor)
+        STALLS_SEEN[0] = cursor  # a later control timeout reports only the stalls after the first tab
         cef_after = rpc("debug.cef") if debug_router() else {}
         result["first_tab"] = {"max_ms": max([x["ms"] for x in first_stalls] or [0]), "total_ms": sum(x["ms"] for x in first_stalls),
                                "stalls": first_stalls, "spare_window": (cef_after or {}).get("spare_window"),
