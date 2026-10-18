@@ -319,8 +319,10 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     for key, local in files.items():
         remote = f"{folder}/{key}"
         if not args.dry_run:
+            # No #N in the message: GitHub lists every commit that names the pull request in its
+            # timeline, one entry per uploaded file (scripts/pr-media.py writes PR N the same way).
             pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                              f"cmux-next tour media for #{args.pr} at {args.sha[:8]}")
+                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
         urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
     return tour_section(manifest, urls)
 
