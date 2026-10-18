@@ -23,6 +23,9 @@
 #          [--pressure-pct N] [--only CATEGORY]... [--skip CATEGORY]...
 # Categories: interrupted project-artifacts package-caches agent-logs
 #             temp-files git-worktrees docker
+# Home must be /root, /var/root, /home/NAME or /Users/NAME; roots lie inside
+# home; the temp directory is /tmp, /var/tmp (or their /private forms), the
+# user's macOS $TMPDIR, or ~/.cache/tmp.
 # Output: one JSON object on stdout. Exit 0 on success, 2 on bad usage, 3 when
 # a home, root or temp directory is unsafe.
 #
@@ -81,33 +84,53 @@ strictly_under() { [ "$1" != "$2" ] && under "$1" "$2"; }
 
 unsafe() { echo "refusing unsafe $1: '${2:-<empty>}'" >&2; exit 3; }
 
-# Real temp locations. A temp directory must be one of these or inside one.
-temp_locations=(/tmp /var/tmp /private/tmp /private/var/tmp /private/var/folders)
-in_temp_location() {
-  local base
-  for base in "${temp_locations[@]}"; do under "$1" "$base" && return 0; done
+# Real temp directories, exactly: /tmp, /var/tmp, their macOS /private
+# forms, and on macOS the user's own $TMPDIR (/private/var/folders/X/Y/T),
+# never the rest of that tree (its C/ holds every app's caches).
+user_tmp="$(abs_dir "${TMPDIR:-}")"
+is_temp_dir() {
+  case "$1" in
+    /tmp|/var/tmp|/private/tmp|/private/var/tmp) return 0 ;;
+    /private/var/folders/*)
+      case "${1#/private/var/folders/}" in */*/*/*) return 1 ;; */*/T) [ "$1" = "$user_tmp" ] && return 0 ;; esac ;;
+  esac
   return 1
 }
 
-home_dir="$(abs_dir "$home_dir")"
-case "$home_dir" in
-  /root|/var/root) ;;
-  /home/?*|/Users/?*) ;;
-  *) in_temp_location "$home_dir" && [ "$home_dir" != /tmp ] || unsafe home "$home_dir" ;;
-esac
+# Tests set CMUX_HYGIENE_SANDBOX to a fresh directory directly inside a real
+# temp directory; home, roots and the temp directory must then all lie
+# inside it. It only narrows what the script may touch.
+sandbox=""
+if [ -n "${CMUX_HYGIENE_SANDBOX:-}" ]; then
+  sandbox="$(abs_dir "$CMUX_HYGIENE_SANDBOX")"
+  [ -n "$sandbox" ] && is_temp_dir "${sandbox%/*}" || unsafe sandbox "$CMUX_HYGIENE_SANDBOX"
+fi
 
 tmp_dir="$(abs_dir "$tmp_dir")"
 [ -n "$tmp_dir" ] || unsafe tmp-dir "$tmp_dir"
-if ! in_temp_location "$tmp_dir" && [ "$tmp_dir" != "$home_dir/.cache/tmp" ]; then unsafe tmp-dir "$tmp_dir"; fi
+home_dir="$(abs_dir "$home_dir")"
+if [ -n "$sandbox" ]; then
+  strictly_under "$tmp_dir" "$sandbox" || unsafe tmp-dir "$tmp_dir"
+  strictly_under "$home_dir" "$sandbox" || unsafe home "$home_dir"
+else
+  is_temp_dir "$tmp_dir" || [ "$tmp_dir" = "$home_dir/.cache/tmp" ] || unsafe tmp-dir "$tmp_dir"
+  # Home is a real user's home, exactly.
+  case "$home_dir" in
+    /root|/var/root) ;;
+    /home/*/*|/Users/*/*) unsafe home "$home_dir" ;;
+    /home/?*|/Users/?*) ;;
+    *) unsafe home "$home_dir" ;;
+  esac
+fi
 # A temp directory must never hold a home directory.
 under "$home_dir" "$tmp_dir" && unsafe tmp-dir "$tmp_dir"
 
+# Every root lies inside home.
 [ ${#roots[@]} -eq 0 ] && roots=("$home_dir")
 resolved_roots=()
 for root in "${roots[@]}"; do
   r="$(abs_dir "$root")"
-  [ -n "$r" ] || unsafe root "$root"
-  under "$r" "$home_dir" || { in_temp_location "$r" && [ "$r" != /tmp ]; } || unsafe root "$r"
+  [ -n "$r" ] && under "$r" "$home_dir" || unsafe root "$root"
   resolved_roots+=("$r")
 done
 roots=("${resolved_roots[@]}")
@@ -135,6 +158,16 @@ trap 'rm -rf "$state_dir"' EXIT
 in_use_file="$state_dir/in-use"
 mounts_file="$state_dir/mounts"
 
+# rm must refuse to cross into another filesystem: GNU --one-file-system, or
+# BSD -x. With neither, nothing is deleted.
+rm_flags=""
+mkdir -p "$state_dir/probe"
+if rm -rf --one-file-system -- "$state_dir/probe" 2>/dev/null; then
+  rm_flags="-rf --one-file-system"
+elif rm -rfx -- "$state_dir/probe" 2>/dev/null; then
+  rm_flags="-rfx"
+fi
+
 # Paths running processes hold open, run from or work in, collected once:
 # /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
 in_use_evidence=1
@@ -150,16 +183,32 @@ else
   in_use_evidence=0; : > "$in_use_file"
 fi
 
-# Mount points other than /, from `mount` (Linux "on X type T", macOS
-# "on X (opts)"), with the kernel's octal escapes decoded. Without the list,
-# no path counts as mount-free.
-mount_evidence=1
+# Mount points other than /, from `mount`: Linux "SRC on X type T (opts)" or
+# macOS "SRC on X (opts)", split at the first " on /" so a target containing
+# " on " stays whole. Only the kernel's \040, \011 and \134 escapes are
+# decoded. Any line that does not parse, a target with an escaped newline, or
+# an empty list leaves no mount evidence, and then nothing is deleted.
+mount_evidence=0
 if mount_out="$(mount 2>/dev/null)"; then
-  printf '%s\n' "$mount_out" |
-    sed -E -n -e 's/^.+ on (\/.*) type [^ ]+ \(.*\)$/\1/p' -e 't' -e 's/^.+ on (\/.*) \([^()]*\)$/\1/p' |
-    while IFS= read -r m; do printf '%b\n' "$m"; done | grep -v -x '/' > "$mounts_file"
+  printf '%s\n' "$mount_out" | awk '
+    NF == 0 { next }
+    {
+      i = index($0, " on /"); if (!i) { bad = 1; next }
+      t = substr($0, i + 4)
+      if (t ~ / type [^ ]+ \([^()]*\)$/) sub(/ type [^ ]+ \([^()]*\)$/, "", t)
+      else if (t ~ / \([^()]*\)$/) sub(/ \([^()]*\)$/, "", t)
+      else { bad = 1; next }
+      if (index(t, "\\012")) { bad = 1; next }
+      gsub(/\\040/, " ", t); gsub(/\\011/, "\t", t); gsub(/\\134/, "\\", t)
+      print t
+    }
+    END { if (bad) print "__CMUX_HYGIENE_UNPARSABLE__" }' > "$state_dir/mounts-all"
+  if [ -s "$state_dir/mounts-all" ] && ! grep -q -x '__CMUX_HYGIENE_UNPARSABLE__' "$state_dir/mounts-all"; then
+    mount_evidence=1
+  fi
+  grep -v -x '/' "$state_dir/mounts-all" > "$mounts_file"
 else
-  mount_evidence=0; : > "$mounts_file"
+  : > "$mounts_file"
 fi
 
 # True when a listed path equals the path or lies under it.
@@ -221,6 +270,7 @@ refusal_reason() {
     fi
   done
   [ "$mount_evidence" = 1 ] || { echo "mounts-unknown"; return; }
+  [ -n "$rm_flags" ] || { echo "no-mount-guard"; return; }
   grep -q -F -x -e "$path" "$mounts_file" && { echo "mount-point"; return; }
   listed_under "$path" "$mounts_file" && { echo "contains-mount"; return; }
   [ -e "$path/.git" ] && { echo "repository-root"; return; }
@@ -257,10 +307,6 @@ add_item() {
   items_json="${items_json:+$items_json,}$entry}"
   case "$action" in deleted|would-delete) total_kb=$((total_kb + kb)) ;; esac
 }
-
-# GNU rm can refuse to cross into another filesystem as a second guard.
-rm_flags="-rf"
-rm --one-file-system -rf -- "$state_dir/.probe" 2>/dev/null && rm_flags="-rf --one-file-system"
 
 safe_remove() {
   local category="$1" path="$2" reason kb aside
