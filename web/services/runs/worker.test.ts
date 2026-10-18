@@ -3,7 +3,7 @@ import {
   canApplyRunAttemptMutation,
   isRunAttemptLeaseActive,
   runAttemptTransitionDecision,
-} from "./worker";
+} from "./worker-contract";
 
 const NOW = new Date("2026-10-18T06:00:00.000Z");
 

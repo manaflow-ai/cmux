@@ -6,62 +6,8 @@ const DEFAULT_LEASE_MS = 60_000;
 const MAX_LEASE_MS = 15 * 60_000;
 type CloudTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
-export type RunAttemptStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-export type RunAttemptTerminalStatus = "succeeded" | "failed" | "cancelled";
-
-export type ClaimedRunAttempt = {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly ordinal: number;
-  readonly variant: Record<string, unknown>;
-  readonly leaseId: string;
-  readonly leaseUntil: Date;
-  readonly workerId: string;
-};
-
-export type RunAttemptWorkerResult =
-  | { readonly status: "idle" }
-  | { readonly status: "succeeded" | "failed" | "cancelled"; readonly runId: string; readonly attemptId: string; readonly applied: boolean };
-
-export class RunAttemptLeaseLostError extends Error {
-  override readonly name = "RunAttemptLeaseLostError";
-}
-
-/** A lease is valid only while its fencing token and expiry both match. */
-export function isRunAttemptLeaseActive(input: {
-  readonly leaseId: string | null | undefined;
-  readonly expectedLeaseId: string;
-  readonly leaseUntil: Date | null | undefined;
-  readonly now?: Date;
-}): boolean {
-  return input.leaseId === input.expectedLeaseId && Boolean(input.leaseUntil && input.leaseUntil.getTime() > (input.now ?? new Date()).getTime());
-}
-
-/** Shared state-machine guard used by providers before committing side effects. */
-export function canApplyRunAttemptMutation(input: {
-  readonly status: RunAttemptStatus;
-  readonly leaseId: string | null | undefined;
-  readonly expectedLeaseId: string;
-  readonly leaseUntil: Date | null | undefined;
-  readonly now?: Date;
-}): boolean {
-  return input.status === "running" && isRunAttemptLeaseActive(input);
-}
-
-export type RunAttemptTransitionDecision = "apply" | "replay" | "fenced";
-
-/** Classifies a worker callback before it reaches the database fence. */
-export function runAttemptTransitionDecision(input: {
-  readonly currentStatus: RunAttemptStatus;
-  readonly requestedStatus: RunAttemptTerminalStatus;
-  readonly leaseId: string | null | undefined;
-  readonly expectedLeaseId: string;
-  readonly leaseUntil: Date | null | undefined;
-  readonly now?: Date;
-}): RunAttemptTransitionDecision {
-  if (input.currentStatus === input.requestedStatus) return "replay";
-  return canApplyRunAttemptMutation({ ...input, status: input.currentStatus }) ? "apply" : "fenced";
-}
+import { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision, type RunAttemptTerminalStatus } from "./worker-contract";
+export { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision };
 
 function boundedLeaseMs(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_LEASE_MS;
