@@ -1102,7 +1102,7 @@
           ]
         },
         "title": {
-          "description": "The session's title, else its first prompt, one line, secrets masked\n(`secret_scan`).",
+          "description": "The session's title, else its latest prompt, one line, secrets masked\n(`secret_scan`).",
           "type": [
             "string",
             "null"

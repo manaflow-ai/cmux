@@ -59,7 +59,7 @@ fn a_failed_turns_error_is_masked_too() {
 }
 
 #[test]
-fn the_lanes_title_is_masked_and_falls_back_to_the_masked_first_prompt() {
+fn the_lanes_title_is_masked_and_falls_back_to_the_masked_latest_prompt() {
     let token = github_token();
     let titled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9, "title": format!("rotate {token}"),
                         "lastPrompt": "unused"});

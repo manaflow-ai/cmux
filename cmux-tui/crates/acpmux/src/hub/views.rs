@@ -75,7 +75,7 @@ impl Hub {
 /// later record or a draft save does not move it.
 ///
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
-/// session's title, else its first prompt. The lane's error, step and title
+/// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
 /// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) still carry the raw text.
@@ -125,7 +125,7 @@ fn lane_step(summary: &Value) -> Value {
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
-/// The lane's title: the session's title, else its first prompt, masked and
+/// The lane's title: the session's title, else its latest prompt, masked and
 /// cut like the step. Null when there is neither.
 fn lane_title(summary: &Value) -> Value {
     let title = summary["title"].as_str().filter(|t| !t.trim().is_empty());
@@ -133,12 +133,26 @@ fn lane_title(summary: &Value) -> Value {
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
-/// `text` masked, folded to one line and cut to `LANE_STEP_CHARS`. Only the
-/// head is scanned (a pasted log can be megabytes), and it is masked before
-/// the cut, so a cut never leaves part of a secret unmasked.
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// head of the folded text is scanned (a pasted log can be megabytes), and it
+/// is masked before the cut, so a cut never leaves part of a secret unmasked.
+/// The head is cut after folding: a raw cut inside a token behind a blank run
+/// would leave the token's head unmasked once the run folds away.
 fn masked_line(text: &str) -> String {
-    let head = text.char_indices().nth(LANE_SCAN_CHARS).map_or(text, |(at, _)| &text[..at]);
-    super::session::short_text(&crate::secret_scan::mask(head), LANE_STEP_CHARS)
+    let (mut head, mut chars) = (String::new(), 0);
+    for word in text.split_whitespace() {
+        if chars > 0 {
+            head.push(' ');
+            chars += 1;
+        }
+        let taken: String = word.chars().take(LANE_SCAN_CHARS.saturating_sub(chars)).collect();
+        chars += taken.chars().count();
+        head.push_str(&taken);
+        if chars >= LANE_SCAN_CHARS {
+            break;
+        }
+    }
+    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
 }
 
 /// How long a lane's step may be; the row clips it to its width anyway.

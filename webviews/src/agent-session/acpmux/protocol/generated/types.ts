@@ -69,7 +69,7 @@ export type Lane = {
    */
   step: (string | null);
   /**
-   * The session's title, else its first prompt, one line, secrets masked
+   * The session's title, else its latest prompt, one line, secrets masked
    * (`secret_scan`).
    */
   title: (string | null);

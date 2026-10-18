@@ -69,7 +69,7 @@ describe("event-driven priority agent state", () => {
     const raw = { lastTurn: { endedAt: 10, errorText: `401 for ${token}` } };
     const masked = { state: "failed", since: 10, error: "401 for [github token]", step: null, title: "push [github token]" };
     expect(lane({ ...raw, lane: masked })).toMatchObject({ title: "push [github token]", error: "401 for [github token]" });
-    // An acpmux from before `lane.title` shows the session's name, not its first prompt.
+    // An acpmux from before `lane.title` shows the session's name, not its latest prompt.
     expect(lane({ ...raw, lane: { ...masked, title: undefined } }).title).toBe("s1");
   });
 

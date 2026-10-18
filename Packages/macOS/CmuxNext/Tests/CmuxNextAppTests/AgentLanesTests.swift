@@ -103,7 +103,7 @@ struct AgentLanesTests {
     }
 
     /// hq#2509: a lane's title is acpmux's masked `lane.title`, never the summary's raw title or
-    /// first prompt; an acpmux from before it shows the session's name.
+    /// latest prompt; an acpmux from before it shows the session's name.
     @Test func aLanesTitleIsTheDaemonsMaskedTitle() {
         let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
         var summary = Self.summary("op-busy", "working")
