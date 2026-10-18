@@ -243,7 +243,7 @@
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
   /* One 4 px layout gap keeps the drawn space inside every control group equal: each chip and
-     action contributes the same 6 px edge inset. */
+     action contributes the same 6 px edge inset. This is the canonical composer rail rhythm. */
   --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
