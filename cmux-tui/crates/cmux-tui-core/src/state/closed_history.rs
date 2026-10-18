@@ -79,7 +79,7 @@ impl Reopened {
     }
 
     /// Note `tab`, reopened from the closed tab `record`.
-    fn note_tab(&mut self, record: &Value, tab: String) {
+    pub(super) fn note_tab(&mut self, record: &Value, tab: String) {
         if let Some(closed) = record["tab_id"].as_str() {
             self.reopened_as.insert(closed.to_string(), tab.clone());
         }
