@@ -216,6 +216,9 @@ final class ThemeCoordinator {
     /// The tab indicator of a terminal with its own theme (not one it
     /// inherits from its workspace or room). Observation-tracked.
     func badge(forTerminal key: TerminalThemeKey) -> TabThemeBadge? {
+        _ = DebugLayoutCounters.probeAny("theme.preview") { preview }
+        _ = DebugLayoutCounters.probeAny("theme.pending") { pending[.terminal(key)] }
+        _ = DebugLayoutCounters.probeAny("theme.saved") { savedTerminalTheme(key) }
         guard let text = terminalTheme(key), let resolved = resolver.resolve(ThemeSpec(text)) else { return nil }
         return TabThemeBadge(name: resolved.spec.raw, background: resolved.input.background, foreground: resolved.input.foreground)
     }

@@ -61,6 +61,12 @@ enum DebugLayoutCounters {
             Task { @MainActor in sources["pane read \(group) fired", default: 0] += 1 }
         })
     }
+    /// PROBE: counts "read <group> fired" once per armed read (nested in a pane run).
+    static func probeAny<T>(_ group: String, _ read: () -> T) -> T {
+        withObservationTracking(read, onChange: {
+            Task { @MainActor in sources["read \(group) fired", default: 0] += 1 }
+        })
+    }
     private static var paneCounts: [ObjectIdentifier: Int] = [:]
 
     static func notePanes(_ count: Int, of view: AnyObject) {
