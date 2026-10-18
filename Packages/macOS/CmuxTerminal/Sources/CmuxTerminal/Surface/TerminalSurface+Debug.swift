@@ -77,17 +77,26 @@ extension TerminalSurface {
         return debugForceRefreshCountValue
     }
 
+    /// The reasons of the force refreshes since the last reset, oldest first.
+    public func debugForceRefreshReasons() -> [String] {
+        debugForceRefreshCountLock.lock()
+        defer { debugForceRefreshCountLock.unlock() }
+        return debugForceRefreshReasonsValue
+    }
+
     /// Resets the force-refresh counter.
     @MainActor
     public func resetDebugForceRefreshCount() {
         debugForceRefreshCountLock.lock()
         debugForceRefreshCountValue = 0
+        debugForceRefreshReasonsValue.removeAll()
         debugForceRefreshCountLock.unlock()
     }
 
-    func recordDebugForceRefresh() {
+    func recordDebugForceRefresh(reason: String) {
         debugForceRefreshCountLock.lock()
         debugForceRefreshCountValue += 1
+        debugForceRefreshReasonsValue.append(reason)
         debugForceRefreshCountLock.unlock()
     }
 

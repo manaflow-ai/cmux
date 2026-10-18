@@ -98,6 +98,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// New Workspace on the remote host: with a remote tmux workspace selected, New
+    /// Workspace creates a tmux session on that workspace's host and New Local Workspace
+    /// is offered for local work. Defaults off; while off, New Workspace always creates a
+    /// local workspace.
+    public let remoteTmuxNewWorkspaceOnHost = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.newWorkspaceOnHost.enabled"
+    )
+
     /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
     /// (required for hosts that permit a single concurrent SSH connection) instead of
     /// one connection per session. The workspace model is identical either way.

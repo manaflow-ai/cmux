@@ -239,6 +239,13 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "properties": {
             "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "newWorkspaceOnHost": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.remoteTmux.beta.newWorkspaceOnHost.enabled", "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
+              }
+            },
             "originColors": {
               "type": "object",
               "additionalProperties": false,
@@ -1050,8 +1057,8 @@ enum CmuxEmbeddedConfigSchema {
         },
         "showJumpToBottomButton": {
           "type": "boolean",
-          "default": true,
-          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
+          "deprecated": true,
+          "description": "Removed. cmux no longer shows a Jump to Bottom button in terminal panes, and ignores this key. It stays in the schema so existing configs still validate."
         },
         "predictiveLocalEcho": {
           "type": "boolean",
@@ -1367,7 +1374,7 @@ enum CmuxEmbeddedConfigSchema {
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is a file under ~/.cache/cmux/paste/<session>/, a directory the command has to create before writing to it. Its stdout is what cmux inserts at the cursor."
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). CMUX_UPLOAD_REMOTE_PATH is an absolute /tmp/cmux-drop-<uuid>.<ext> path whose parent already exists; the extension is lowercased. The command owns file permissions and cleanup. Its stdout is what cmux inserts at the cursor."
               },
               "enabled": {
                 "type": "boolean",
@@ -1869,6 +1876,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
+        },
+        "unselectedFillOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity of the workspace color on rows that are not selected, with the solidFill indicator. 1 shows the full color. Multi-selected rows use half of this value."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
@@ -2521,6 +2535,7 @@ enum CmuxEmbeddedConfigSchema {
               "quit",
               "toggleSidebar",
               "newTab",
+              "newLocalWorkspace",
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",
@@ -2587,8 +2602,6 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
-              "previousAgentTurn",
-              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",

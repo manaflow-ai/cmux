@@ -82,10 +82,81 @@ import {
   renameVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  restartVm,
   resizeVm,
   snapshotVm,
   type VmModelPlaneProvisioner,
 } from "../services/vms/workflows";
+
+describe("VM hard restart", () => {
+  test("restarts a frozen machine without probing its status or guest", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const result = await Effect.runPromise(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        restart: (_provider, providerVmId) => Effect.sync(() => {
+          expect(providerVmId).toBe("vm-frozen");
+          restartCalls += 1;
+        }),
+        // A frozen provider would never answer this probe. The workflow must
+        // invoke restart directly instead of requiring a healthy read first.
+        getStatus: () => Effect.die(new Error("status probe must not run")),
+      }),
+    ))));
+
+    expect(result).toEqual({ id: "vm-frozen", status: "running" });
+    expect(restartCalls).toBe(1);
+    expect(observedStatuses).toEqual([{ id: vm.id, providerVmId: "vm-frozen", status: "running" }]);
+    expect(usageEvents).toContainEqual(expect.objectContaining({ eventType: "vm.restarted", vmId: vm.id }));
+  });
+
+  test("declared unsupported restart never mutates lifecycle or records success", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId, providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm, usageEvents, observedStatuses })),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        capabilities: () => ({ ...vmCapabilitiesFor("freestyle"), restart: false }),
+        restart: () => Effect.sync(() => { restartCalls += 1; }),
+      }),
+    )))));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+    expect(restartCalls).toBe(0);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("returns a typed unsupported error when the provider has no hard restart", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-no-restart", status: "running" });
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm })),
+      Layer.succeed(VmProviderGateway, unusedProviderGateway()),
+    )))));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+      expect(result.left).toMatchObject({ operation: "restart" });
+    }
+  });
+});
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 // These cases share one Postgres database and several exercise paths read or
@@ -94,6 +165,9 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 // concurrent tests for this file.
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = runDbTests ? serialTest : test.skip;
+// Virtual-clock tests advance the TestClock one step per real event-loop
+// turn; on a loaded CI runner that takes seconds of wall time.
+const VIRTUAL_CLOCK_TEST_TIMEOUT_MS = 30_000;
 
 describe("Cloud prompt rename", () => {
   test("publishes the committed name to the running guest", async () => {
@@ -1804,7 +1878,9 @@ describe("VM Effect workflows", () => {
   };
 
   // Runs `execVm` on the test clock, advancing virtual time in `stepMs` steps
-  // until it answers; returns the answer and the virtual time it took.
+  // until it answers; returns the answer and the virtual time it took. Each
+  // step yields one real event-loop turn, so a test driven this way needs
+  // VIRTUAL_CLOCK_TEST_TIMEOUT_MS rather than Bun's 5 s default.
   const execOnTestClock = (layer: ReturnType<typeof workflowLayer>, input: Parameters<typeof execVm>[0], stepMs = 10) =>
     Effect.runPromise(Effect.gen(function* () {
       const fiber = yield* Effect.fork(execVm(input).pipe(Effect.provide(layer)));
@@ -1832,7 +1908,7 @@ describe("VM Effect workflows", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("did not finish within 60s");
     expect(usageEvents.find((event) => event.eventType === "vm.exec")?.metadata).toMatchObject({ exitCode: 124 });
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("exec reads a provider failure after the command timeout elapsed as that timeout", async () => {
     const late = providerOperationError("exec", "Internal server error");
@@ -1849,7 +1925,7 @@ describe("VM Effect workflows", () => {
     });
     expect(result.exitCode).toBe(124);
     expect(result.stderr).toContain("may still be running");
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("the exec answer budget is the timeout plus the margin, less the route's own time", () => {
     expect(execAnswerBudgetMs(60_000, 0)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS);
@@ -1872,7 +1948,7 @@ describe("VM Effect workflows", () => {
       answerWithinMs: 0,
     });
     expect(result).toEqual({ exitCode: 0, stdout: "ran", stderr: "" });
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("exec preflight resume failure propagates the resume error without exec", async () => {
     const vm = testCloudVmRow({
@@ -2050,6 +2126,33 @@ describe("VM Effect workflows", () => {
 
     expect(revokeCalls).toBe(1);
     expect(destroyCalls).toBe(0);
+  });
+
+  // A destroy the route answered as in progress may have removed the
+  // machine at the provider already; the retry treats that as done.
+  test("a destroy retry after the first destroy removed the machine finishes the row", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-destroy-retry",
+      providerVmId: "provider-vm-destroy-retry",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () => {
+        destroyCalls += 1;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "destroy",
+          cause: Object.assign(new Error("VM not found"), { status: 404, code: "NOT_FOUND" }),
+        }));
+      },
+    };
+    await Effect.runPromise(
+      destroyVm({ userId: vm.userId, providerVmId: "provider-vm-destroy-retry" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(destroyCalls).toBe(1);
   });
 
   test("destroyVm fails closed when active identity cleanup exceeds the hot-path cap", async () => {
@@ -9005,40 +9108,6 @@ describe("private SCP workflow", () => {
     expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
   });
 
-  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
-  // background-request poll for 3-4 minutes, then failed 502, while the Mac
-  // client had given up at 60 s. The setup now answers inside that budget.
-  test("answers a hung guest setup within the client's request budget", async () => {
-    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
-    const layer = workflowLayer(testWorkflowRepo({ vm }), {
-      ...unusedProviderGateway(),
-      getStatus: () => Effect.succeed("running" as const),
-      prepareSCP: () => Effect.never,
-    });
-    const { error, elapsedMs } = await Effect.runPromise(Effect.gen(function* () {
-      const fiber = yield* Effect.fork(prepareScpEndpoint({
-        userId: vm.userId, providerVmId: "vm-scp-hung", publicKey: "client-key", callerPlanId: "pro",
-      }).pipe(Effect.flip, Effect.provide(layer)));
-      let elapsedMs = 0;
-      while (Option.isNone(yield* Fiber.poll(fiber)) && elapsedMs < 300_000) {
-        yield* TestClock.adjust(500);
-        elapsedMs += 500;
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-      }
-      const done = yield* Fiber.poll(fiber);
-      if (Option.isNone(done)) {
-        yield* Fiber.interrupt(fiber);
-        return { error: null, elapsedMs };
-      }
-      return { error: yield* Fiber.join(fiber), elapsedMs };
-    }).pipe(Effect.provide(TestContext.TestContext)));
-    // The Mac's URLRequest gives up after 60 s without a response byte.
-    expect(elapsedMs).toBeLessThan(60_000);
-    expect(error?._tag).toBe("VmProviderOperationError");
-    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
-    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
-  });
-
   const scpOnTestClock = (layer: ReturnType<typeof workflowLayer>, providerVmId: string, userId: string) =>
     Effect.runPromise(Effect.gen(function* () {
       const fiber = yield* Effect.fork(prepareScpEndpoint({ userId, providerVmId, publicKey: "client-key", callerPlanId: "pro" })
@@ -9057,6 +9126,24 @@ describe("private SCP workflow", () => {
       return { error: yield* Fiber.join(fiber), elapsedMs };
     }).pipe(Effect.provide(TestContext.TestContext)));
 
+  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
+  // background-request poll for 3-4 minutes, then failed 502, while the Mac
+  // client had given up at 60 s. The setup now answers inside that budget.
+  test("answers a hung guest setup within the client's request budget", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareSCP: () => Effect.never,
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-hung", vm.userId);
+    // The Mac's URLRequest gives up after 60 s without a response byte.
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
+    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
+
   test("the answer bound covers a slow status probe after a failed setup", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp-slow-probe", status: "running", billingPlanId: "pro" });
     let probes = 0;
@@ -9073,7 +9160,7 @@ describe("private SCP workflow", () => {
     expect(probes).toBeGreaterThanOrEqual(2);
     // The setup failed before the deadline, so its own error is the answer.
     expect(error && "cause" in error ? (error.cause as Error).message : "").toBe("Internal server error");
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("an early refusal keeps its own error when the recovery probe stalls past the deadline", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp-early-401", status: "running", billingPlanId: "pro" });
@@ -9088,7 +9175,7 @@ describe("private SCP workflow", () => {
     const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-early-401", vm.userId);
     expect(elapsedMs).toBeLessThan(60_000);
     expect(error).toBe(refused);
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("a guest that did not answer is not probed or resumed again in the same request", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp-unanswered", status: "running", billingPlanId: "pro" });
@@ -9112,7 +9199,7 @@ describe("private SCP workflow", () => {
     expect(setups).toBe(1);
     // Only the preflight probe ran; the failure skipped the recovery probe.
     expect(probes).toBe(1);
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("refuses an inaccessible VM before installing a public key", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running" });

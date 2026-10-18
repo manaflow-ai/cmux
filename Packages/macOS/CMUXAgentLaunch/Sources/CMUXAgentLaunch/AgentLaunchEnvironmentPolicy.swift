@@ -74,6 +74,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_CUSTOM_AMP_PATH",
         "CMUX_CUSTOM_CODEX_PATH",
+        "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -105,6 +106,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
+        "MUSE_AUTH_PATH",
+        "MUSE_CHANNEL",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
         "OLLAMA_EDITOR",
@@ -158,6 +161,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
+        if normalizedKind != "antigravity" {
+            result.removeValue(forKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH")
         }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {

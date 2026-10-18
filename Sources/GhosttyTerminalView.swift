@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloudBannerCore
 import CmuxCloud
 import Foundation
@@ -321,7 +322,9 @@ class GhosttyApp {
                 }
             )
             return TerminalSurfaceViewFactory(
-                imageTransferPreparation: preparationService
+                imageTransferPreparation: preparationService,
+                sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+                    ?? SSHClipboardWriteTrustStore(defaults: .standard)
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
@@ -3823,6 +3826,8 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// The app-owned SSH clipboard policy used by this terminal's context menu.
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Returns whether a screen transition left the terminal runtime at a
     /// different backing scale than the window now uses. AppKit can update a
     /// view's layer during a display move without delivering
@@ -4373,6 +4378,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override init(frame frameRect: NSRect) {
+        sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(frame: frameRect)
         setup()
@@ -4380,14 +4387,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     init(
         frame frameRect: NSRect,
-        imageTransferPreparation: TerminalImageTransferPreparationService
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.imageTransferPreparation = imageTransferPreparation
         super.init(frame: frameRect)
         setup()
     }
 
     required init?(coder: NSCoder) {
+        sshClipboardWriteTrustStore = AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
         imageTransferPreparation = nil
         super.init(coder: coder)
         setup()
@@ -7052,6 +7065,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private(set) var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+    // Set when interpretKeyEvents asks for deleteBackward: during the current keyDown.
+    private var keyRequestedDeleteBackward = false
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
@@ -7086,7 +7101,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
-        // Intentionally empty - prevents system beep on unhandled key commands
+        // Otherwise empty - prevents system beep on unhandled key commands
+        if keyTextAccumulator != nil, selector == #selector(deleteBackward(_:)) {
+            keyRequestedDeleteBackward = true
+        }
     }
 
     /// Some third-party voice input apps inject committed text by sending the
@@ -7529,6 +7547,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
+        keyRequestedDeleteBackward = false
         defer { keyTextAccumulator = nil }
 
         let markedTextBefore = markedText.length > 0
@@ -7615,6 +7634,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Treat cleared preedit as composing too, so a composing Backspace cancels
         // composition without deleting the preceding terminal input.
         keyEvent.composing = markedText.length > 0 || markedTextBefore
+
+        // Vietnamese Telex commits its preedit on Backspace, then asks for
+        // deleteBackward:. Ghostty drops UTF-8 attached to a Backspace key, so
+        // send the commit as typed text and replay the Backspace on its own.
+        if keyRequestedDeleteBackward, !accumulatedText.isEmpty {
+            for text in accumulatedText where shouldSendText(text) {
+                sendCommittedTextChunk(text)
+            }
+            keyEvent.composing = false
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.text = nil
+            _ = sendGhosttyKey(surface, keyEvent)
+            return
+        }
 
         // Use accumulated text from insertText (for IME), or compute text for key
         if !accumulatedText.isEmpty {
@@ -9715,6 +9748,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        if appendSSHClipboardWriteTrustMenuItem(to: menu) {
+            menu.addItem(.separator())
+        }
         appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
@@ -10618,16 +10654,11 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: LinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
-    let jumpToBottomIndicatorView = TerminalJumpToBottomIndicatorView(frame: .zero)
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlayRoot>?
-    /// Agent turn rail for Claude Code and Codex sessions in this surface.
-    var agentTurnRailHost: AgentTurnRailHost?
-    /// The terminal scroll view, which receives scrolling over the turn rail.
-    var agentTurnRailScrollTarget: NSView { scrollView }
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
@@ -11095,7 +11126,6 @@ final class GhosttySurfaceScrollView: NSView {
         passwordInputIndicatorView.frame = bounds
         passwordInputIndicatorView.autoresizingMask = [.width, .height]
         addSubview(passwordInputIndicatorView)
-        installJumpToBottomIndicator()
 
         NotificationCenter.default.addObserver(
             self,
@@ -11377,8 +11407,7 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        let contentFrame = agentTurnRailHost?.layout(sessionFrame: sessionPresentationFrame, bounds: bounds)
-            ?? sessionPresentationFrame
+        let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
         // Resolve the clip view after scroller tiling and layout. Reading the
         // scroll view's bounds can include a legacy scroller gutter while the
@@ -11424,13 +11453,11 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
         _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
-        _ = setFrameIfNeeded(jumpToBottomIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
-        agentTurnRailHost?.bringToFront(in: self)
         bringPaneDropTargetToFrontIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -11451,16 +11478,10 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    /// Frame of the session content before the agent turn rail gutter.
-    private var sessionPresentationFrame: CGRect {
-        sessionContentWidthPresentation.contentFrame(in: bounds)
-    }
-
     /// Frame the terminal content occupies; overlays that cover the terminal
-    /// (find, reconnect) use it so they never cover the agent turn rail.
-    private var sessionContentFrame: CGRect {
-        let frame = sessionPresentationFrame
-        return agentTurnRailHost?.contentFrame(sessionFrame: frame, bounds: bounds) ?? frame
+    /// (find, reconnect, copy confirmation) use it.
+    var sessionContentFrame: CGRect {
+        sessionContentWidthPresentation.contentFrame(in: bounds)
     }
 
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
@@ -11660,19 +11681,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        // An idle agent pane shown again resolves the turns it deferred while
-        // hidden, even without a layout pass or new output.
-        agentTurnRailHost?.model.resumeDeferredResolve()
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
-        agentTurnRailHost?.model.resumeDeferredResolve()
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -11722,7 +11735,6 @@ final class GhosttySurfaceScrollView: NSView {
         if surfaceView.terminalSurface !== terminalSurface {
             setLinkHoverURL(nil)
             setPasswordInputActive(false)
-            jumpToBottomIndicatorView.reset()
         }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
@@ -12961,13 +12973,29 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if !window.isKeyWindow {
+            let applicationIsActive = NSApp.isActive
+#if DEBUG
+            cmuxDebugLog(
+                "focus.ensure.windowCandidate surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "appActive=\(applicationIsActive ? 1 : 0) windowVisible=\(window.isVisible ? 1 : 0) " +
+                "windowMini=\(window.isMiniaturized ? 1 : 0) windowKey=\(window.isKeyWindow ? 1 : 0)"
+            )
+#endif
             guard shouldAllowEnsureFocusWindowActivation(
                 activeTabManager: delegate.tabManager,
                 targetTabManager: tabManager,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow,
-                targetWindow: window
+                targetWindow: window,
+                applicationIsActive: applicationIsActive
             ) else {
+#if DEBUG
+                let reason = applicationIsActive ? "windowOwnership" : "inactiveApplication"
+                cmuxDebugLog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=\(reason)"
+                )
+#endif
                 return
             }
             window.makeKeyAndOrderFront(nil)
@@ -14144,10 +14172,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
-        defer {
-            installAgentTurnRailIfNeeded()
-            agentTurnRailHost?.model.viewportDidChange()
-        }
         let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
             ? max(scrollView.contentView.bounds.origin.y, 0)
             : nil
@@ -14166,7 +14190,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
         surfaceView.scrollbar = scrollbar
-        synchronizeJumpToBottomIndicator()
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent(

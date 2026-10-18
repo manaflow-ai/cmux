@@ -13,6 +13,12 @@ import threading
 import unittest
 
 
+
+def without_transport(params: dict) -> dict:
+    """The method's own params: the app's vm.* dispatcher strips the CLI's
+    remaining-wait metadata (cloud_client_timeout_ms) before any handler."""
+    return {key: value for key, value in params.items() if key != "cloud_client_timeout_ms"}
+
 class ResizeSocket:
     def __init__(self, result: dict | None = None,
                  limits: dict | None = None, machines: list[dict] | None = None,
@@ -119,7 +125,7 @@ class VMResizeTests(unittest.TestCase):
                 result = self.run_cli(server.path, ["vm", "resize", "existing-vm", *option, "--json"])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 request = self.assert_resize_request(server)
-                self.assertEqual(request["params"], {"id": "existing-vm", "memory_mb": 5120})
+                self.assertEqual(without_transport(request["params"]), {"id": "existing-vm", "memory_mb": 5120})
 
     def test_resize_uses_existing_id_and_prints_confirmed_shape(self) -> None:
         confirmed = {"id": "existing-vm", "cpus": 6, "memory_total_mb": 6144, "disk_total_mb": 69632}
@@ -129,7 +135,7 @@ class VMResizeTests(unittest.TestCase):
             ])
             self.assertEqual(result.returncode, 0, result.stderr)
             request = self.assert_resize_request(server)
-            self.assertEqual(request["params"], {
+            self.assertEqual(without_transport(request["params"]), {
                 "id": "existing-vm", "cpu": 4, "memory_mb": 4096, "storage_mb": 65536,
             })
             self.assertIn("existing-vm", result.stdout)
@@ -142,7 +148,7 @@ class VMResizeTests(unittest.TestCase):
             result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--disk", "64G", "--json"])
             self.assertEqual(result.returncode, 0, result.stderr)
             request = self.assert_resize_request(server)
-            self.assertEqual(request["params"], {"id": "existing-vm", "storage_mb": 65536})
+            self.assertEqual(without_transport(request["params"]), {"id": "existing-vm", "storage_mb": 65536})
 
     def test_json_preserves_provider_confirmation(self) -> None:
         confirmed = {"id": "existing-vm", "state": "running", "cpus": 8, "memory_total_mb": 8192, "disk_total_mb": 69632}

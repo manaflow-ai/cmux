@@ -142,6 +142,10 @@ path = "tests/test_claude_wrapper_hooks.py"
 lane = "macos-claude-wrapper"
 
 [[test]]
+path = "tests/test_agy_wrapper_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_codex_wrapper_computer_use_mcp.py"
 lane = "macos-cli-no-socket"
 
@@ -370,6 +374,10 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_memory_pressure_coalition.py"
 lane = "macos-shell"
 
 [[test]]
@@ -754,6 +762,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1714,6 +1730,11 @@ lane = "manual"
 reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture and is run by the OpenCode regression verification command."
 
 [[test]]
+path = "tests/test_opencode_server_entry.py"
+lane = "manual"
+reason = "Focused OpenCode server-entry Node harness; no workflow names it yet, so it is run by the OpenCode regression verification command."
+
+[[test]]
 path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 
@@ -1731,6 +1752,10 @@ path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_testbox_source_mtimes.py"
 lane = "linux-guard"
 
@@ -1744,4 +1769,28 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cli_package_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_merge_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_engine_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
 lane = "linux-guard"

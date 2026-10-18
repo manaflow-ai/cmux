@@ -830,9 +830,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     }
 }
 
+#if DEBUG
 extension AgentSessionWebRendererCoordinator {
     /// The page's bridge, for tests: one request as the page sends it.
     func handleBridgeRequestForTesting(_ body: [String: Any]) async throws -> Any {
         try await handle(AgentSessionBridgeRequest(body: body))
     }
 }
+#endif

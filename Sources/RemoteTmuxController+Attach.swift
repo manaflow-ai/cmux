@@ -206,7 +206,7 @@ extension RemoteTmuxController {
             if isMultiplexed(mirror) {
                 teardownMultiplexedMirror(key: key)
             } else {
-                sessionMirrors.removeValue(forKey: key)
+                _ = removeSessionMirror(forKey: key)
                 mirror.detachObserver()
             }
         }

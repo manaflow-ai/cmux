@@ -29,6 +29,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.closeOtherTabsInPane`
 - `shortcuts.bindings.closeTab`
 - `shortcuts.bindings.newBrowserWorkspace`
+- `shortcuts.bindings.newLocalWorkspace`
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
@@ -81,10 +82,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.moveSurfaceToPaneUp`
 - `shortcuts.bindings.moveSurfaceToPreviousPane`
 - `shortcuts.bindings.newSurface`
-- `shortcuts.bindings.nextAgentTurn`
 - `shortcuts.bindings.nextSurface`
 - `shortcuts.bindings.prevSurface`
-- `shortcuts.bindings.previousAgentTurn`
 - `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.resize-pane-down`
 - `shortcuts.bindings.resize-pane-left`

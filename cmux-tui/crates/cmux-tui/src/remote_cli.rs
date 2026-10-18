@@ -61,6 +61,7 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
@@ -994,6 +995,7 @@ fn reachable_unix_route(_: &Url) -> bool {
 
 fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_connect_flags(args)?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let workspace_root = flags
         .forward_workspace
         .clone()
@@ -1030,6 +1032,14 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
+        let parent_exit = async {
+            if let Some(owner) = owner {
+                wait_for_parent_exit(owner).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(parent_exit);
         let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
             tokio::select! {
@@ -1040,10 +1050,15 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                     }
                 }
                 _ = finished.changed() => {}
+                _ = &mut parent_exit => {}
             }
         }
         forward.shutdown().await;
-        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = tokio::time::timeout(
+            FORWARD_CLEANUP_TIMEOUT,
+            client.request(WorkspaceRequest::CloseRoute { route }),
+        )
+        .await;
         if let Some(error) = wait_error {
             return Err(error.into());
         }

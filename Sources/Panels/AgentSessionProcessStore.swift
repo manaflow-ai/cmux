@@ -500,12 +500,23 @@ final class AgentSessionProcessStore {
                 throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.opencode.displayName)
             }
 
+            // Split lines by hand: `bytes.lines` skips the blank line that ends an event.
             var parser = OpenCodeEventStreamParser()
-            for try await line in bytes.lines {
+            var line: [UInt8] = []
+            for try await byte in bytes {
                 guard !Task.isCancelled else { return }
-                for event in parser.consumeLine(line) {
+                guard byte == UInt8(ascii: "\n") else {
+                    // Past the parser's 1 MiB event cap the line is dropped as invalid anyway.
+                    if line.count <= 1024 * 1024 { line.append(byte) }
+                    continue
+                }
+                for event in parser.consumeLine(String(decoding: line, as: UTF8.self)) {
                     await handleEvent(event)
                 }
+                line.removeAll(keepingCapacity: true)
+            }
+            for event in parser.consumeLine(String(decoding: line, as: UTF8.self)) {
+                await handleEvent(event)
             }
             for event in parser.flush() {
                 await handleEvent(event)

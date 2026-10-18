@@ -72,7 +72,6 @@ extension CmuxSettingsFileStore {
         "terminal.textEditingGesturesInFullScreenApps",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
-        "terminal.showJumpToBottomButton",
         "terminal.predictiveLocalEcho",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
@@ -155,6 +154,7 @@ extension CmuxSettingsFileStore {
         "workspaceColors.selectionColor",
         "workspaceColors.subtleSelection",
         "workspaceColors.brightenInDarkMode",
+        "workspaceColors.unselectedFillOpacity",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",
@@ -240,6 +240,7 @@ extension CmuxSettingsFileStore {
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
         "remoteTmux.multiplexer.beta.enabled",
+        "remoteTmux.beta.newWorkspaceOnHost.enabled",
         "remoteTmux.beta.originHostTitles.enabled",
         "remoteTmux.beta.originColors.enabled",
     ]

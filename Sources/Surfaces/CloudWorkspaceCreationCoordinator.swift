@@ -21,14 +21,22 @@ final class CloudWorkspaceCreationCoordinator {
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
         existingRemoteView: SurfaceRemoteView? = nil,
+        resolveExistingWorkspace: CloudWorkspaceCreationOperation.ResolveExistingWorkspace? = nil,
         existingReservation: CloudTerminalPaneReservation? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
         try validateOperation()
-        let failed = operations.values.filter {
-            reuseFailedCreation && $0.allowsActionRetry && $0.provider === provider && !$0.isRunning
-                && $0.failure != nil && $0.host?.manager === host?.manager
+        let failed = operations.values.filter { operation in
+            guard reuseFailedCreation, operation.allowsActionRetry,
+                  operation.provider === provider, !operation.isRunning,
+                  operation.failure != nil else { return false }
+            if let reservedID = host?.reservedWorkspaceID {
+                return operation.host?.reservedWorkspaceID == reservedID
+                    && operation.reservation?.workspaceID == reservedID
+                    && operation.reservation.map { host?.isLive($0) == true } == true
+            }
+            return operation.host?.reservedWorkspaceID == nil && operation.host?.manager === host?.manager
         }
         // An ambiguous pair of failed intents must be retried from its own pane;
         // never guess which concurrent request a new action meant to recover.
@@ -37,8 +45,13 @@ final class CloudWorkspaceCreationCoordinator {
             provider: provider, host: host, allowsActionRetry: reuseFailedCreation,
             validateOperation: validateOperation
         )
+        // A new explicit open validates the reserved workspace's current owner.
+        // Rebind only that same retained reservation; an in-flight completion
+        // keeps its original host and cannot follow the workspace into a new window.
+        if retained != nil, host?.reservedWorkspaceID != nil { operation.host = host }
         operation.validateOperation = validateOperation
-        operation.existingRemoteView = existingRemoteView
+        if retained == nil || existingRemoteView != nil { operation.existingRemoteView = existingRemoteView }
+        operation.resolveExistingWorkspace = resolveExistingWorkspace
         if let existingReservation {
             guard existingReservation.machine == provider.machine,
                   host?.isLive(existingReservation) == true else { throw CancellationError() }
@@ -417,6 +430,12 @@ final class CloudWorkspaceCreationCoordinator {
     private func retry(_ id: UUID) {
         guard let catalog, let operation = operations[id], operation.failure != nil,
               !operation.isRunning, operation.retryTask == nil else { return }
+        if let reservation = operation.reservation,
+           operation.host?.isLive(reservation) == true,
+           let manager = Workspace.liveWorkspace(id: reservation.workspaceID)?.owningTabManager,
+           !manager.isFinalizedForWindowClose {
+            operation.host?.rebind(manager: manager)
+        }
         operation.isRunning = true
         operation.wasPreAdmitted = false
         operation.retryTask = Task { @MainActor [weak self] in
@@ -471,14 +490,30 @@ final class CloudWorkspaceCreationCoordinator {
             // workspace ID is filled from the receipt later, but selection and
             // Cmd+N must already recognize this pane as Cloud-owned while it
             // waits for the daemon.
+            let previousBinding = Workspace.liveWorkspace(id: reservation.workspaceID)?.cloudVMBinding
             catalog.bindCloudWorkspace(
                 localWorkspaceID: reservation.workspaceID,
                 machine: operation.machine,
-                remoteWorkspaceID: nil,
+                remoteWorkspaceID: previousBinding?.vmID == operation.machine.rawValue
+                    ? previousBinding?.remoteWorkspaceID : nil,
                 generatedTitle: provisionalTitle
             )
             catalog.notifyChange()
             try check(operation, catalog: catalog)
+        }
+        // Discover a new machine's seeded workspace only after the manual pane
+        // can accept input. Keep the resolver for retries: failed refreshes
+        // throw, and a bound workspace must be rediscovered before attachment.
+        if operation.receipt == nil, existingWorkspace == nil,
+           let resolve = operation.resolveExistingWorkspace {
+            let existing = try await resolve()
+            try check(operation, catalog: catalog)
+            if let existing {
+                operation.receipt = SurfaceWorkspaceCreationReceipt(
+                    workspace: existing.workspace, terminal: existing.terminal, cursor: nil
+                )
+                operation.existingRemoteView = existing.remoteView
+            }
         }
         let receipt: SurfaceWorkspaceCreationReceipt
         if let retained = operation.receipt {

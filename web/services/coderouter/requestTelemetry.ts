@@ -87,6 +87,7 @@ export type CoderouterSurface =
   | "vm_usage"
   | "vm_reflection"
   | "vm_reflection_name"
+  | "vm_reflection_kind"
   | "analytics"
   | "health";
 

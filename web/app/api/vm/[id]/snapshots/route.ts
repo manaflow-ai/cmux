@@ -11,6 +11,10 @@ import { listVmSnapshots } from "../../../../../services/vms/workflows";
 // newest first. The provider is the source of truth for what still exists; a
 // provider that cannot enumerate snapshots answers 501 vm_operation_unsupported.
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },

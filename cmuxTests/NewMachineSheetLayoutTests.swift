@@ -199,7 +199,9 @@ struct NewMachineSheetLayoutTests {
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.frame = NSRect(origin: .zero, size: size)
-        for _ in 0..<3 {
+        // SwiftUI can defer native menu creation until its host is visible.
+        window.orderFrontRegardless()
+        for _ in 0..<30 {
             host.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
@@ -251,7 +253,9 @@ struct NewMachineSheetLayoutTests {
         }
         window.contentView = host
         host.frame = NSRect(origin: .zero, size: size)
-        for _ in 0..<3 {
+        // SwiftUI can defer native menu creation until its host is visible.
+        window.orderFrontRegardless()
+        for _ in 0..<30 {
             host.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
