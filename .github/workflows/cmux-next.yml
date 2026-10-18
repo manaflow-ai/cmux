@@ -1872,7 +1872,8 @@ jobs:
             --skip HiddenPageHibernationTests --skip IconPickerMotionTests \
             --skip DialogFadeTests --skip TooltipSurfaceTests \
             --skip PaletteSettingsScopeTests \
-            --skip SwitchToColdTabTypeAheadTests
+            --skip SwitchToColdTabTypeAheadTests \
+            --skip CloudBringBackTests
 
       # AppKit's motion/transparency overrides are process-global, and the
       # hibernation probe has a short main-actor deadline. Run each affected
@@ -1898,7 +1899,8 @@ jobs:
             DialogFadeTests \
             TooltipSurfaceTests \
             PaletteSettingsScopeTests \
-            SwitchToColdTabTypeAheadTests; do
+            SwitchToColdTabTypeAheadTests \
+            CloudBringBackTests; do
             echo "Running isolated Swift Testing suite: $suite"
             ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter "$suite"
           done
