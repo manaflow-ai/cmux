@@ -25,7 +25,7 @@ export type ReportMeta = {
   evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown; comparisonId?: string; supersession?: unknown; history?: unknown[] };
 };
 
-type EvidenceView = { captureId?: string; capturedAt?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string };
+type EvidenceView = { captureId?: string; capturedAt?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string; sources?: string[] };
 
 function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
   if (!evidence) return "";
@@ -38,6 +38,7 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
       receipt.status ?? "",
       receipt.quality ? `quality ${escapeHtml(receipt.quality)}` : "",
       receipt.scenarioFingerprint ? `scenario <code>${escapeHtml(receipt.scenarioFingerprint.slice(0, 12))}</code>` : "",
+      receipt.sources?.length ? `source <code>${escapeHtml(receipt.sources.slice(0, 2).join(", "))}</code>` : "",
     ].filter(Boolean).join(" · ");
     return `<span class="evidence-item"><strong>${label}</strong> ${details}</span>`;
   };
@@ -54,7 +55,8 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
           const scenario = receipt.scenarioFingerprint
             ? ` · scenario <code>${escapeHtml(receipt.scenarioFingerprint.slice(0, 12))}</code>`
             : "";
-          return `<li><strong>${role}</strong> ${capture}${sha}${status}${quality}${scenario}${capturedAt}</li>`;
+          const sources = receipt.sources?.length ? ` · source <code>${escapeHtml(receipt.sources.slice(0, 2).join(", "))}</code>` : "";
+          return `<li><strong>${role}</strong> ${capture}${sha}${status}${quality}${scenario}${sources}${capturedAt}</li>`;
         })
         .join("")}</ol></details>`
     : "";

@@ -77,7 +77,7 @@ const receiptFingerprint = (manifest: string): string => {
   return scenarioFingerprint(cases);
 };
 
-type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerprint: string; quality?: string; status?: string };
+type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerprint: string; quality?: string; status?: string; sources?: string[] };
 const evidenceReceipt = (dir: string, label: string, manifest?: string, captureManifest?: string): EvidenceReceipt | undefined => {
   const receipt = readReceipt(dir);
   if (!receipt) {
@@ -106,6 +106,7 @@ const evidenceReceipt = (dir: string, label: string, manifest?: string, captureM
     scenarioFingerprint: receipt.scenario.fingerprint,
     quality: receipt.quality,
     status: receipt.results?.status,
+    sources: receipt.revisions?.sources,
   };
 };
 

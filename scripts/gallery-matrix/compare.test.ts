@@ -289,7 +289,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
       comparisonId: "cmp-18189-ab12",
       supersession: { status: "not-claimed" },
       base: { captureId: "base-capture", sha: "base-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
-      head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass" },
+      head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass", sources: ["src/head.gallery.tsx"] },
       repeat: { captureId: "repeat-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
       freshness: { status: "verified", observedSha: "candidate-head-observed", reason: "live head matches candidate head" },
       history: [
@@ -315,6 +315,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
   expect(html).toContain("Baseline relation: not-claimed");
   expect(html).toContain("base-capture");
   expect(html).toContain("head-capture");
+  expect(html).toContain("source <code>src/head.gallery.tsx</code>");
   expect(html).toContain("repeat-capture");
   expect(html).toContain("Comparison history (3)");
   expect(html).toContain("determinism-check");
