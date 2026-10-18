@@ -2,6 +2,7 @@
 // project, as a label, then its title, which renames the chat in place (`pane.rename`): Return or
 // leaving the field keeps the name, Escape puts the old one back.
 import { useRef, useState } from "react";
+import { inputCommandProps } from "../../../ui/inputCommandProps";
 import { useT } from "../i18n";
 import { useNt } from "../newtab/strings";
 import { folderName } from "../summary/ThreadDetails";
@@ -40,7 +41,7 @@ export function ThreadTitle({
       {folder && (
         <>
           {/* A chat with no project runs in its private agent-home folder: No project, nothing to open. */}
-          <span className="acpmux-thread-title__project" title={home ? undefined : folder}>
+          <span className="acpmux-thread-title__project">
             <Icon name={home ? "placeholder" : "folder"} size={13} />
             <span className="acpmux-thread-title__label">{home ? nt("noProject") : folderName(folder)}</span>
           </span>
@@ -60,21 +61,19 @@ export function ThreadTitle({
           autoFocus
           onFocus={(event) => event.currentTarget.select()}
           onBlur={(event) => commit(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            // Return or Escape inside an input method's composition belongs to the composition.
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter") commit(event.currentTarget.value);
-            if (event.key === "Escape") {
+          {...inputCommandProps({
+            ignoreComposition: true,
+            enter: (event) => commit(event.currentTarget.value),
+            escape: () => {
               settled.current = true;
               setEditing(false);
-            }
-          }}
+            },
+          })}
         />
       ) : (
         <button
           type="button"
           className="acpmux-thread-title__name"
-          title={onRename ? t("chatMenu.rename") : undefined}
           disabled={!onRename}
           onClick={() => {
             settled.current = false;

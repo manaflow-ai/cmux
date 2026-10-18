@@ -4,6 +4,7 @@
 // their tab; Files and Changes open beside it in the same pane; New chat turns the page into the
 // usual New Tab screen. A letter picks a tile, as T3's list does.
 import { useT } from "../i18n";
+import { PickerButton } from "../../../ui/PickerPrimitives";
 import { Icon } from "../icons/Icon";
 import { useNt } from "./strings";
 
@@ -25,7 +26,7 @@ export function SurfaceLauncher({ onPick }: { onPick: (surface: Surface) => void
     <div className="nt-surfaces">
       <fieldset className="nt-surfaces__grid" aria-label={nt("create.label")}>
         {tiles.map((tile, index) => (
-          <button
+          <PickerButton
             key={tile.surface}
             type="button"
             className="nt-surface"
@@ -37,7 +38,7 @@ export function SurfaceLauncher({ onPick }: { onPick: (surface: Surface) => void
             // oxlint-disable-next-line jsx-a11y/no-autofocus
             autoFocus={index === 0}
             onClick={() => onPick(tile.surface)}
-            onKeyDown={(event) => {
+            keyboard={(event) => {
               // A letter picks a tile (focus is always on one: the first takes it as the page opens).
               if (event.metaKey || event.ctrlKey || event.altKey) return;
               const surface = KEYS[event.key.toLowerCase()];
@@ -47,7 +48,7 @@ export function SurfaceLauncher({ onPick }: { onPick: (surface: Surface) => void
             }}
           >
             <Icon name={tile.icon} size={20} />
-          </button>
+          </PickerButton>
         ))}
       </fieldset>
     </div>
