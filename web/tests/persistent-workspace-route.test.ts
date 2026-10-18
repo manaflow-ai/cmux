@@ -31,12 +31,13 @@ mock.module("../services/vms/routeHelpers", () => ({
     _failureLog: string,
     handler: (context: { user: AuthedUser; span: never; authDurationMs: number; routeStartedAtMs: number; setResponseFinalizer: () => void }) => Promise<Response>,
   ) => handler({ user, span: {} as never, authDurationMs: 0, routeStartedAtMs: 0, setResponseFinalizer: () => {} }),
-  resolveVmProvisioningAccountScope: async () => ({ ok: true, entitlements: { billingTeamId: "team-route" } }),
-  resolveVmRouteAccountScope: () => ({ ok: true, entitlements: { billingTeamId: "team-route" } }),
+  resolveVmProvisioningAccountScope: async () => ({ ok: true, entitlements: { billingTeamId: "team-route", planId: "pro", billingCustomerType: "team", maxActiveVms: 3, resourcePool: null } }),
+  resolveVmRouteAccountScope: () => ({ ok: true, entitlements: { billingTeamId: "team-route", planId: "pro", billingCustomerType: "team", maxActiveVms: 3, resourcePool: null } }),
   jsonResponse,
 }));
 
 const { configurePersistentWorkspaceService } = await import("../services/vms/persistentWorkspace");
+const { configureRequestScopedWorkspaceInfrastructure } = await import("../services/runtimeComposition");
 const collectionRoute = await import("../app/api/workspaces/route");
 const itemRoute = await import("../app/api/workspaces/[id]/route");
 
@@ -61,7 +62,10 @@ describe("persistent workspace routes", () => {
     configurePersistentWorkspaceService(fakeService);
   });
 
-  afterAll(() => configurePersistentWorkspaceService(null));
+  afterAll(() => {
+    configurePersistentWorkspaceService(null);
+    configureRequestScopedWorkspaceInfrastructure(null);
+  });
 
   test("create route requires idempotency before invoking the service", async () => {
     const response = await collectionRoute.POST(responseRequest("/api/workspaces", { name: "route" }));
@@ -83,5 +87,32 @@ describe("persistent workspace routes", () => {
     const attached = await itemRoute.POST(responseRequest("/api/workspaces/runtime-route", { action: "attach" }), params);
     expect(attached.status).toBe(200);
     expect(await attached.json()).toEqual({ redacted: true, provider: "freestyle", runtimeId: "runtime-route", workspaceId: "workspace-route", target: { token: "[redacted]" } });
+  });
+
+  test("create route uses an explicit request-scoped provider when no global service is installed", async () => {
+    configurePersistentWorkspaceService(null);
+    const rows = new Map<string, any>();
+    configureRequestScopedWorkspaceInfrastructure({
+      workspaceStore: {
+        async createRuntime({ record }) {
+          rows.set(record.runtimeId, record);
+          return { record, created: true };
+        },
+        async getRuntime({ runtimeId }) { return rows.get(runtimeId) ?? null; },
+        async updateRuntime({ runtimeId, patch }) {
+          const next = { ...rows.get(runtimeId), ...patch, version: (rows.get(runtimeId)?.version ?? 1) + 1 };
+          rows.set(runtimeId, next);
+          return next;
+        },
+      },
+      providerFactory: () => ({
+        async create() { return { providerVmId: "vm-scoped", providerWorkspaceId: "workspace-scoped" }; },
+        async resume() {},
+        async suspend() {},
+      }),
+    });
+    const response = await collectionRoute.POST(responseRequest("/api/workspaces", { name: "scoped" }, { "idempotency-key": "scoped-key" }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ lifecycle: "running", provider: "freestyle" });
   });
 });
