@@ -85,18 +85,25 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
-    def test_trusted_next_uses_its_own_state_without_shared_cache_secrets(self):
+    def test_trusted_next_uses_an_isolated_github_cache_without_shared_r2_secrets(self):
         steps = {step.get('name'): step for step in DOC['jobs']['build-nightly-app']['steps']}
         context = {
             'needs.decide.outputs.track': 'nightly-next',
             'steps.persistent-release.outputs.enabled': 'true',
             'needs.decide.outputs.cold_cache': 'false',
             'steps.compilation-cache-bound.outputs.save': 'true',
+            'steps.compilation-cache-restore.outputs.cache-hit': 'false',
+            'steps.swift-packages-restore.outputs.cache-hit': 'false',
         }
         for name in ('Restore Xcode compilation cache', 'Cache Swift packages',
                      'Save Xcode compilation cache', 'Save Swift packages'):
             with self.subTest(step=name):
-                self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
+                self.assertTrue(evaluate(parse_expression(steps[name]['if']), context))
+                self.assertIn("needs.decide.outputs.track == 'nightly-next' && 'github'", steps[name]['with']['backend'])
+        for name in ('Save Xcode compilation cache', 'Save Swift packages'):
+            for key in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CI_CACHE_R2_ENDPOINT'):
+                with self.subTest(step=name, key=key):
+                    self.assertIn("needs.decide.outputs.track == 'nightly-next' && ''", steps[name]['env'][key])
 
     def test_owned_next_and_main_have_independent_pending_slots(self):
         def group(branch):

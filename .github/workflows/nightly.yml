@@ -1773,7 +1773,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.cold_cache != 'true')
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           restore-keys: |
@@ -1921,7 +1921,7 @@ jobs:
         id: swift-packages-restore
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
@@ -2093,12 +2093,12 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '') }}
+          AWS_SECRET_ACCESS_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '') }}
+          CI_CACHE_R2_ENDPOINT: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '') }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
@@ -2107,12 +2107,12 @@ jobs:
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          AWS_ACCESS_KEY_ID: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '') }}
+          AWS_SECRET_ACCESS_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '') }}
+          CI_CACHE_R2_ENDPOINT: ${{ needs.decide.outputs.track == 'nightly-next' && '' || ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '') }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
