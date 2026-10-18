@@ -285,7 +285,7 @@ open class ChromeLabel: NSView {
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds { fill.frame = layer.bounds }
         let color = textColor?.cgColor, weight = GlyphMask.weight(of: color)
-        let ink = Ink(text: inkText(color: nil), shape: shape, size: bounds.size, scale: scale)
+        let ink = Ink(text: inkText(color: nil), shape: shape, size: bounds.size)
         guard drawn?.ink != ink || drawn?.weight != weight else { return }
         if drawn?.ink != ink { images = [:] }
         drawn = (ink, weight)
@@ -309,7 +309,7 @@ open class ChromeLabel: NSView {
         defer { ctx.restoreGState() }
         ctx.setAllowsFontSmoothing(true)
         ctx.setShouldSmoothFonts(true)
-        LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size, scale: scale, context: ctx)
+        LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size, context: ctx)
     }
 
     override open func viewDidChangeBackingProperties() {
@@ -325,7 +325,7 @@ open class ChromeLabel: NSView {
         return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { ctx, opaque in
             let text = NSMutableAttributedString(attributedString: ink.text)
             text.addAttribute(.foregroundColor, value: NSColor(cgColor: opaque) ?? .black, range: NSRange(location: 0, length: text.length))
-            LabelText.draw(text, shape: ink.shape, in: ink.size, scale: ink.scale, context: ctx)
+            LabelText.draw(text, shape: ink.shape, in: ink.size, context: ctx)
         }
     }
 
@@ -355,7 +355,7 @@ open class ChromeLabel: NSView {
     }
 
     private func beginSelection(in window: NSWindow) -> LabelSelectionView {
-        let view = LabelSelectionView(text: inkText(color: textColor ?? .labelColor), shape: shape, size: bounds.size, scale: scale)
+        let view = LabelSelectionView(text: inkText(color: textColor ?? .labelColor), shape: shape, size: bounds.size)
         view.frame = bounds
         view.didResign = { [weak self] in self?.endSelection(resigned: true) }
         addSubview(view)

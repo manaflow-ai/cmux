@@ -6,8 +6,8 @@ import AppKit
 /// It lays out as a label field does (measured against `NSTextField` on macOS 26 and 27 by
 /// `debug.label_parity`): the text sits 2 pt in from each side (the line fragment padding; the
 /// field's alignment rect excludes it), the first line at the top edge, each line as tall as its
-/// font's ascender and descender each rounded up to a whole pixel (their sum to a whole point),
-/// widths rounded up to a whole pixel. Only a
+/// font's ascender rounded to a whole point and its descender rounded up to one, widths
+/// rounded up to a whole pixel. Only a
 /// wrapping label (``Shape/wraps``) breaks lines at the width, up to its line count, the line
 /// break mode on its last line; any other label shows each of its lines whole, clipped or
 /// truncated at the width.
@@ -120,7 +120,7 @@ enum LabelText {
         // (a limited container sets the rest of the text on its last line).
         let shownLines = measuring.wraps && measuring.lines > 0 ? measuring.lines : Int.max
         if measuring.wraps { measuring.lines = 0 }
-        let range = lay(paragraphed(shown, shape: measuring), shape: measuring, width: width.map { $0 + padding * 2 }, height: nil, scale: scale)
+        let range = lay(paragraphed(shown, shape: measuring), shape: measuring, width: width.map { $0 + padding * 2 }, height: nil)
         guard range.length > 0 else { return Metrics(size: .zero, firstBaseline: 0, lastBaselineFromBottom: 0) }
         var used = CGRect.null
         var baselines: [CGFloat] = []
@@ -137,8 +137,25 @@ enum LabelText {
         return Metrics(size: size, firstBaseline: baselines.first ?? 0, lastBaselineFromBottom: size.height - (baselines.last ?? 0))
     }
 
-    /// The baseline a field reports for a line (its tallest font's ascender, rounded to a whole
-    /// point; the glyphs sit on the pixel-rounded one).
+    /// `text` up to the end of its last visible line with an ellipsis in place of the line
+    /// break there, when the label truncates its last visible line, the layout (`glyphs`) shows
+    /// only part of the text and the cut falls on a line break; else nil.
+    private static func ellipsized(_ text: NSAttributedString, shape: Shape, glyphs: NSRange) -> NSAttributedString? {
+        guard shape.wraps, shape.truncatesLastVisibleLine else { return nil }
+        let shown = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let end = NSMaxRange(shown)
+        guard end < text.length, end > 0 else { return nil }
+        let characters = text.string as NSString
+        let last = characters.character(at: end - 1)
+        guard last == 0x0A || last == 0x0D || last == 0x2028 || last == 0x2029 else { return nil }
+        let cut = NSMutableAttributedString(attributedString: text.attributedSubstring(from: NSRange(location: 0, length: end - 1)))
+        let attributes = end >= 2 ? text.attributes(at: end - 2, effectiveRange: nil) : text.attributes(at: 0, effectiveRange: nil)
+        cut.append(NSAttributedString(string: "\u{2026}", attributes: attributes))
+        return cut
+    }
+
+    /// The baseline a field reports for a line: its tallest font's ascender, rounded to a whole
+    /// point (where the line's glyphs sit).
     private static func reportedAscent(of glyphs: NSRange) -> CGFloat {
         var ascent: CGFloat = 0
         storage.enumerateAttribute(.font, in: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) { value, _, _ in
@@ -151,9 +168,15 @@ enum LabelText {
     /// view's bounds, padding included) at the origin of the current (flipped) graphics context
     /// `context`. As a field draws them, text of more than one line clips to the text's area (the
     /// padding stays clear) and a single line to the box.
-    static func draw(_ text: NSAttributedString, shape: Shape, in size: NSSize, scale: CGFloat, context: CGContext) {
-        let range = lay(paragraphed(text, shape: shape), shape: shape, width: size.width, height: layoutHeight(shape, size: size), scale: scale)
+    static func draw(_ text: NSAttributedString, shape: Shape, in size: NSSize, context: CGContext) {
+        let laid = paragraphed(text, shape: shape)
+        var range = lay(laid, shape: shape, width: size.width, height: layoutHeight(shape, size: size))
         guard range.length > 0 else { return }
+        // A last visible line cut at a line break ends in an ellipsis too, as a field's (TextKit
+        // truncates only a line that runs past the width).
+        if let cut = ellipsized(laid, shape: shape, glyphs: range) {
+            range = lay(cut, shape: shape, width: size.width, height: layoutHeight(shape, size: size))
+        }
         context.saveGState()
         defer { context.restoreGState() }
         if manager.lineFragmentRect(forGlyphAt: NSMaxRange(range) - 1, effectiveRange: nil).minY > 0 {
@@ -162,15 +185,13 @@ enum LabelText {
         manager.drawGlyphs(forGlyphRange: range, at: .zero)
     }
 
-    /// The layout manager delegate that makes every line as tall as a label field's: its font's
-    /// ascender and descender, each rounded up to a whole pixel, their sum up to a whole point,
-    /// the baseline under the ascender (TextKit rounds the raw sum instead: an 11 pt line is
-    /// 13 pt, a field's 14 pt).
+    /// The layout manager delegate that sets every line as a label field does (measured on macOS
+    /// 27 at 10.5, 11, 12 and 13 pt): the baseline at its font's ascender rounded to a whole point,
+    /// the descender below it rounded up to a whole point (TextKit rounds the raw sum instead: an
+    /// 11 pt line is 13 pt, a field's 14 pt).
     nonisolated final class WholePointLines: NSObject, NSLayoutManagerDelegate {
         /// How many lines it was asked about (debug.label_parity).
         var calls = 0
-        /// Pixels per point of the layout it serves.
-        var scale: CGFloat = 2
 
         func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
                            lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
@@ -179,15 +200,14 @@ enum LabelText {
             guard let storage = layoutManager.textStorage else { return false }
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let scale = max(self.scale, 1)
             storage.enumerateAttribute(.font, in: characters) { value, _, _ in
                 guard let font = value as? NSFont else { return }
-                ascent = max(ascent, (font.ascender * scale).rounded(.up) / scale)
-                descent = max(descent, (-font.descender * scale).rounded(.up) / scale)
-                leading = max(leading, (font.leading * scale).rounded(.up) / scale)
+                ascent = max(ascent, font.ascender.rounded())
+                descent = max(descent, (-font.descender).rounded(.up))
+                leading = max(leading, font.leading.rounded(.up))
             }
             guard ascent > 0 else { return false }
-            let height = (ascent + descent + leading).rounded(.up)
+            let height = ascent + descent + leading
             lineFragmentRect.pointee.size.height = height
             lineFragmentUsedRect.pointee.size.height = height
             baselineOffset.pointee = ascent
@@ -199,7 +219,7 @@ enum LabelText {
     /// The shared stack's line delegate calls and one line's numbers (debug.label_parity).
     static func lineReport(_ font: NSFont) -> String {
         let range = lay(NSAttributedString(string: "Hi", attributes: [.font: font]), shape: Shape(lines: 0, wraps: false, lineBreak: .byClipping,
-                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil, scale: 2)
+                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil)
         let rect = range.length > 0 ? manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil) : .zero
         return "font \(font.pointSize) raw \(font.ascender - font.descender + font.leading) asc \(font.ascender) desc \(font.descender) "
             + "leading \(font.leading) default \(manager.defaultLineHeight(for: font)) line \(rect.height) used \(manager.usedRect(for: container).height) "
@@ -208,13 +228,8 @@ enum LabelText {
     #endif
 
     /// Lays `text` out in the shared stack and returns the glyphs that fit.
-    private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?, scale: CGFloat) -> NSRange {
+    private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?) -> NSRange {
         let manager = Self.manager // wires the storage, the manager and the container on first use
-        if lineHeights.scale != scale {
-            lineHeights.scale = scale
-            // Line heights depend on the scale: lay the text out again.
-            manager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
-        }
         configure(container, shape: shape, width: width, height: height)
         storage.setAttributedString(text)
         manager.ensureLayout(for: container)
@@ -232,11 +247,10 @@ final class LabelSelectionView: NSTextView {
     /// The line heights of this view's text (the layout manager keeps its delegate weakly).
     private var lineHeights: LabelText.WholePointLines?
 
-    convenience init(text: NSAttributedString, shape: LabelText.Shape, size: NSSize, scale: CGFloat) {
+    convenience init(text: NSAttributedString, shape: LabelText.Shape, size: NSSize) {
         let storage = NSTextStorage(attributedString: LabelText.paragraphed(text, shape: shape))
         let manager = NSLayoutManager()
         let lineHeights = LabelText.WholePointLines()
-        lineHeights.scale = scale
         manager.delegate = lineHeights
         let container = NSTextContainer(size: .zero)
         LabelText.configure(container, shape: shape, width: size.width, height: LabelText.layoutHeight(shape, size: size))
