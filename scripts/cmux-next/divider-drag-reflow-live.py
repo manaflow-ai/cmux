@@ -12,9 +12,12 @@ records display-link intervals, drags the split divider left and right, one
 from `debug.surfaces`: the columns each frame fits (`fit_grid`), the grid Ghostty's
 last frame drew (`drawn_grid`: the reflow preview while the owner has not
 announced the new grid, cx-8w027.13) and the owner's grid (`grid`). Pass: at
-every step the drawn columns equal the fitted columns (0 steps of lag), the
-owner's grid follows within --lag steps and changes during the drag, after the
-drag all three agree, and no frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
+every step the drawn columns equal the fitted columns (0 steps of lag), with
+samples drawn by the preview before the owner answered, the owner's grid changes
+during the drag, after the drag all three agree, and no frame interval is over
+--hitch-ms. Owner-grid samples more than --lag steps behind are reported
+(`owner_lagged`, the PTY size a full-screen program sees), not failed: the text
+does not wait for them. Writes frames/, samples.json and app.log to
 DIR. Stops only the app it started (by its PID) and the tag's daemons
 (tag_teardown).
 """
@@ -206,7 +209,7 @@ try:
     report["worst_frame_ms"] = stats.get("max_ms") or 0
     frames_ok = isinstance(stats, dict) and "error" not in stats and (stats.get("frames") or 0) > 0 \
         and report["worst_frame_ms"] <= opts.hitch_ms
-    ok = bool(distinct) and not misses and not undrawn and not lagged and not settled \
+    ok = bool(distinct) and not misses and not undrawn and not settled \
         and len(report["after"]) >= 2 and min(distinct) > 5 and min(previews) > 0 and frames_ok
 finally:
     if app.poll() is None:
