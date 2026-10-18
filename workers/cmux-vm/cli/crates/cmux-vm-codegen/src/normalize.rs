@@ -13,6 +13,8 @@ use serde_json::{Map, Value};
 ///   become `nullable: true`.
 /// - `const: v` becomes `enum: [v]`; numeric `exclusiveMinimum`/`exclusiveMaximum`
 ///   become `minimum`/`maximum` plus the 3.0 boolean flag.
+/// - Nullable uses of unrefined numeric aliases inline the primitive type,
+///   retaining their bounds; progenitor cannot decode their allOf/ref form.
 /// - An `anyOf`/`oneOf` whose branches are all plain strings (a `vm_` or a
 ///   `snap_` id, say) becomes one string whose pattern is the alternation of
 ///   the branch patterns. Progenitor would otherwise generate a struct of
@@ -40,6 +42,24 @@ use serde_json::{Map, Value};
 ///   compile with byte-stream error bodies, and a WebSocket needs its own
 ///   client; the `cmux-vm` CLI has no terminal verbs yet.
 pub fn normalize(doc: &mut Value) {
+    let numeric_aliases: Map<String, Value> = doc
+        .pointer("/components/schemas")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|schemas| schemas.iter())
+        .filter(|(_, schema)| {
+            schema.as_object().is_some_and(|schema| {
+                schema
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| matches!(kind, "integer" | "number"))
+                    && schema.keys().all(|key| {
+                        matches!(key.as_str(), "type" | "format" | "description" | "title")
+                    })
+            })
+        })
+        .map(|(name, schema)| (format!("#/components/schemas/{name}"), schema.clone()))
+        .collect();
     if let Some(version) = doc.get_mut("openapi")
         && version.as_str().is_some_and(|v| v.starts_with("3.1"))
     {
@@ -74,6 +94,52 @@ pub fn normalize(doc: &mut Value) {
             item.as_object()
                 .is_none_or(|item| item.keys().any(|k| is_http_method(k)))
         });
+    }
+    inline_nullable_numeric_aliases(doc, &numeric_aliases);
+}
+
+/// Progenitor reads a bounded nullable numeric allOf/ref as an empty enum.
+/// Inline only unrefined numeric aliases; all bounds and nullability stay on
+/// the use site, so accepted JSON values and required properties are unchanged.
+fn inline_nullable_numeric_aliases(value: &mut Value, aliases: &Map<String, Value>) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                inline_nullable_numeric_aliases(value, aliases);
+            }
+        }
+        Value::Object(obj) => {
+            for value in obj.values_mut() {
+                inline_nullable_numeric_aliases(value, aliases);
+            }
+            if obj.get("nullable") != Some(&Value::Bool(true)) || obj.contains_key("type") {
+                return;
+            }
+            let Some(branches) = obj.get("allOf").and_then(Value::as_array) else {
+                return;
+            };
+            if branches.len() != 1 {
+                return;
+            }
+            let Some(reference) = branches[0]
+                .as_object()
+                .filter(|branch| branch.len() == 1)
+                .and_then(|branch| branch.get("$ref"))
+                .and_then(Value::as_str)
+            else {
+                return;
+            };
+            let Some(alias) = aliases.get(reference).and_then(Value::as_object) else {
+                return;
+            };
+            obj.remove("allOf");
+            for key in ["type", "format"] {
+                if let Some(value) = alias.get(key) {
+                    obj.entry(key.to_owned()).or_insert_with(|| value.clone());
+                }
+            }
+        }
+        _ => {}
     }
 }
 
