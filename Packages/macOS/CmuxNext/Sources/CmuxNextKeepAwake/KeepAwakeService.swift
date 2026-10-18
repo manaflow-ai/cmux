@@ -30,8 +30,10 @@ public final class KeepAwakeService {
             for await (choice, working) in ObservationStream({
                 (settings.snapshot.sessions.keepAwake, KeepAwakeService.agentsWorking(store))
             }) {
-                self?.policy.agents = choice
-                self?.policy.agentsWorking = working
+                // One write, so the hold never drops between the two fields.
+                guard var next = self?.policy else { return }
+                (next.agents, next.agentsWorking) = (choice, working)
+                self?.policy = next
             }
         }
     }
