@@ -78,7 +78,7 @@ SC_ARG="$TMP/kept-dd" run STUB_STALE_ONCE=1 || fail "kept-path retry run exited 
 # 4. A new kept path outside /tmp and the glaeda cache (a runner's RUNNER_TEMP
 #    on Blacksmith or hosted macOS) builds: it has no outputs to clear, so the
 #    binary-module guard never asks clear-stale-scheme-build-state.sh, which
-#    refuses such paths.
+#    refuses such paths unless they sit under RUNNER_TEMP (case 5).
 reset
 outside="$ROOT/.scheme-dd-test.$$"
 trap 'rm -rf "$TMP" "$outside"' EXIT

@@ -4,8 +4,12 @@
 set -euo pipefail
 
 derived_data="${1:?usage: clear-stale-scheme-build-state.sh DERIVED_DATA}"
+# RUNNER_TEMP is the hosted and Blacksmith lanes' DerivedData root
+# (cmux-next.yml, release-derived-data-path.sh); Blacksmith keeps it between jobs.
+runner_temp="${RUNNER_TEMP:-}"
 case "$derived_data" in
   /tmp/*|/private/tmp/*|*/Library/Caches/cmux-next-ci/*) ;;
+  "${runner_temp:-/nonexistent-runner-temp}"/?*) ;;
   *) echo "refusing unexpected DerivedData path: $derived_data" >&2; exit 2 ;;
 esac
 
