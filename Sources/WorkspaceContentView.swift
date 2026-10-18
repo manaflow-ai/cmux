@@ -379,6 +379,14 @@ struct WorkspaceContentView: View {
             syncBonsplitInteractivity()
             updateAgentHibernationPresentationVisibility()
         }
+        .onChange(of: ObjectIdentifier(workspace)) { _, _ in
+            // A restored tab can replace its Workspace instance without changing
+            // the ForEach identity. Rebind handlers to the live controller when
+            // that happens instead of leaving the old instance captured by the
+            // drop callback.
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
+        }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
