@@ -76,6 +76,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -188,6 +189,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
+import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
@@ -245,7 +247,7 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
-import { setSessionStatus } from "./sessionStatus";
+import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -4828,6 +4830,18 @@ function AcpmuxPane() {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
   );
+  // Behind the agent.sessionStatus Debug toggle: a turn that ended on a question offers its yes
+  // above the composer (RecapCard.tsx).
+  const sessionStatus = useSessionStatus();
+  const recapCard = useRecapCard({
+    rows: snapshot.rows,
+    sessionId: snapshot.sessionId,
+    on: sessionStatus && !snapshot.isWorking,
+    // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
+    asking: hasBottomAsk || trustPending || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
+    send: (text) => addressThread(text),
+    focusComposer: () => composerHandle.current?.focus(),
+  });
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
@@ -4946,6 +4960,9 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+      {recapCard.recap && (
+        <RecapCard recap={recapCard.recap} onReply={recapCard.reply} onDismiss={recapCard.dismiss} keyHint={!quick} />
+      )}
       <DictationNotice dictation={dictation} />
       {importError && (
         <p className="acpmux-composer-remote-note" role="alert">
@@ -5208,6 +5225,7 @@ function AcpmuxPane() {
           capture={captureScreen}
           upload={uploadFiles}
           onOpenInWindow={quick ? openInWindow : undefined}
+          onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
           prompt={prompt}
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
