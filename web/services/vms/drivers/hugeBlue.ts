@@ -114,7 +114,7 @@ export class HugeBlueProvider implements VMProvider {
       session: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_SESSION, "HUGE_BLUE_CMUX_REMOTE_SESSION") ?? "cloud",
       cmuxTuiBin: bounded(this.env.HUGE_BLUE_CMUX_TUI_BIN, "HUGE_BLUE_CMUX_TUI_BIN") ?? "/home/leo/.local/bin/cmux-tui",
       cmuxAgentBin: bounded(this.env.HUGE_BLUE_CMUX_AGENT_BIN, "HUGE_BLUE_CMUX_AGENT_BIN") ?? "/home/leo/.local/bin/cmux",
-      cmuxStateDir: bounded(this.env.HUGE_BLUE_CMUX_STATE_DIR, "HUGE_BLUE_CMUX_STATE_DIR", 512) ?? "/home/leo/.local/state/cmux-server/huge-blue",
+      cmuxSocket: bounded(this.env.HUGE_BLUE_CMUX_SOCKET, "HUGE_BLUE_CMUX_SOCKET", 512) ?? "/run/user/1001/cmux-tui-1001/huge-blue.sock",
     };
   }
 
@@ -158,7 +158,7 @@ export class HugeBlueProvider implements VMProvider {
     const config = this.config();
     try {
       const commandForHost = command
-        .replaceAll("/usr/local/bin/cmux-tui", `${config.cmuxTuiBin} --state '${config.cmuxStateDir}'`)
+        .replaceAll("/usr/local/bin/cmux-tui", `${config.cmuxTuiBin} --socket '${config.cmuxSocket}'`)
         .replaceAll("/usr/local/bin/cmux", config.cmuxAgentBin)
         .replaceAll("--session 'cloud'", `--session '${config.session}'`)
         .replaceAll("--session cloud", `--session ${config.session}`);
