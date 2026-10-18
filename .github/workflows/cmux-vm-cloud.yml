@@ -38,7 +38,10 @@ jobs:
         run: bun run typecheck
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bun run test -- test/team-vm-api-tenant.test.ts test/cloud-vm-api
+        run: bun run test -- test/team-vm-api test/cloud-vm-api
+      - name: Existing Team VM binding behavior
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-vm-bind.test.ts
       - name: Existing Cloud lifecycle behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/cloud-do.test.ts test/cloud-start-pause.test.ts test/cloud-resize.test.ts test/cloud-snapshots.test.ts test/cloud-orphans.test.ts test/cloud-idle-pause.test.ts test/cloud-idle-backstop.test.ts test/cloud-connect.test.ts test/cloud-admin.test.ts
