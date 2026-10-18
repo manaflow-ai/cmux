@@ -102,6 +102,35 @@ import Testing
         _ = try await call("collage.delete", ["id": .string(id)])
         await #expect(throws: PageError.self) { try await call("collage.get", ["id": .string(id)]) }
     }
+
+    /// A workspace's own background counts as shown (the review's #21789 case): neither a collage
+    /// nor an image a workspace shows can be removed, and an unreadable workspace file refuses too.
+    @Test func whatAWorkspaceShowsCannotBeRemoved() async throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-support-\(UUID().uuidString)", isDirectory: true)
+        let folder = support.appendingPathComponent("Backgrounds", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let images = BackdropUserImages(folder: folder)
+        let picture = folder.appendingPathComponent("Sea.png")
+        try BackdropCollagesFixture.png(to: picture)
+        let provider = BackdropImagesPageProvider(images: images, use: { _ in "" })
+        let call = { (op: String, params: JSONValue) in
+            try await provider.call(BackdropImagesPageProvider.prefix + op, params: params, context: Self.context)
+        }
+        let collage: JSONValue = ["name": "Sea", "fill": "#000000",
+                                  "layers": [["source": .string("file:\(picture.path)"), "x": 0, "y": 0, "width": 1, "height": 1,
+                                              "opacity": 1, "cornerRadius": 0]]]
+        let id = try #require(try await call("collage.save", ["collage": collage])["id"]?.stringValue)
+        let workspaces = support.appendingPathComponent("workspace-backgrounds.json")
+        let own = "file:\(picture.path)"
+        try Data(#"{"s1/w1":"collage:\#(id)","s1/w2":"\#(own)"}"#.utf8).write(to: workspaces)
+        await #expect(throws: PageError.self) { try await call("collage.delete", ["id": .string(id)]) }
+        await #expect(throws: PageError.self) { try await call("remove", ["id": .string(own)]) }
+        try Data("{not json".utf8).write(to: workspaces)
+        await #expect(throws: PageError.self) { try await call("collage.delete", ["id": .string(id)]) }
+        try Data(#"{"s1/w1":"starryNight"}"#.utf8).write(to: workspaces)
+        _ = try await call("collage.delete", ["id": .string(id)])
+        _ = try await call("remove", ["id": .string(own)])
+    }
 }
 
 /// A small PNG for the page tests.

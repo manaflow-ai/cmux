@@ -131,8 +131,11 @@ public final class BackdropImagesPageProvider: PageProvider {
     private func isShown(_ selection: BackdropSelection) -> Bool {
         if selection == inUse() { return true }
         let file = images.folder.deletingLastPathComponent().appendingPathComponent("workspace-backgrounds.json")
+        guard FileManager.default.fileExists(atPath: file.path) else { return false }
+        // A file that does not read is taken to show it: removing a background can wait, a blank
+        // workspace cannot be undone.
         guard let data = try? Data(contentsOf: file),
-              let workspaces = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+              let workspaces = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
         return workspaces.values.contains { ($0 as? String) == selection.id }
     }
 
