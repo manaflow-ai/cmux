@@ -58,6 +58,12 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
+    // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
+    // this env is layered after `caller_env`, so a profile, preset or
+    // request value would replace them.
+    for key in crate::hub::person::CALLER_ENV_KEYS {
+        env.remove(key);
+    }
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
     // Startup files changed since the last read: refresh in the background.

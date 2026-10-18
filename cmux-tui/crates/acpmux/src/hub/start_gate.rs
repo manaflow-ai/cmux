@@ -15,6 +15,9 @@ pub const CALLER_TOKEN_ENV: &str = "ACPMUX_SESSION_TOKEN";
 /// The env var that names the socket of the daemon that issued the caller
 /// token: the CLI sends the token to that socket only (`client.rs`).
 pub const CALLER_SOCKET_ENV: &str = "ACPMUX_SESSION_TOKEN_SOCKET";
+/// The env vars `caller_env` sets: acpmux's alone, never a profile's,
+/// preset's or request's (`agent/command.rs` drops them from those).
+pub const CALLER_ENV_KEYS: [&str; 2] = [CALLER_TOKEN_ENV, CALLER_SOCKET_ENV];
 /// `_meta.acpmux` field of a first `initialize`: `{sessionId, token}`.
 pub const CALLER_FIELD: &str = "callerSession";
 /// `_meta.acpmux` field of `session/new`: the mode the session starts in.
@@ -136,8 +139,9 @@ pub struct StartMode {
     /// The preset the request names, for the refusal.
     pub preset: Option<String>,
     /// The request starts the named preset as it is: its own mode, its
-    /// harness, no adopted conversation and no model, effort, policy or env
-    /// of its own (module docs, (b)); a folder is fine.
+    /// harness, no adopted conversation and no model, effort, policy, route
+    /// or env of its own (module docs, (b)); a folder is fine. A route swaps
+    /// the provider's base URL and keys, so it counts as env.
     pub preset_fits: bool,
     /// `preset_fits`, and the person approved the preset's current contents.
     /// The start checks it again against the contents the session resolved
@@ -167,9 +171,10 @@ impl StartMode {
         let adopts = meta.and_then(|m| m.get("adopt")).is_some_and(|v| !v.is_null());
         let harness = pick("harness");
         let given = |key: &str| meta.and_then(|m| m.get(key)).or_else(|| params.get(key));
-        let overrides = ["model", "effort", "policy"].into_iter().any(|k| pick(k).is_some())
-            || given("env")
-                .is_some_and(|e| !e.is_null() && e.as_object().is_none_or(|o| !o.is_empty()));
+        let overrides =
+            ["model", "effort", "policy", "route"].into_iter().any(|k| pick(k).is_some())
+                || given("env")
+                    .is_some_and(|e| !e.is_null() && e.as_object().is_none_or(|o| !o.is_empty()));
         let preset_fits = preset.is_some_and(|p| {
             p.mode.as_deref() == Some(mode.as_str())
                 && harness.as_deref().is_none_or(|h| h == p.harness)
