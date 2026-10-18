@@ -647,7 +647,7 @@ for path in sys.stdin.read().split():
   fi
   if [ -n "$frozen" ]; then
     refuse \
-      "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
+      "not merged: $ref touches frozen paths: $(paste -sd ';' - <<<"$frozen" | sed 's/;/; /g')" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
 fi
@@ -789,10 +789,10 @@ merged_head_checks() {
         status=1
         printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
         printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
-          "${new_files:+ (not on the base: $(paste -sd ' ' <<<"$new_files"))}" >&2
+          "${new_files:+ (not on the base: $(paste -sd ' ' - <<<"$new_files"))}" >&2
       else
         printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
-          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ')" "$ref" >&2
+          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ' -)" "$ref" >&2
       fi
     fi
   fi
