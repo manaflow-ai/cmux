@@ -110,7 +110,7 @@ final class PhonePushClient {
     private static let maxRecipientDiscoveryAttempts = 3
     private var recipientRefreshTask: Task<Void, Never>?
     private var lastRecipientRefreshEpochSeconds = 0
-    private var lastEncryptionUnavailableLogEpochSeconds = 0
+    private var encryptionUnavailableReporter = PhonePushEncryptionUnavailableReporter()
 
     let identityPrewarm = PhonePushIdentityPrewarm()
     private var activeIdentity: AuthenticatedSessionIdentity?
@@ -332,16 +332,18 @@ final class PhonePushClient {
             return .authenticationUnavailable
         }
         scheduleRecipientRefresh()
-        guard hasTrustedRecipient(
+        let hasTrustedKey = hasTrustedRecipient(
             payload: payload,
             identity: identity
-        ) else {
+        )
+        guard hasTrustedKey else {
             return retainUntilRecipientRefresh(
                 payload: payload,
                 identity: identity,
                 targetBundleIdentifier: nil
             )
         }
+        noteTrustedRecipientAvailable(for: identity)
         guard let envelope = makeEncryptedEnvelope(
             payload: payload,
             identity: identity,
@@ -404,10 +406,11 @@ final class PhonePushClient {
                 badgeCount: badgeCount,
                 hideContent: false
             )
-            if !hasTrustedRecipient(
+            let hasTrustedKey = hasTrustedRecipient(
                 payload: payload,
                 identity: identity
-            ) {
+            )
+            if !hasTrustedKey {
                 admission = retainUntilRecipientRefresh(
                     payload: payload,
                     identity: identity,
@@ -415,6 +418,7 @@ final class PhonePushClient {
                 )
                 continue
             }
+            noteTrustedRecipientAvailable(for: identity)
             guard let envelope = makeEncryptedEnvelope(
                 payload: payload,
                 identity: identity,
@@ -511,7 +515,7 @@ final class PhonePushClient {
         targetBundleIdentifier: String?
     ) -> PhonePushForwardAdmission {
         guard pendingRecipientPayloads.count < Self.maxPendingRecipientPayloads else {
-            reportEncryptionUnavailable()
+            reportEncryptionUnavailable(for: identity)
             return .encryptionUnavailable
         }
         pendingRecipientPayloads.append(
@@ -538,10 +542,15 @@ final class PhonePushClient {
                 phonePushLog.error("dropping expired push awaiting recipient-key discovery")
                 continue
             }
-            guard hasTrustedRecipient(
+            let hasTrustedKey = hasTrustedRecipient(
                 payload: item.payload,
                 identity: item.identity
-            ), let envelope = makeEncryptedEnvelope(
+            )
+            if hasTrustedKey {
+                noteTrustedRecipientAvailable(for: item.identity)
+            }
+            guard hasTrustedKey,
+                  let envelope = makeEncryptedEnvelope(
                 payload: item.payload,
                 identity: item.identity,
                 targetBundleIdentifier: item.targetBundleIdentifier,
@@ -558,7 +567,7 @@ final class PhonePushClient {
                         )
                     )
                 } else {
-                    reportEncryptionUnavailable()
+                    reportEncryptionUnavailable(for: item.identity)
                 }
                 continue
             }
@@ -578,11 +587,23 @@ final class PhonePushClient {
         }
     }
 
-    private func reportEncryptionUnavailable() {
-        let now = clock.nowEpochSeconds
-        guard now - lastEncryptionUnavailableLogEpochSeconds >= 60 else { return }
-        lastEncryptionUnavailableLogEpochSeconds = now
-        phonePushLog.error("push encryption unavailable; no trusted recipient key")
+    private func noteTrustedRecipientAvailable(
+        for identity: AuthenticatedSessionIdentity
+    ) {
+        encryptionUnavailableReporter.noteTrustedRecipientAvailable(
+            for: identity.accountID
+        )
+    }
+
+    private func reportEncryptionUnavailable(
+        for identity: AuthenticatedSessionIdentity
+    ) {
+        phonePushLog.debug(
+            "push encryption unavailable; no trusted recipient key"
+        )
+        guard encryptionUnavailableReporter.shouldReportUnavailable(
+            for: identity.accountID
+        ) else { return }
         sentryCaptureWarning(
             "Phone push encryption unavailable",
             category: "phone-push",

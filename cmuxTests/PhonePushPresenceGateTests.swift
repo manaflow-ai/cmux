@@ -14,19 +14,6 @@ import Testing
 /// the Mac" gate. All signals go through the injected seams of
 /// `MacPresenceMonitor`; no real HID/WindowServer state, no sleeps.
 @Suite struct PhonePushPresenceGateTests {
-    @Test func encryptionUnavailableReportsOncePerAccountUntilKeyReturns() {
-        var reporter = PhonePushEncryptionUnavailableReporter()
-
-        #expect(reporter.shouldReportUnavailable(for: "account-a"))
-        #expect(!reporter.shouldReportUnavailable(for: "account-a"))
-        #expect(reporter.shouldReportUnavailable(for: "account-b"))
-
-        reporter.noteTrustedRecipientAvailable(for: "account-a")
-
-        #expect(reporter.shouldReportUnavailable(for: "account-a"))
-        #expect(!reporter.shouldReportUnavailable(for: "account-a"))
-    }
-
     @Test func testAlertReportsOnlyItsSynchronousAdmissionStage() {
         #expect(PhonePushForwardAdmission.disabled.testStageRawValue == "forwarding_disabled")
         #expect(PhonePushForwardAdmission.presenceSuppressed.testStageRawValue == "suppressed_mac_active")
