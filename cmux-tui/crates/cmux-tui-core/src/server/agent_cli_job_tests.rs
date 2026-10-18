@@ -128,3 +128,22 @@ fn cmux_next_agent_cli_job_old_owners_are_not_given_a_legacy_fallback() {
     assert_code(&caller.call(&mux, request(&mux, "claude", "legacy")), "agent_cli_job.unsupported");
     assert_eq!(owner.methods(), ["initialize"]);
 }
+
+#[test]
+fn cmux_next_agent_cli_job_requires_the_selected_session_before_preparing() {
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
+    let mux = owner.mux("job-session");
+    let caller = Caller::new(&mux, true);
+    let mut missing = request(&mux, "claude", "missing-session");
+    missing.as_object_mut().unwrap().remove("expected_session_id");
+    assert_code(&caller.call(&mux, missing), "agent_cli_job.bad_request");
+    let mut bound = request(&mux, "claude", "bound-session");
+    bound["expected_session_id"] = json!(mux.session_public_id);
+    let mut foreign = bound.clone();
+    foreign["expected_session_id"] = json!("session_11111111111111111111111111111111");
+    assert_code(&caller.call(&mux, foreign), "agent_cli_job.session_mismatch");
+    assert!(owner.connections.recv_timeout(Duration::from_millis(100)).is_err());
+    let reply = caller.call(&mux, bound);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["data"]["session"], json!(mux.session_public_id));
+}
