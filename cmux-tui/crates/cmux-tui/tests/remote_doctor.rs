@@ -48,7 +48,11 @@ fn remote_doctor_help_names_the_command() {
 #[test]
 fn remote_doctor_reports_ssh_off_when_tailnet_reaches_but_port_refuses() {
     let tools = tempfile::tempdir().unwrap();
-    write_tool(tools.path(), "tailscale", "echo 'pong from peer (100.64.0.9) via DERP(sfo) in 40ms'");
+    write_tool(
+        tools.path(),
+        "tailscale",
+        "echo 'pong from peer (100.64.0.9) via DERP(sfo) in 40ms'",
+    );
     write_tool(tools.path(), "ssh", "echo 'ssh must not run when TCP fails' >&2; exit 99");
     let port = closed_port().to_string();
 
