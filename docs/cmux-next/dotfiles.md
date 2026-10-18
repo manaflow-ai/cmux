@@ -95,7 +95,7 @@ names.
 ```jsonc
 [
   { "key": "cmd+k cmd+p", "command": "palette.open" },
-  { "key": "cmd+alt+right", "command": "sidebar.right" },
+  { "key": "cmd+alt+right", "command": "toggleRightSidebar" },
   // A leading "-" removes a default binding.
   { "key": "cmd+shift+p", "command": "-palette.open" },
 ]
@@ -117,7 +117,7 @@ agent starts through acpmux:
 }
 ```
 
-It's also Settings > Agents > Permission Mode for New Chats, and
+It's also Settings > Agents > Agent Chat > Permission Mode for New Chats, and
 `cmux config set agents.defaultPermissionMode ask --confirm`. Agents can't
 change it without you confirming. Picking a mode in a chat sets the default
 too, so the latest choice wins: a pick in a chat, or a change to this setting.
