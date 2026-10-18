@@ -1219,6 +1219,11 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The cmux-next GUI suites need a foregrounded logged-in mini when the
+  # picker cannot return a route. Their six exact fallback expressions are the
+  # only workflow-level owned GUI label; the picker branch still owns normal
+  # routing and this narrow exception preserves that behavior.
+  local cmux_next_gui_fallback="'glaeda-gui-std-xcode-26.6'"
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1232,6 +1237,9 @@ check_no_self_hosted_fleet_runners() {
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
+    elif [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/cmux-next.yml" && "$content" == *"$cmux_next_gui_fallback"* ]]; then
+      # This exact fallback is reached only after the GUI picker fails.
+      content="${content/"$cmux_next_gui_fallback"/}"
     fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
