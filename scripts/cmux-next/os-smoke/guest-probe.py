@@ -363,6 +363,12 @@ try:
         timeline = sorted([t for t in timeline if t[2]], key=lambda t: t[2])
         origin = timeline[0][2] if timeline else 0
         print("coldsteps %s" % json.dumps([[kind, name, round((t - origin) / 1e6), round(ms or 0)] for kind, name, t, ms in timeline])[:2200], flush=True)
+        # The deeper stack of each long stall (the watchdog's sample about 50 ms into it).
+        long_records = [r for r in ((rpc("debug.hangs") or {}).get("records") or [])
+                        if r.get("duration_ms", 0) >= 200 and any(r.get("start_uptime_ns") == x.get("t_ns") for x in first_stalls)]
+        for r in long_records[:3]:
+            frames = [re.sub(r"^Chromium Embedded Framework ", "CEF ", f)[:90] for f in (r.get("frames") or [])[:28]]
+            print("coldstack %d ms cpu %d: %s" % (r.get("duration_ms", 0), r.get("cpu_ms", 0), " < ".join(frames))[:2600], flush=True)
         step("browser", bool(state) and "error" not in (opened or {}),
              {"run": opened, "state": state or rpc("browser.page.state"),
               "cef": rpc("debug.cef") if debug_router() else None})
