@@ -252,16 +252,15 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
   }
   if (action.type === "follow") next = { ...state, watching: action.ids };
   if (action.type === "agentEvent") {
-    const applied = applyAgentStateEvent(
-      { lanes: state.lanes ?? [], seqBySession: state.prioritySeqBySession },
-      action.event as AgentStateEvent,
-    );
+    const event = action.event as AgentStateEvent;
+    if (event.seq <= (state.prioritySeqBySession[event.sessionId] ?? -1)) return state;
+    const applied = applyAgentStateEvent({ lanes: state.lanes ?? [], seqBySession: state.prioritySeqBySession }, event);
     next = {
       ...state,
       lanes: priorityLanes(applied),
       prioritySeqBySession: applied.seqBySession,
       priorityRevision: state.priorityRevision + 1,
-      priorityChangedSessionId: (action.event as AgentStateEvent).sessionId,
+      priorityChangedSessionId: event.sessionId,
     };
   }
   return next;
