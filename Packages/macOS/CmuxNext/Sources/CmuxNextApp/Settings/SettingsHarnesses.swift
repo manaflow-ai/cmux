@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -113,6 +114,11 @@ final class SettingsHarnesses {
     /// `registry`.
     func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
+        if action == "update" || action == "updateAll" {
+            guard context?.userGesture == true || context?.isConfirmedUser == true else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+        }
         switch action {
         case "refresh":
             await refresh(recheck: params["recheck"]?.boolValue ?? false)

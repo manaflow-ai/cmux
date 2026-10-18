@@ -121,7 +121,7 @@ final class SettingsPageProvider: PageProvider {
             return harnessesState()
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return try await harnessesRun(params, nil)
+            return try await harnessesRun(params, context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
