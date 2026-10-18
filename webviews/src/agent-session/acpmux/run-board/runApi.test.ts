@@ -100,6 +100,29 @@ describe("Run API client", () => {
     expect(normalizeRunSnapshot(board)).toBe(board);
   });
 
+  test("falls back to receipt events while the dedicated event route is unavailable", async () => {
+    const calls: string[] = [];
+    const client = createRunApiClient({
+      baseUrl: "https://cmux.test",
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        calls.push(url.pathname + url.search);
+        if (url.pathname.endsWith("/events")) return new Response(JSON.stringify({ error: "route_not_found" }), { status: 404 });
+        return new Response(JSON.stringify({ ...run, events: [output, succeeded] }), { status: 200 });
+      },
+    });
+    const first = await client.getEvents("run-1");
+    expect(first.events.map((event) => event.sequence)).toEqual([2, 3]);
+    const replay = await client.getEvents("run-1", "eyJzZXF1ZW5jZSI6Mn0");
+    expect(replay.events.map((event) => event.sequence)).toEqual([3]);
+    expect(calls).toEqual([
+      "/api/runs/run-1/events",
+      "/api/runs/run-1",
+      "/api/runs/run-1/events?after=eyJzZXF1ZW5jZSI6Mn0",
+      "/api/runs/run-1",
+    ]);
+  });
+
   test("reports HTTP error codes for reconnect policy", async () => {
     const client = createRunApiClient({
       fetch: async () => new Response(JSON.stringify({ error: "run_cursor_stale", message: "expired" }), { status: 409 }),

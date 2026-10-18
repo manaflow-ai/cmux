@@ -217,12 +217,37 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
         headers,
       });
       const body = await readJson(response);
-      if (!response.ok) {
+      if (response.ok) {
+        const result = body as Partial<RunApiEventPage>;
+        return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
+      }
+      // The first Cloud rollout exposes events on the durable Run receipt while
+      // the dedicated event route is being deployed. Keep replay live across
+      // that cutover, but only fall back for a missing route; auth and server
+      // errors must remain visible to the board.
+      if (response.status !== 404) {
         const error = body as { error?: string; message?: string };
         throw new RunApiHttpError(response.status, error.message ?? `Run events failed (${response.status})`, error.error);
       }
-      const result = body as Partial<RunApiEventPage>;
-      return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
+      const snapshotResponse = await request(apiUrl(baseUrl, `/api/runs/${encodeURIComponent(runId)}`), {
+        credentials: "same-origin",
+        headers,
+      });
+      const snapshotBody = await readJson(snapshotResponse);
+      if (!snapshotResponse.ok) {
+        const error = snapshotBody as { error?: string; message?: string };
+        throw new RunApiHttpError(snapshotResponse.status, error.message ?? `Run snapshot failed (${snapshotResponse.status})`, error.error);
+      }
+      const snapshot = snapshotBody as { events?: unknown };
+      const afterSequence = decodeCursorSequence(after) ?? -1;
+      const events = Array.isArray(snapshot.events)
+        ? snapshot.events.filter((event): event is RunApiEvent => {
+            if (!event || typeof event !== "object") return false;
+            const candidate = event as Partial<RunApiEvent>;
+            return typeof candidate.sequence === "number" && candidate.sequence > afterSequence;
+          })
+        : [];
+      return { events, nextCursor: null };
     },
     async createRun(input, idempotencyKey) {
       return jsonRequest<RunCreateResponse>("/api/runs", {
