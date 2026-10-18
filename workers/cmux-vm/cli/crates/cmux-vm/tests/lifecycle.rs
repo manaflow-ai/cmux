@@ -1229,3 +1229,68 @@ async fn image_list_human_output_includes_revision() {
     assert!(out.stdout.contains("cloud-standard"));
     assert!(out.stdout.contains("r1"));
 }
+
+#[tokio::test]
+async fn resize_sends_resource_floors_and_retry_key() {
+    let server = MockServer::start().await;
+    let mut response = vm("running");
+    response["resources"]["diskMib"] = json!(65536);
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(authorized())
+        .and(header("idempotency-key", "resize-retry"))
+        .and(body_json(json!({"resources": {"diskMib": 65536}})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "resize",
+            VM_ID,
+            "--disk-mib",
+            "65536",
+            "--idempotency-key",
+            "resize-retry",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["id"], VM_ID);
+    assert_eq!(json_stdout(&out)["resources"]["diskMib"], 65536);
+}
+
+#[tokio::test]
+async fn resize_human_output_confirms_all_requested_axes() {
+    let server = MockServer::start().await;
+    let mut response = vm("running");
+    response["resources"] = json!({"vcpus": 8, "memoryMib": 16384, "diskMib": 65536});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(body_json(
+            json!({"resources": {"vcpus": 8, "memoryMib": 16384, "diskMib": 65536}}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "resize",
+            VM_ID,
+            "--vcpus",
+            "8",
+            "--memory-mib",
+            "16384",
+            "--disk-mib",
+            "65536",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("16384 MiB"));
+    assert!(out.stdout.contains("65536 MiB"));
+}
