@@ -50,7 +50,7 @@ export function agentStateEvent(change: SessionChanged, workspaceId?: string | n
     kind: change.kind === "purged" ? "purged" : change.kind === "created" ? "created" : "updated",
     sessionId: change.sessionId,
     seq: change.seq,
-    session: "status" in change.session ? change.session : undefined,
+    session: change.session && typeof change.session.status === "string" ? change.session : undefined,
     workspaceId,
     peer: change.peer,
   };
