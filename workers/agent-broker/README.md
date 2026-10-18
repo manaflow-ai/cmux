@@ -46,6 +46,20 @@ Adapters receive only the versioned, credential-free job envelope and return a
 JSON object. Provider credentials stay in the worker's secret manager and are
 never placed in broker payloads or receipts. Unknown host classes fail closed.
 
+The built-in `workers/agent-broker/adapters/host-lease-adapters.ts` module
+implements the provider-neutral lease gateway for Huge Blue and Freestyle. It
+registers `huge-blue`, `freestyle`, and the compatibility alias `freestyle-vm`
+only when the corresponding gateway URL and token are present:
+
+```text
+HUGE_BLUE_HOST_LEASE_URL / HUGE_BLUE_HOST_LEASE_TOKEN / HUGE_BLUE_HOST_ID
+FREESTYLE_HOST_LEASE_URL / FREESTYLE_HOST_LEASE_TOKEN / FREESTYLE_HOST_ID
+```
+
+The lease payload is `{ operation, leaseId, hostId?, generation, ttlMs? }`.
+Provider tokens are resolved from deployment environment only; they never cross
+the broker envelope or receipt boundary.
+
 For a container deployment, use the repository root as the build context:
 
 ```sh

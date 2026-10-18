@@ -394,6 +394,16 @@ export function createHugeBlueHostLeaseHttpClient(config: VmHostLeaseHttpClientC
   return createHttpHostLeaseClient(config);
 }
 
+/**
+ * Freestyle's broker gateway uses the same provider-neutral lease envelope.
+ * The web runtime may still inject the native SDK facade below, while the
+ * independently deployed worker uses this HTTP form so the SDK and its
+ * credentials stay outside the worker image.
+ */
+export function createFreestyleHostLeaseHttpClient(config: VmHostLeaseHttpClientConfig): VmHostLeaseProviderClient {
+  return createHttpHostLeaseClient(config);
+}
+
 export type FreestyleHostLeaseSdk = {
   readonly hostLeases: VmHostLeaseProviderClient;
 };
