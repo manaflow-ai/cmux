@@ -7,9 +7,15 @@ import Testing
 /// one popup shadow (`PopupStyle`, like the page's own menus) and opens and closes like every
 /// native popup (`openPopup` / `closePopup`).
 @MainActor @Suite(.serialized) struct PagePopupMotionTests {
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+    /// Popup motion is observable only on an awake display with animations enabled. The tests pin
+    /// Reduce Motion off around the operation, so the system Reduce Motion setting does not gate
+    /// this predicate.
+    static func animatesHere() -> Bool {
+        guard let screen = NSScreen.main, !DisplaySleep.shared.isAsleep(screen) else { return false }
+        return Motion.speed != .off
+    }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await Self.animatesHere() })
     func aPageMenuCastsThePopupShadowAndOpensAndClosesWithMotion() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
@@ -56,7 +62,7 @@ import Testing
 
     /// Review of #19944: the page posts an update for the menu it is still closing (a highlight
     /// as Base UI closes it) after the menu went away here. It must not open again.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await Self.animatesHere() })
     func anUpdateDuringTheCloseDoesNotReopenTheMenu() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
@@ -72,7 +78,7 @@ import Testing
 
     /// Review of #19944: the page's view goes (its tab closed) while its menu fades out. The menu
     /// still leaves its window.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await Self.animatesHere() })
     func aMenuWhoseHostGoesMidFadeStillLeaves() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
