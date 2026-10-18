@@ -3,12 +3,12 @@ import Testing
 
 struct RemoteTmuxPaneTitleMetadataTests {
     @Test func paneTitleCommandEscapesFormatsAndQuotes() {
-        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 5, title: "it's #{pane_id}")
+        #expect(RemoteTmuxPaneTitleCommand(paneID: 5, title: "it's #{pane_id}")?.line
             == "select-pane -t %5 -T 'it'\\''s ##{pane_id}'")
-        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 0, title: "  ")
+        #expect(RemoteTmuxPaneTitleCommand(paneID: 0, title: "  ")?.line
             == "select-pane -t %0 -T ''")
-        #expect(RemoteTmuxPaneTitleCommand.make(paneID: -1, title: "x") == nil)
-        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 1, title: "x\ny") == nil)
+        #expect(RemoteTmuxPaneTitleCommand(paneID: -1, title: "x") == nil)
+        #expect(RemoteTmuxPaneTitleCommand(paneID: 1, title: "x\ny") == nil)
     }
 
     @Test func parsesWireValueWithEmptyFieldsPreserved() {
