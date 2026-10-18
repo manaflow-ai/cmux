@@ -25,6 +25,7 @@ TOURS = ROOT / "scripts/cmux-next/media/tours"
 TOUR_FILES = {
     "new-tab": TOURS / "new-tab.json",
     "agent-pane": TOURS / "agent-pane.json",
+    "glass": TOURS / "glass.json",
     "core": TOURS / "core.json",
 }
 

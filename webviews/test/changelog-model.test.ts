@@ -1,0 +1,54 @@
+// A nightly digest built from summary lines carries each line as both title and summary
+// (scripts/cmux-next/release-notes.py). The page must show the line once, not "Title  Title".
+import { expect, test } from "bun:test";
+import { releaseView } from "../src/pages/changelog/model";
+import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
+
+function entry(id: string, title: string, summary: string): WhatsNewEntry {
+  return { id, category: "new", title: { en: title }, summary: { en: summary } };
+}
+
+function notes(entries: WhatsNewEntry[]): ReleaseNotes {
+  return {
+    build: "3911762409401",
+    shortVersion: "1.0.0-nightly.3911762409401",
+    date: "2026-10-18",
+    highlights: [],
+    changes: [],
+    whatsNew: {
+      version: "1.0.0-nightly.3911762409401",
+      channel: "nightly",
+      date: "2026-10-18",
+      headline: { en: "Add Apps update center" },
+      entries,
+    },
+  };
+}
+
+function summaries(view: ReturnType<typeof releaseView>): Record<string, string> {
+  const items = [view.hero, ...view.groups.flatMap((g) => g.items)].filter((i) => i !== undefined);
+  return Object.fromEntries(items.map((i) => [i.id, i.summary]));
+}
+
+test("a summary that repeats its title is dropped", () => {
+  const view = releaseView(
+    notes([
+      entry("summary-0", "Add Apps update center", "Add Apps update center"),
+      entry("summary-1", "Paint bundled startup model immediately", "Paint bundled startup model immediately."),
+    ]),
+    "en",
+  );
+  expect(summaries(view)).toEqual({ "summary-0": "", "summary-1": "" });
+});
+
+test("a summary that says more than its title is kept", () => {
+  const long = "Keep favorite destinations within easy reach across all of your open windows";
+  const view = releaseView(
+    notes([
+      entry("summary-0", "Keep favorite destinations within easy reach across all…", long),
+      entry("tabs", "Tab groups", "Colored labels, icons, and pins that keep a group."),
+    ]),
+    "en",
+  );
+  expect(summaries(view)).toEqual({ "summary-0": long, tabs: "Colored labels, icons, and pins that keep a group." });
+});
