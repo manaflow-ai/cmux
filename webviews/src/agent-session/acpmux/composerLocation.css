@@ -242,10 +242,9 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  /* The model and effort buttons need a 7 px layout gap to draw the same 19 px optical gap as
-     the trailing controls (their 6 px text insets account for the difference). Actions keep the
-     4 px box gap because their icon bearings already add those 3 px visually. */
-  --acpmux-row-gap: 7px;
+  /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
+     and Send draw apart with the trailing cluster's own 4 px gap below. */
+  --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
@@ -514,11 +513,11 @@
     outline-offset: 2px;
   }
 }
-/* Hover is ink-only, but a selected/open control must keep its state wash while the pointer is
-   over it. */
+/* Hover is ink-only, but a selected/open control must keep its open wash while the pointer is
+   over it: the same tone a press shows (test/composer-chip-press.test.ts). */
 .acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
 .acpmux-composer-bar .acpmux-access-trigger[aria-expanded="true"] {
-  background: var(--acpmux-row-hover);
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
 }
 .acpmux-composer-bar .acpmux-plan[aria-pressed="true"]:hover {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);

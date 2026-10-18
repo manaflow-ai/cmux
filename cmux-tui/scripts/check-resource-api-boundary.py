@@ -2119,19 +2119,26 @@ def _operation_catalog(
     for operation in ("workspace.rename",):
         if operation not in operations:
             continue
-        name_field = (
-            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        params = operations.get(operation, {}).get("params", {})
+        fields = params.get("fields", {})
+        name_field = fields.get("name")
+        # A release (hq#1957) keeps the current name, so only it may omit one.
+        release = fields.get("release")
+        name_optional_for_release = (
+            isinstance(release, dict)
+            and release.get("type") == {"kind": "primitive", "name": "boolean"}
+            and "name is required unless release is true." in params.get("constraints", [])
         )
         if (
             not isinstance(name_field, dict)
-            or name_field.get("required") is not True
+            or name_field.get("required") is not (not name_optional_for_release)
             or name_field.get("type") != {"kind": "primitive", "name": "string"}
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                f"{operation} name must be a required unrestricted string",
+                f"{operation} name must be an unrestricted string, required unless a release",
                 operation,
             )
     nullable_name = {
