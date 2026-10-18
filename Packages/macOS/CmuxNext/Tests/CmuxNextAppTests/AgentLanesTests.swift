@@ -80,7 +80,7 @@ struct AgentLanesTests {
 
     @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
         let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
-        let lane = AgentActivityLane.of(summary: summary)
+        let lane = AgentActivityLane.of(summary: summary, title: nil)
         #expect(lane?.workspaceID == "workspace-7")
     }
 
@@ -94,7 +94,7 @@ struct AgentLanesTests {
         await settings.reload()
         let lanes = AgentLaneStore()
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
-                                                     state: .failed, since: nil, error: "Credit balance too low")]
+                                                     state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
         let center = WhatsNewCenter(currentVersion: "0", defaults: UserDefaults(suiteName: "cnc-lanes-\(UUID().uuidString)")!, sources: [])
         let model = SidebarModel()
         let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)
