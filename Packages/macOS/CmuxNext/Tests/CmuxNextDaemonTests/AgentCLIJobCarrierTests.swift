@@ -116,7 +116,7 @@ struct AgentCLIJobCarrierTests {
             let calls = try #require(try await connection.request(Calls()).arrayValue)
             #expect(calls.count == (mode == "good" ? 1 : 0))
             if let call = calls.first {
-                #expect(call["cmd"] == "agent-inventory")
+                #expect(call["cmd"] == .string("agent-inventory"))
                 #expect(call["expected_machine_id"] == .string(machine.rawValue))
                 #expect(call["cli"] == nil && call["idempotency_key"] == nil)
             }
