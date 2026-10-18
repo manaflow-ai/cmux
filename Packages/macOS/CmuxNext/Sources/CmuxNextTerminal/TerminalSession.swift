@@ -81,7 +81,7 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil)
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -327,7 +327,7 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
-        applyTheme(to: fresh, clearing: false)
+        applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
@@ -340,8 +340,11 @@ public final class TerminalSession {
     /// A new surface starts from the app config, so only a theme needs
     /// applying; clearing one re-applies the app config (Ghostty resolves
     /// its light/dark variant per surface).
-    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool) {
+    /// `animated`: the live surface blends to the new colors on the GPU from the colors on
+    /// screen (a theme change); a fresh surface takes its first colors at once.
+    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
         guard let surface = surfaceView.surface else { return }
+        surfaceView.applyColorTransition(animated: animated)
         if let theme {
             ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {

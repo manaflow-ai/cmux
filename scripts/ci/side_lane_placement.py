@@ -29,9 +29,10 @@ contains(' <key> ') matches whole keys only:
 - `fallback_jobs`: retained for the workflow output contract and always empty;
 - `runner`: the live side label, or the owned pool label when no online side
   runner carries it;
-- `gui_runner`: the local GUI label for the owned pool. GUI jobs always use
-  this label when the run is trusted, so a headless AWS side runner cannot
-  receive a GUI suite;
+- `gui_runner`: the local GUI label for the owned pool, or the std pool's
+  when a light pool has no online GUI runner. GUI jobs always use this label
+  when the run is trusted, so a headless AWS side runner cannot receive a GUI
+  suite;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise.
 """
@@ -81,12 +82,21 @@ def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> 
     # logged-in owned mini rather than silently landing on a headless host.
     if owned.startswith("glaeda-aws-"):
         return ""
-    gui = pool.gui_label(owned)
     if runners is None:
         return ""
-    if any(runner.get("status") == "online" and gui in pool.runner_labels(runner)
-           for runner in runners):
-        return gui
+    # The light minis run no GUI runner, so a light lane's GUI suites borrow the
+    # std minis' GUI runners before the workflow's Blacksmith fallback: on
+    # 2026-10-18 every glaeda-gui-light job sampled waited for a runner until
+    # the rescue moved its run to Blacksmith while the std GUI runners sat idle.
+    candidates = [pool.gui_label(owned)]
+    parts = owned.split("-")
+    if pool.LIGHT_CLASS in parts:
+        parts[parts.index(pool.LIGHT_CLASS)] = "std"
+        candidates.append(pool.gui_label("-".join(parts)))
+    for gui in candidates:
+        if gui and any(runner.get("status") == "online" and gui in pool.runner_labels(runner)
+                       for runner in runners):
+            return gui
     return ""
 
 

@@ -89,6 +89,9 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
+  /// A thought's first and latest chunk (epoch ms), for "Thought for 12s" (conversation/ThoughtRow.tsx).
+  startedAt?: number;
+  endedAt?: number;
   tool?: {
     id: string;
     title: string;
