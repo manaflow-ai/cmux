@@ -67,15 +67,18 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
 
     /// Runs `"$0" "$@"` (the adapter) and ends it when stdin reaches end of file, which happens
     /// when the process that holds the pipe's write end (cmux) exits, however it exits. SIGTERM
-    /// (``stop()``) ends it too. The adapter's own exit ends the shell with its status, so a
-    /// stream that dies is seen and restarted. `read` is a builtin: the watch is no extra process.
+    /// (``stop()``) ends it too, also one that arrives before the adapter started (the trap is set
+    /// first). The adapter's own exit ends the shell with its status, so a stream that dies is seen
+    /// and restarted. `read` is a builtin: the watch is no extra process. cmux keeps its pipe ends
+    /// close-on-exec, so no other process it spawns holds the pipe open.
     static let parentWatch = """
         exec 3<&0
+        child= watch=
+        trap '[ -n "$child" ] && kill "$child" 2>/dev/null; [ -n "$watch" ] && kill "$watch" 2>/dev/null; exit 143' TERM
         "$0" "$@" </dev/null &
         child=$!
         { while read -r _ <&3; do :; done; kill "$child" 2>/dev/null; } &
         watch=$!
-        trap 'kill "$child" 2>/dev/null; kill "$watch" 2>/dev/null; exit 143' TERM
         wait "$child"
         status=$?
         kill "$watch" 2>/dev/null
@@ -144,6 +147,11 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         stream.executableURL = shell
         stream.arguments = arguments
         let stdin = Pipe()
+        // Close-on-exec: only the stream gets the read end (as its stdin); a shell or helper cmux
+        // spawns later must not inherit the write end and keep the pipe open past a crash.
+        for handle in [stdin.fileHandleForWriting, stdin.fileHandleForReading] {
+            _ = fcntl(handle.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        }
         stream.standardInput = stdin
         stream.standardError = FileHandle.nullDevice
         let stdout = Pipe()
