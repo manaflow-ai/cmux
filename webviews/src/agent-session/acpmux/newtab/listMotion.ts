@@ -5,7 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
+import { type RefObject, useLayoutEffect, useRef } from "react";
 import { isAgentMotionOff } from "../../shared/motion";
 
 type Places = Map<string, { x: number; y: number }>;
@@ -67,8 +67,9 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const shownKeys = useRef<readonly string[]>([]);
   const signature = JSON.stringify(keys);
   // Keep one immutable key list per value signature so unrelated owner renders do not rerun layout reads.
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` is the value dependency for stable keys.
-  const keyList = useMemo(() => keys, [signature]);
+  const keyListRef = useRef<{ signature: string; keys: readonly string[] }>({ signature, keys });
+  if (keyListRef.current.signature !== signature) keyListRef.current = { signature, keys };
+  const keyList = keyListRef.current.keys;
   const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
   const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
   useLayoutEffect(
