@@ -5968,6 +5968,14 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          live_feed="$(mktemp)"
+          curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
+          live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
+          if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build > NIGHTLY_BUILD )); then
+            echo "Skipping stale delta result: NEXT feed already serves build $live_build"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           deltas=()
           for delta in nightly-deltas/*.delta; do
             [ -f "$delta" ] || continue
@@ -6179,7 +6187,48 @@ jobs:
         with:
           name: release-notes
           path: notes
+      - name: Recheck the NEXT publication head
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          EXPECTED_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          EXPECTED_BUILD: ${{ needs.publish-nightly.outputs.build }}
+          FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+        run: |
+          set -euo pipefail
+          object="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          actual="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["object"]["sha"])' <<<"$object")"
+          if [ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["type"])' <<<"$object")" = tag ]; then
+            actual="$(gh api "repos/$REPOSITORY/git/tags/$actual" --jq .object.sha)"
+          fi
+          feed="$(mktemp)"
+          curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$feed" "$FEED_BASE/appcast-arm64.xml"
+          live_build="$(python3 - "$feed" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          for item in root.iter():
+              if item.tag.rsplit("}", 1)[-1] == "item":
+                  for child in item:
+                      if child.tag.rsplit("}", 1)[-1] == "version":
+                          print(child.text or "")
+                          raise SystemExit
+          raise SystemExit("missing appcast version")
+          PY
+          )"
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "::notice::Skipping stale release notes for $EXPECTED_SHA; $RELEASE_TAG already points to $actual"
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+          elif [[ "$live_build" =~ ^[0-9]+$ && "$EXPECTED_BUILD" =~ ^[0-9]+$ ]] && (( live_build > EXPECTED_BUILD )); then
+            echo "::notice::Skipping stale release notes for build $EXPECTED_BUILD; NEXT feed already serves $live_build"
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload the signed release notes to R2
+        if: steps.current.outputs.current == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}

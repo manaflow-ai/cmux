@@ -50,6 +50,15 @@ legacy = job("legacy-identity-target")
 if "publish-release-notes" not in needs(legacy):
     failures.append("legacy identity targeting must wait for signed NEXT release notes")
 notes_publish = job("publish-release-notes")
+if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" not in notes_publish:
+    failures.append("publish-release-notes must recheck the exact release tag before uploading")
+if "appcast-arm64.xml" not in notes_publish or "EXPECTED_BUILD" not in notes_publish or "live_build > EXPECTED_BUILD" not in notes_publish:
+    failures.append("publish-release-notes must skip when a newer NEXT appcast is already live")
+delta = job("republish-nightly-deltas")
+if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build > NIGHTLY_BUILD" not in delta:
+    failures.append("republish-nightly-deltas must skip when a newer NEXT appcast is already live")
+if "if: steps.current.outputs.current == 'true'" not in notes_publish:
+    failures.append("publish-release-notes must skip stale notes after a newer publication")
 for writer in ("publish-release-notes", "republish-nightly-deltas"):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
