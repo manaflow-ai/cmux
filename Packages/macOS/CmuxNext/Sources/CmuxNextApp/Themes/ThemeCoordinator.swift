@@ -190,7 +190,9 @@ final class ThemeCoordinator {
         guard let force = applies.take(entry, fresh: fresh) else { return }
         entry.themeBinding.coordinator = self
         setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-        entry.themeBinding.syncSurface(force: force)
+        // As before the ledger: an apply syncs a surface only to re-apply its config; a scope
+        // change reaches it through its binding.
+        if fresh || force { entry.themeBinding.syncSurface(force: force) }
     }
 
     // MARK: Sources
