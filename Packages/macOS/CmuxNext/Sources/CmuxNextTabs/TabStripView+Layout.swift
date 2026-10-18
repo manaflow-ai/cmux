@@ -157,6 +157,7 @@ extension TabStripView {
         )
         // Already in view (a switch between shown tabs): the strip does not move.
         guard target != scrollOffset else { return }
+        let before = scrollOffset
         scrollOffset = target
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll) {
@@ -164,18 +165,15 @@ extension TabStripView {
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
             scrollMoves.insert(moveGeneration)
         }
-        let probeFrom = scrollProbe.position
         applyFrames(move: move)
         if let move {
             if scrollProbe.superlayer == nil { tabsClip.layer?.addSublayer(scrollProbe) }
+            // The probe's model is unused; the spring's delta is the one every unpinned cell got.
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
-            move.add(move.motion.additive("position", from: NSValue(point: CGPoint(x: probeFrom.x - scrollProbe.position.x, y: 0)),
-                                          to: NSValue(point: .zero)), to: scrollProbe, as: "position")
+            move.add(move.motion.additive("position", from: NSValue(point: CGPoint(x: target - before, y: 0)), to: NSValue(point: .zero)),
+                     to: scrollProbe, as: "position")
             CATransaction.commit()
-        } else {
-            scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
         }
     }
 
@@ -188,7 +186,6 @@ extension TabStripView {
             scrollOffset = TabScrollMath.clamp(scrollOffset - (shown.position.x - scrollProbe.position.x), contentWidth: result.contentWidth,
                                                viewportWidth: viewportWidth)
         }
-        scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
         var layers = [scrollProbe] + cells.values.map(\.layer) + groups.chips.values.map(\.layer)
         layers += groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
         if let button = newTabButton.layer { layers.append(button) }
@@ -199,9 +196,9 @@ extension TabStripView {
     /// A closing tab or chip in `move` (`moved`: it animated in it) goes when its last move ends; one
     /// the change did not move goes when this change ends.
     func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
-        // A reveal's spring only scrolls it; the close it began with decides when it goes.
-        guard dying.contains(id), !move.isScroll || goesAt[id] == nil else { return }
-        let end = CACurrentMediaTime() + (moved ? move.duration(closing: id.chipGroupID == nil) : 0)
+        guard dying.contains(id) else { return }
+        // A reveal's spring only scrolls it (it may be cut short by a wheel): the close decides when it goes.
+        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration(closing: id.chipGroupID == nil) : 0)
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
