@@ -61,4 +61,47 @@ struct WorkspacePresenceSessionTests {
         #expect(secondOpened.scope == scope)
         #expect(await firstOpened.connection.isEnded)
     }
+
+    @Test("a valid snapshot resets the next reconnect delay")
+    func snapshotResetsReconnectDelay() async throws {
+        let scope = try #require(WorkspacePresenceScope(kind: .cloud, ownerID: "vm", workspaceID: "one", teamID: "team"))
+        let transport = PresenceTestTransport()
+        let clock = ImmediatePresenceClock()
+        let session = WorkspacePresenceSession(transport: transport, clock: clock)
+        let run = Task { await session.run(scope: scope, accessToken: { "test" }, isCurrent: { true }) }
+        defer { run.cancel(); session.stop() }
+
+        let first = try #require(await PresenceTestTransport.next(transport.connections))
+        await first.connection.disconnect()
+        let second = try #require(await PresenceTestTransport.next(transport.connections))
+        await second.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: []))
+        await second.connection.disconnect()
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while await clock.shortSleeps.count < 2, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let delays = Array(await clock.shortSleeps.prefix(2))
+        #expect(delays.count == 2)
+        #expect(delays.allSatisfy { $0 >= .seconds(1) && $0 < .milliseconds(1500) })
+    }
+}
+
+private actor ImmediatePresenceClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = ContinuousClock.Instant
+
+    private var recordedSleeps: [Duration] = []
+
+    nonisolated var now: Instant { .now }
+    nonisolated var minimumResolution: Duration { .zero }
+
+    var shortSleeps: [Duration] { recordedSleeps.filter { $0 < .seconds(5) } }
+
+    func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+        let duration = now.duration(to: deadline)
+        recordedSleeps.append(duration)
+        guard duration >= .seconds(5) else { return }
+        try await ContinuousClock().sleep(for: .hours(1))
+    }
 }
