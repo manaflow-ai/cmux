@@ -37,6 +37,7 @@ extension TabContentCache {
     /// Drops `key`'s surface (its session went away, or the tab closed);
     /// the pane presenting it lets the view go first.
     func discardTerminal(_ key: String) {
+        lastFrames[key] = nil
         guard let stale = terminals.removeValue(forKey: key) else { return }
         if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
