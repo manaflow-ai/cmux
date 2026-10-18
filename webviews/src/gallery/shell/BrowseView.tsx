@@ -229,6 +229,7 @@ function BrowseCard({
           {fixture?.play ? "Motion" : "Static"}
         </span>
       </header>
+      {fixture?.note && <p className="gallery-browse-card-note">{fixture.note}</p>}
       {!variantOnly && (
         <fieldset className="gallery-browse-variants" aria-label={`${entry.title} variants`}>
           {variants.map((name) => (

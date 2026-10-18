@@ -24,6 +24,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   borders: null,
   chatWidth: null,
   codexToolRuns: null,
+  turnActionsPlacement: null,
   motion: null,
 };
 

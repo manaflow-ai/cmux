@@ -1,4 +1,4 @@
-/* The gallery shell's own chrome: neutral, so the stages carry the theme. */
+/* The gallery shell follows the selected app theme; stages use the same environment separately. */
 :root {
   color-scheme: light dark;
   --g-bg: light-dark(#f4f4f2, #161616);
@@ -177,6 +177,33 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.gallery-header-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.gallery-header-links a,
+.gallery-header-links button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-decoration: none;
+  cursor: pointer;
+}
+.gallery-header-links a:hover,
+.gallery-header-links button:hover {
+  background: var(--g-hover);
+  border-color: var(--g-muted);
 }
 .gallery-controls {
   display: flex;
@@ -499,6 +526,13 @@ body {
   flex: 0 0 auto;
   color: var(--g-muted);
   font-size: 11px;
+}
+.gallery-browse-card-note {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--g-muted);
+  font-size: var(--text-detail);
+  line-height: 1.4;
 }
 .gallery-browse-variants {
   display: flex;
