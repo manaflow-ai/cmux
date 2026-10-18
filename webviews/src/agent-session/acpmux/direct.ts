@@ -40,6 +40,8 @@ import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { labOn } from "./labs";
+import { RENDER_GUIDE } from "./conversation/renderGuide";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 
@@ -749,6 +751,9 @@ export class AcpmuxDirectClient {
   onHarnessesChanged?: () => void;
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
+  /// This pane's delivered or in-flight guide, per session; late agent ids enrich the identity.
+  private renderGuides = new Map<string, { promptId: string; harness?: string; agentSessionId?: string }>();
+  private renderGuideWanted = true;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -1594,6 +1599,7 @@ export class AcpmuxDirectClient {
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place.
       const id = String(msg.promptId ?? "");
+      if (event.sessionId) this.forgetQueuedRenderGuide(event.sessionId, id);
       this.queue = this.queue.map((entry) => (entry.id === id ? { id, prompt: String(msg.text ?? "") } : entry));
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
@@ -2127,26 +2133,60 @@ export class AcpmuxDirectClient {
     let taken = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
-    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
-    if (context) this.contextInFlight = true;
+    const workspaceContext = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (workspaceContext) this.contextInFlight = true;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const harness = typeof summary?.harness === "string" ? summary.harness : undefined;
+    const agentSessionId = typeof summary?.agentSessionId === "string" ? summary.agentSessionId : undefined;
+    const previousGuide = this.renderGuides.get(sessionId);
+    const changedAgent =
+      previousGuide &&
+      ((harness && previousGuide.harness && harness !== previousGuide.harness) ||
+        (agentSessionId && previousGuide.agentSessionId && agentSessionId !== previousGuide.agentSessionId));
+    const guide =
+      this.localOrigin &&
+      this.renderGuideWanted &&
+      !steer &&
+      !input.trimStart().startsWith("/") &&
+      labOn("liveRender") &&
+      labOn("renderGuide") &&
+      (!previousGuide || changedAgent)
+        ? { promptId, harness, agentSessionId }
+        : undefined;
+    if (guide) this.renderGuides.set(sessionId, guide);
+    else if (previousGuide && !changedAgent) {
+      previousGuide.harness ??= harness;
+      previousGuide.agentSessionId ??= agentSessionId;
+    }
+    const context = [workspaceContext, guide ? RENDER_GUIDE : undefined].filter(Boolean).join("") || undefined;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
-      if (context) this.host = { ...this.host, workspaceContext: undefined };
+      if (workspaceContext) this.host = { ...this.host, workspaceContext: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
     this.emit();
     try {
-      await this.request("session/prompt", {
+      const params = {
         sessionId,
         prompt: promptBlocks(input, attachments),
         _meta: {
           acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
-      });
+      };
+      try {
+        await this.request("session/prompt", params);
+      } catch (error) {
+        if (!guide || workspaceContext || taken || (error as { reason?: string })?.reason !== "context.origin_refused")
+          throw error;
+        // A guide is optional on a connection whose origin changed (Lucas 2026-10-19).
+        this.renderGuideWanted = false;
+        delete params._meta.acpmux.context;
+        await this.request("session/prompt", params);
+      }
       accept();
       // Ran or withdrawn: what it held for its bubble is done with.
       this.queuedSends.delete(promptId);
@@ -2154,7 +2194,11 @@ export class AcpmuxDirectClient {
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A refused prompt did not use the context: the next send carries it.
-      if (context && !taken) this.contextInFlight = false;
+      if (workspaceContext && !taken) this.contextInFlight = false;
+      if (guide && !taken && this.renderGuides.get(sessionId) === guide) {
+        if (previousGuide) this.renderGuides.set(sessionId, previousGuide);
+        else this.renderGuides.delete(sessionId);
+      }
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       if (queued) {
@@ -2494,8 +2538,15 @@ export class AcpmuxDirectClient {
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
-    if (!this.selectedSessionId) return { ok: false };
-    return this.request("_acpmux/queue_edit", { sessionId: this.selectedSessionId, promptId, ...edit });
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return { ok: false };
+    const result = await this.request("_acpmux/queue_edit", { sessionId, promptId, ...edit });
+    if (result.ok && edit.op === "update") this.forgetQueuedRenderGuide(sessionId, promptId);
+    return result;
+  }
+  /// Replacing queued text strips its hidden context marks (Lucas 2026-10-19).
+  private forgetQueuedRenderGuide(sessionId: string, promptId: string): void {
+    if (this.renderGuides.get(sessionId)?.promptId === promptId) this.renderGuides.delete(sessionId);
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option

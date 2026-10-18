@@ -369,14 +369,18 @@ test("turning shortcutsHelp off removes an open dialog and its menu entry", asyn
   expect(button("Chat actions")?.disabled).toBe(true);
 });
 
-test("only liveRender defaults on, sets its CSS attribute, and honors explicit false", () => {
+test("liveRender and renderGuide default on, set their attributes, and honor explicit false", () => {
   configureLabs(undefined);
   expect(labOn("liveRender")).toBe(true);
+  expect(labOn("renderGuide")).toBe(true);
   expect(document.documentElement.getAttribute("data-lab-live-render")).toBe("on");
-  configureLabs({ labs: { liveRender: false } });
+  expect(document.documentElement.getAttribute("data-lab-render-guide")).toBe("on");
+  configureLabs({ labs: { liveRender: false, renderGuide: false } });
   expect(labOn("liveRender")).toBe(false);
+  expect(labOn("renderGuide")).toBe(false);
   expect(document.documentElement.getAttribute("data-lab-live-render")).not.toBe("on");
   configureLabs({ labs: {} });
   expect(labOn("liveRender")).toBe(true);
+  expect(labOn("renderGuide")).toBe(true);
   expect(document.documentElement.getAttribute("data-lab-live-render")).toBe("on");
 });

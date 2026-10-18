@@ -74,14 +74,15 @@ test("without app values, dev URLs beat defaults and layout beats dev URLs", asy
   expect(labOn("codeWrap")).toBe(true);
 });
 
-test("with nothing set only liveRender defaults on, even after layout removal", async () => {
+test("with nothing set liveRender and renderGuide default on, even after layout removal", async () => {
   const { LABS, configureLabs, labOn } = await load();
-  for (const lab of LABS) expect(labOn(lab)).toBe(lab === "liveRender");
-  configureLabs({ labs: Object.fromEntries(LABS.map((lab) => [lab, lab !== "liveRender"])) });
+  const defaultsOn = new Set(["liveRender", "renderGuide"]);
+  for (const lab of LABS) expect(labOn(lab)).toBe(defaultsOn.has(lab));
+  configureLabs({ labs: Object.fromEntries(LABS.map((lab) => [lab, !defaultsOn.has(lab)])) });
   configureLabs({});
   for (const lab of LABS) {
-    expect(labOn(lab)).toBe(lab === "liveRender");
+    expect(labOn(lab)).toBe(defaultsOn.has(lab));
     const name = lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-    expect(document.documentElement.getAttribute(`data-lab-${name}`)).toBe(lab === "liveRender" ? "on" : "off");
+    expect(document.documentElement.getAttribute(`data-lab-${name}`)).toBe(defaultsOn.has(lab) ? "on" : "off");
   }
 });

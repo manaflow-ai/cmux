@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from "react";
 
 /// Chat features being tried out (Lucas 2026-10-18: generative UI and chat parity), each its own
-/// switch. Only liveRender is on by default (Lucas 2026-10-18):
+/// switch. liveRender and renderGuide are on by default (Lucas 2026-10-19):
 /// - `liveRender`: render pages run on their own, can talk back to the chat (window.cmux), take
 ///   components, and draw inline as they are written, on the dev server too
 ///   (conversation/RenderCard.tsx).
+/// - `renderGuide`: teach agents the inline render fences once per session, with liveRender on.
 /// - `contextMeter`: show the context ring beside the model, with its token details.
 /// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
 /// - `messageTimes`: show a prompt's send time on hover or focus.
@@ -18,6 +19,7 @@ import { useSyncExternalStore } from "react";
 /// Each switch is `data-lab-<kebab-name>="on"` or `"off"` on `<html>`, for CSS.
 export const LABS = [
   "liveRender",
+  "renderGuide",
   "contextMeter",
   "promptCollapse",
   "messageTimes",
@@ -26,7 +28,7 @@ export const LABS = [
   "shortcutsHelp",
 ] as const;
 export type Lab = (typeof LABS)[number];
-const defaults: Partial<Record<Lab, boolean>> = { liveRender: true };
+const defaults: Partial<Record<Lab, boolean>> = { liveRender: true, renderGuide: true };
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 
