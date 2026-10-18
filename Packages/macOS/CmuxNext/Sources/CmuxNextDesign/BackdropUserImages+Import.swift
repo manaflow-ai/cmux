@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
 /// copied, so the folder never lists a picture that will not decode or a movie macOS cannot play,
 /// and a link downloads with a size cap and is judged by its bytes, not its name.
-extension BackdropUserImages {
+nonisolated extension BackdropUserImages {
     /// Why a file or link cannot be a background; `code` is what the Settings page shows.
     public nonisolated struct ImportError: Error, Equatable, Sendable {
         public let code: String
