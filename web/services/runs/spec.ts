@@ -6,6 +6,7 @@ export type RunSpecVariant = {
   readonly id: string;
   readonly label: string;
   readonly instructionDigest: string;
+  readonly instruction?: string;
 };
 
 export type RunSpec = {
@@ -125,13 +126,23 @@ function normalizeSource(raw: Record<string, unknown>): RunSpec["source"] {
   };
 }
 
+function instructionText(value: unknown, expectedDigest: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length < 1 || Buffer.byteLength(value) > 16_000 || value.includes("\0")) throw new RunSpecValidationError("variant instruction must contain 1-16000 bytes without NUL");
+  const actual = `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  if (actual !== expectedDigest) throw new RunSpecValidationError("variant instructionDigest does not match instruction");
+  return value;
+}
+
 function normalizeVariants(value: unknown): RunSpecVariant[] {
   const values = Array.isArray(value) ? value : [];
   const normalized = values.map((item, index) => {
     const variant = record(item);
     const id = string(variant.id, `variants[${index}].id`, 64).toLowerCase();
     if (!SAFE_ID.test(id)) throw new RunSpecValidationError(`variants[${index}].id is invalid`);
-    return { id, label: string(variant.label, `variants[${index}].label`, 120), instructionDigest: digest(variant.instructionDigest, `variants[${index}].instructionDigest`) };
+    const instructionDigest = digest(variant.instructionDigest, `variants[${index}].instructionDigest`);
+    const instruction = instructionText(variant.instruction, instructionDigest);
+    return { id, label: string(variant.label, `variants[${index}].label`, 120), instructionDigest, ...(instruction === undefined ? {} : { instruction }) };
   });
   if (!normalized.length) throw new RunSpecValidationError("at least one variant is required");
   if (new Set(normalized.map(({ id }) => id)).size !== normalized.length) throw new RunSpecValidationError("variant ids must be unique");
@@ -146,7 +157,7 @@ function normalizeResources(raw: Record<string, unknown>, variantCount: number):
   if (spendCap !== null && (typeof spendCap !== "number" || !Number.isFinite(spendCap) || spendCap < 0)) throw new RunSpecValidationError("resources.spendCap must be a non-negative number");
   const memoryClass = raw.memoryClass === "small" || raw.memoryClass === "large" ? raw.memoryClass : "standard";
   const cpuClass = raw.cpuClass === "small" || raw.cpuClass === "large" ? raw.cpuClass : "standard";
-  return { maxAttempts, maxConcurrent, memoryClass, cpuClass, wallTimeoutMs: integer(raw.wallTimeoutMs ?? 900_000, "resources.wallTimeoutMs", 1_000, 86_400_000), retainMs: integer(raw.retainMs ?? 600_000, "resources.retainMs", 0, 86_400_000), spendCap };
+  return { maxAttempts, maxConcurrent, memoryClass, cpuClass, wallTimeoutMs: integer(raw.wallTimeoutMs ?? 900_000, "resources.wallTimeoutMs", 1_000, 900_000), retainMs: integer(raw.retainMs ?? 600_000, "resources.retainMs", 0, 900_000), spendCap };
 }
 
 function normalizeWorkspace(raw: Record<string, unknown>): RunSpec["workspace"] {
