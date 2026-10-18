@@ -73,13 +73,13 @@ async function timed(name, work) {
   }
 }
 
-async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS, extraHeaders = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${targetUrl}${route}`, {
       method,
-      headers: { ...authHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      headers: { ...authHeaders, ...extraHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });
@@ -463,6 +463,35 @@ try {
     await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
     authHeaders = await sessionHeaders(user, 45 * 60 * 1000);
   });
+
+  const sourceCommit = process.env.GITHUB_SHA;
+  if (!sourceCommit || !/^[0-9a-f]{40}$/i.test(sourceCommit)) throw new Error("GITHUB_SHA is required for Run dogfood");
+  const runMarker = `cmux-run-dogfood-${suffix}`;
+  const runSpec = {
+    schema: "cmux.run/v1",
+    operationId: runMarker,
+    source: { repository: "manaflow-ai/cmux", commit: sourceCommit },
+    intent: { digest: `sha256:${"1".repeat(64)}` },
+    recipe: { id: "cloud-vm-dogfood", version: 1 },
+    variants: [{ id: "freestyle", label: "Freestyle dogfood", instructionDigest: `sha256:${"2".repeat(64)}` }],
+    workspace: { kind: "ephemeral" },
+    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 60_000, retainMs: 0 },
+    routing: { executionProvider: "cloud-vm", backend: "freestyle" },
+    capabilities: { secretRefs: [] },
+    checks: ["terminal-receipt", "provider-cleanup"],
+    policy: { mode: "fanout", humanApprovalRequired: false, evidenceKinds: ["patch"] },
+  };
+  const run = await timed("runCreate", async () => {
+    const response = await api("POST", "/api/runs", runSpec, 5 * 60 * 1000, { "idempotency-key": runMarker });
+    const body = expectStatus(response, [201, 200], "POST /api/runs");
+    const attempt = body.attempts?.[0];
+    const stdout = attempt?.result?.commandReceipt?.stdout;
+    if (body.status !== "succeeded" || attempt?.status !== "succeeded" || typeof stdout !== "string" || !stdout.includes(":completed")) {
+      throw new Error(`Run did not complete with a terminal receipt: ${JSON.stringify({ status: body.status, attemptStatus: attempt?.status, stdout })}`);
+    }
+    return { id: body.id, status: body.status, provider: body.provider, attemptId: attempt.id, attemptStatus: attempt.status, stdout };
+  });
+  result.run = run;
 
   const displayName = `dogfood ${suffix.slice(-6)}`;
   const created = await timed("create", async () => expectStatus(await api("POST", "/api/vm", {
