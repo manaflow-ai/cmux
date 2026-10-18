@@ -135,7 +135,9 @@ public final class BrowserFitFrameView: NSView {
     private func layoutBar() {
         let strip = CGRect(x: bounds.minX + 8, y: bounds.minY, width: max(0, bounds.width - 16), height: max(0, presented.minY - bounds.minY))
         let spacing: CGFloat = 10
-        for view in [label, note, choose, off] { view.sizeToFit() }
+        label.sizeToFit()
+        note.sizeToFit()
+        for control in [choose, off] { control.sizeToFit() }
         let controls = choose.frame.width + off.frame.width + spacing
         let labelWidth = max(0, min(label.frame.width, strip.width - controls - spacing))
         var noteWidth = !Self.explains ? 0 : min(note.frame.width, strip.width - controls - labelWidth - 2 * spacing)

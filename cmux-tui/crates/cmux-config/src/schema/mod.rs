@@ -4,6 +4,7 @@
 
 mod accepts;
 mod chat_roots;
+mod json_schema;
 mod retired;
 mod url;
 
@@ -71,7 +72,7 @@ pub enum Kind {
     FolderList,
     /// Non-empty strings.
     StringList,
-    /// A list of choice values (an order the user picks).
+    /// A list of choice values: an order the user picks, or a choice set.
     OrderedChoices(Vec<Choice>),
     /// Finite numbers inside the range.
     NumberList(NumberRange),
@@ -262,7 +263,11 @@ fn row(raw: Value) -> Result<Row, String> {
         "font_family" => Kind::FontFamily,
         "text" => Kind::Text,
         "folder_list" => Kind::FolderList,
-        "string_list" if parsed.ordered => Kind::OrderedChoices(parsed.choices.clone()),
+        // A choice set (Swift `choiceSet`, `ordered: false` with choices,
+        // `browser.toolbarButtons`) holds choice values too.
+        "string_list" if parsed.ordered || !parsed.choices.is_empty() => {
+            Kind::OrderedChoices(parsed.choices.clone())
+        }
         "string_list" => Kind::StringList,
         "number_list" => Kind::NumberList(range()?),
         "string_map" => Kind::StringMap,

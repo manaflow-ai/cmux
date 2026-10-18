@@ -49,7 +49,7 @@ final class ThemeCoordinator {
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
     /// The applies each live terminal took: an apply reaches the shown ones, the parked catch up.
-    private let applies = ThemeApplyLedger<TerminalEntry>()
+    private let applies = ThemeApplyLedger()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
          workspaceOpacities: WorkspaceBackgroundStore? = nil) {

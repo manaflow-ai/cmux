@@ -152,7 +152,7 @@ public final class TerminalSurfaceView: NSView {
         updateFocus()
     }
 
-    public override var isFlipped: Bool { false }
+    nonisolated public override var isFlipped: Bool { false }
 
     // MARK: Window, scale, and size
 

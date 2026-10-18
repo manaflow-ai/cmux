@@ -47,6 +47,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -196,6 +197,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
+import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
@@ -541,6 +543,7 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <FailedPrompt row={row} />
+          {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -3374,9 +3377,7 @@ function AcpmuxPane() {
     if (continueAvailable) enabledCmuxActions.add("continue");
     if (asksAside && snapshot.sessionId) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
-    return projectDraft && !snapshot.sessionId
-      ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
-      : withCommands;
+    return withDraftFolder(withCommands, projectDraft);
   }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
@@ -5142,7 +5143,7 @@ function AcpmuxPane() {
                 // The chat's start is part of this send: a trust refusal there asks the folder's
                 // question, keeps this prompt (with its send's gesture) and sends it after Trust
                 // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                await callNative("chat.new", { cwd: projectDraft }).catch((error: unknown) => {
+                await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
                   if (isTrustRefusal(error)) {
                     holdPrompt.current?.();
                     trustRefused.current?.(error, () => composerHandle.current?.send());

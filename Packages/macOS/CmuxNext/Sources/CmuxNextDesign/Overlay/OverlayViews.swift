@@ -2,7 +2,7 @@ import AppKit
 
 /// Holds presented overlays; flipped so overlay frames read top-down in tests and logs.
 final class OverlayContainerView: NSView {
-    override var isFlipped: Bool { false }
+    nonisolated override var isFlipped: Bool { false }
 }
 
 /// Clips a `.pane` overlay to its pane minus the occluders (a mask with holes).
