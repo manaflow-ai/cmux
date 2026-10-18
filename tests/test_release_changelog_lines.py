@@ -50,6 +50,11 @@ class ChangelogLinesTest(unittest.TestCase):
         body = "## Changelog\nFixed: Claude's worktree is followed.\n\n" + GENERATED + FOOTER
         self.assertEqual(classify(body), ("entry", "Fixed: Claude's worktree is followed."))
 
+    def test_inline_html_line_stays_in_the_section(self) -> None:
+        body = "## Changelog\nAdded: Cmd-K clears the pane.\n<kbd>Cmd</kbd>-Shift-K clears scrollback too.\n"
+        self.assertEqual(classify(body)[0], "check-line")
+        self.assertIn("<kbd>Cmd</kbd>", classify(body)[1])
+
     def test_closing_keyword_line_is_not_a_changelog_line(self) -> None:
         body = "## Changelog\nFixed: The shortcut hides the sidebar.\nFixes #20286\n"
         self.assertEqual(classify(body), ("entry", "Fixed: The shortcut hides the sidebar."))
