@@ -1351,5 +1351,169 @@ class ReleaseMailRegression(unittest.TestCase):
             self.assertEqual(mails, [])
 
 
+class GhMergeGreenRestFallbackTests(unittest.TestCase):
+    """Exercise only the quota-triggered REST escape hatch."""
+
+    def run_rest_fixture(
+        self,
+        *,
+        merge_args=(),
+        metadata_error="API rate limit already exceeded",
+        merge_error="API rate limit already exceeded",
+        metadata_quota=True,
+        merge_quota=True,
+        fork=False,
+        rest_merge_error=False,
+    ):
+        helper = ROOT / "scripts" / "gh-merge-green"
+        head_repo = "fork/repo" if fork else "example/repo"
+        with tempfile.TemporaryDirectory(prefix="gh-merge-green-rest-") as directory:
+            root = Path(directory)
+            log = root / "gh.log"
+            fake_gh = root / "gh"
+            fake_gh.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/sh
+                    set -eu
+                    printf '%s\\n' "$*" >> "$GH_FAKE_LOG"
+                    if [ "$1" = pr ] && [ "$2" = view ]; then
+                      if [ "{int(metadata_quota)}" = 1 ]; then
+                        echo "GraphQL: {metadata_error}" >&2
+                        exit 1
+                      fi
+                      printf '{{"headRefOid":"{HEAD}","baseRefName":"main","labels":[],"isCrossRepository":{str(fork).lower()}}}\\n'
+                      exit 0
+                    fi
+                    if [ "$1" = pr ] && [ "$2" = merge ]; then
+                      if [ "{int(merge_quota)}" = 1 ]; then
+                        echo "GraphQL: {merge_error}" >&2
+                        exit 1
+                      fi
+                      printf 'merged via graphql\\n'
+                      exit 0
+                    fi
+                    if [ "$1" = pr ] && [ "$2" = comment ]; then
+                      exit 0
+                    fi
+                    if [ "$1" = api ]; then
+                      path=""
+                      for arg in "$@"; do
+                        case "$arg" in
+                          repos/*) path="$arg"; break ;;
+                        esac
+                      done
+                      case "$path" in
+                        repos/example/repo/pulls/123)
+                          cat <<'JSON'
+                    {{"number":123,"state":"open","head":{{"sha":"{HEAD}","repo":{{"full_name":"{head_repo}"}}}},"base":{{"ref":"main","repo":{{"full_name":"example/repo"}}}},"labels":[]}}
+                    JSON
+                          ;;
+                        repos/example/repo/contents/*)
+                          printf 'HTTP/1.1 404 Not Found\\n'
+                          exit 1
+                          ;;
+                        repos/example/repo/commits/*/check-runs*)
+                          printf '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}]\\n'
+                          ;;
+                        repos/example/repo/commits/*/statuses*)
+                          printf '[]\\n'
+                          ;;
+                        repos/example/repo/pulls/123/files*)
+                          printf ''
+                          ;;
+                        repos/example/repo/pulls/123/merge)
+                          if [ "{int(rest_merge_error)}" = 1 ]; then
+                            echo 'REST merge unavailable' >&2
+                            exit 1
+                          fi
+                          printf '{{"sha":"merge-commit","merged":true,"message":"Pull Request successfully merged"}}\\n'
+                          ;;
+                        *)
+                          echo "unexpected REST path: $path" >&2
+                          exit 2
+                          ;;
+                      esac
+                      exit 0
+                    fi
+                    echo "unexpected gh invocation: $*" >&2
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{root}:{env['PATH']}",
+                "GH_FAKE_LOG": str(log),
+                "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1",
+                "GH_MERGE_GREEN_TEST": "1",
+            })
+            result = subprocess.run(
+                [str(helper), "example/repo#123", *merge_args],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+            return result, calls
+
+    def test_quota_error_uses_rest_for_metadata_and_merge_at_exact_head(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any("repos/example/repo/pulls/123" in call for call in calls))
+        self.assertTrue(any("repos/example/repo/pulls/123/merge" in call for call in calls))
+        self.assertTrue(any("sha=" + HEAD in call for call in calls))
+        self.assertTrue(any("merge_method=squash" in call for call in calls))
+
+    def test_quota_error_with_unsupported_merge_flag_fails_closed(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash", "--delete-branch"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported", result.stderr.lower())
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_with_wrong_explicit_head_fails_closed(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--squash", "--match-head-commit", "b" * 40)
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported", result.stderr.lower())
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_with_rest_failure_refuses_without_claiming_merge(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",), rest_merge_error=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rest merge failed", result.stderr.lower())
+        self.assertTrue(any("pulls/123/merge" in call for call in calls))
+
+    def test_rest_fork_metadata_accepts_explicit_exact_head_trust(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--trust-fork-head", HEAD, "--squash"), fork=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any("pulls/123" in call for call in calls))
+        self.assertTrue(any("pr comment" in call for call in calls))
+
+    def test_successful_graphql_merge_keeps_standard_merge_flags(self):
+        result, calls = self.run_rest_fixture(
+            merge_args=("--merge",), metadata_quota=False, merge_quota=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(call.startswith("pr merge") and "--merge" in call for call in calls))
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
+
+    def test_non_quota_graphql_error_does_not_fallback_to_rest(self):
+        result, calls = self.run_rest_fixture(metadata_error="transport unavailable")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
+
+    def test_remaining_zero_text_alone_does_not_trigger_rest_fallback(self):
+        result, calls = self.run_rest_fixture(metadata_error="query failed with remaining=0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
+
+
 if __name__ == "__main__":
     unittest.main()
