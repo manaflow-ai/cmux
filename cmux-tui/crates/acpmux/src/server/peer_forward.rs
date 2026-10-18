@@ -22,6 +22,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE_PLAN,
+    method::MUX_HARNESS_UPDATE_PREPARE,
     method::MUX_WARM,
     method::MUX_PREWARM,
     method::MUX_START_MODE,

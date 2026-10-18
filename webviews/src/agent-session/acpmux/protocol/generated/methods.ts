@@ -110,6 +110,7 @@ export interface AcpmuxRequests {
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
   "_acpmux/harness/update/plan": { params: HarnessUpdatePlanParams; result: unknown };
+  "_acpmux/harness/update/prepare": { params: HarnessUpdatePlanParams; result: unknown };
   "_acpmux/harness/update": { params: unknown; result: unknown };
   "_acpmux/sessions/restart_harness": { params: unknown; result: unknown };
   "_acpmux/registry": { params: unknown; result: unknown };
@@ -288,6 +289,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/update/plan", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/harness/update/prepare", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions/restart_harness", kind: "request", acp: false, typed: false },
   { name: "_acpmux/registry", kind: "request", acp: false, typed: false },

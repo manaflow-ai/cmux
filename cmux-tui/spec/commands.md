@@ -9091,6 +9091,17 @@ Malformed params return invalid params; nonlocal origins refuse before params.
 Selection failures use `harness_update_plan.unavailable`, `.not_updatable` or
 `.ambiguous` in the RPC error's `data.reason`. No legacy fallback is permitted.
 
+The separately negotiated `harnessUpdatePrepare` operation
+`_acpmux/harness/update/prepare {cli}` uses the same strict input, origin and
+selection rules. It revalidates every matching cached installation against
+the filesystem, refuses a changed channel, package, prefix or native target,
+and captures an absolute npm manager from this owner. It returns only
+`{cli, argv}`. A cache or home change during preparation refuses as
+`harness_update_plan.busy`. It never probes versions/auth, queries registries,
+writes preferences or executes the plan. The admitted job owner must persist
+the exact argv and audit context before execution. Preparation is not a grant
+and cannot complete a job.
+
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the
 SSH or Cloud carrier, update this machine's agent CLIs and move its chats
