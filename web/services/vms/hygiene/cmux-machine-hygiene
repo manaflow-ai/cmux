@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+# cmux-machine-hygiene: report, and with --apply reclaim, disk on an agent
+# machine that cmux can safely regenerate: build artifacts of idle projects,
+# package caches under disk pressure, old agent logs, stale temp files,
+# orphaned git worktree records and dangling Docker data.
+#
+# It never deletes source. Every removal goes through safe_remove, which
+# refuses symlinks, repository roots, protected directories (~/.ssh, the cmux
+# daemon's ~/.cmux, agent configs and sessions, credentials), anything a
+# running process has open or uses as its working directory, and any path
+# outside the roots it was given. Dry-run is the default. A path that is
+# kept is reported with the reason, and a removal renames the path aside
+# before deleting it, so an interrupted run never leaves a half-deleted tree
+# under its real name (the next run finishes it).
+#
+# Usage: cmux-machine-hygiene [--apply] [--home DIR] [--root DIR]...
+#          [--tmp-dir DIR] [--min-age-days N] [--pressure-pct N]
+#          [--only CATEGORY]... [--skip CATEGORY]...
+# Categories: interrupted project-artifacts package-caches agent-logs
+#             temp-files git-worktrees docker
+# Output: one JSON object on stdout. Exit 0 on success, 2 on bad usage, 3 when
+# a root is unsafe.
+#
+# Shipped to machines through exec (images do not bake it yet), so keep it
+# self-contained, well under the provider's 64 KiB command limit, runnable
+# from stdin (`bash -s -- ARGS < script`) and compatible with bash 3.2.
+
+set -u
+export LC_ALL=C
+
+mode="dry-run"
+home_dir="${HOME:-}"
+tmp_dir="${TMPDIR:-/tmp}"
+min_age_days=7
+log_age_days=14
+pressure_pct=85
+roots=()
+only=""
+skip=""
+
+usage() {
+  echo "usage: cmux-machine-hygiene [--apply] [--home DIR] [--root DIR]... [--tmp-dir DIR]" >&2
+  echo "         [--min-age-days N] [--log-age-days N] [--pressure-pct N] [--only C]... [--skip C]..." >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) mode="apply" ;;
+    --dry-run) mode="dry-run" ;;
+    --home) shift; home_dir="${1:-}" ;;
+    --root) shift; roots+=("${1:-}") ;;
+    --tmp-dir) shift; tmp_dir="${1:-}" ;;
+    --min-age-days) shift; min_age_days="${1:-}" ;;
+    --log-age-days) shift; log_age_days="${1:-}" ;;
+    --pressure-pct) shift; pressure_pct="${1:-}" ;;
+    --only) shift; only="$only ${1:-} " ;;
+    --skip) shift; skip="$skip ${1:-} " ;;
+    -h|--help) usage ;;
+    *) echo "unknown argument: $1" >&2; usage ;;
+  esac
+  shift
+done
+
+case "$min_age_days$log_age_days$pressure_pct" in *[!0-9]*|"") echo "ages and percentages must be whole numbers" >&2; exit 2 ;; esac
+
+# Resolve a directory to an absolute physical path, or print nothing.
+abs_dir() { [ -n "$1" ] && [ -d "$1" ] && (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+refuse_root() {
+  local label="$1" path="$2"
+  case "$path" in
+    ""|/|/bin|/boot|/dev|/etc|/lib|/lib64|/proc|/root/.ssh|/run|/sbin|/sys|/usr|/var)
+      echo "refusing unsafe $label: '${path:-<empty>}'" >&2; exit 3 ;;
+  esac
+}
+
+home_dir="$(abs_dir "$home_dir")"; refuse_root home "$home_dir"
+tmp_dir="$(abs_dir "$tmp_dir")"; refuse_root tmp-dir "$tmp_dir"
+[ ${#roots[@]} -eq 0 ] && roots=("$home_dir")
+resolved_roots=()
+for root in "${roots[@]}"; do
+  r="$(abs_dir "$root")"; refuse_root root "$r"; resolved_roots+=("$r")
+done
+roots=("${resolved_roots[@]}")
+
+enabled() {
+  local category="$1"
+  case "$skip" in *" $category "*) return 1 ;; esac
+  [ -z "$only" ] && return 0
+  case "$only" in *" $category "*) return 0 ;; esac
+  return 1
+}
+
+# Never remove these, or anything inside them, whatever a category asks for.
+protected_prefixes=(
+  "$home_dir/.ssh" "$home_dir/.gnupg" "$home_dir/.cmux" "$home_dir/.config"
+  "$home_dir/.local/share/keyrings" "$home_dir/.aws" "$home_dir/.kube"
+  "$home_dir/.docker" "$home_dir/.netrc" "$home_dir/.git-credentials"
+)
+# Agent homes are protected except for their log directories.
+agent_homes=("$home_dir/.claude" "$home_dir/.codex" "$home_dir/.opencode" "$home_dir/.pi")
+agent_log_dirs=("$home_dir/.claude/debug" "$home_dir/.codex/log" "$home_dir/.npm/_logs")
+
+# Paths running processes hold open, run from or work in, collected once:
+# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
+in_use_file="$(mktemp "${tmp_dir}/.cmux-hygiene-in-use.XXXXXX")" || exit 1
+trap 'rm -f "$in_use_file"' EXIT
+in_use_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    readlink "$pid_dir/cwd" 2>/dev/null
+    readlink "$pid_dir/exe" 2>/dev/null
+    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
+  done | grep '^/' | sort -u > "$in_use_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
+else
+  in_use_evidence=0
+fi
+
+# True when a process holds the path, or anything under it, open, when a
+# socket lives near its top, or when there is no evidence either way.
+in_use() {
+  [ "$in_use_evidence" = 1 ] || return 0
+  awk -v p="$1" '$0 == p || index($0, p "/") == 1 { found = 1; exit } END { exit !found }' "$in_use_file" && return 0
+  [ -d "$1" ] && [ -n "$(find "$1" -maxdepth 2 -type s -print 2>/dev/null | head -n 1)" ]
+}
+
+under() { case "$1" in "$2"|"$2"/*) return 0 ;; esac; return 1; }
+
+inside_allowed_root() {
+  local path="$1" root
+  under "$path" "$home_dir" && [ "$path" != "$home_dir" ] && return 0
+  under "$path" "$tmp_dir" && [ "$path" != "$tmp_dir" ] && return 0
+  for root in "${roots[@]}"; do
+    under "$path" "$root" && [ "$path" != "$root" ] && return 0
+  done
+  return 1
+}
+
+# Why a path must not be removed, or nothing when it may be.
+refusal_reason() {
+  local path="$1" prefix log_dir
+  case "$path" in /*) ;; *) echo "not-absolute"; return ;; esac
+  case "$path" in *"/../"*|*"/.."|*"/./"*) echo "not-normalized"; return ;; esac
+  [ -L "$path" ] && { echo "symlink"; return; }
+  [ -e "$path" ] || { echo "missing"; return; }
+  inside_allowed_root "$path" || { echo "outside-roots"; return; }
+  for prefix in "${protected_prefixes[@]}"; do
+    under "$path" "$prefix" && { echo "protected"; return; }
+  done
+  for prefix in "${agent_homes[@]}"; do
+    if under "$path" "$prefix"; then
+      for log_dir in "${agent_log_dirs[@]}"; do
+        under "$path" "$log_dir" && [ "$path" != "$log_dir" ] && break 2
+      done
+      echo "protected"; return
+    fi
+  done
+  [ -e "$path/.git" ] && { echo "repository-root"; return; }
+  git_tracked "$path" && { echo "git-tracked"; return; }
+  in_use "$path" && { echo "in-use"; return; }
+  return 0
+}
+
+# True when the path holds files its enclosing repository tracks.
+git_tracked() {
+  local parent="${1%/*}"
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$parent" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  [ -n "$(git -C "$parent" ls-files -- "${1##*/}" 2>/dev/null | head -n 1)" ]
+}
+
+size_kb() { du -sk -- "$1" 2>/dev/null | awk '{print $1+0}'; }
+
+json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//	/\\t}"
+  printf '"%s"' "$s"
+}
+
+items_json=""
+total_kb=0
+add_item() {
+  local category="$1" path="$2" kb="$3" action="$4" reason="${5:-}"
+  local entry="{\"category\":$(json_string "$category"),\"path\":$(json_string "$path"),\"kb\":$kb,\"action\":$(json_string "$action")"
+  [ -n "$reason" ] && entry="$entry,\"reason\":$(json_string "$reason")"
+  items_json="${items_json:+$items_json,}$entry}"
+  case "$action" in deleted|would-delete) total_kb=$((total_kb + kb)) ;; esac
+}
+
+safe_remove() {
+  local category="$1" path="$2" reason kb
+  case "$path" in *$'\n'*) return ;; esac
+  reason="$(refusal_reason "$path")"
+  if [ -n "$reason" ]; then
+    [ "$reason" = missing ] || add_item "$category" "$path" 0 skipped "$reason"
+    return
+  fi
+  kb="$(size_kb "$path")"
+  if [ "$mode" = apply ]; then
+    local aside="${path%/*}/.cmux-hygiene-deleting-${path##*/}-$$"
+    if mv -- "$path" "$aside" 2>/dev/null && rm -rf -- "$aside" 2>/dev/null; then
+      add_item "$category" "$path" "${kb:-0}" deleted
+    else
+      add_item "$category" "$path" "${kb:-0}" skipped remove-failed
+    fi
+  else
+    add_item "$category" "$path" "${kb:-0}" would-delete
+  fi
+}
+
+# True when nothing under the directory changed in the last N days.
+idle_for() {
+  local dir="$1" days="$2"
+  [ -z "$(find "$dir" -maxdepth 3 -mtime "-$days" -print 2>/dev/null | head -n 1)" ]
+}
+
+disk_used_pct() {
+  df -P -- "$home_dir" 2>/dev/null | awk 'NR == 2 { gsub("%", "", $5); print $5 + 0 }'
+}
+
+# --- interrupted: finish removals an earlier run renamed aside but did not
+# delete, once the process that started them is gone.
+clean_interrupted() {
+  local root entry pid
+  for root in "$tmp_dir" "${roots[@]}"; do
+    while IFS= read -r entry; do
+      pid="${entry##*-}"
+      case "$pid" in ""|*[!0-9]*) continue ;; esac
+      kill -0 "$pid" 2>/dev/null && continue
+      safe_remove interrupted "$entry"
+    done < <(find "$root" -xdev -name '.cmux-hygiene-deleting-*' -prune -print 2>/dev/null)
+  done
+}
+
+# --- project-artifacts: regenerable build output next to its project marker.
+artifact_marker() {
+  case "$1" in
+    node_modules|.next|.turbo|.parcel-cache|.svelte-kit|.nuxt) echo package.json ;;
+    target) echo Cargo.toml ;;
+    .gradle) echo settings.gradle build.gradle settings.gradle.kts build.gradle.kts ;;
+    __pycache__|.pytest_cache|.mypy_cache|.ruff_cache) echo "*" ;;
+  esac
+}
+
+has_marker() {
+  local project="$1" markers="$2" marker
+  [ "$markers" = "*" ] && return 0
+  for marker in $markers; do
+    # shellcheck disable=SC2086
+    ls -d "$project"/$marker >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+clean_project_artifacts() {
+  local root dir name markers project
+  for root in "${roots[@]}"; do
+    while IFS= read -r dir; do
+      name="${dir##*/}"; project="${dir%/*}"
+      markers="$(artifact_marker "$name")"
+      has_marker "$project" "$markers" || continue
+      idle_for "$dir" "$min_age_days" || continue
+      in_use "$project" && { add_item project-artifacts "$dir" 0 skipped project-in-use; continue; }
+      safe_remove project-artifacts "$dir"
+    done < <(find "$root" -xdev \
+      \( -name .git -o -name .cmux -o -name .ssh -o -name .config -o -name .claude \
+         -o -name .codex -o -name .cache -o -name .npm -o -name .cargo -o -name .rustup \
+         -o -name .bun -o -name .local \) -prune -o \
+      -type d \( -name node_modules -o -name target -o -name .next -o -name .turbo \
+         -o -name .parcel-cache -o -name .svelte-kit -o -name .nuxt -o -name .gradle \
+         -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) \
+      -print -prune 2>/dev/null)
+  done
+}
+
+# --- package-caches: re-downloadable, but they make the next install warm, so
+# they go only under disk pressure.
+clean_package_caches() {
+  local used cache
+  used="$(disk_used_pct)"; used="${used:-0}"
+  if [ "$used" -lt "$pressure_pct" ]; then
+    add_item package-caches "$home_dir" 0 skipped "disk-${used}%-below-${pressure_pct}%"
+    return
+  fi
+  for cache in "$home_dir/.npm/_cacache" "$home_dir/.bun/install/cache" \
+    "$home_dir/.cache/pip" "$home_dir/.cache/uv" "$home_dir/.cache/go-build" \
+    "$home_dir/.cache/yarn" "$home_dir/.cache/pnpm" "$home_dir/.local/share/pnpm/store" \
+    "$home_dir/.cargo/registry/cache" "$home_dir/Library/Caches/Yarn"; do
+    [ -d "$cache" ] && safe_remove package-caches "$cache"
+  done
+}
+
+# --- agent-logs: old debug logs written by coding agents and npm.
+clean_agent_logs() {
+  local log_dir file
+  for log_dir in "${agent_log_dirs[@]}"; do
+    [ -d "$log_dir" ] || continue
+    while IFS= read -r file; do
+      safe_remove agent-logs "$file"
+    done < <(find "$log_dir" -mindepth 1 -maxdepth 1 -mtime "+$log_age_days" -print 2>/dev/null)
+  done
+}
+
+# --- temp-files: the user's own top-level temp entries, idle for N days.
+clean_temp_files() {
+  local entry name
+  while IFS= read -r entry; do
+    name="${entry##*/}"
+    case "$name" in cmux*|.cmux*|tmux-*|.X*|.ICE-unix|systemd-*|snap-private-tmp) continue ;; esac
+    if [ -d "$entry" ]; then idle_for "$entry" "$min_age_days" || continue; fi
+    safe_remove temp-files "$entry"
+  done < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -user "$(id -u)" \( -type f -o -type d \) \
+    -mtime "+$min_age_days" -print 2>/dev/null)
+}
+
+# --- git-worktrees: drop worktree records whose directory is gone. This never
+# removes a worktree directory; uncommitted work lives there.
+clean_git_worktrees() {
+  local root git_dir repo stale
+  for root in "${roots[@]}"; do
+    while IFS= read -r git_dir; do
+      repo="${git_dir%/.git}"
+      stale="$(git -C "$repo" worktree prune --dry-run --verbose 2>&1 | grep -c "^Removing" || true)"
+      [ "${stale:-0}" -gt 0 ] || continue
+      if [ "$mode" = apply ]; then
+        if git -C "$repo" worktree prune 2>/dev/null; then add_item git-worktrees "$repo" 0 deleted "pruned-$stale-records"
+        else add_item git-worktrees "$repo" 0 skipped prune-failed; fi
+      else
+        add_item git-worktrees "$repo" 0 would-delete "prune-$stale-records"
+      fi
+    done < <(find "$root" -xdev -maxdepth 5 \( -name node_modules -o -name .cmux -o -name .cache \) -prune \
+      -o -type d -name .git -print -prune 2>/dev/null)
+  done
+}
+
+# --- docker: dangling images and build cache older than a week.
+clean_docker() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || { add_item docker docker 0 skipped daemon-unavailable; return; }
+  if [ "$mode" = apply ]; then
+    docker image prune --force >/dev/null 2>&1 && add_item docker dangling-images 0 deleted
+    docker builder prune --force --filter until=168h >/dev/null 2>&1 && add_item docker build-cache 0 deleted
+  else
+    add_item docker dangling-images 0 would-delete
+    add_item docker build-cache 0 would-delete "older-than-168h"
+  fi
+}
+
+disk_before="$(disk_used_pct)"
+enabled interrupted && clean_interrupted
+enabled project-artifacts && clean_project_artifacts
+enabled package-caches && clean_package_caches
+enabled agent-logs && clean_agent_logs
+enabled temp-files && clean_temp_files
+enabled git-worktrees && clean_git_worktrees
+enabled docker && clean_docker
+disk_after="$(disk_used_pct)"
+
+printf '{"version":1,"mode":%s,"home":%s,"diskUsedPctBefore":%s,"diskUsedPctAfter":%s,"reclaimableKb":%s,"items":[%s]}\n' \
+  "$(json_string "$mode")" "$(json_string "$home_dir")" "${disk_before:-null}" "${disk_after:-null}" \
+  "$total_kb" "$items_json"
