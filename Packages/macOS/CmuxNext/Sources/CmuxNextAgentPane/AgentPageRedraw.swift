@@ -19,10 +19,15 @@ public final class AgentPageRedraw {
         self.webView = webView
     }
 
-    /// The page drew before and `pane` is out of the window, or parked hidden in its pane (which
-    /// does not resize it): shown again, it draws once more first.
+    /// The page drew before and shows again at another size than it drew at: out of the window, or
+    /// parked hidden in its pane (it stays sized with the pane meanwhile, but draws nothing hidden),
+    /// at a size that changed or is about to (the pane has a layout pending: the strip hides with
+    /// this switch, cx-f6i7). Shown again at the size it drew at, it shows at once (perf-tabs).
     public func awaits(_ pane: NSView) -> Bool {
-        (pane.window == nil || pane.isHidden) && drawnSize != nil
+        guard let drawnSize else { return false }
+        if pane.window == nil { return true }
+        guard pane.isHidden, let host = pane.superview else { return false }
+        return host.bounds.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
     }
 
     /// Runs `body` once the page drew at the size `pane` shows it at: at the pane's next layout when
@@ -34,7 +39,8 @@ public final class AgentPageRedraw {
 
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
-        guard pane.window != nil, !pane.bounds.isEmpty else { return }
+        // A hidden page follows the pane's size but draws nothing: its drawn size stays.
+        guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
         guard size != drawnSize else {
             // Drawn at this size, or the frame that draws it is on the way.
@@ -76,9 +82,6 @@ public final class AgentPageRedraw {
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false
-    /// Chat list answers on the way to this page, and the list it last drew (`AgentPaneNewTabFrame`).
-    var pendingChats = 0
-    var drawnChats: Int?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
@@ -87,6 +90,8 @@ public final class AgentPageRedraw {
     /// is still where and as large as it was when the snapshot is ready: the image its move into a
     /// pane shows until it draws there is then this page at that size.
     public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
+        // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
+        guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak webView, weak pane, weak place] in
