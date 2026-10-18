@@ -26,15 +26,7 @@ const env = readEnv(params);
 const root = document.documentElement;
 const stageRoot = document.getElementById("root");
 const sourceHint = params.get("source") || undefined;
-
-// A frame can be opened directly while the shell is still loading unrelated gallery modules.
-// Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
-const entryStore = createFrameEntryStore(sourceHint);
-if (requestedId && stageRoot) {
-  stageRoot.textContent = `Loading ${requestedId}…`;
-  stageRoot.className = "gallery-frame-loading";
-}
 
 function fail(message: string): never {
   root.dataset.galleryReady = "error";
@@ -42,6 +34,17 @@ function fail(message: string): never {
   document.body.className = "gallery-frame-error";
   parent.postMessage({ type: "cmux-gallery-stage", status: "error", message }, "*");
   throw new Error(message);
+}
+
+// A frame is a concrete stage, not a registry browser. Requiring an entry keeps warm-up requests
+// and copied frame.html URLs from starting every lazy gallery module just to discover that there
+// is nothing to render; the shell and matrix always include this query parameter.
+if (!requestedId) fail("This gallery frame needs an entry. Open it from the gallery or add ?entry=<id>.");
+
+const entryStore = createFrameEntryStore(sourceHint);
+if (stageRoot) {
+  stageRoot.textContent = `Loading ${requestedId}…`;
+  stageRoot.className = "gallery-frame-loading";
 }
 
 const byName = new Map(themes.map((theme) => [theme.name, theme]));
@@ -54,7 +57,7 @@ if (sourceHint && entryStore.getSnapshot().length === 0)
 // A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
 // sibling must never leave a valid stage blank while the shell is still auditing the full registry.
 // A missing entry still falls back to the full settled list so the error can name the bad sources.
-const match = requestedId ? await entryStore.find(requestedId) : undefined;
+const match = await entryStore.find(requestedId);
 const settled = match?.entry ? undefined : await entryStore.settled();
 const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)

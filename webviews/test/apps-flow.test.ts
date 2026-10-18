@@ -23,8 +23,8 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
     });
     await vite.listen();
     const { port } = vite.httpServer!.address() as { port: number };
-    // The canonical gallery eagerly registers every stage; on a cold worktree this transform pass
-    // can exceed the helper's 100s default (the matrix uses the same 300s allowance).
+    // Warm the shared frame graph once. The helper intentionally leaves the registry's lazy
+    // entries cold; each concrete stage URL compiles only its requested app page.
     await warmDevServer(`http://127.0.0.1:${port}`, "/gallery/frame.html", { timeoutMs: 300_000 });
     browsers.chromium = await chromium.launch({ headless: true });
     browsers.webkit = await webkit.launch({ headless: true });

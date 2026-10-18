@@ -9,25 +9,53 @@
 //
 // Same-origin paths are followed, absolute (`/src/…`, `/node_modules/.vite/deps/…`, `/@vite/client`)
 // or relative to the file that names them (an entry page's `src="./harness.tsx"`); bare package
-// names never reach the browser in dev, Vite rewrites them. Lazy imports are followed too: the
-// gallery frame starts every `*.gallery.tsx` load on its first paint (src/gallery/entryStore.ts),
-// about 2,300 modules, 35 s cold on an idle 96-core builder, so the browser pays for them anyway.
+// names never reach the browser in dev, Vite rewrites them. Gallery frame URLs are special: a
+// frame with no `entry=` query is only a warm-up shell, so following every registry glob would
+// eagerly compile hundreds of unrelated `*.gallery.ts(x)` entries before the test opens its real
+// stage. Those entry modules are requested by the browser when the concrete stage URL loads.
 
 import type { ViteDevServer } from "vite";
 
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']((?:\.{1,2})?\/[^"'\s]+)["']/g;
 const SCRIPT = /<script\b[^>]*\bsrc=["']((?:\.{1,2})?\/[^"']+)["']/g;
+const GALLERY_ENTRY = /^\/(?:gallery\/)?src\/.*\.gallery\.(?:ts|tsx)$/;
+
+export type WarmDevServerOptions = {
+  timeoutMs?: number;
+  limit?: number;
+  jobs?: number;
+  /** Include every gallery entry in a no-entry frame warm-up. Defaults to false. */
+  includeGalleryEntries?: boolean;
+};
+
+/** Whether a discovered module belongs in a warm-up crawl. Kept pure for a focused regression test. */
+export function shouldWarmPath(path: string, from: string, includeGalleryEntries: boolean): boolean {
+  if (includeGalleryEntries) return true;
+  return !GALLERY_ENTRY.test(new URL(path, new URL(from, "http://gallery.invalid")).pathname);
+}
 
 /** Requests `page` on `base` and every module it imports; returns how many modules it fetched. */
-export async function warmDevServer(base: string, page: string, { timeoutMs = 100_000, limit = 4_000, jobs = 8 } = {}) {
+export async function warmDevServer(
+  base: string,
+  page: string,
+  { timeoutMs = 100_000, limit = 4_000, jobs = 8, includeGalleryEntries }: WarmDevServerOptions = {},
+) {
   const deadline = Date.now() + timeoutMs;
   const seen = new Set<string>();
   const queue: string[] = [];
+  const pageUrl = new URL(page, base);
+  const warmGalleryEntries =
+    includeGalleryEntries ?? (pageUrl.pathname !== "/gallery/frame.html" || pageUrl.searchParams.has("entry"));
   const follow = (text: string, from: string, pattern: RegExp) => {
     for (const match of text.matchAll(pattern)) {
       const url = new URL(match[1], new URL(from, base));
       const path = url.pathname + url.search;
-      if (url.origin === new URL(base).origin && !seen.has(path) && seen.size < limit) {
+      if (
+        url.origin === new URL(base).origin &&
+        shouldWarmPath(path, from, warmGalleryEntries) &&
+        !seen.has(path) &&
+        seen.size < limit
+      ) {
         seen.add(path);
         queue.push(path);
       }
