@@ -290,6 +290,8 @@ describe("opening a personal machine during a re-pause", () => {
     });
     await expect(f.open()).resolves.toMatchObject({ status: "running" });
     expect(f.resumes).toEqual([PROVIDER_VM_ID]);
+    // The open reports running, so a failed resume must not pause the machine.
+    expect(f.pauses).toEqual([]);
   });
 
   test("only records the wake when no re-pause claim is fresh", async () => {
