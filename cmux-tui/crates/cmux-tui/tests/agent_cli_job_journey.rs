@@ -301,7 +301,7 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     );
     selected_acp.stop();
     other_acp.stop();
-    let replay = client.rpc(intent.clone());
+    let replay = client.rpc(intent);
     assert_eq!(replay["ok"], true, "{replay}");
     assert_eq!(replay["data"]["path"], path);
     assert_eq!(replay["data"]["replayed"], true);
