@@ -38,18 +38,18 @@ extension DaemonService {
     }
 
     /// After End Sessions, Keep Layout: restarts a shell in every kept tab
-    /// (a dead tab with the store's `relaunch` record), in its recorded
-    /// directory, else home. One relaunch runs at a time per service (a
-    /// reconnect while it runs does not start a second), and a closed
-    /// connection cancels it.
+    /// (a dead tab with the store's `relaunch` record) in place (`restart-tab`),
+    /// in its recorded directory, else home. One relaunch runs at a time per
+    /// service (a reconnect while it runs does not start a second), and a
+    /// closed connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
-        guard isLocal, keptLayoutRelaunch == nil, supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return }
+        guard isLocal, keptLayoutRelaunch == nil, supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
+              supports(DaemonCapabilities.shared.tabRestart) else { return }
         let logger = logger
-        let fallbackCwd = defaultCwd
         keptLayoutRelaunch = Task { [weak self] in
             defer { self?.keptLayoutRelaunch = nil }
             do {
-                let result = try await connection.relaunchKeptTabs(fallbackCwd: fallbackCwd)
+                let result = try await connection.relaunchKeptTabs()
                 if result.relaunched > 0 { logger.info("kept layout: restarted \(result.relaunched) terminals") }
                 for failure in result.failures {
                     logger.error("kept layout: a kept tab stays dead: \(failure, privacy: .public)")
