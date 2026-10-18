@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Execute nightly runner selectors for trusted pushes, overflow, and unsigned resume."""
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -14,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_ci_fork_runner_routing import parse_expression
 
 ROOT = Path(__file__).resolve().parents[1]
-DOC = yaml.safe_load((ROOT / '.github/workflows/nightly.yml').read_text())
+WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
+DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 
 
 def evaluate(node, context):
@@ -97,6 +99,14 @@ class NightlyTrustedRouting(unittest.TestCase):
                      'Save Xcode compilation cache', 'Save Swift packages'):
             with self.subTest(step=name):
                 self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
+
+    def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
+        group = DOC["concurrency"]["group"]
+        self.assertIn(
+            "github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id)",
+            group,
+        )
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
 
     def test_owned_next_and_main_have_independent_pending_slots(self):
         def group(branch):
