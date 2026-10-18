@@ -456,8 +456,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            // Unbound by default (added without a call; people bind it).
             case .focusSidebar:
-                return StoredShortcut(key: "e", command: true, shift: false, option: false, control: true)
+                return .unbound
             case .showWindowHints:
                 return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .newTab:
@@ -605,7 +606,8 @@ enum KeyboardShortcutSettings {
             // now that ⌘[ / ⌘] reach global focus history.
             case .focusPreviousPane, .focusNextPane:
                 return .unbound
-            case .focusPaneByNumber: return StoredShortcut(key: "1", command: true, shift: false, option: false, control: true)
+            // Unbound by default (added without a call; people bind it).
+            case .focusPaneByNumber: return .unbound
             case .splitRight: return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)

@@ -78,25 +78,39 @@ extension AgentSessionPanelHost {
     func journalClosedAgentSessions(panelId: UUID) {
         guard AppDelegate.shared?.isTerminatingApp != true else { return }
         let recoverable = Set(AgentSessionRecovery.recoverableKinds.map(\.rawValue))
-        var sessions: [(kind: String, sessionID: String)] = []
+        var endedSessions: [(kind: String, sessionID: String)] = []
         for binding in agentSessionBindingsForClose(panelId: panelId) where binding.isAgentHookBinding {
             guard let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  recoverable.contains(kind),
-                  let sessionID = binding.checkpointId else { continue }
-            sessions.append((kind, sessionID))
+                  let sessionID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !sessionID.isEmpty else { continue }
+            endedSessions.append((kind, sessionID))
         }
         let restoredAgents = [
             restoredAgentLifecycle.snapshotsByPanelId[panelId],
             deferredAgentResumeRestoresByPanelId[panelId]?.restorableAgent,
         ]
-        for agent in restoredAgents.compactMap({ $0 }) where recoverable.contains(agent.kind.rawValue) {
-            sessions.append((agent.kind.rawValue, agent.sessionId))
+        for agent in restoredAgents.compactMap({ $0 }) {
+            endedSessions.append((agent.kind.rawValue, agent.sessionId))
         }
-        guard !sessions.isEmpty else { return }
+        guard !endedSessions.isEmpty else { return }
         // A session another panel still carries (a restore that lost to a live
         // owner, or a stale snapshot resumed elsewhere) did not end here.
         let carriedElsewhere = AppDelegate.shared?.openAgentSessionIdsForRecovery(excludingPanelId: panelId) ?? []
-        sessions.removeAll { carriedElsewhere.contains($0.sessionID) }
+        endedSessions.removeAll { carriedElsewhere.contains($0.sessionID) }
+        guard !endedSessions.isEmpty else { return }
+        // Feed decisions belong to every hook-backed agent, including kinds
+        // that do not yet participate in crash recovery. A pane close is a
+        // terminal signal for their approval cards and needs-input overlays
+        // even when no SessionEnd hook can arrive, so they are cleared here,
+        // once, and the journal only records the end.
+        var seen = Set<String>()
+        for session in endedSessions where seen.insert("\(session.kind)\u{0}\(session.sessionID)").inserted {
+            FeedCoordinator.shared.invalidateSemanticRequests(
+                source: session.kind,
+                sessionId: session.sessionID
+            )
+        }
+        let sessions = endedSessions.filter { recoverable.contains($0.kind) }
         guard !sessions.isEmpty else { return }
         agentSessionCloseJournal.recordClosed(
             sessions: sessions,

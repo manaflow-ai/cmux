@@ -43,6 +43,9 @@ struct CloudTreeNodeActions {
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Close one remote tab placement without ending the terminal process.
+    /// This is the safe close action for workspace-pointer rows.
+    var closeRemoteTab: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
@@ -119,6 +122,8 @@ struct CloudTreeNodeActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         )
     }
+    /// Moves an exact Cloud browser tab into another workspace on the same machine.
+    var moveCloudBrowser: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ remoteWorkspaceID: String) -> Void = { _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -497,6 +502,14 @@ struct CloudTreeNodeActions {
                     try await provider.closeTerminal(resource)
                 }
             },
+            closeRemoteTab: { resource, view in
+                run(String(format: String(localized: "cloudTree.operation.closeTab", defaultValue: "Closing %@…"), machineName(resource.machine))) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) as? any SurfacePlacementSyncing else {
+                        throw SurfaceCatalogError.unsupported("closing a remote tab")
+                    }
+                    try await provider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
+                }
+            },
             closeWorkspace: { machine, workspace in
                 // Closing a workspace takes its terminals with it — nothing "detaches"
                 // into the pool. Killing processes is the destructive part, so an
@@ -663,6 +676,24 @@ struct CloudTreeNodeActions {
                 return nil
             }
             return ((output["value"] as? [String: Any]) ?? output)["text"] as? String
+        }
+        actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
+            // `run` owns progress, cancellation and failure presentation for every Cloud action.
+            run(openingLabel(resource.machine)) { catalog in
+                guard let provider = catalog.provider(for: resource.machine) else {
+                    throw SurfaceCatalogError.noProvider(resource.machine)
+                }
+                var failure: Error?
+                await catalog.cloudPlacementCoordinator.moveRemoteTab(
+                    resource: resource,
+                    tabID: view.tabID,
+                    intoRemoteWorkspace: remoteWorkspaceID,
+                    catalog: catalog,
+                    provider: provider,
+                    onFailure: { failure = $0 }
+                ).value
+                if let failure { throw failure }
+            }
         }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine

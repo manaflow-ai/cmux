@@ -32,6 +32,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import CmuxTextActions
 
 private func externalBrowserFallbackURL(
     url: URL?,
@@ -2794,7 +2795,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// real timestamp instead of nothing.
     let createdAt = Date()
     private var automaticTitleMutationDepth = 0
-    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    private let sidebarTitleDidChangeSubject = CurrentValueSubject<UInt64, Never>(0)
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
@@ -2802,17 +2803,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // publish a second value from didSet for a committed title.
             // Automatic process-title writes use the settled observation
             // model instead; forwarding them here would wake every sidebar
-            // row for each animation frame.
+            // row for each animation frame. Send a revision rather than the
+            // title: a skipped automatic write leaves the subject behind, and
+            // a later rename back to that stale value must not look like a
+            // duplicate.
             guard automaticTitleMutationDepth == 0 else { return }
-            sidebarTitleDidChangeSubject.send(title)
+            sidebarTitleDidChangeSubject.send(sidebarTitleDidChangeSubject.value &+ 1)
         }
     }
-    /// Publishes the workspace title after the stored value has been updated.
+    /// Publishes a revision after each committed non-automatic title write.
     ///
     /// `@Published` emits from `willSet`; sidebar snapshots must read the
     /// committed title so the first refresh after a rename cannot cache the
     /// previous value.
-    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+    var sidebarTitleDidChangePublisher: AnyPublisher<UInt64, Never> {
         sidebarTitleDidChangeSubject.eraseToAnyPublisher()
     }
 
@@ -4299,7 +4303,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
-        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
@@ -4749,7 +4752,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
+                if button.terminalCommand != nil || button.action.textPayload != nil {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
@@ -15469,6 +15472,30 @@ extension Workspace: BonsplitDelegate {
                 iconSourcePath: executable.button.iconSourcePath,
                 presentingWindow: presentingWindow
             )
+            return
+        }
+
+        if let payload = executable.button.action.textPayload {
+            _ = CmuxConfigExecutor.deliverTextActionIfAuthorized(
+                payload,
+                confirm: executable.button.confirm ?? false,
+                actionID: executable.button.id,
+                configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: executable.button.title ?? executable.button.tooltip,
+                icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
+                iconSourcePath: executable.button.iconSourcePath,
+                presentingWindow: presentingWindow
+            ) { [weak self] in
+                guard let self else { return false }
+                self.bonsplitController.focusPane(pane)
+                guard let panel = self.selectedTerminalPanel(inPane: pane),
+                      CmuxConfigExecutor.deliver(payload, to: panel) else {
+                    NSSound.beep()
+                    return false
+                }
+                return true
+            }
             return
         }
 

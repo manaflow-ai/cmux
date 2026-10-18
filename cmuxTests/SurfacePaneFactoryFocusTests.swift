@@ -83,6 +83,31 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// A sidebar drop of a browser, display or port opens a pane for that link.
+    /// It starts blank while it connects, but it is not a new tab to type into:
+    /// focusing it must not select the address bar and open its suggestions.
+    @Test(arguments: [false, true])
+    func browserPaneOpenedForASidebarResourceDoesNotFocusTheAddressBar(split: Bool) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId).id.uuidString
+        let destination: SurfaceDestination = split
+            ? .split(workspaceID: workspace.id, paneID: paneID, direction: .right)
+            : .tab(workspaceID: workspace.id, paneID: paneID, index: nil)
+
+        let created = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: true)
+        let browser = try #require(SurfacePaneFactory.browserPanel(panelID: created.panelID, in: created.workspaceID))
+        // The display caller relies on the factory itself focusing the new pane.
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+
+        // The drop handler focuses the pane again once it is created.
+        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
+        #expect(workspace.focusedPanelId == created.panelID)
+        #expect(browser.pendingAddressBarFocusRequestId == nil)
+    }
+
     /// Opening a sidebar resource splits the focused pane. When split admission
     /// has no room left, the factory reports `noSpace` and the sidebar gesture
     /// opens the resource as a tab in that pane instead of failing with
@@ -148,6 +173,21 @@ import SwiftUI
         pointerView.activateContainerFocusFromPointerDown()
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        // Middle-click uses GhosttyNSView's separate AppKit path, which runs
+        // convergeFocusForMiddleMouseDown(). It must make the same eager
+        // convergence before its portal callback can rebind, and release the
+        // reparent guard that would otherwise suppress that focus. A synthesized
+        // otherMouseDown crashes in this windowless harness, so the test drives
+        // the convergence step directly.
+        workspace.focusPanel(localPanelID)
+        let hostedView = cloudPanel.surface.hostedView
+        hostedView.suppressReparentFocus()
+        #expect(hostedView.isSuppressingReparentFocusForLayoutFollowUp())
+        pointerView.convergeFocusForMiddleMouseDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+        #expect(!hostedView.isSuppressingReparentFocusForLayoutFollowUp())
 
         workspace.focusPanel(localPanelID)
         #expect(workspace.focusedPanelId == localPanelID)
