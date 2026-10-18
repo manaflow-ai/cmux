@@ -2795,6 +2795,38 @@ jobs:
           python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
             --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
 
+      # Perf counter gate (I8, cx-8w027.7): one launch of this build, every
+      # scenario (workspace switch at 20 workspaces, theme switch, divider drag,
+      # tab switch at 16 panes x 3 tabs, split+close, status ticks) against a
+      # work budget per action from the app's debug counters. Counters do not
+      # depend on the host, so they block on any host load; timing is a warning.
+      # A console that draws no frames skips the drag lag and theme blend checks
+      # with a warning; lanes run those on the GUI host with --frames required.
+      - name: Perf counter gate
+        id: perf-gate
+        if: inputs.dev_daily != true
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          tag="ci-perf-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/perf-gate/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/perf-gate/out"
+          /bin/cp -R "$built" "$app"
+          # perf-gate.py quits the app and ends the tag's daemons by exact PID.
+          trap 'rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          python3 scripts/cmux-next/perf-gate.py --app "$app" --out "$RUNNER_TEMP/perf-gate/out" --frames auto
+
+      - name: Upload the perf gate report
+        if: ${{ always() && steps.perf-gate.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-gate/out
+          if-no-files-found: ignore
+          retention-days: 3
+
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
       # the existing dev-build label; the publisher repeats this trust check

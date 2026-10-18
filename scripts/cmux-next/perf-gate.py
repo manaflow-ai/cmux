@@ -62,6 +62,13 @@ BUDGET = {
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
 }
+# Known breaches of a budget above, each with the bead that removes it: a breach of that counter in
+# that scenario is a warning that names the bead. A ratchet: when a known breach no longer happens,
+# the gate fails until its line here is removed, so a fix tightens the gate in the same landing.
+KNOWN = {
+    ("workspaces", "list_reloads"): "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list",
+    ("theme", "list_reloads"): "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list",
+}
 FRAME_BUDGET_MS = 1000 / 60
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
 
@@ -316,6 +323,7 @@ class Gate:
     def __init__(self, app, opts):
         self.app, self.opts = app, opts
         self.frames = None  # (draws, stats), read once
+        self.warned = set()
 
     def frames_ok(self, scenario):
         """Whether frame-dependent checks run; reports the skip (auto) or the failure (required)."""
@@ -345,13 +353,33 @@ class Gate:
             rows.append({"to": target, "latency_ms": round(latency, 1),
                          **{k: v for k, v in measured.items() if k != "sources"}})
             patches += measured.get("selection_patches", 0)
-            breaches = over(measured, BUDGET["switch"])
+            breaches = self.unknown(over(measured, BUDGET["switch"]), scenario)
             if breaches:
                 check(False, f"switch to {target}: {breach_text(breaches, measured['sources'])}", scenario)
+                if "sidebar_rows" not in report:
+                    report["sidebar_rows"] = app.rpc("debug.sidebar_rows")
             for k in BUDGET["switch"]:
                 worst[k] = max(worst.get(k, 0), measured.get(k, 0))
         report["phases"][scenario] = {"switches": rows, "worst": worst}
+        self.ratchet(scenario, worst, BUDGET["switch"])
         return rows, worst, patches
+
+    def unknown(self, breaches, scenario):
+        """The breaches that KNOWN does not name; a known one is a warning (once per scenario)."""
+        out = []
+        for k, value, limit in breaches:
+            bead = KNOWN.get((scenario, k))
+            if not bead:
+                out.append((k, value, limit))
+            elif (scenario, k) not in self.warned:
+                self.warned.add((scenario, k))
+                warn(f"known breach {k} {value} > {limit} ({bead})", scenario)
+        return out
+
+    def ratchet(self, scenario, measured, budget):
+        for (name, k), bead in KNOWN.items():
+            if name == scenario and k in budget and measured.get(k, 0) <= budget[k]:
+                check(False, f"the known breach of {k} no longer happens ({bead}): remove its KNOWN line", scenario)
 
     def workspaces(self):
         app = self.app
@@ -365,7 +393,7 @@ class Gate:
             app.action("goToWorkspace", {"workspace": target})
         wait(lambda: app.shown_workspace() == ids[-1], 10)
         rows, worst, patches = self.switch_steps(ids + ids[:4], "workspaces")
-        check(not over(worst, BUDGET["switch"]),
+        check(not self.unknown(over(worst, BUDGET["switch"]), "workspaces"),
               f"{len(rows)} switches at {len(ids)} workspaces, worst per switch {worst} (budget {BUDGET['switch']})", "workspaces")
         want_patches = len(rows) * BUDGET["switch_selection_patches"]
         check(patches == want_patches, f"{patches} sidebar selection patches for {len(rows)} switches (want {want_patches})",
@@ -395,7 +423,7 @@ class Gate:
             app.action("workspace.setTheme", {"theme": theme}, target=f"workspace:{target}")
         # Counters: six theme switches, the workspace switch budget each.
         rows, worst, patches = self.switch_steps([a, b] * 3, "theme")
-        check(not over(worst, BUDGET["switch"]),
+        check(not self.unknown(over(worst, BUDGET["switch"]), "theme"),
               f"{len(rows)} theme switches, worst per switch {worst} (budget {BUDGET['switch']})", "theme")
         if not self.frames_ok("theme"):
             return
@@ -450,8 +478,9 @@ class Gate:
 
     def drag(self):
         app = self.app
+        before_ws = app.shown_workspace()
         app.action("workspace.newAtBottom")
-        wait(lambda: app.panes()[0] >= 1, 30)
+        wait(lambda: app.shown_workspace() not in (None, before_ws) and app.panes()[0] >= 1, 30)
         app.action("splitRight", {})
         if not check(bool(wait(lambda: app.panes()[0] >= 2 and self.dividers(), 30)), "a split shows two terminals and a divider", "drag"):
             return
@@ -524,20 +553,25 @@ class Gate:
                     rows.append((grid.get("frame_x", 0), cols(surface.get("fit_grid")), cols(surface.get("grid"))))
         return sorted(rows)
 
-    def build_grid(self, panes=16, rows=4, tabs=3):
-        """A new workspace with `panes` terminals in columns of `rows`, each pane with `tabs` tabs."""
+    def build_grid(self, panes=16, tabs=3):
+        """A new workspace with `panes` terminals on one screen (splitRight and splitDown alternate
+        on the newest pane), each pane with `tabs` tabs (new-tab pages: hidden, no PTY)."""
         app = self.app
+        before_ws = app.shown_workspace()
         app.action("workspace.newAtBottom")
-        wait(lambda: app.panes()[0] >= 1, 30)
+        wait(lambda: app.shown_workspace() not in (None, before_ws) and app.panes()[0] >= 1, 30)
         for i in range(app.panes()[0], panes):
             before = app.panes()[0]
-            app.action("newColumn" if i % rows == 0 else "newRow")
-            wait(lambda: app.panes()[0] > before, 30)
-        for _ in range(panes):
+            app.action("splitRight" if i % 2 else "splitDown", {})
+            if not wait(lambda: app.panes()[0] > before, 30):
+                print(f"  split {i}: still {app.panes()} after 30 s", flush=True)
+                break
+        for _ in range(app.panes()[0]):
             for _ in range(tabs - 1):
                 app.action("newTab")
             app.action("focusNextPane")
         shown = wait(lambda: (lambda p: p if p[0] >= panes and p[1] >= panes * tabs else None)(app.panes()), 30) or app.panes()
+        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {app.shown_workspace()}", flush=True)
         self.grid = shown
         return shown
 
