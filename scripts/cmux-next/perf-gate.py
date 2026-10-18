@@ -62,12 +62,13 @@ BUDGET = {
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
 }
-# Known breaches of a budget above, each with the bead that removes it: a breach of that counter in
-# that scenario is a warning that names the bead. A ratchet: when a known breach no longer happens,
-# the gate fails until its line here is removed, so a fix tightens the gate in the same landing.
+# Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
+# removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
+# ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
+# is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {
-    ("workspaces", "list_reloads"): "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list",
-    ("theme", "list_reloads"): "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list",
+    ("workspaces", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
+    ("theme", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
 }
 FRAME_BUDGET_MS = 1000 / 60
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
@@ -166,17 +167,19 @@ class App:
             raise SystemExit("perf-gate: the first terminal pane never showed")
 
     def stop(self):
-        if self.process and self.process.poll() is None:
-            self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-            try:
-                self.process.wait(30)
-            except subprocess.TimeoutExpired:
-                self.process.terminate()
+        try:
+            if self.process and self.process.poll() is None:
+                self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
                 try:
-                    self.process.wait(15)
+                    self.process.wait(30)
                 except subprocess.TimeoutExpired:
-                    self.process.kill()
-        self.teardown.end()
+                    self.process.terminate()
+                    try:
+                        self.process.wait(15)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+        finally:
+            self.teardown.end()
 
     def rpc(self, method, params=None, timeout=60):
         try:
@@ -269,6 +272,22 @@ class App:
         self.topology()
         time.sleep(0.5)  # test script: trailing async work after the last reply lands in this read
 
+    QUIET_KEYS = ("workspace_applies", "topology_sends", "pane_snapshots", "list_reloads", "selection_patches")
+
+    def quiet_counters(self):
+        """settle(), then the counters once two reads 0.2 s apart agree on the budget counters (at
+        most 3 s), so late work of this op is not counted in the next op's window; then reset."""
+        self.settle()
+        deadline = time.monotonic() + 3
+        last = self.counters(reset=False)
+        while time.monotonic() < deadline:  # bounded: the app's own counters stop moving
+            time.sleep(0.2)  # test script: the gap between two counter reads
+            now = self.counters(reset=False)
+            if all(now.get(k) == last.get(k) for k in self.QUIET_KEYS):
+                break
+            last = now
+        return self.counters()
+
     def draws(self):
         """True when the window's display link ticks (a lit, unoccluded window)."""
         self.rpc("debug.frames", {"action": "start"})
@@ -349,14 +368,15 @@ class Gate:
     def switch_steps(self, targets, scenario):
         """goToWorkspace each target; per switch the counters must fit BUDGET['switch']."""
         app, worst, patches, rows = self.app, {}, 0, []
-        app.settle()
-        app.counters()
+        app.quiet_counters()
         for target in targets:
             start = time.monotonic()
             app.action("goToWorkspace", {"workspace": target})
             latency = (time.monotonic() - start) * 1000
-            app.settle()
-            measured = app.counters()
+            measured = app.quiet_counters()
+            shown = app.shown_workspace()
+            if shown != target:
+                check(False, f"switch to {target} landed (shown {shown})", scenario)
             rows.append({"to": target, "latency_ms": round(latency, 1),
                          **{k: v for k, v in measured.items() if k != "sources"}})
             patches += measured.get("selection_patches", 0)
@@ -368,23 +388,24 @@ class Gate:
             for k in BUDGET["switch"]:
                 worst[k] = max(worst.get(k, 0), measured.get(k, 0))
         report["phases"][scenario] = {"switches": rows, "worst": worst}
-        self.ratchet(scenario, worst, BUDGET["switch"])
+        if not self.opts.only:
+            self.ratchet(scenario, worst, BUDGET["switch"])
         return rows, worst, patches
 
     def unknown(self, breaches, scenario):
         """The breaches that KNOWN does not name; a known one is a warning (once per scenario)."""
         out = []
         for k, value, limit in breaches:
-            bead = KNOWN.get((scenario, k))
-            if not bead:
+            known = KNOWN.get((scenario, k))
+            if not known or value > known[0]:
                 out.append((k, value, limit))
             elif (scenario, k) not in self.warned:
                 self.warned.add((scenario, k))
-                warn(f"known breach {k} {value} > {limit} ({bead})", scenario)
+                warn(f"known breach {k} {value} > {limit} (known up to {known[0]}: {known[1]})", scenario)
         return out
 
     def ratchet(self, scenario, measured, budget):
-        for (name, k), bead in KNOWN.items():
+        for (name, k), (_, bead) in KNOWN.items():
             if name == scenario and k in budget and measured.get(k, 0) <= budget[k]:
                 check(False, f"the known breach of {k} no longer happens ({bead}): remove its KNOWN line", scenario)
 
@@ -514,12 +535,11 @@ class Gate:
             return rows
 
         # Pass A: counters and frame intervals of the drag alone.
-        app.settle()
-        app.counters()
+        app.quiet_counters()
         app.rpc("debug.frames", {"action": "start"})
         run(sample=False)
         frames = app.rpc("debug.frames", {"action": "stop"}) or {}
-        measured = app.counters()
+        measured = app.quiet_counters()
         report["phases"]["drag"] = {"events": len(path), "frames": frames,
                                     "counters": {k: v for k, v in measured.items() if k != "sources"},
                                     "sources": measured["sources"]}
@@ -528,7 +548,7 @@ class Gate:
             return
         if (frames.get("p99_ms") or 0) > FRAME_BUDGET_MS:
             warn(f"divider drag frame p99 {frames.get('p99_ms'):.1f} ms (budget {FRAME_BUDGET_MS:.1f} ms; "
-                 f"max {frames.get('max_ms', 0):.1f} ms, missed {frames.get('missed')})", "drag")
+                 f"max {frames.get('max_ms') or 0:.1f} ms, missed {frames.get('missed')})", "drag")
         # Pass B: the grid each terminal renders against what its frame fits, per step.
         rows = run(sample=True)
         misses, distinct = [], []
@@ -605,15 +625,13 @@ class Gate:
         if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", "tabs"):
             return
         ops = 40
-        app.settle()
-        app.counters()
+        app.quiet_counters()
         latencies = []
         for _ in range(ops):
             start = time.monotonic()
             app.action("nextSurface")
             latencies.append((time.monotonic() - start) * 1000)
-        app.settle()
-        measured = app.counters()
+        measured = app.quiet_counters()
         report["phases"]["tabs"] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
                                     "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1]}
         check(not over(measured, BUDGET["tabs"]),
@@ -626,16 +644,19 @@ class Gate:
         app = self.app
         panes, _ = getattr(self, "grid", None) or self.build_grid()
         pairs = 10
-        app.settle()
-        app.counters()
+        app.quiet_counters()
+        landed = 0
         for _ in range(pairs):
             before = app.panes()[0]
             app.action("splitRight", {})
-            wait(lambda: app.panes()[0] > before, 30)
+            split = wait(lambda: app.panes()[0] > before, 30)
             app.action("closePane", {})
-            wait(lambda: app.panes()[0] <= before, 30)
-        app.settle()
-        measured = app.counters()
+            closed = wait(lambda: app.panes()[0] <= before, 30)
+            landed += bool(split and closed)
+        measured = app.quiet_counters()
+        if not check(landed == pairs and app.panes()[0] == panes,
+                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", "split"):
+            return
         per_pair = {k: round(measured.get(k, 0) / pairs, 2) for k in BUDGET["split"]}
         report["phases"]["split"] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
         breaches = over(measured, BUDGET["split"], pairs)
@@ -655,8 +676,7 @@ class Gate:
         if app.shown_workspace() != shown:
             app.action("goToWorkspace", {"workspace": shown})
         time.sleep(2.0)  # test script: the tickers start printing before the measured window
-        app.settle()
-        app.counters()
+        app.quiet_counters()
         time.sleep(seconds)  # test script: the measured window while the tickers print
         measured = app.counters()
         ticks = int(seconds * 4 * tickers)
@@ -704,27 +724,41 @@ def main():
     if not opts.source_guard_only:
         if not opts.app:
             parser.error("--app is required (or --source-guard-only)")
-        names = opts.only.split(",") if opts.only else SCENARIOS
-        unknown = [n for n in names if n not in SCENARIOS]
+        asked = opts.only.split(",") if opts.only else SCENARIOS
+        unknown = [n for n in asked if n not in SCENARIOS]
         if unknown:
             parser.error(f"unknown scenarios {unknown}")
+        names = [n for n in SCENARIOS if n in asked]  # the fixed order: status last (its tickers keep printing)
         app = App(os.path.abspath(opts.app), opts.out)
         report.update({"app": app.bundle, "tag": app.tag, "budget": BUDGET, "host": os.uname().nodename})
         gate = Gate(app, opts)
         try:
-            app.launch()
-            for name in names:  # status last: its tickers keep printing
-                print(f"== {name}", flush=True)
-                start = time.monotonic()
-                getattr(gate, name)()
-                report.setdefault("seconds", {})[name] = round(time.monotonic() - start, 1)
+            try:
+                app.launch()
+                for name in names:
+                    print(f"== {name}", flush=True)
+                    start = time.monotonic()
+                    try:
+                        getattr(gate, name)()
+                    except Exception as error:  # noqa: BLE001 - a crashed scenario is a failure; the next one still runs
+                        check(False, f"the scenario crashed: {error!r}", name)
+                    report.setdefault("seconds", {})[name] = round(time.monotonic() - start, 1)
+            except SystemExit as error:
+                check(False, f"stopped: {error}", "launch")
+            finally:
+                app.stop()
         finally:
-            app.stop()
+            write_report(out)
+    else:
+        write_report(out)
+    sys.exit(1 if failures else 0)
+
+
+def write_report(out):
     report.update({"ok": not failures, "failures": failures, "warnings": warnings})
     with open(out, "w") as f:
         json.dump(report, f, indent=1)
     summary(out)
-    sys.exit(1 if failures else 0)
 
 
 if __name__ == "__main__":
