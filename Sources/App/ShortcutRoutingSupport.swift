@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
@@ -121,7 +122,7 @@ struct ConfiguredShortcutMatcher {
     }
 
     func matchesTab(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         return event.keyCode == 48 && flags == stroke.modifierFlags
     }
 
@@ -309,9 +310,10 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
-    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
-    return browserOmnibarShouldSubmitOnReturn(flags: flags)
+    // Unclaimed Cmd+Return also belongs to the page. Keep Cmd+Shift+Return
+    // (pane zoom) and other modified shortcuts on the app's normal route.
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags.isEmpty || normalizedFlags == [.shift] || normalizedFlags == [.command]
 }
 
 func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
@@ -351,14 +353,16 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+/// Returns true when a terminal navigation key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    let isArrow = (123...126).contains(keyCode)
+    let isHomeOrEnd = keyCode == UInt16(kVK_Home) || keyCode == UInt16(kVK_End)
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, isArrow || isHomeOrEnd else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
@@ -387,6 +391,23 @@ func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
     return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
 }
 
+/// Whether a command palette text field, rather than an app shortcut, owns a
+/// Left or Right arrow press: caret, word (Option) and line-boundary
+/// (Command) movement, each with its selection-extending Shift form.
+func commandPaletteTextFieldOwnsHorizontalArrow(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 123 || keyCode == 124 else { return false }
+
+    switch browserOmnibarNormalizedModifierFlags(flags) {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
+}
+
 func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsCommandPaletteFieldEditor: Bool,
@@ -395,15 +416,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsCommandPaletteFieldEditor else { return false }
     guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 123 || keyCode == 124 else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
+    return commandPaletteTextFieldOwnsHorizontalArrow(keyCode: keyCode, flags: flags)
 }
 
 /// Whether an arrow keyDown belongs to a focused standalone editable text
@@ -525,10 +538,11 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 func shouldRouteCommandPaletteSelectionNavigation(
     delta: Int?,
     isInteractive: Bool,
-    usesInlineTextHandling: Bool
+    usesInlineTextHandling: Bool,
+    isAgentInboxReplyFieldFocused: Bool = false
 ) -> Bool {
     guard delta != nil, isInteractive else { return false }
-    return !usesInlineTextHandling
+    return !usesInlineTextHandling && !isAgentInboxReplyFieldFocused
 }
 
 func shouldConsumeShortcutWhileCommandPaletteVisible(
@@ -547,6 +561,10 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
 
     guard normalizedFlags.contains(.command) else { return false }
 
+    if commandPaletteTextFieldOwnsHorizontalArrow(keyCode: keyCode, flags: normalizedFlags) {
+        return false
+    }
+
     let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [.command] {
@@ -560,7 +578,7 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
         }
 
         switch keyCode {
-        case 49, 51, 117, 123, 124:
+        case 49, 51, 117:
             return false
         default:
             break
@@ -627,11 +645,17 @@ enum BrowserZoomShortcutAction: Equatable {
     case reset
 }
 
+/// The zoom action for a Command key press, used to route terminal font zoom.
+///
+/// Accepts Command with optional Shift. Keys are matched by character, then by
+/// US key position when the key types no other shortcut character, and by the
+/// keypad zoom keys.
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    literalChars: String? = nil
+    literalChars: String? = nil,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> BrowserZoomShortcutAction? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -643,28 +667,37 @@ func browserZoomShortcutAction(
     let keys = browserZoomShortcutKeyCandidates(
         chars: chars,
         literalChars: literalChars,
-        keyCode: keyCode
+        keyCode: keyCode,
+        layoutCharacterProvider: layoutCharacterProvider
     )
 
-    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    // US key positions identify zoom keys unless the key types another shortcut
+    // character. Dvorak types "]" and "[" on the US "=" and "-" keys.
+    let typesOtherShortcutKey = keys.contains { ShortcutStroke.shortcutKey(typedAs: $0) != nil }
+    let isUSKey: (UInt16) -> Bool = { !typesOtherShortcutKey && keyCode == $0 }
+
+    if keys.contains("=") || keys.contains("+") || isUSKey(24) || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if keys.contains("-") || keys.contains("_") || isUSKey(27) || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if keys.contains("0") || isUSKey(29) || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
         return .reset
     }
 
     return nil
 }
 
+/// The lowercased characters a zoom key press may stand for: the event's
+/// characters and the layout character for its key code.
 func browserZoomShortcutKeyCandidates(
     chars: String,
     literalChars: String?,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> Set<String> {
     var keys: Set<String> = [chars.lowercased()]
 
@@ -672,7 +705,7 @@ func browserZoomShortcutKeyCandidates(
         keys.insert(literalChars.lowercased())
     }
 
-    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+    if let layoutChar = layoutCharacterProvider(keyCode), !layoutChar.isEmpty {
         keys.insert(layoutChar)
     }
 
@@ -805,6 +838,7 @@ func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
+    case paste
     case selectAll
     case italic
 
@@ -827,6 +861,15 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 7
+            )
+        case .paste:
+            return StoredShortcut(
+                key: "v",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 9
             )
         case .selectAll:
             return StoredShortcut(

@@ -246,7 +246,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`).
 
 Errors:
 
@@ -413,6 +413,7 @@ Params:
 | `display_name` | `string` | default unchanged | Shared sizing identity; defaults to `name` |
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
+| `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
 
 Identity fields are clamped like `name`. A connection that sends
 `shared-sizing-v1` in `capabilities` receives `size-state` events on its
@@ -676,7 +677,13 @@ Ends a control connection. Every attached surface receives its `detached` event 
 `client` may also be a shared-sizing participant id from `size-state`. A
 relay sub-view id (`c<client>/<view>`) detaches only that sub-view: the relay
 stays connected and receives `detached {surface, reason:"disconnected-by", by,
-view}` on its attach stream for that surface to forward to the leaf.
+view}` on its attach stream for that surface to forward to the leaf. The own
+view of a client that sent `sizing-view-detach-v1` in `set-client-info`
+detaches only that view: the client stays connected with its attachments and
+relay sub-views, its view stops counting toward the grid, and it receives
+`detached {surface, reason:"disconnected-by", by, scope:"view"}`.
+`reattach-view` restores it. Participant ids are per terminal, so `surface`
+resolves `client` on that terminal only.
 
 Params:
 
@@ -684,6 +691,7 @@ Params:
 | --- | --- | --- | --- |
 | `client` | `uint64` or `string` | required | Client id from `list-clients`, or a participant id |
 | `by` | `object{user_id?,display_name?,device_name?}` | default: the requester's identity | Actor shown to the detached viewer; asserted, not verified |
+| `surface` | `Id` | optional | Resolves a participant id on this terminal only |
 
 Result: `object{}`.
 
@@ -2711,7 +2719,7 @@ object{accepted:bool,reservation_id:uint64|null,outcome:"applied"|"passive"|"sup
 With `shared-sizing-v1`, `view:string` (1-128 printable characters, for
 example `mobile:<client_id>`) replaces `lease` and creates or updates a relay
 sub-view keyed by this connection and `view`, with optional
-`identity:object{user_id?,display_name?,device_kind?,device_name?}`. An
+`identity:object{user_id?,display_name?,device_kind?,device_name?,device_id?}`. An
 omitted `identity` keeps the previous one. The connection must be attached to
 the terminal. Its result adds `participant:string`, the host participant id
 (`c<client>/<view>`); `accepted` is whether the sub-view now sets a dimension
@@ -2833,6 +2841,31 @@ participant <id>`, and a capability error for a client without
 ```json
 {"id":9,"cmd":"note-size-activity","surface":4,"view":"mobile:p1"}
 {"id":9,"ok":true,"data":{"participant":"c3/mobile:p1","changed":true}}
+```
+
+### reattach-view
+
+| Field | Value |
+| --- | --- |
+| name | `reattach-view` |
+| status | implemented |
+| since | protocol 12 with `sizing-view-detach-v1` |
+
+Restores the caller's own view of a terminal after `detach-client` detached
+that view only (`detached` with `scope:"view"`). The view rejoins shared
+sizing with its latest report. `counts:false` reattaches it as a viewer that
+does not count toward the grid; `counts:true` makes it count; omitted keeps
+the automatic rule.
+
+Params: required `surface:Id`, optional `counts:bool`.
+
+Result: `object{participant:string,state:object}` with the view's participant
+id and the terminal's size state. Errors: `view of surface <id> is not
+detached`, `surface <id> is not a terminal`.
+
+```json
+{"id":10,"cmd":"reattach-view","surface":4,"counts":false}
+{"id":10,"ok":true,"data":{"participant":"c3","state":{"surface":4,"generation":7}}}
 ```
 
 ### get-size-state

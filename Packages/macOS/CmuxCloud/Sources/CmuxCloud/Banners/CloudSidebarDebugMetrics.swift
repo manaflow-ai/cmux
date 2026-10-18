@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Persisted geometry edited by the spacing lab and resolved into one render snapshot.
 public struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
-    public var referenceInset: Double = 12
+    public var referenceInset: Double = Double(CloudTreeRowGrid().trailingPadding)
     public var disclosureSlot: Double = 16
     public var disclosureGap: Double = 2
     /// Retained for saved tuning data; machine glyphs now use the shared iconSlot.
@@ -91,7 +91,7 @@ public struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
     }
 
     public init(
-        referenceInset: Double = 12,
+        referenceInset: Double = Double(CloudTreeRowGrid().trailingPadding),
         disclosureSlot: Double = 16,
         disclosureGap: Double = 2,
         dotSlot: Double = 11,

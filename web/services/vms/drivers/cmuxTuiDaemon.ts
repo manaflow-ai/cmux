@@ -139,10 +139,12 @@ export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/la
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * CMUX_VM_CMUX_TUI_MANIFEST_URL pins a deployment to one commit's manifest
+ * CMUX_VM_CMUX_TUI_MANIFEST_URL pins the image scripts (bake, verify, reachability,
+ * BusyBox probe) to one commit's manifest
  * (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) instead of the rolling
- * `latest`. Nothing else is configured by hand: the build and its sha256 come from
- * the manifest the artifacts workflow publishes.
+ * `latest`; the server never installs cmux-tui, so a deployment ignores it. Nothing
+ * else is configured by hand: the build and its sha256 come from the manifest the
+ * artifacts workflow publishes.
  */
 export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;
@@ -173,13 +175,26 @@ export function parseCmuxTuiManifest(
   if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
     throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_HOOK_LINUX_TARGET });
   }
-  const base = manifestUrl.replace(/\/manifest\.json$/, "");
+  const manifestLocation = new URL(manifestUrl);
+  const manifestSuffix = "/manifest.json";
+  if (!manifestLocation.pathname.endsWith(manifestSuffix)) {
+    throw new ProviderError(provider, `cmux-tui manifest URL ${manifestUrl} does not end in /manifest.json`);
+  }
+  let artifactBasePath = manifestLocation.pathname.slice(0, -manifestSuffix.length);
+  if (artifactBasePath.endsWith("/latest")) {
+    artifactBasePath = `${artifactBasePath.slice(0, -"/latest".length)}/${commit}`;
+  }
+  const artifactUrl = (target: string): string => {
+    const url = new URL(manifestLocation.href);
+    url.pathname = `${artifactBasePath}/${target}`;
+    return url.href;
+  };
   return {
-    url: `${base}/${CMUX_TUI_LINUX_TARGET}`,
+    url: artifactUrl(CMUX_TUI_LINUX_TARGET),
     sha256,
     commit,
     builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
-    hookUrl: `${base}/${CMUX_TUI_HOOK_LINUX_TARGET}`,
+    hookUrl: artifactUrl(CMUX_TUI_HOOK_LINUX_TARGET),
     hookSha256,
   };
 }

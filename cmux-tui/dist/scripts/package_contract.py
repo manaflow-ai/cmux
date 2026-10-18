@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,7 +53,19 @@ NPM_PACKAGE_NAMES_WITH_WINDOWS = (
     *NPM_PLATFORM_NAMES_WITH_WINDOWS,
     *NPM_RELAY_PLATFORM_NAMES_WITH_WINDOWS,
 )
-NPM_PLATFORM_FILES = frozenset({"package.json", "bin/cmux-tui", "bin/cmux-tui-hook"})
+# Every cmux-tui platform package pins the SHA-256 of each remote binary the
+# SSH bootstrap may download from npm. It sits next to bin/cmux-tui, where
+# cmux-remote looks for it.
+NPM_SSH_MANIFEST = "bin/cmux-tui-ssh/manifest.json"
+NPM_SSH_MANIFEST_BINARIES = {
+    "cmux-tui-aarch64-unknown-linux-musl": "cmux-tui-linux-arm64",
+    "cmux-tui-x86_64-unknown-linux-musl": "cmux-tui-linux-x64",
+    "cmux-tui-aarch64-apple-darwin": "cmux-tui-darwin-arm64",
+    "cmux-tui-x86_64-apple-darwin": "cmux-tui-darwin-x64",
+}
+NPM_PLATFORM_FILES = frozenset(
+    {"package.json", "bin/cmux-tui", "bin/cmux-tui-hook", NPM_SSH_MANIFEST}
+)
 NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
 NPM_RELAY_PLATFORM_FILES = frozenset(
     {"package.json", "bin/chatmux-relay", "bin/cmux-tui"}
@@ -190,6 +203,50 @@ def _validate_version(actual: object, expected: str | None, label: str) -> str:
     return actual
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_ssh_manifests(packages_dir: Path, targets: tuple[NpmTarget, ...]) -> None:
+    """Require one identical SSH digest manifest that matches the packages.
+
+    The SSH bootstrap trusts a remote binary downloaded from npm only when it
+    matches this manifest, so each digest must be the packaged binary's own.
+    """
+
+    manifests = {
+        target.name: _read_json(packages_dir / target.name / NPM_SSH_MANIFEST)
+        for target in targets
+    }
+    first = next(iter(manifests.values()))
+    for name, manifest in manifests.items():
+        if manifest != first:
+            raise _error(f"{name}: SSH manifest differs from the other platform packages")
+    if set(first) != {"commit", "binaries"}:
+        raise _error("SSH manifest must contain only commit and binaries")
+    commit = first.get("commit")
+    if not isinstance(commit, str) or not re.fullmatch(
+        r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit
+    ):
+        raise _error("SSH manifest commit must be a full lowercase Git commit ID")
+    binaries = first.get("binaries")
+    if not isinstance(binaries, dict) or set(binaries) != set(NPM_SSH_MANIFEST_BINARIES):
+        raise _error(
+            "SSH manifest must pin exactly "
+            f"{sorted(NPM_SSH_MANIFEST_BINARIES)}, found {sorted(binaries or {})}"
+        )
+    for artifact, package in NPM_SSH_MANIFEST_BINARIES.items():
+        actual = _sha256_file(packages_dir / package / "bin" / "cmux-tui")
+        if binaries[artifact] != actual:
+            raise _error(
+                f"SSH manifest digest for {artifact} does not match {package}/bin/cmux-tui"
+            )
+
+
 def _validate_package_files(
     package_dir: Path,
     target: NpmTarget,
@@ -198,6 +255,7 @@ def _validate_package_files(
     expected_files: frozenset[str],
     label: str,
     version: str,
+    data_files: tuple[str, ...] = (),
 ) -> None:
     metadata = _read_json(package_dir / "package.json")
     if metadata.get("name") != target.name:
@@ -206,12 +264,17 @@ def _validate_package_files(
     if metadata.get("os") != [target.os] or metadata.get("cpu") != [target.cpu]:
         raise _error(f"{label}: os/cpu selectors are incorrect")
     extension = ".exe" if target.os == "win32" else ""
-    files = [f"bin/{name}{extension}" for name in binary_names]
+    files = [f"bin/{name}{extension}" for name in binary_names] + list(data_files)
     if metadata.get("files") != files:
         raise _error(f"{label}: files must be {files}")
     files_on_disk = _files_below(package_dir)
     entries = _entries_below(package_dir)
-    expected_entries = expected_files | {"bin"}
+    expected_entries = expected_files | {
+        str(parent.as_posix())
+        for path in expected_files
+        for parent in Path(path).parents
+        if parent != Path(".")
+    }
     if entries != expected_entries:
         raise _error(
             f"{label}: directory tree mismatch: expected "
@@ -339,11 +402,14 @@ def validate_npm_tree(
                     "package.json",
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui-hook{'.exe' if target.os == 'win32' else ''}",
+                    NPM_SSH_MANIFEST,
                 }
             ),
             label=target.name,
             version=package_version,
+            data_files=(NPM_SSH_MANIFEST,),
         )
+    _validate_ssh_manifests(packages_dir, targets)
     for target in relay_targets:
         _validate_package_files(
             packages_dir / target.name,

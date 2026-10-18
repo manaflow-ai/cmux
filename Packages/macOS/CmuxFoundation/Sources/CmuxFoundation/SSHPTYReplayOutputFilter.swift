@@ -16,7 +16,16 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     private static let bell: UInt8 = 0x07
     private static let backslash: UInt8 = 0x5C
     private static let semicolon: UInt8 = 0x3B
+    private static let questionMark: UInt8 = 0x3F
     private static let maxPendingBytes = 4 * 1024
+    /// Most leading bytes treated as replay, whatever the peer declares.
+    ///
+    /// `cmuxd-remote` replays its session scrollback snapshot, which it bounds
+    /// to `defaultWebSocketScrollbackCap` (1 MiB); production never raises
+    /// that limit, and ``SSHPTYAttachOutputProgress`` validates reconnect
+    /// replays against the same bound. A larger declaration violates the
+    /// protocol, so it cannot keep query stripping on for live output.
+    public static let maximumReplayBytes = 1 << 20
 
     private enum SequenceMatch {
         case strip(length: Int)
@@ -30,9 +39,10 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     /// Creates a filter for one ordered PTY attachment output stream.
     ///
     /// - Parameter replayBytes: Number of leading output bytes belonging to
-    ///   the daemon's scrollback replay. Negative values are treated as zero.
+    ///   the daemon's scrollback replay. Negative values are treated as zero
+    ///   and larger values are capped at ``maximumReplayBytes``.
     public init(replayBytes: Int) {
-        replayBytesRemaining = max(0, replayBytes)
+        replayBytesRemaining = min(max(0, replayBytes), Self.maximumReplayBytes)
     }
 
     /// Filters one output chunk, stripping only query sequences that begin in replay.
@@ -92,6 +102,20 @@ public struct SSHPTYReplayOutputFilter: Sendable {
             }
         }
         return output
+    }
+
+    /// Shrinks the replay boundary by replay bytes that were dropped before
+    /// reaching this filter.
+    ///
+    /// The declared replay length counts every replay byte, but a managed
+    /// reconnect removes the prefix an earlier attempt already rendered
+    /// before filtering. Without this, the filter would treat that many bytes
+    /// of later live output as replay and strip their queries.
+    ///
+    /// - Parameter count: Replay bytes removed upstream of this filter.
+    public mutating func skipReplayBytes(_ count: Int) {
+        guard count > 0 else { return }
+        replayBytesRemaining = max(0, replayBytesRemaining - count)
     }
 
     /// Flushes an unterminated candidate when the bridge closes.
@@ -231,34 +255,41 @@ public struct SSHPTYReplayOutputFilter: Sendable {
             return cursor == bytes.count ? .incomplete : .passThrough
         }
         cursor += 1
-        var payloadFirst: UInt8?
+        let payloadStart = cursor
         while cursor < bytes.count {
             guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
-            if payloadFirst == nil { payloadFirst = bytes[cursor] }
+            let terminatorLength: Int
             if bytes[cursor] == Self.bell {
-                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
-                    ? .strip(length: cursor - start + 1)
-                    : .passThrough
+                terminatorLength = 1
+            } else if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
+                      bytes[cursor + 1] == Self.backslash {
+                terminatorLength = 2
+            } else {
+                cursor += 1
+                continue
             }
-            if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
-               bytes[cursor + 1] == Self.backslash {
-                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
-                    ? .strip(length: cursor - start + 2)
-                    : .passThrough
-            }
-            cursor += 1
+            let isQuery = commandDigitCount > 0 && isOSCQuery(
+                command: command,
+                payload: bytes[payloadStart..<cursor]
+            )
+            return isQuery ? .strip(length: cursor - start + terminatorLength) : .passThrough
         }
         return .incomplete
     }
 
-    private static func isColorQuery(
-        command: Int,
-        commandDigitCount: Int,
-        payloadFirst: UInt8?
-    ) -> Bool {
-        commandDigitCount > 0 &&
-            (command == 4 || command == 10 || command == 11 || command == 12) &&
-            payloadFirst == 0x3F
+    private static func isOSCQuery(command: Int, payload: ArraySlice<UInt8>) -> Bool {
+        switch command {
+        case 4, 10, 11, 12:
+            return payload.first == Self.questionMark
+        case 52:
+            // Clipboard read: `52 ; <selection> ; ?`. Replaying it would make
+            // the local terminal send its current clipboard to the remote.
+            // Writes carry base64 data instead of `?` and stay untouched.
+            guard let separator = payload.firstIndex(of: Self.semicolon) else { return false }
+            return payload[payload.index(after: separator)...].elementsEqual([Self.questionMark])
+        default:
+            return false
+        }
     }
 
     private static func dcsQuery(in bytes: [UInt8], at start: Int) -> SequenceMatch {

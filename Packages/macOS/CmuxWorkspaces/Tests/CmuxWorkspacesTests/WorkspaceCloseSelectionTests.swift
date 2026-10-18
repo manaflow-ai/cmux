@@ -41,9 +41,9 @@ struct WorkspaceCloseSelectionTests {
         let m2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [m1, m2, outside]
-        let groupId = try #require(
-            groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [m1.id, m2.id])
-        )
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: m1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: m2.id, groupId: groupId)
         let anchorId = try #require(
             model.workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId
         )

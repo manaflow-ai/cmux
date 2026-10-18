@@ -4,8 +4,14 @@ import Foundation
 extension MobileShellComposite {
     /// Unclassified output cannot prove that it is a safe primary-screen
     /// delta, so verified render-grid mode keeps it behind replay.
-    func requiresVerifiedReplayForUnclassifiedDelivery() -> Bool {
-        terminalOutputTransport == .renderGrid
+    func requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: String) -> Bool {
+        // A locally served surface's bytes are the terminal itself, not an
+        // echo of Mac-ordered state. There is no Mac replay to verify them
+        // against, so gating them on the foreground Mac's transport would
+        // freeze the surface (reject, replay, reject again) whenever a
+        // render-grid Mac holds the session.
+        guard !terminalIsServedLocally(surfaceID: surfaceID) else { return false }
+        return terminalOutputTransport == .renderGrid
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
     }
 

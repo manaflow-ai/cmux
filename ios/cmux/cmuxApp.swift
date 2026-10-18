@@ -220,6 +220,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             analyticsClientID: Self.root.analytics.anonymousID,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
+            feedPerformanceObserver: Self.root.analytics.feedPerformanceReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             featureFlags: Self.root.featureFlags,
@@ -236,8 +237,10 @@ struct cmuxApp: App {
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog,
+            cloudDeviceID: { try? await Self.root.irx.installationDeviceID() },
             appLog: Self.root.appLog,
-            v2Configuration: Self.root.irx.configuration
+            v2Configuration: Self.root.irx.configuration,
+            billing: Self.root.billing
         )
     }
 }

@@ -716,6 +716,7 @@ class MintTerminalRendererResult:
     rights: int
     token: str
     ttl_ms: int
+    supports_viewer_size_priority: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -804,6 +805,13 @@ class ReadScrollbackResult:
     rows: List[RenderRow]
     start: int
     total: int
+
+
+@dataclass(frozen=True)
+class ReattachViewResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
+    participant: str
+    state: SizeState
 
 
 @dataclass(frozen=True)
@@ -1119,6 +1127,7 @@ class SizeParticipant:
     __cmux_schema_path__: ClassVar[str] = 'types/SizeParticipant'
     counts: bool
     counts_override: Union[bool, None]
+    device_id: Union[str, None]
     device_kind: SizeDeviceKind
     device_name: Union[str, None]
     display_name: Union[str, None]
@@ -1152,6 +1161,7 @@ class SizeState:
 @dataclass(frozen=True)
 class SizingIdentity:
     __cmux_schema_path__: ClassVar[str] = 'types/SizingIdentity'
+    device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
@@ -1650,6 +1660,7 @@ class DetachAttachedViewRequest:
 class DetachClientRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-client/request'
     client: DetachClientTarget
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
     by: Union[SizeDetachActor, None, MissingType] = field(default=MISSING)
 
 
@@ -1961,6 +1972,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReattachViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/reattach-view/request'
+    surface: Id
+    counts: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RegisterBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
     authentication: BrowserProviderAuthentication
@@ -2159,6 +2177,7 @@ class SetClientInfoRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
+    device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
@@ -2463,6 +2482,7 @@ class DetachedEvent(EventBase):
     event: Literal['detached']
     by: Union[SizeDetachActor, MissingType] = field(default=MISSING)
     reason: Union[DetachReason, MissingType] = field(default=MISSING)
+    scope: Union[str, MissingType] = field(default=MISSING)
     view: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -3014,6 +3034,7 @@ __all__ = [
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
     'ReadScrollbackResult',
+    'ReattachViewResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -3139,6 +3160,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReattachViewRequest',
     'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',

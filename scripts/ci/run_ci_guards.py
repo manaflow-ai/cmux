@@ -6,7 +6,7 @@ ci-guards.yml stays the one list of guard steps. This reads it and runs every
 group, steps in file order within a group. The same runner backs:
 
   scripts/ci/guards-local.sh           a dev Mac, seconds, no build
-  .github/workflows/ci-fast-guards.yml the "CI fast guards" check
+  ci.yml and ci-fast-guards.yml        the "CI fast guards" checks
 
 A `uses:` step is not run. Checkout is the working tree itself, and the two
 Python dependency steps are replaced by one shared virtualenv (PYTHON_PACKAGES
@@ -44,6 +44,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 GUARD_JOBS = (
+    "workflow-guard-submodule-forward-only",
     "workflow-guard-tests",
     "workflow-guard-history",
     "workflow-guard-cli-scripts",
@@ -64,6 +65,9 @@ EVENT_CONDITION_STEPS = {
     # The history job binds the synthetic merge base; run_steps binds it
     # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
     "Bind package policy to synthetic merge base",
+    # A manual dispatch's shallow checkout fetches main's history; a local
+    # checkout already has it, so a local run is never a dispatch.
+    "Fetch main history for a manual dispatch",
 }
 # The groups the "CI fast guards" check and a default local run cover: the
 # workflow, scripts/ci and repository-variable contracts. `--all` runs every
@@ -196,17 +200,24 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
             context = {
                 "matrix.group": group or "",
                 "github.sha": head_sha,
+                "github.token": "",
+                "github.event.pull_request.head.sha": head_sha,
                 "github.event.pull_request.base.sha": base_sha,
+                # Outside Actions there is no PR base branch name. Fetch the
+                # explicit local comparison revision instead.
+                "github.event.pull_request.base.ref": base_sha,
+                "github.event.merge_group.base_ref": base_sha,
                 "github.event.merge_group.base_sha": base_sha,
+                "github.event.before": base_sha,
             }
             steps: list[Step] = []
             for raw in job["steps"]:
                 name = str(raw.get("name") or raw.get("uses") or raw.get("run", "")[:40])
                 condition = str(raw.get("if", ""))
                 named, other = step_groups(condition)
+                if name in EVENT_CONDITION_STEPS:
+                    continue
                 if other:
-                    if name in EVENT_CONDITION_STEPS:
-                        continue
                     raise PlanError(f"step {name!r} has a condition run_ci_guards.py cannot evaluate: {condition}")
                 if named and group not in named:
                     continue

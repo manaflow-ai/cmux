@@ -187,6 +187,9 @@ final class FakeTunnelEnroller: CloudTunnelEnrolling, @unchecked Sendable {
     var enrollCount: Int { lock.withLock { count } }
     /// Discards that actually removed an enrollment.
     var discardCount: Int { lock.withLock { discards } }
+    /// Resolves at the first discard that removes an enrollment: the last step
+    /// of a refused start's cleanup, after any configuration removal.
+    let discarded = CloudLinkFirstValue<Bool>()
     /// Runs inside `enroll()`, standing in for whatever happens during the
     /// control-plane round trip (a toggle flipped off, for one).
     var onEnroll: (@Sendable () async -> Void)? {
@@ -204,11 +207,13 @@ final class FakeTunnelEnroller: CloudTunnelEnrolling, @unchecked Sendable {
     }
 
     func discardEnrollment() {
-        lock.withLock {
-            guard hasEnrollment else { return }
+        let removed = lock.withLock { () -> Bool in
+            guard hasEnrollment else { return false }
             hasEnrollment = false
             discards += 1
+            return true
         }
+        if removed { discarded.resolve(true) }
     }
 }
 

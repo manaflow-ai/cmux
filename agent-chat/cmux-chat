@@ -3,7 +3,7 @@
 #
 #   cmux-chat                          new composer as a workspace tab (sidebar entry)
 #   cmux-chat fix the failing test     start a chat with that prompt
-#   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/pi/gemini)
+#   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/goose/pi/gemini)
 #   cmux-chat --split                  open as a split in the current workspace instead
 #   cmux-chat --no-open ...            print the URL only
 #   cmux-chat --terminal [--surface ID] chat view of the agent running in a

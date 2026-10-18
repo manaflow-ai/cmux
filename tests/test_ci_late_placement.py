@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from unittest import mock
@@ -15,6 +16,7 @@ SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
+ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
 FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "UNIT_SUITE": "false",
         "UNIT_IN_ADMISSION": "false", "UNIT_SELECTORS": "", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
@@ -41,6 +43,14 @@ def roots(idle: int, busy: int = 0) -> list[dict]:
 
 
 class Decide(unittest.TestCase):
+    def test_explicit_aws_admission_keeps_late_jobs_in_the_aws_namespace(self):
+        env = dict(FULL, ADMISSION_ROOT=ROOT_AWS)
+        aws = [runner(f"aws-{i}", "self-hosted", ROOT_AWS) for i in range(3)]
+        placed, _ = late.decide(env, aws)
+        self.assertEqual(set(placed.values()), {ROOT_AWS})
+        self.assertEqual(late.root_for(XCODE, ROOT_AWS), ROOT_AWS)
+        self.assertEqual(late.root_for(XCODE, "", json.dumps([ROOT_AWS, "glaeda-runner-aws-0"])), ROOT_AWS)
+
     def test_a_full_suite_off_blacksmith_takes_the_idle_roots_shards_first(self):
         placed, why = late.decide(FULL, roots(idle=3, busy=5))
         self.assertEqual(placed, {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
@@ -48,7 +58,8 @@ class Decide(unittest.TestCase):
 
     def test_enough_idle_roots_move_every_job_after_admission(self):
         placed, _ = late.decide(FULL, roots(idle=16))
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product",
+                                       "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"})
 
     def test_jobs_the_picker_already_owned_stay_put(self):
         env = dict(FULL, OWNED_JOBS=" admission shard-1 shard-2 ")
@@ -62,21 +73,24 @@ class Decide(unittest.TestCase):
         slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
         # Admission ran on Blacksmith (the picker named no gui runner): the slots still route GUI jobs.
         placed, why = late.decide(dict(FULL, OWNED_SLOTS=slots), runners)
-        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
-        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
+        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner;
+        # the cli-regressions shards hold none and take the idle roots.
+        regressions = {"cli-regressions-1": ROOT_STD, "cli-regressions-2": ROOT_STD, "cli-regressions-3": ROOT_STD}
+        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui, **regressions})
         self.assertIn(f"2 idle `{gui}`", why)
         # The runners decide, not CI_OWNED_POOL_SLOTS: without a gui count the gui runners still route.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
-                         {"shard-1": gui, "shard-2": gui})
-        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui})
+                         {"shard-1": gui, "shard-2": gui, **regressions})
+        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui, **regressions})
         # No runner carries the gui label: the GUI jobs take the root label as before, whatever the slots.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
         # No idle gui runner: the gui-token jobs stay where the picker put them.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots),
-                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], {})
+                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], regressions)
         # An offline gui runner (a drained mini) still keeps them off the root label.
-        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0], {})
+        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0],
+                         regressions)
         # Enough gui runners: cli-product-tests takes one, never the root label.
         many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
@@ -97,9 +111,11 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed, {})
         self.assertIn("could not be read", why)
 
-    def test_gui_off_moves_only_cli_product(self):
+    def test_gui_off_moves_only_the_cli_jobs(self):
         env = dict(FULL, POOL_OWNED_GUI="0")
-        self.assertEqual(late.decide(env, roots(idle=8))[0], {"cli-product": ROOT_STD})
+        self.assertEqual(late.decide(env, roots(idle=8))[0],
+                         {key: ROOT_STD for key in ("cli-product", "cli-regressions-1", "cli-regressions-2",
+                                                    "cli-regressions-3")})
 
     def test_a_changed_suites_run_moves_its_one_worker(self):
         env = dict(FULL, FULL_SUITE="false", UNIT_SUITE="true", UNIT_SELECTORS="cmuxTests/FooTests")
@@ -113,9 +129,11 @@ class Decide(unittest.TestCase):
 GUI = "glaeda-gui-std-xcode-26.6"
 SLOTS = '{"std": 40, "root-std": 19, "gui-std": 10}'
 RETRY = "blacksmith-12vcpu-macos-26"
-# An owned full suite: the picker gave admission, the shards, lag and cli-product the minis.
+# An owned full suite: the picker gave admission, the shards, lag, cli-product and the
+# cli-regressions shards the minis.
 OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-26.6",
-             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8)) + " lag cli-product ")
+             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8))
+             + " lag cli-product cli-regressions-1 cli-regressions-2 cli-regressions-3 ")
 
 
 def guis(idle: int, busy: int) -> list[dict]:
@@ -150,12 +168,12 @@ class GuiOverflow(unittest.TestCase):
         self.assertIn(f"and 50 on `{RETRY}`", why)
 
     def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
-        # The shared account has 15 queued jobs and 17 measured slots, so the
-        # retry pool starts this run before the GUI backlog for every job.
+        # The retry label has five machines, so its own queue determines which
+        # jobs start sooner than the GUI backlog.
         count, _ = self.backlog(queued=25, retry_queued=15)
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {key: RETRY for key in mine})
+        self.assertEqual(placed, {key: RETRY for key in ("shard-1", "shard-2", "shard-4", "shard-6", "cli-product")})
 
     def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
         # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
@@ -192,10 +210,10 @@ class GuiOverflow(unittest.TestCase):
     def test_the_idle_gui_runners_keep_the_first_jobs_and_an_idle_blacksmith_takes_the_rest(self):
         count, _ = self.backlog(queued=0)
         # Minis first: three idle GUI runners take the three highest priority
-        # jobs. The shared Blacksmith account takes the remaining six.
+        # jobs. The retry label takes the jobs that start sooner on its five machines.
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {key: RETRY for key in mine[3:]})
+        self.assertEqual(placed, {key: RETRY for key in ("shard-4", "shard-5", "shard-6", "shard-7", "lag")})
 
     def test_a_tie_keeps_the_job_on_the_minis(self):
         # Nothing ahead on one gui runner of 20 s jobs, against an idle retry pool's 20 s start: minis first.
@@ -245,11 +263,11 @@ class GuiOverflow(unittest.TestCase):
         self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
         count, calls = self.backlog(queued=1)
         # One queued ahead takes one of the two idle runners; the highest
-        # priority job takes the other. The shared account has enough measured
-        # capacity for the remaining jobs, so they move to Blacksmith.
+        # priority job takes the other. The retry label's own capacity decides
+        # which remaining jobs move to Blacksmith.
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {key: RETRY for key in mine[1:]})
+        self.assertEqual(placed, {key: RETRY for key in ("shard-2", "shard-3", "shard-4", "shard-5", "shard-6", "lag")})
         self.assertEqual(calls, [[GUI, RETRY]])
 
     def test_the_kill_switch_with_nothing_idle_moves_every_owned_gui_job_without_a_read(self):
@@ -403,7 +421,9 @@ class Output(unittest.TestCase):
         import tempfile
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out:
             self.assertEqual(late.main(dict(FULL, GITHUB_OUTPUT=out.name)), 0)
-            self.assertEqual(Path(out.name).read_text(), "runners={}\nonto_owned=false\n")
+            self.assertEqual(late.main(dict(FULL, GITHUB_OUTPUT=out.name, GITHUB_RUN_ATTEMPT="2")), 0)
+            self.assertEqual(Path(out.name).read_text(),
+                             "runners={}\nattempt=\nonto_owned=false\nrunners={}\nattempt=2\nonto_owned=false\n")
 
     def test_main_counts_the_backlog_without_this_run_and_says_where_jobs_went(self):
         import tempfile
@@ -435,10 +455,11 @@ class Workflow(unittest.TestCase):
     def setUpClass(cls):
         cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
-    def test_the_consumers_wait_for_late_placement_and_read_it_first_on_attempt_one(self):
+    def test_the_consumers_wait_for_late_placement_and_read_it_first_in_its_attempt(self):
         keys = {"app-host-unit-tests": "format('shard-{0}', matrix.shard)",
                 "tests-build-and-lag": "'lag'", "cli-product-tests": "'cli-product'"}
-        prefix = "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[%s] || "
+        prefix = ("${{ needs.late-placement.outputs.attempt == github.run_attempt && "
+                  "fromJSON(needs.late-placement.outputs.runners || '{}')[%s] || ")
         for job, key in keys.items():
             with self.subTest(job=job):
                 spec = self.jobs[job]
@@ -450,7 +471,7 @@ class Workflow(unittest.TestCase):
                 # placement skips fork heads, so its output is {} there anyway.
                 fork_pr = (
                     "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-                    " != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
+                    " != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
                     " || 'blacksmith-6vcpu-macos-15') || "
                 )
                 self.assertTrue(spec["runs-on"].startswith("${{ " + late)
@@ -466,16 +487,21 @@ class Workflow(unittest.TestCase):
 
     def test_late_placement_runs_only_where_the_picker_may_use_owned_runners(self):
         spec = self.jobs["late-placement"]
-        for clause in ("github.run_attempt == 1", "vars.CI_PR_POOL_OWNED == '1'",
+        # Any attempt that runs compile admission again runs it too, except the bot's attempt 3 (the
+        # rescue's move of a stuck attempt 2), whose jobs all take the retry runner.
+        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')", spec["if"])
+        for clause in ("vars.CI_PR_POOL_OWNED == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "needs.macos-compile-admission.result == 'success'"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
-        # Jobs move only once both markers the rescue watch reads uploaded.
-        # A move to Blacksmith alone (the gui overflow) needs neither.
+        # Jobs move only once both markers the rescue watch reads uploaded (attempt 2 on has no fixed-name
+        # one: the sweeper lists re-runs). A move to Blacksmith alone (the gui overflow) needs neither.
         self.assertEqual(spec["outputs"]["runners"],
                          "${{ (steps.place.outputs.onto_owned == 'false' || steps.late-marker.outcome == 'success'"
-                         " && steps.late-watch-marker.outcome == 'success') && steps.place.outputs.runners || '{}' }}")
+                         " && (steps.late-watch-marker.outcome == 'success' || github.run_attempt > 1))"
+                         " && steps.place.outputs.runners || '{}' }}")
+        self.assertEqual(spec["outputs"]["attempt"], "${{ steps.place.outputs.attempt }}")
         steps = {step.get("id"): step for step in spec["steps"]}
         for marker in ("late-marker", "late-watch-marker"):
             self.assertEqual(steps[marker]["with"]["if-no-files-found"], "error", marker)

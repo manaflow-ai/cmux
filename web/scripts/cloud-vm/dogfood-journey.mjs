@@ -13,12 +13,13 @@
 // A throwaway paid smoke user owns the VM, exactly like smoke-vm-api.mjs, and
 // is deleted at the end.
 import { spawn } from "node:child_process";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { runAgentProbes } from "./dogfood-probes.mjs";
 import {
   loadTargetEnv,
   optionValue,
@@ -72,13 +73,13 @@ async function timed(name, work) {
   }
 }
 
-async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS, extraHeaders = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${targetUrl}${route}`, {
       method,
-      headers: { ...authHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      headers: { ...authHeaders, ...extraHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });
@@ -95,9 +96,57 @@ async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS) {
 
 function expectStatus(response, statuses, what) {
   if (!statuses.includes(response.status)) {
-    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 400)}`);
+    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 2_000)}`);
   }
   return response.json;
+}
+
+function providerStatusFromVm(response) {
+  const json = response.json;
+  if (!json || typeof json !== "object") return undefined;
+  for (const key of ["providerStatus", "provider_status", "providerObservedStatus", "provider_observed_status"]) {
+    if (Object.hasOwn(json, key)) return json[key];
+  }
+  return undefined;
+}
+
+async function pauseStatusSeries(vmId, pauseReturnedAt, targets = [1_000, 5_000, 15_000]) {
+  const series = [];
+  for (const targetMs of targets) {
+    const waitMs = targetMs - (performance.now() - pauseReturnedAt);
+    if (waitMs > 0) await sleep(waitMs);
+    const observedAt = Math.round(performance.now() - pauseReturnedAt);
+    const response = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
+      .catch((error) => ({ status: 0, json: null, text: error.message }));
+    const sample = {
+      atMs: observedAt,
+      status: response.json?.status ?? `http ${response.status}`,
+    };
+    const providerStatus = providerStatusFromVm(response);
+    if (providerStatus !== undefined) sample.providerStatus = providerStatus;
+    series.push(sample);
+  }
+  return series;
+}
+
+// Freestyle creation has a 15-minute provider deadline. Leave room for the
+// worker to finalize the Run and publish its source/setup receipt before the
+// dogfood client declares the journey stalled.
+async function waitForRun(runId, timeoutMs = 20 * 60_000) {
+  const deadline = performance.now() + timeoutMs;
+  let last;
+  while (performance.now() < deadline) {
+    const response = await api("GET", `/api/runs/${encodeURIComponent(runId)}`);
+    if (response.status !== 200) throw new Error(`GET /api/runs/${runId} expected 200, got ${response.status}: ${response.text.slice(0, 1_000)}`);
+    last = response.json;
+    const attempt = last?.attempts?.[0];
+    if (last?.status === "succeeded" && attempt?.status === "succeeded") return last;
+    if (["failed", "cancelled"].includes(last?.status) || ["failed", "cancelled"].includes(attempt?.status)) {
+      throw new Error(`Run ${runId} ended ${last?.status}/${attempt?.status}: ${String(attempt?.error ?? last?.error ?? "unknown error")}`);
+    }
+    await sleep(Math.min(5_000, Math.max(250, deadline - performance.now())));
+  }
+  throw new Error(`Run ${runId} did not complete within ${timeoutMs}ms${last ? ` (status ${last.status})` : ""}`);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -266,7 +315,7 @@ async function saveScreen(localSocket, terminal, name) {
 async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   const result = await runTui(
     ["--socket", localSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
-    timeoutMs + 10_000,
+    timeoutMs,
   );
   if (result.code !== 0) throw new Error(`screen wait for /${pattern}/ failed (${result.code}): ${result.stderr.slice(-400)}`);
   // A timeout is a normal result with matched false and exit status 0.
@@ -275,6 +324,25 @@ async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
     matched = JSON.parse(result.stdout).matched === true;
   } catch {}
   if (!matched) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
+}
+
+async function findRestoredTerminal(localSocket, pattern, timeoutMs) {
+  const deadline = performance.now() + timeoutMs;
+  let lastIds = [];
+  while (performance.now() < deadline) {
+    const list = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (list.code === 0) {
+      let terminals = [];
+      try { terminals = JSON.parse(list.stdout || "[]"); } catch {}
+      lastIds = terminals.map((entry) => entry.id).filter(Boolean);
+      for (const entry of terminals) {
+        const screen = await runTui(["--socket", localSocket, "terminal", entry.id, "screen", "read"], 5_000);
+        if (screen.code === 0 && screen.stdout.includes(pattern)) return entry.id;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`restored terminal replay did not contain /${pattern}/ within ${timeoutMs}ms (terminals: ${lastIds.join(",") || "none"})`);
 }
 
 async function sessionHeaders(stackUser, expiresInMillis) {
@@ -416,12 +484,45 @@ try {
     authHeaders = await sessionHeaders(user, 45 * 60 * 1000);
   });
 
-  const displayName = `dogfood ${suffix.slice(-6)}`;
-  const created = await timed("create", async () => expectStatus(await api("POST", "/api/vm", {
-    ...(provider === "default" ? {} : { provider }),
-    displayName,
-  }, 5 * 60 * 1000), [200], "POST /api/vm"));
-  vmId = created.id;
+  const sourceCommit = process.env.GITHUB_SHA;
+  if (!sourceCommit || !/^[0-9a-f]{40}$/i.test(sourceCommit)) throw new Error("GITHUB_SHA is required for Run dogfood");
+  const setupManifestPath = path.join(webDir, "..", ".cmux", "setup.json");
+  const setupManifestDigest = `sha256:${createHash("sha256").update(readFileSync(setupManifestPath)).digest("hex")}`;
+  const runMarker = `cmux-run-dogfood-${suffix}`;
+  const runSpec = {
+    schema: "cmux.run/v1",
+    operationId: runMarker,
+    source: { repository: "manaflow-ai/cmux", commit: sourceCommit, setupManifestDigest },
+    intent: { digest: `sha256:${"1".repeat(64)}` },
+    recipe: { id: "cloud-vm-dogfood", version: 1 },
+    variants: [{ id: "freestyle", label: "Freestyle dogfood", instructionDigest: `sha256:${"2".repeat(64)}` }],
+    workspace: { kind: "ephemeral" },
+    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 60_000, retainMs: 15 * 60_000 },
+    routing: { executionProvider: "cloud-vm", backend: "freestyle" },
+    capabilities: { secretRefs: [] },
+    checks: ["terminal-receipt", "provider-cleanup"],
+    policy: { mode: "fanout", humanApprovalRequired: false, evidenceKinds: ["patch"] },
+  };
+  const run = await timed("runCreate", async () => {
+    const response = await api("POST", "/api/runs", runSpec, 5 * 60 * 1000, { "idempotency-key": runMarker });
+    const accepted = expectStatus(response, [202, 200], "POST /api/runs");
+    if (typeof accepted?.id !== "string") throw new Error("POST /api/runs returned no Run ID");
+    const body = response.status === 202 || accepted.status !== "succeeded" ? await waitForRun(accepted.id) : accepted;
+    const attempt = body.attempts?.[0];
+    const stdout = attempt?.result?.commandReceipt?.stdout;
+    const sourceReceipt = attempt?.result?.sourceReceipt;
+    if (body.status !== "succeeded" || attempt?.status !== "succeeded" || typeof attempt?.providerVmId !== "string" || typeof stdout !== "string" || !stdout.includes(":completed")) {
+      throw new Error(`Run did not complete with a retained terminal receipt: ${JSON.stringify({ status: body.status, attemptStatus: attempt?.status, stdout })}`);
+    }
+    if (sourceReceipt?.commit?.toLowerCase() !== sourceCommit.toLowerCase() || sourceReceipt?.setupManifestDigest?.toLowerCase() !== setupManifestDigest) {
+      throw new Error(`Run source/setup receipt did not match exact checkout: ${JSON.stringify({ sourceReceipt, sourceCommit, setupManifestDigest })}`);
+    }
+    return { id: body.id, status: body.status, provider: body.provider, attemptId: attempt.id, attemptStatus: attempt.status, providerVmId: attempt.providerVmId, sourceReceipt, stdout };
+  });
+  result.run = run;
+
+  vmId = run.providerVmId;
+  const created = await timed("create", async () => expectStatus(await api("GET", `/api/vm/${encodeURIComponent(vmId)}`), [200], "GET /api/vm/:id"));
   result.vm = {
     provider: created.provider,
     imageVersion: created.imageVersion,
@@ -431,12 +532,11 @@ try {
     createdBy: created.createdBy ?? created.creator ?? created.userId ?? null,
     createdAt: created.createdAt ?? null,
   };
-  if (created.displayName !== displayName) note(`create response displayName is ${JSON.stringify(created.displayName)}, asked for ${JSON.stringify(displayName)}`);
   if (!privateRoute(created)) note("create response has no private address; the app must re-list before its first link");
 
   const listed = await timed("list", async () => {
     const list = expectStatus(await api("GET", "/api/vm"), [200], "GET /api/vm");
-    return (list.vms ?? []).find((vm) => vm.id === vmId);
+    return (list.vms ?? []).find((vm) => vm.id === vmId) ?? created;
   });
   if (!listed) throw new Error("the new VM is missing from GET /api/vm");
   result.listedFields = Object.keys(listed).sort();
@@ -465,7 +565,7 @@ try {
 
   // A freshly enrolled peer can take a moment to reach the provider, and the
   // hub gives its first handshake about 10 s.
-  await timed("hub", async () => {
+  const startHub = async () => {
     for (let attempt = 1; ; attempt += 1) {
       hub = startJsonProcess("wg hub", ["wg", "hub", "--config", configPath, "--socket", hubSocket]);
       try {
@@ -478,41 +578,38 @@ try {
         await sleep(3000);
       }
     }
-  });
+  };
+  await timed("hub", startHub);
 
-  // The app asks once so an older daemon is brought to the trusted build; a
-  // fresh image already serves the trusted listener.
   const attach = await timed("attach", async () => {
-    const startedAt = performance.now();
-    for (;;) {
-      const response = await api("POST", `/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
-        transport: "cmux-remote",
-        clientCapabilities: ["wireguard-hub"],
-      });
-      if (response.status === 200 && response.json?.trustedCarrier) return response.json;
-      const retryable = response.status === 502 && response.json?.retryable === true;
-      if (response.status === 200) note("attach-endpoint answered without trustedCarrier; retrying like the app would");
-      if ((!retryable && response.status !== 200) || performance.now() - startedAt > 180_000) {
-        // The 200 body carries the route token; never put it in a public log.
-        const { error, message, code } = response.json ?? {};
-        throw new Error(`attach-endpoint ${response.status}: ${JSON.stringify({ error, message, code, trustedCarrier: response.json?.trustedCarrier })}`);
-      }
-      await sleep(Math.max(1, response.json?.retryAfterSeconds ?? 2) * 1000);
-    }
+    const expired = expectStatus(await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/attach-ticket`, { ttlMs: 1_000 }), [201], "mint short attach ticket");
+    await sleep(1_200);
+    const expiredReplay = await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/attach-ticket`, { ticket: expired.ticket });
+    if (expiredReplay.status !== 410) throw new Error(`expired attach ticket expected 410, got ${expiredReplay.status}`);
+    const minted = expectStatus(await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/attach-ticket`, { ttlMs: 30_000 }), [201], "mint attach ticket");
+    const redeemed = expectStatus(await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/attach-ticket`, { ticket: minted.ticket }), [200], "redeem attach ticket");
+    const replay = await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/attach-ticket`, { ticket: minted.ticket });
+    if (replay.status !== 410) throw new Error(`redeemed attach ticket replay expected 410, got ${replay.status}`);
+    if (!(redeemed.trustedCarrier === true || redeemed.endpoint?.trustedCarrier === true) || typeof redeemed.route !== "string") throw new Error("redeemed attach ticket did not return a trusted carrier route");
+    result.attachTicket = { expiredStatus: expiredReplay.status, redeemed: redeemed.redeemed === true, replayStatus: replay.status, expiresAt: redeemed.expiresAt };
+    return redeemed;
   });
   const session = attach.session ?? "cmux";
 
-  const connected = await timed("connect", async () => {
-    link = startJsonProcess("remote connect", connectArgv(route, session, hubSocket));
+  const startLink = async (name = "remote connect", connectRoute = route) => {
+    link = startJsonProcess(name, connectArgv(connectRoute, session, hubSocket));
     return link.waitFor(isConnected, 90_000, "connected snapshot");
+  };
+  const connected = await timed("connect", async () => {
+    return startLink("remote connect", attach.route ?? route);
   });
-  const localSocket = connected.local_socket;
+  let localSocket = connected.local_socket;
   result.transportPath = connected.connection?.transport?.selected_path?.kind ?? null;
 
   // The shell computes the suffix, so the echoed command line never matches.
   const marker = `dogfood-${randomBytes(4).toString("hex")}`;
-  const typeLine = async (terminal, line) => {
-    const write = await runTui(["--socket", localSocket, "terminal", terminal, "write", "--text", `${line}\n`]);
+  const typeLine = async (terminal, line, timeoutMs = 30_000) => {
+    const write = await runTui(["--socket", localSocket, "terminal", terminal, "write", "--text", `${line}\n`], timeoutMs);
     if (write.code !== 0) throw new Error(`terminal write failed (${write.code}): ${write.stderr.slice(-400)}`);
   };
   const terminal = await timed("firstPrompt", async () => {
@@ -538,22 +635,67 @@ try {
     if (value === "missing") note(`${name} is not on PATH in the VM`);
   }
 
+  Object.assign(result, await runAgentProbes({
+    localSocket, terminal, marker, runTui, typeLine, waitForScreen, timed, note,
+  }));
+
   if (!skipSleep) {
+    const resumeAnchor = `${marker}-6`;
+    await typeLine(terminal, `echo ${marker}-$((3+3))`);
+    await waitForScreen(localSocket, terminal, resumeAnchor, 30_000);
+    let linkDownOk = true;
+
+    // First remove every source of link traffic, then observe whether the
+    // provider wakes the machine without a connected client or WireGuard hub.
+    try {
+      await link.stop();
+      link = undefined;
+      await hub.stop();
+      hub = undefined;
+      await timed("pauseLinkDown", async () => {
+        expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause with link down");
+      });
+      result.statusAfterPauseLinkDown = await pauseStatusSeries(vmId, performance.now(), [1_000, 5_000, 15_000, 30_000]);
+    } catch (error) {
+      linkDownOk = false;
+      note(`pause with link down failed: ${error.message.slice(0, 400)}`);
+    } finally {
+      try {
+        await timed("resumeLinkDown", async () => {
+          expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/resume`, {}, 5 * 60 * 1000), [200], "resume with link down");
+        });
+      } catch (error) {
+        linkDownOk = false;
+        note(`resume with link down failed: ${error.message.slice(0, 400)}`);
+      }
+      try {
+        await timed("relinkAfterLinkDown", async () => {
+          await startHub();
+          const relinked = await startLink("remote connect (after link down)", attach.route ?? route);
+          localSocket = relinked.local_socket;
+        });
+      } catch (error) {
+        linkDownOk = false;
+        note(`relink after link down failed: ${error.message.slice(0, 400)}`);
+      }
+    }
+    result.linkDownPauseOk = linkDownOk;
+
     const beforePause = link.mark();
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
+    // Read the control plane before any terminal traffic can wake the machine.
+    result.statusAfterPauseSeries = await pauseStatusSeries(vmId, performance.now());
+    result.statusAfterPause = result.statusAfterPauseSeries.at(-1)?.status ?? "unknown";
     // Is the machine asleep? Whether the terminal still runs commands within
-    // 5 s of pause returning, and what the control plane says.
+    // 5 s of pause returning.
     const liveDeadline = Date.now() + 5_000;
     await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
     const liveWindowMs = liveDeadline - Date.now();
     if (liveWindowMs <= 0) note("terminal write while paused took over 5 s");
     result.terminalLiveWhilePaused = liveWindowMs > 0
       && await waitForScreen(localSocket, terminal, `${marker}-4`, liveWindowMs).then(() => true, () => false);
-    const shown = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
-      .catch((error) => ({ status: 0, json: null, text: error.message }));
-    result.statusAfterPause = shown.json?.status ?? `http ${shown.status}`;
     if (result.terminalLiveWhilePaused) note("the terminal still ran a command after pause returned");
     // How the headless client reports a sleeping machine.
     const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
@@ -570,7 +712,7 @@ try {
       await link.waitFor(isConnected, 120_000, "connected snapshot after resume", beforeResume);
     });
     await timed("terminalAfterResume", async () => {
-      await waitForScreen(localSocket, terminal, `${marker}-2`, 30_000);
+      await waitForScreen(localSocket, terminal, resumeAnchor, 30_000);
       await typeLine(terminal, `echo ${marker}-$((1+2))`);
       await waitForScreen(localSocket, terminal, `${marker}-3`, 30_000);
     });
@@ -586,18 +728,33 @@ try {
   // one dials the same machine with no control-plane call.
   await link.stop("SIGKILL");
   const relaunched = await timed("relaunchReconnect", async () => {
-    link = startJsonProcess("remote connect (relaunch)", connectArgv(route, session, hubSocket));
-    return link.waitFor(isConnected, 90_000, "connected snapshot after relaunch");
+    return startLink("remote connect (relaunch)", attach.route ?? route);
   });
+  let restoredTerminal = terminal;
   await timed("restoredTerminal", async () => {
-    await waitForScreen(relaunched.local_socket, terminal, `${marker}-2`, 30_000);
+    // The provider restores the terminal/session identity, but it does not
+    // promise replay of the old screen buffer. Resolve the terminal from the
+    // fresh socket, then prove it is live with a new post-relaunch command.
+    localSocket = relaunched.local_socket;
+    const listed = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (listed.code !== 0) throw new Error(`restored terminal list failed (${listed.code}): ${listed.stderr.slice(-400)}`);
+    const terminals = JSON.parse(listed.stdout || "[]");
+    restoredTerminal = terminals[0]?.id;
+    if (!restoredTerminal) throw new Error("relaunch restored no terminal");
+    const relaunchMarker = `${marker}-relaunch`;
+    await typeLine(restoredTerminal, `echo ${relaunchMarker}`);
+    await waitForScreen(localSocket, restoredTerminal, relaunchMarker, 30_000);
   });
-  await saveScreen(relaunched.local_socket, terminal, "03-after-relaunch");
+  await saveScreen(localSocket, restoredTerminal, "03-after-relaunch");
+
+  result.promotion = await timed("promotion", async () => expectStatus(await api("POST", `/api/runs/${encodeURIComponent(run.id)}/attempts/${encodeURIComponent(run.attemptId)}/promote`, {}, 90_000, { "idempotency-key": `promote:${run.id}:${run.attemptId}` }), [200], "promote Run attempt"));
 
   await link.stop();
   await hub.stop();
   await timed("delete", async () => {
-    expectStatus(await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`), [200], "DELETE");
+    const deleted = await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`);
+    expectStatus(deleted, [200], "DELETE");
+    result.cleanup = { status: deleted.status, receipt: deleted.json ?? null };
   });
   const deletedId = vmId;
   vmId = undefined;
@@ -607,11 +764,28 @@ try {
     if (still) note(`deleted VM still listed with status ${still.status}`);
   });
 
-  const output = summary({ ok: true, ...result });
+  const failedProbes = ["agentHooks", "agentStatusWorking", "agentStatusIdle", "notifyReachesHost"]
+    .filter((name) => !result[name].ok);
+  if (result.linkDownPauseOk === false) failedProbes.push("linkDownPause");
+  const output = summary({
+    ok: failedProbes.length === 0,
+    ...(failedProbes.length > 0 ? { stage: failedProbes[0], error: `failed probes: ${failedProbes.join(", ")}` } : {}),
+    ...result,
+  });
+  if (failedProbes.length > 0) process.exitCode = 1;
   console.log(JSON.stringify(output, null, 2));
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
+  if (vmId && authHeaders) {
+    try {
+      const deleted = await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`);
+      if ([200, 404].includes(deleted.status)) vmId = undefined;
+      else note(`failure cleanup delete returned ${deleted.status}`);
+    } catch (cleanupError) {
+      note(`failure cleanup delete failed: ${cleanupError.message.slice(0, 300)}`);
+    }
+  }
   const output = summary({ ok: false, stage, error: message, ...result });
   console.log(JSON.stringify(output, null, 2));
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);

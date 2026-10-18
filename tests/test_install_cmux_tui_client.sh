@@ -23,7 +23,13 @@ CLIENT="$TEST_DIR/client"
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+if [ "${FAKE_SSH_MACOS_FROM_CLIENT:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download","ssh-payload-macos-from-client"]}'
+elif [ "${FAKE_SSH_PAYLOAD_DOWNLOAD:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download"]}'
+else
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+fi
 SH
 chmod +x "$CLIENT"
 
@@ -96,6 +102,16 @@ SH
 cat > "$FAKEBIN/gh" <<SH
 #!/bin/bash
 printf 'gh %s\n' "\$*" >> "$EVENTS"
+# FAKE_GH_RATE_LIMITED_FILE holds how many more calls answer like an exhausted
+# GitHub API installation quota (nightly run 37526635018) before gh recovers.
+if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
+  left="\$(cat "\$FAKE_GH_RATE_LIMITED_FILE")"
+  if [ "\$left" -gt 0 ]; then
+    echo \$((left - 1)) > "\$FAKE_GH_RATE_LIMITED_FILE"
+    echo "Error: HTTP 403: API rate limit exceeded for installation." >&2
+    exit 1
+  fi
+fi
 exit "\${FAKE_GH_EXIT:-0}"
 SH
 cat > "$FAKEBIN/lipo" <<'SH'
@@ -152,6 +168,30 @@ if grep -q 'apple-darwin' "$EVENTS"; then
   exit 1
 fi
 echo "PASS: a manifest without a valid attestation installs nothing"
+
+# An exhausted API quota is not a verdict on the attestation. The installer
+# waits and asks again instead of failing a 40-minute signed nightly leg.
+RATE_LIMITED_APP="$TEST_DIR/RateLimited.app"
+echo 2 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$RATE_LIMITED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/rate-limited.log" 2>&1 || {
+    echo "FAIL: a rate-limited attestation lookup failed the install instead of retrying" >&2
+    cat "$TEST_DIR/rate-limited.log" >&2
+    exit 1
+  }
+cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
+echo "PASS: a rate-limited attestation lookup is retried, then verified"
+
+# A real verification failure is final on the first answer.
+FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {
+    echo "FAIL: installed after a rejected attestation" >&2
+    exit 1
+  }
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 1 ]
+echo "PASS: a rejected attestation is not retried"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then
@@ -229,6 +269,37 @@ for arch in arm64 x86_64; do
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
   echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
 
+  # A client that downloads unbundled SSH payloads itself gets only the macOS
+  # payloads (signed with the app) plus the manifest that pins every platform.
+  ondemand_app="$TEST_DIR/OnDemand-$arch.app"
+  FAKE_SSH_PAYLOAD_DOWNLOAD=1 install_remote "$ondemand_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/ondemand-$arch.log" 2>&1
+  ondemand_ssh="$ondemand_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$ondemand_ssh/cmux-tui-$target"
+  done
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
+    if [[ -e "$ondemand_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client downloads it on demand" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$ondemand_ssh/manifest.json"
+  echo "PASS: $arch leaves Linux SSH payloads to a client that downloads them"
+
+  # A client that uploads its own slice to a Mac (and downloads an architecture
+  # it lacks) needs no SSH payload at all, only the manifest's pins.
+  client_app="$TEST_DIR/FromClient-$arch.app"
+  FAKE_SSH_MACOS_FROM_CLIENT=1 install_remote "$client_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/fromclient-$arch.log" 2>&1
+  client_ssh="$client_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+    if [[ -e "$client_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client serves macOS hosts itself" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$client_ssh/manifest.json"
+  echo "PASS: $arch bundles no SSH payload for a client that serves macOS hosts itself"
+
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1
   fi
@@ -295,3 +366,76 @@ if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arc
 fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
+
+# --- Stalled download -----------------------------------------------------------
+# To curl, a dead HTTP/2 stream is a server that answers and then sends nothing.
+# With no stall bound one Release job waited twenty minutes per attempt for the
+# server to reset the stream and hit its job timeout (CI run 36685498203). Serve
+# exactly that over TLS and require the real installer and the real curl to give
+# up within the attempt budget instead of hanging.
+STALL_DIR="$TEST_DIR/stall"
+mkdir -p "$STALL_DIR"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+  -keyout "$STALL_DIR/key.pem" -out "$STALL_DIR/cert.pem" > "$STALL_DIR/openssl.log" 2>&1
+# The server certificate is self-signed; this test is about stalls, not trust.
+printf 'insecure\n' > "$STALL_DIR/.curlrc"
+python3 - "$STALL_DIR" <<'PY' &
+import os, socket, ssl, sys, threading, time
+root = sys.argv[1]
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(f"{root}/cert.pem", f"{root}/key.pem")
+listener = socket.create_server(("127.0.0.1", 0))
+with open(f"{root}/port.tmp", "w") as handle:
+    handle.write(str(listener.getsockname()[1]))
+os.rename(f"{root}/port.tmp", f"{root}/port")
+def stall(connection):
+    try:
+        with context.wrap_socket(connection, server_side=True) as tls:
+            tls.recv(65536)
+            tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n{")
+            time.sleep(3600)
+    except OSError:
+        pass
+while True:
+    connection, _ = listener.accept()
+    with open(f"{root}/connections", "a") as handle:
+        handle.write("accepted\n")
+    threading.Thread(target=stall, args=(connection,), daemon=True).start()
+PY
+STALL_SERVER_PID=$!
+trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
+port_deadline=$((SECONDS + 10))
+while (( SECONDS < port_deadline )) && [[ ! -s "$STALL_DIR/port" ]]; do
+  sleep 0.1
+done
+[[ -s "$STALL_DIR/port" ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
+STALL_PORT="$(cat "$STALL_DIR/port")"
+mkdir -p "$TEST_DIR/Stalled.app/Contents"
+stall_status=0
+started=$SECONDS
+CURL_HOME="$STALL_DIR" CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS=2 CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS=2 \
+  python3 -c 'import os, signal, subprocess, sys
+child = subprocess.Popen(sys.argv[1:], start_new_session=True)
+try:
+    sys.exit(child.wait(timeout=60))
+except subprocess.TimeoutExpired:
+    os.killpg(child.pid, signal.SIGKILL)
+    sys.exit(124)' \
+  /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/Stalled.app" --allow-unattested \
+  --cache-dir "$STALL_DIR/cache" --manifest-url "https://127.0.0.1:$STALL_PORT/manifest.json" \
+  > "$TEST_DIR/stalled.log" 2>&1 || stall_status=$?
+if [[ "$stall_status" -eq 124 ]]; then
+  echo "FAIL: a stalled download hung the installer for 60 s" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1
+fi
+if [[ "$stall_status" -eq 0 ]]; then
+  echo "FAIL: installed from a stalled download" >&2; exit 1
+fi
+[[ ! -e "$TEST_DIR/Stalled.app/Contents/Resources/bin/cmux-tui" ]]
+# The stall bound is what ended each attempt (curl exit 28, twice), the budget
+# is what ended the install, and each attempt dialed its own connection.
+[[ "$(grep -c '^curl: (28)' "$TEST_DIR/stalled.log")" -eq 2 ]] \
+  || { echo "FAIL: the stall bound did not end both attempts" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1; }
+grep -q "could not download https://127.0.0.1:$STALL_PORT/manifest.json after 2 attempts" "$TEST_DIR/stalled.log"
+[[ "$(wc -l < "$STALL_DIR/connections" | tr -d ' ')" -eq 2 ]] \
+  || { echo "FAIL: a retry reused the stalled connection" >&2; exit 1; }
+echo "PASS: a stalled download fails after $((SECONDS - started)) s instead of hanging"

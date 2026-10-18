@@ -10,6 +10,7 @@ import Darwin
 import Testing
 import CMUXMobileCore
 import CmuxBrowser
+import CmuxCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -270,16 +271,8 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 
 @MainActor
 private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
-    let defaults = UserDefaults.standard
-    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defer {
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-    }
+    let previousValues = enableHiddenWebViewDiscardTimerPolicy()
+    defer { restoreHiddenWebViewDiscardPolicy(previousValues) }
     body()
 }
 
@@ -329,22 +322,15 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
-    private var previousEnabled: Any?
+    private var previousPolicyValues: [String: Any] = [:]
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousPolicyValues = enableHiddenWebViewDiscardTimerPolicy()
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
+        restoreHiddenWebViewDiscardPolicy(previousPolicyValues)
         super.tearDown()
     }
 
@@ -789,6 +775,40 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    /// #18249: in a managed SSH workspace only loopback URLs belong to the SSH
+    /// host. Public and private-network pages load from this Mac directly.
+    func testSSHTuiWorkspaceLoadsNonLoopbackPagesFromThisMac() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false, isRemoteWorkspace: true)
+        for raw in ["https://example.com/", "http://10.0.0.5:8080/", "about:blank"] {
+            let url = try XCTUnwrap(URL(string: raw))
+            XCTAssertNil(panel.sshLoopbackServiceURL(for: url), raw)
+        }
+    }
+
+    /// Loopback URLs in a managed SSH workspace name the SSH host's service, so
+    /// they are routed there and never load a same-port service on this Mac.
+    func testSSHTuiWorkspaceRoutesEveryLoopbackSpellingToTheSSHHost() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false, isRemoteWorkspace: true)
+        for raw in ["http://localhost:3000/", "http://127.0.0.1:3000/", "http://[::1]:3000/", "http://0.0.0.0:3000/"] {
+            let url = try XCTUnwrap(URL(string: raw))
+            XCTAssertEqual(panel.sshLoopbackServiceURL(for: url), url, raw)
+        }
+    }
+
+    /// SSH machines advertise 127.0.0.1; `localhost` and `::1` name the same
+    /// service and must route to the machine that owns the browser.
+    func testLoopbackSpellingsRouteToTheOwningSSHMachine() {
+        let selector = PrivateAddressRouteSelector<String>()
+        let addresses = ["ssh:a": "127.0.0.1", "ssh:b": "127.0.0.1", "vm": "10.8.0.5"]
+        for host in ["localhost", "LOCALHOST", "127.0.0.1", "::1", "0.0.0.0"] {
+            let routeHost = BrowserPanel.privateAddressRouteHost(host)
+            XCTAssertEqual(selector.machine(forHost: routeHost, owner: "ssh:b", addresses: addresses), "ssh:b", host)
+            XCTAssertNil(selector.machine(forHost: routeHost, owner: nil, addresses: addresses), host)
+            XCTAssertNil(selector.machine(forHost: routeHost, owner: "vm", addresses: addresses), host)
+        }
+        XCTAssertEqual(BrowserPanel.privateAddressRouteHost("10.8.0.5"), "10.8.0.5")
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
@@ -1272,14 +1292,14 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
-        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
-        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
+        let token = try XCTUnwrap(panel.reactGrabPasteback.tokenForRelaySync)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token), isMainFrame: true)
 
         wait(for: [expectation], timeout: 1.0)
-        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
-        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertNil(panel.reactGrabPasteback.armedReturnPanelId)
+        XCTAssertNil(panel.reactGrabPasteback.tokenForRelaySync)
     }
 
     func testInactiveStateKeepsPendingTargetUntilCopySuccess() throws {
@@ -1303,19 +1323,19 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
-        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
-        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
+        let token = try XCTUnwrap(panel.reactGrabPasteback.tokenForRelaySync)
 
-        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false), isMainFrame: true)
 
-        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
         XCTAssertFalse(panel.isReactGrabActive)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token), isMainFrame: true)
 
         wait(for: [expectation], timeout: 1.0)
-        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
-        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertNil(panel.reactGrabPasteback.armedReturnPanelId)
+        XCTAssertNil(panel.reactGrabPasteback.tokenForRelaySync)
     }
 
     func testResetStateCanPreservePendingTargetUntilCopySuccess() throws {
@@ -1339,8 +1359,8 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
-        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
-        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true), isMainFrame: true)
+        let token = try XCTUnwrap(panel.reactGrabPasteback.tokenForRelaySync)
 
         panel.resetReactGrabState(
             preserveRoundTrip: true,
@@ -1348,13 +1368,13 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         )
 
         XCTAssertFalse(panel.isReactGrabActive)
-        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token), isMainFrame: true)
 
         wait(for: [expectation], timeout: 1.0)
-        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
-        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertNil(panel.reactGrabPasteback.armedReturnPanelId)
+        XCTAssertNil(panel.reactGrabPasteback.tokenForRelaySync)
     }
 
     func testMismatchedCopyTokenDropsPastebackAndClearsPendingTarget() {
@@ -1373,14 +1393,14 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
-        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
-        XCTAssertNotNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
+        XCTAssertNotNil(panel.reactGrabPasteback.tokenForRelaySync)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: nil))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: nil), isMainFrame: true)
 
         wait(for: [invertedExpectation], timeout: 0.1)
-        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
-        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+        XCTAssertNil(panel.reactGrabPasteback.armedReturnPanelId)
+        XCTAssertNil(panel.reactGrabPasteback.tokenForRelaySync)
     }
 
     func testCopySuccessStripsDangerousInvisibleScalarsBeforePastebackNotification() throws {
@@ -1401,34 +1421,77 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
-        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+        let token = try XCTUnwrap(panel.reactGrabPasteback.tokenForRelaySync)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: rawContent, token: token))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: rawContent, token: token), isMainFrame: true)
 
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testEnsureReactGrabActiveRefreshesBridgeSessionTokenWhenAlreadyActive() async throws {
+    func testSubframeCopySuccessIsDroppedAndKeepsTheArm() {
+        let terminalId = UUID()
         let panel = BrowserPanel(workspaceId: UUID())
+        let invertedExpectation = expectation(description: "react grab pasteback notification")
+        invertedExpectation.isInverted = true
 
-        _ = try await panel.evaluateJavaScript(
-            """
-            window['\(panel.reactGrabBridgeSessionUpdaterName)'] = function(token) {
-                window.__cmuxTestRoundTripToken = token;
-                return true;
-            };
-            true;
-            """
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { _ in
+            invertedExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        let token = panel.reactGrabPasteback.tokenForRelaySync
+
+        panel.handleReactGrabBridgeMessage(
+            .copySuccess(content: "<button>Save</button>", token: token),
+            isMainFrame: false
         )
 
-        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        wait(for: [invertedExpectation], timeout: 0.1)
+        XCTAssertEqual(panel.reactGrabPasteback.armedReturnPanelId, terminalId)
+        XCTAssertEqual(panel.reactGrabPasteback.tokenForRelaySync, token)
+    }
+
+    func testEnsureReactGrabActiveSyncsRelayTokenWhenAlreadyActive() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        // Stand in for the relay inside the isolated content world. The real
+        // relay install is idempotent and keeps this test-owned anchor, whose
+        // sync captures the token for read-back. Page-world scripts never see
+        // this world or the token.
+        _ = try await panel.webView.evaluateJavaScript(
+            """
+            window.__cmuxReactGrabRelay = {
+                sync: function(token) {
+                    window.__cmuxTestRoundTripToken = token;
+                    return true;
+                }
+            };
+            true;
+            """,
+            contentWorld: BrowserPanel.reactGrabContentWorld
+        )
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true), isMainFrame: true)
         panel.armReactGrabRoundTrip(returnTo: UUID())
-        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+        let token = try XCTUnwrap(panel.reactGrabPasteback.tokenForRelaySync)
 
         await panel.ensureReactGrabActive()
 
-        let refreshedToken = try await panel.evaluateJavaScript("window.__cmuxTestRoundTripToken") as? String
+        let refreshedToken = try await panel.webView.evaluateJavaScript(
+            "window.__cmuxTestRoundTripToken",
+            contentWorld: BrowserPanel.reactGrabContentWorld
+        ) as? String
         XCTAssertEqual(refreshedToken, token)
+
+        let pageWorldLeak = try await panel.evaluateJavaScript(
+            "typeof window.__cmuxReactGrabRelay"
+        ) as? String
+        XCTAssertEqual(pageWorldLeak, "undefined")
     }
 }
 

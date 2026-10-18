@@ -3,6 +3,7 @@ import CmuxControlSocket
 import CmuxCore
 import CmuxFoundation
 import CmuxPanes
+import CmuxProductAnalytics
 import CmuxRemoteWorkspace
 import CmuxRemoteSession
 import CmuxWorkspaces
@@ -92,7 +93,8 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -103,6 +105,12 @@ extension TerminalController: ControlWorkspaceContext {
         }
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
+        }
+        let windowDockNeedsConfirmation = tabManager.tabs.count == 1
+            && AppDelegate.shared?.existingWindowDock(for: tabManager)?.needsConfirmClose() == true
+        if !force,
+           tabManager.workspaceNeedsConfirmCloseForClose(ws) || windowDockNeedsConfirmation {
+            return .confirmationRequired
         }
         guard tabManager.closeWorkspaceNonInteractively(ws) else {
             return .closeFailed(windowID: windowId)
@@ -236,7 +244,8 @@ extension TerminalController: ControlWorkspaceContext {
         guard let outcome = tabManager.handlePromptSubmit(
             workspaceId: workspaceID,
             message: message,
-            iMessageModeEnabled: iMessageModeEnabled
+            iMessageModeEnabled: iMessageModeEnabled,
+            surfaceId: routing.surfaceID?.uuidString
         ) else {
             return .notFound
         }
@@ -671,6 +680,7 @@ extension TerminalController: ControlWorkspaceContext {
                 explicitAgentSocketPath: agentSocketPath,
                 explicitAgentSocketPathIsSet: hasExplicitAgentSocketPath
             ),
+            agentSocketPathOverrideIsSet: hasExplicitAgentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
@@ -687,6 +697,11 @@ extension TerminalController: ControlWorkspaceContext {
                     .controlMasterOwnershipUnavailable,
                 data: nil
             )
+        }
+        // `cmux ssh` configures a plain remote workspace; Cloud attaches carry
+        // a managed VM id and are counted by the Cloud events instead.
+        if config.managedCloudVMID == nil {
+            ProductAnalytics.app.featureUsed(.cmuxSSH)
         }
         notifyRemotePTYControllerAvailabilityChanged()
 

@@ -6,21 +6,83 @@ import SwiftUI
 
 extension WorkspaceListView {
     var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
-        WorkspaceListNewWorkspaceMenu(
+        let scopedExternalHostID = scopedExternalHostID
+        let computerTargets = newWorkspaceComputerTargets.filter { target in
+            switch target.kind {
+            case .cloud:
+                createWorkspaceOnCloudMachine != nil
+            case .mac:
+                switchMac != nil
+            case .ssh:
+                createWorkspaceOnComputer != nil || createSSHWorkspace != nil
+            }
+        }
+        let createOnComputer: ((WorkspaceCreateComputerTarget, MobileSSHWorkspaceKind?) -> Void)? =
+            computerTargets.isEmpty
+            ? nil
+            : { target, kind in
+                createWorkspaceOnComputerTarget(target, kind: kind)
+            }
+        let createWorkspaceAction: () -> Void = {
+            if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
+                createWorkspaceOnCloudMachine(scopedExternalHostID)
+            } else if let target = WorkspaceListNewWorkspaceMenuValue.soleConnectedTarget(
+                scopedExternalHostID: scopedExternalHostID,
+                targets: computerTargets
+            ),
+               let createOnComputer {
+                createOnComputer(target, nil)
+            } else {
+                createWorkspace()
+            }
+        }
+        return WorkspaceListNewWorkspaceMenu(
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil,
-                computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets,
+                // Groups are a Mac concept; a Cloud machine has none.
+                canCreateGroup: createWorkspaceGroup != nil && scopedExternalHostID == nil,
+                scopedExternalHostID: scopedExternalHostID,
+                computerTargets: createOnComputer == nil ? [] : computerTargets,
                 sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
                 sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
-                createWorkspace: createWorkspace,
+                createWorkspace: createWorkspaceAction,
                 createWorkspaceGroup: createWorkspaceGroup,
-                createWorkspaceOnComputer: createWorkspaceOnComputer,
+                createWorkspaceOnComputer: createOnComputer,
                 createSSHWorkspace: createSSHWorkspace
             )
         )
+    }
+
+    /// Applies one computer choice from the shared `+` menu. Paired Macs use
+    /// the same switch path as the title picker; Cloud machines go straight
+    /// to the external-host bridge.
+    private func createWorkspaceOnComputerTarget(
+        _ target: WorkspaceCreateComputerTarget,
+        kind: MobileSSHWorkspaceKind?
+    ) {
+        switch target.kind {
+        case .cloud(let hostID):
+            guard let createWorkspaceOnCloudMachine else { return }
+            createWorkspaceOnCloudMachine(hostID)
+        case .ssh:
+            if let createWorkspaceOnComputer {
+                createWorkspaceOnComputer(target, kind)
+            } else if let kind, let createSSHWorkspace {
+                createSSHWorkspace(kind)
+            }
+        case .mac(let macDeviceID, let instanceTag):
+            guard macSelectionScope.shouldSwitch(to: target.id) else {
+                createWorkspace()
+                return
+            }
+            guard let switchMac else { return }
+            Task { @MainActor in
+                guard await switchMac(macDeviceID, instanceTag) else { return }
+                createWorkspace()
+            }
+        }
     }
 
     @discardableResult

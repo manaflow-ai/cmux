@@ -22,6 +22,17 @@ final class SessionTodoStatePersistenceCoordinator {
         self.saveSnapshot = saveSnapshot
     }
 
+    deinit {
+        writeTimer?.cancel()
+    }
+
+    func invalidate() {
+        writeTimer?.cancel()
+        writeTimer = nil
+        hasPendingEdits = false
+        consecutiveFailures = 0
+    }
+
     func enqueue() {
         hasPendingEdits = true
         scheduleWrite(resetDelay: true)

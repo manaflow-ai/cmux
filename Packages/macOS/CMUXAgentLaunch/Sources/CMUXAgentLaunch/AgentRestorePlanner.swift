@@ -51,6 +51,19 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
+    /// Whether a missing structured plan may fall back to a legacy shell command.
+    ///
+    /// OMP's executable must stay pinned through managed restore and fork. A
+    /// legacy command cannot establish that after structured planning failed.
+    /// Explicit direct command replays retain their existing behavior.
+    /// - Parameters:
+    ///   - kind: The persisted agent kind.
+    ///   - mode: The requested operation, or nil for an unrecognized legacy mode.
+    /// - Returns: Whether the caller may use its legacy compatibility command.
+    public static func allowsLegacyFallback(kind: String, mode: AgentRestoreRequestMode?) -> Bool {
+        kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "omp" || mode == .direct
+    }
+
     /// Produces the final direct process invocation for a persisted restore or fork request.
     ///
     /// - Parameters:
@@ -62,18 +75,40 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
+        // A rejected capture is never recoverable for managed OMP restore or
+        // fork. Do this before planning argv: an app-prepared absolute argv
+        // must not turn a rejected capture into a fresh-looking launch record.
+        guard kind != "omp"
+            || request.mode == .direct
+            || request.launchCommand?.isRejectedCapture != true else {
+            return nil
+        }
         let routedClaudeLaunch = routedClaudeResumeLaunch(
             for: request,
             kind: kind,
             ambientEnvironment: ambientEnvironment
         )
         let routedClaudeResume = routedClaudeLaunch?.arguments
+        guard routedClaudeResume != nil ||
+            missingRoutedLauncher(for: request, ambientEnvironment: ambientEnvironment) == nil else {
+            return nil
+        }
         guard let plannedArguments = plannedArguments(
             for: request,
             kind: kind,
             routedClaudeResume: routedClaudeResume
         ),
               !plannedArguments.values.isEmpty else {
+            return nil
+        }
+
+        // The app may prepare argv from an unresolved capture before sending
+        // the restore request. Validate the selected executable, not whether
+        // a capture or prepared argv happened to be present.
+        if kind == "omp", request.mode != .direct,
+           !AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+               AgentLaunchCommand(arguments: plannedArguments.values)
+           ) {
             return nil
         }
 
@@ -209,18 +244,6 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         guard !routedArguments.isEmpty else { return nil }
-        // Last, so launcher and wrapper routing never see the prompt. An argv that does not
-        // resume the session in the kind's own form keeps its plain resume.
-        if request.mode == .resumeAgent,
-           let prompt = normalized(request.continuationPrompt),
-           let checkpointID = normalized(request.checkpointID),
-           let prompted = AgentResumeContinuationPrompt(prompt: prompt).applying(
-               to: routedArguments,
-               kind: kind,
-               sessionID: checkpointID
-           ) {
-            routedArguments = prompted
-        }
 
         return AgentRestoreInvocation(
             arguments: routedArguments,
@@ -273,6 +296,32 @@ public struct AgentRestorePlanner: Sendable {
             ),
             unavailableExecutable: nil
         )
+    }
+
+    /// The launcher (`sr` or `subrouter`) a proven Subrouter Claude launch needs
+    /// for its resume, when it cannot be found on the restore PATH. `nil` when
+    /// the request is not a proven routed launch or its launcher resolves.
+    ///
+    /// - Parameters:
+    ///   - request: Structured restore data.
+    ///   - ambientEnvironment: The current CLI environment inherited by the child.
+    /// - Returns: The missing launcher program name, or `nil`.
+    public func missingRoutedLauncher(
+        for request: AgentRestoreRequest,
+        ambientEnvironment: [String: String]
+    ) -> String? {
+        guard normalizedKind(request.kind) == "claude",
+              request.mode == .resumeAgent,
+              let launch = request.launchCommand else {
+            return nil
+        }
+        let router = SubrouterClaudeResumeRouting()
+        guard router.provesRoutedLaunch(launcher: launch.launcher, environment: launch.environment),
+              let launcher = router.launcherExecutable(in: launch.environment),
+              !isResolvableOnRestorePath(launcher, ambientEnvironment: ambientEnvironment) else {
+            return nil
+        }
+        return launcher
     }
 
     private func isResolvableOnRestorePath(
@@ -553,7 +602,8 @@ public struct AgentRestorePlanner: Sendable {
         }
 
         guard let first = arguments.first,
-              (first as NSString).lastPathComponent == restoreLaunch.executableName else {
+              (first as NSString).lastPathComponent == restoreLaunch.executableName
+                || ManagedAgentWrapperDescriptor.registered(kind: kind)?.matchesExecutable(first) == true else {
             return arguments
         }
 

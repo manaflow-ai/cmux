@@ -142,7 +142,7 @@ private final class DiffViewerNavigationKeyRouterAdapter: CmuxWebViewNavigationK
         .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
         .diffViewerScrollToBottom, .diffViewerScrollToTop,
         .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
-        .diffViewerNextHunk, .diffViewerPreviousHunk,
+        .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed,
     ])
 
     func reset() {

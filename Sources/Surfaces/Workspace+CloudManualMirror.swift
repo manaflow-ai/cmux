@@ -63,7 +63,8 @@ extension Workspace {
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
         onFocus: @escaping @MainActor @Sendable () -> Void,
-        attachment: CloudTerminalAttachmentStatus? = nil
+        attachment: CloudTerminalAttachmentStatus? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let workspace = Self.liveWorkspace(id: destination.workspaceID),
               !workspace.isRetiredFromOwningTabManager else {
@@ -73,7 +74,8 @@ extension Workspace {
         guard let panel = workspace.makeRemoteTmuxPanePanel(
             id: loading?.id ?? UUID(),
             onInput: onInput,
-            keyNameResolver: keyNameResolver
+            keyNameResolver: keyNameResolver,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites
         ) else {
             throw SurfaceCatalogError.unsupported("manual cloud terminal panel")
         }
@@ -111,6 +113,22 @@ extension Workspace {
         panel.surface.onManualWindowAttached = onRuntimeReady
         panel.onTerminalFocus = onFocus
         panel.cloudAttachment = attachment
+    }
+
+    /// Keeps Cloud input convergence attached to the panel rather than to the
+    /// workspace that happened to create it. Workspace transfer rebinds the
+    /// ordinary terminal callback, while this hook follows the panel and
+    /// resolves its current workspace at input time.
+    static func bindCloudManualMirrorInputConvergence(
+        panel: TerminalPanel,
+        isActive: @escaping @MainActor () -> Bool = { true },
+        onExplicitInput: @escaping @MainActor () -> Void
+    ) {
+        panel.onManualMirrorExplicitInput = { [weak panel] in
+            guard let panel, isActive() else { return }
+            Workspace.liveWorkspace(id: panel.workspaceId)?.focusPanelFromTerminalInput(panel.id)
+            onExplicitInput()
+        }
     }
 
     /// Places an already-built manual-mirror panel at `destination` and returns its id.

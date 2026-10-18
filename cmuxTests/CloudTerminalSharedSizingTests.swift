@@ -23,7 +23,7 @@ import Testing
             "view": "mobile:p1",
         ])
         let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .detached(surfaceID, reason, view) = frame else {
+        guard case let .detached(surfaceID, reason, view, _) = frame else {
             Issue.record("expected a detached frame, got \(frame)")
             return
         }
@@ -102,7 +102,7 @@ import Testing
         )
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["protocol": 12, "capabilities": capabilities]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["protocol": 12, "capabilities": capabilities + ["terminal-pending-sequence-v1"]]])
         let clientInfo = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(clientInfo.cmd == "set-client-info")
         fixture.send(["id": clientInfo.id, "ok": true, "data": [:]])

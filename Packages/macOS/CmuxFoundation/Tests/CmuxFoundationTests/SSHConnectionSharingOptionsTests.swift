@@ -172,6 +172,18 @@ struct SSHConnectionSharingOptionsTests {
         })
     }
 
+    @Test("Opaque route markers survive the app boundary without reaching OpenSSH")
+    func routeMarkerIsConsumedDuringOptionMerging() throws {
+        let routeIdentifier = String(repeating: "a", count: 64)
+        let marker = try #require(options.routeSensitiveOption(for: routeIdentifier))
+        #expect(options.routeSensitiveIdentifier(in: [marker]) == routeIdentifier)
+
+        let merged = options.mergingDefaults(into: [marker])
+        #expect(!merged.contains(marker))
+        #expect(merged.contains("ControlMaster=auto"))
+        #expect(merged.contains { $0.hasPrefix("ControlPath=\(socketDirectory)/") })
+    }
+
     @Test("Legacy cmux control paths are isolated before route-specific reuse")
     func legacyControlPathGetsRouteSpecificReplacement() {
         let merged = options.mergingDefaults(
@@ -430,7 +442,8 @@ struct SSHConnectionSharingOptionsTests {
 
     @Test("An explicitly disabled master gets no sharing defaults")
     func preservesDisabledControlMaster() {
-        let supplied = ["ControlMaster=no", "ForwardAgent=yes"]
+        // ForwardAgent is route-sensitive, which also pins ControlPath=none.
+        let supplied = ["ControlMaster=no", "ServerAliveInterval=30"]
 
         #expect(options.mergingDefaults(into: supplied) == supplied)
         #expect(options.cmuxOwnedControlPath(in: [
@@ -626,5 +639,23 @@ struct SSHConnectionSharingOptionsTests {
 
         #expect(function.contains("ssh -p 2222 -G -- '\(destination)' 2>/dev/null"))
         #expect(function.contains("-O check -- '\(destination)' >/dev/null"))
+    }
+
+    @Test func removingRouteSensitiveMarkerDropsOnlyTheMarker() {
+        let digest = String(repeating: "a1", count: 32)
+        let options = [
+            "ControlMaster=auto",
+            "__cmux_route_sensitive=\(digest)",
+            "IgnoreUnknown=__cmux_*",
+            "__CMUX_ROUTE_SENSITIVE true",
+            "SetEnv=NOTE=__cmux_route_sensitive",
+        ]
+
+        #expect(SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: options) == [
+            "ControlMaster=auto",
+            "IgnoreUnknown=__cmux_*",
+            "SetEnv=NOTE=__cmux_route_sensitive",
+        ])
+        #expect(SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: []).isEmpty)
     }
 }

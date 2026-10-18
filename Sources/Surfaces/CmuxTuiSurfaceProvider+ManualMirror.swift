@@ -7,6 +7,10 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    nonisolated static func shouldShowRecoverableCloudFailure(observation: CloudVMStateObservation) -> Bool {
+        observation.freshness != .current
+    }
+
     /// Creates a native manual-I/O pane and attaches it to the remote PTY.
     ///
     /// The legacy tree lookup is only an identity bridge: public `term_…`
@@ -122,21 +126,27 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: sshClipboardWriteTrustStore
+                        .allowsRemoteClipboardWrites(for: machine)
                 )
             }
             session.bind(surface: created.surface)
-            // Preserve the workspace's existing notification-dismissal hook
-            // while re-claiming geometry when this pane receives explicit
-            // input. A cloud terminal can have more than one local projection;
-            // the pane the user is typing in must be the authoritative owner.
-            let existingExplicitInput = created.surface.onExplicitInput
-            created.surface.onExplicitInput = { [weak session] in
-                existingExplicitInput?()
-                session?.noteExplicitInput()
+            // Keep Cloud input convergence on the panel. Workspace transfer
+            // rebinds the ordinary terminal callback, while this hook resolves
+            // the panel's current owner after a move.
+            if let createdPanel = Workspace.liveWorkspace(id: created.workspaceID)?.panels[created.panelID] as? TerminalPanel {
+                Workspace.bindCloudManualMirrorInputConvergence(
+                    panel: createdPanel,
+                    isActive: { [weak session, weak createdPanel] in
+                        guard let session, let createdPanel else { return false }
+                        return session.phase != .stopped && session.surface === createdPanel.surface
+                    },
+                    onExplicitInput: { [weak session] in session?.noteExplicitInput() }
+                )
             }
             manualMirrorSessions[created.panelID] = session
-            session.reconnect(socketPath: connected.socketPath)
+            session.reconnect(socketPath: connected.socketPath, handshake: reservation?.takeAttachHandshake())
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
@@ -147,6 +157,24 @@ extension CmuxTuiSurfaceProvider {
         } catch {
             session.stop()
             throw error
+        }
+    }
+
+    /// Registers a new pane's attach stream while the machine creates its
+    /// terminal, so the attachment needs only `attach-surface` once the
+    /// terminal exists. The link is the machine's existing one.
+    func beginAttachHandshake(for reservation: CloudTerminalPaneReservation) {
+        let handshake = CloudTuiManualMirrorHandshake(identity: CloudTuiManualMirrorSession.localSharingIdentity)
+        reservation.beginAttachHandshake(handshake)
+        let links = links
+        let machineID = machineID
+        // Only a link that is already up: connecting or resuming the machine
+        // stays with the create, which owns its diagnostics and backoff.
+        handshake.start {
+            guard let link = await links.link(machineID: machineID),
+                  await link.isConnected,
+                  let connected = await link.connected else { throw CancellationError() }
+            return connected.socketPath
         }
     }
 
@@ -263,7 +291,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {
@@ -307,12 +335,25 @@ extension CmuxTuiSurfaceProvider {
         reservation.retry = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks[panelID]?.cancel()
+            Workspace.liveWorkspace(id: reservation.workspaceID)?.restartReservedCloudTerminalPane(reservation)
             self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
             self.materializedPanels.remove(panelID)
+        }
+        if Self.shouldShowRecoverableCloudFailure(
+            observation: catalog.cloudStateObservations[machine] ?? .stale(reason: "missing")
+        ),
+           let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+            restoredAttachTasks[panelID] = nil
+            materializedPanels.remove(panelID)
+            workspace.failReservedCloudTerminalPane(
+                reservation,
+                error: CloudDiagnosticFailure.network
+            )
+            return
         }
         restoredAttachTasks[panelID] = Task { @MainActor [weak self] in
             var failures = 0
@@ -372,6 +413,15 @@ extension CmuxTuiSurfaceProvider {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.cancelReservedCloudTerminalPane(panelID: panelID)
                         SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
+                        return
+                    }
+                    let inventoryIsStale = Self.shouldShowRecoverableCloudFailure(
+                        observation: self.catalog.cloudStateObservations[self.machine] ?? .stale(reason: "missing")
+                    )
+                    if inventoryIsStale {
+                        self.restoredAttachTasks[panelID] = nil
+                        self.materializedPanels.remove(panelID)
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
                         return
                     }
                     failures += 1

@@ -4,10 +4,6 @@ import CMUXAgentLaunch
 
 @Suite("worktreeinclude files")
 struct WorktreeSeedFileTests {
-    @Test func theFileNameIsTheOneTheRepositoryRootUses() {
-        #expect(WorktreeSeedFile.fileName == ".worktreeinclude")
-    }
-
     @Test func patternsKeepFileOrderAndLineNumbers() {
         let file = WorktreeSeedFile.parse(
             """

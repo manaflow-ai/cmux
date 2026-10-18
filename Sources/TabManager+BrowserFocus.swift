@@ -72,18 +72,21 @@ extension TabManager {
     @discardableResult
     func zoomInFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.zoomTextPreviewIn() }) { return result }
-        return zoomInFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.zoomIn() }) { return result }
+        return performFocusedTerminalFontSizeAction("increase_font_size:1") ?? false
     }
 
     @discardableResult
     func zoomOutFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.zoomTextPreviewOut() }) { return result }
-        return zoomOutFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.zoomOut() }) { return result }
+        return performFocusedTerminalFontSizeAction("decrease_font_size:1") ?? false
     }
 
     @discardableResult
     func resetZoomFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.resetTextPreviewZoom() }) { return result }
-        return resetZoomFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.resetZoom() }) { return result }
+        return performFocusedTerminalFontSizeAction("reset_font_size") ?? false
     }
 }

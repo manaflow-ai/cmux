@@ -14,7 +14,13 @@ private let cloudTerminalPresentationLogger = Logger(
 @MainActor
 final class CloudTerminalOverlayCoordinator {
     private let dismissalStore: CloudBannerDismissalStore
-    weak var session: CloudTuiManualMirrorSession?
+    weak var session: CloudTuiManualMirrorSession? {
+        didSet { if session != nil { endedPresentation = nil } }
+    }
+    /// The card a stopped session left behind (access lost, signed out). It
+    /// outlives the session so the pane never falls back to a frozen frame;
+    /// binding a new session replaces it.
+    private(set) var endedPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
     private(set) var overlay: CloudTerminalReconnectOverlayView?
     private weak var anchor: GhosttyTerminalView.HostContainerView?
     private var anchorOwnership: (generation: UInt64, serial: UInt64)?
@@ -34,7 +40,10 @@ final class CloudTerminalOverlayCoordinator {
 
     /// Creates a coordinator backed by the app's standard user defaults.
     convenience init() {
-        self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+        self.init(
+            dismissalStore: AppDelegate.shared?.cloudBannerDismissalStore
+                ?? CloudBannerDismissalStore(defaults: .standard)
+        )
     }
 
     /// A replaced representable may still emit layout and hide callbacks. Only
@@ -76,6 +85,8 @@ final class CloudTerminalOverlayCoordinator {
         let presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
         if let session {
             presentation = session.connectionPresentation
+        } else if let endedPresentation {
+            presentation = endedPresentation
         } else {
             presentation = legacyPresentation
         }
@@ -122,6 +133,21 @@ final class CloudTerminalOverlayCoordinator {
             )
         }
         lastDestination = next
+    }
+
+    /// Retires `expectedSession`, keeping `presentation` as the pane's final
+    /// card. A nil presentation removes the card, like ``unbindSession(_:)``.
+    func endSession(
+        _ expectedSession: CloudTuiManualMirrorSession,
+        presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+    ) {
+        guard session === expectedSession else { return }
+        session = nil
+        endedPresentation = presentation
+        if presentation == nil {
+            overlay?.removeFromSuperview()
+            overlay = nil
+        }
     }
 
     /// A retired session cannot clear a replacement session's presentation.

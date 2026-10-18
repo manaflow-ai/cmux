@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Darwin
 import Foundation
 
@@ -254,7 +255,16 @@ extension CMUXCLI {
                 clearedRecords.append(record)
                 continue
             }
-            let pidKey = "\(statusKey).\(record.sessionId)"
+            guard let pidKey = SocketCommandLine.agentHookPIDKeyArgument(
+                statusKey: statusKey,
+                sessionId: record.sessionId
+            ) else {
+                // A persisted session id that cannot be embedded as one socket
+                // argument is never dispatched; drain the record so cleanup
+                // does not retry it forever.
+                clearedRecords.append(record)
+                continue
+            }
             do {
                 _ = try sendV1Command(
                     "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",

@@ -19,8 +19,16 @@ public struct JSONConfigMutationReceipt: Sendable {
     static func encode(_ value: Any?) throws -> Data? {
         guard let value else { return nil }
         return try JSONSerialization.data(
-            withJSONObject: value,
+            withJSONObject: canonicalJSONObject(value),
             options: [.fragmentsAllowed, .sortedKeys]
         )
     }
+}
+
+/// Re-encodes numbers the way ``CmuxSettingValue`` writes them, so `1.4`
+/// read back from disk and `1.4` about to be written compare equal. Without
+/// it, `JSONSerialization` prints the parsed double as `1.3999999999999999`
+/// and every re-set of a fraction looks like a change.
+func canonicalJSONObject(_ value: Any) -> Any {
+    CmuxSettingValue(jsonObject: value)?.jsonObject ?? value
 }

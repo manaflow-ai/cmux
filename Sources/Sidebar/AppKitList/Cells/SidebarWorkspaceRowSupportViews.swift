@@ -336,6 +336,7 @@ final class SidebarRowIconTextLine: NSView {
                 explicitURL: entry.url,
                 onOpenURL: onOpenURL
             )
+            if entry.helpText != nil { markdownTextView.toolTip = entry.sidebarToolTip(linkURL: entry.url) }
         } else if let url = entry.url {
             textView.isHidden = true
             metadataButton.isHidden = false
@@ -344,15 +345,13 @@ final class SidebarRowIconTextLine: NSView {
                 font: font,
                 color: color,
                 underlined: true,
-                toolTip: url.absoluteString,
+                toolTip: entry.sidebarToolTip(linkURL: url),
                 onClick: { onOpenURL(url) }
             )
         } else {
             metadataButton.isHidden = true
             textView.isHidden = false
-            textView.stringValue = entry.sidebarDisplayText
-            textView.font = font
-            textView.textColor = color
+            textView.configurePlainText(entry.sidebarDisplayText, font: font, color: color, toolTip: entry.sidebarToolTip(linkURL: nil))
         }
         needsLayout = true
     }
@@ -463,6 +462,7 @@ final class SidebarRowIconTextLine: NSView {
 
     private func resetPrimaryContent() {
         textView.isHidden = true
+        textView.toolTip = nil
         textView.stringValue = ""
         textView.attributedStringValue = NSAttributedString(string: "")
         metadataButton.isHidden = true

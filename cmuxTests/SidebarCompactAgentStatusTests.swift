@@ -276,11 +276,11 @@ struct SidebarCompactAgentStatusTests {
 
     @Test
     func everyIconSlotHasADistinctState() {
-        #expect(Glyph.IconSlot.allCases.count == 11)
-        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 11)
+        #expect(Glyph.IconSlot.allCases.count == 13)
+        #expect(Set(Glyph.IconSlot.allCases.map(\.rawValue)).count == 13)
         // Every slot is a state the app can actually reach.
         #expect(Set(Glyph.IconSlot.allCases) == Set([
-            .error, .needsInput, .running, .starting, .unseen,
+            .error, .needsInput, .running, .subagents, .waiting, .starting, .unseen,
             .pullRequestOpen, .pullRequestMerged, .pullRequestClosed,
             .idle, .branch, .terminal,
         ]))
@@ -414,8 +414,8 @@ struct SidebarCompactAgentStatusTests {
         #expect(on.compactsAgentStatus)
 
         #expect(
-            SidebarWorkspaceSnapshotFactory.presentationKey(settings: off, showsAgentActivity: true)
-                != SidebarWorkspaceSnapshotFactory.presentationKey(settings: on, showsAgentActivity: true)
+            SidebarWorkspaceSnapshotFactory.presentationKey(settings: off, showsAgentActivity: true, customColorHex: nil)
+                != SidebarWorkspaceSnapshotFactory.presentationKey(settings: on, showsAgentActivity: true, customColorHex: nil)
         )
     }
 

@@ -5,14 +5,29 @@ import Foundation
 /// One request owns its receipt and native reservation until the graph adopts them.
 @MainActor
 final class CloudWorkspaceCreationOperation {
+    /// Nil means a successfully read graph has no workspace to reuse; failures throw.
+    typealias ResolveExistingWorkspace = @MainActor () async throws -> (
+        workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource?, remoteView: SurfaceRemoteView?
+    )?
+
     let id = UUID()
     let provider: any SurfaceProvider
-    let host: CloudWorkspaceCreationHost?
+    var host: CloudWorkspaceCreationHost?
     let allowsActionRetry: Bool
     var validateOperation: @MainActor () throws -> Void
+    /// Discovery runs after local admission and repeats on retry until a receipt is retained.
+    var resolveExistingWorkspace: ResolveExistingWorkspace?
     let terminalRequest = CloudTerminalCreationRequest()
     var receipt: SurfaceWorkspaceCreationReceipt?
+    /// The exact daemon tab selected by an existing-workspace row, when the
+    /// row represents a terminal with more than one remote view.
+    var existingRemoteView: SurfaceRemoteView?
+    /// The immutable row group admitted by an existing-workspace open. The
+    /// catalog re-resolves it before materialization, so this is request
+    /// ownership rather than a second presentation graph.
+    var pendingWorkspaceGroup: SurfaceResourceGroup?
     var reservation: CloudTerminalPaneReservation?
+    var openedProjections: [SurfaceProjection] = []
     var terminal: SurfaceResource?
     var terminalCursor: CloudVMCursor?
     var isComplete = false
@@ -26,6 +41,12 @@ final class CloudWorkspaceCreationOperation {
     var ownsRemoteWorkspace = false
     var ownsRemoteTerminal = false
     var remoteCleanupStarted = false
+    /// Existing-workspace opens must roll back their local admission on an
+    /// attach/materialization error. New workspace creates retain a live pane
+    /// for the established reconnect affordance.
+    var isExistingWorkspaceOpen = false
+    /// The host admitted this pane before provider lookup; do not restart its receipt attempt.
+    var wasPreAdmitted = false
 
     init(
         provider: any SurfaceProvider,

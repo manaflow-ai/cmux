@@ -66,7 +66,9 @@ extension CloudTuiManualMirrorSession {
               !claimInFlight,
               !geometryClaimBlockedByPeer,
               let remote = lastRemoteGrid,
-              resizeScheduler.desired == remote,
+              // The pin holds Ghostty at the daemon's grid even when this
+              // pane's reported view differs, so compare the held grid.
+              local == remote,
               !imagePaste.isBusy,
               replayFidelity.needsRepair(local: local) else { return }
         replayFidelity.repairStarted()

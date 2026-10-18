@@ -18,6 +18,10 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(REPO_ROOT, "ios", "scripts", "generate-testflight-notes.sh")
+ASSIGN_SCRIPT = os.path.join(REPO_ROOT, "ios", "scripts", "asc_assign_internal_testflight_group.py")
+SET_NOTES_SCRIPT = os.path.join(REPO_ROOT, "ios", "scripts", "asc_set_testflight_notes.py")
+SET_NOTES_SH = os.path.join(REPO_ROOT, "ios", "scripts", "set-testflight-notes.sh")
+APPSTORE_WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows", "ios-appstore-upload.yml")
 
 FAILURES = []
 
@@ -122,8 +126,26 @@ def test_deferred_notes():
         _check(result.returncode == 0 and "warning:" in result.stderr, "notes timeout remains nonfatal after upload")
 
 
+def test_processing_wait_defaults_cover_apple_ingest():
+    """Internal TestFlight jobs tolerate Apple's delayed build visibility."""
+    assign_source = Path(ASSIGN_SCRIPT).read_text(encoding="utf-8")
+    notes_source = Path(SET_NOTES_SCRIPT).read_text(encoding="utf-8")
+    shell_source = Path(SET_NOTES_SH).read_text(encoding="utf-8")
+    workflow_source = Path(APPSTORE_WORKFLOW).read_text(encoding="utf-8")
+    notes_job = workflow_source.split("  set-testflight-notes:", 1)[1].split("  assign-internal:", 1)[0]
+    _check("DEFAULT_PROCESSING_TIMEOUT_SECONDS = 1800" in assign_source,
+           "internal group assignment waits 30 minutes by default")
+    _check("DEFAULT_PROCESSING_TIMEOUT_SECONDS = 1800" in notes_source,
+           "TestFlight notes wait 30 minutes by default")
+    _check('TIMEOUT_SECONDS="${CMUX_TESTFLIGHT_PROCESSING_TIMEOUT_SECONDS:-1800}"' in shell_source,
+           "shell notes setter shares the 30-minute processing default")
+    _check("timeout-minutes: 40" in notes_job,
+           "notes job remains alive for the full processing wait")
+
+
 def main():
     test_deferred_notes()
+    test_processing_wait_defaults_cover_apple_ingest()
     _check(os.access(SCRIPT, os.X_OK), "generator script is executable")
 
     with tempfile.TemporaryDirectory() as repo:

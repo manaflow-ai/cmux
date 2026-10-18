@@ -5,7 +5,11 @@ extension Workspace {
     nonisolated static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
         guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
         let remote = snapshot.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase, remoteWorkspaceID: remote?.isEmpty == false ? remote : nil)
+        return WorkspaceCloudVMBinding(
+            vmID: vmID, isBase: snapshot.isBase,
+            remoteWorkspaceID: remote?.isEmpty == false ? remote : nil,
+            teamID: snapshot.teamID
+        )
     }
 
     /// Re-adopts a persisted panel identity unless it is still live elsewhere.

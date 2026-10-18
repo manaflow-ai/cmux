@@ -1,4 +1,5 @@
 import AppKit
+import CmuxProductAnalytics
 import SwiftUI
 
 // MARK: - State (visibility toggle)
@@ -6,6 +7,7 @@ import SwiftUI
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
+    private let defaults: UserDefaults
 
     @Published var isVisible: Bool {
         didSet { persistVisibility() }
@@ -18,21 +20,25 @@ final class FileExplorerState: ObservableObject {
     }
 
     private func persistVisibility() {
-        UserDefaults.standard.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
+        defaults.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
     }
     @Published var width: CGFloat {
-        didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
+        didSet { defaults.set(Double(width), forKey: "fileExplorer.width") }
     }
+    /// The width the mode bar needs for the selected tab's full name, the other
+    /// tabs as icons, and its trailing controls; the right sidebar never gets
+    /// narrower. Not persisted.
+    @Published var modeBarMinimumWidth: CGFloat = 0
 
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.
     @Published var dividerPosition: CGFloat {
-        didSet { UserDefaults.standard.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
+        didSet { defaults.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
     }
 
     /// Whether hidden files (dotfiles) are shown in the tree.
     @Published var showHiddenFiles: Bool {
-        didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
+        didSet { defaults.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
     }
 
     @Published private var storedMode: RightSidebarMode
@@ -50,17 +56,23 @@ final class FileExplorerState: ObservableObject {
     @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
 
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
+    /// Explicit sets come from people and their tools (tab bar, palette, CLI);
+    /// restore and preference changes go through `refreshModeAvailability`.
     var mode: RightSidebarMode {
         get { storedMode }
-        set { setMode(newValue) }
+        set {
+            let previous = storedMode
+            setMode(newValue)
+            if isVisible, storedMode != previous { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
+        }
     }
 
     var customSidebarName: String? {
         storedCustomSidebarName
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
         let storedWidth = defaults.double(forKey: "fileExplorer.width")
         self.width = storedWidth > 0 ? CGFloat(storedWidth) : 220
@@ -79,11 +91,13 @@ final class FileExplorerState: ObservableObject {
     /// `mode` set (which may reveal a user-hidden tab: CLI, palette,
     /// notification routing), restore and preference changes never resurrect a
     /// hidden tab.
-    func refreshModeAvailability(defaults: UserDefaults = .standard) {
+    func refreshModeAvailability(defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
         setMode(Self.visibleMode(storedMode, defaults: defaults), defaults: defaults)
     }
 
-    func selectCustomSidebar(name rawName: String, defaults: UserDefaults = .standard) {
+    func selectCustomSidebar(name rawName: String, defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         storedCustomSidebarName = name
@@ -100,8 +114,11 @@ final class FileExplorerState: ObservableObject {
         setVisible(!isVisible)
     }
 
+    /// The person's show/hide (toggle, shortcut, menu). Narrow-window
+    /// auto-collapse sets `isVisible` directly and is not counted as use.
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
+        if nextValue { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
 
         // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
         NSAnimationContext.beginGrouping()
@@ -122,7 +139,8 @@ final class FileExplorerState: ObservableObject {
         }
     }
 
-    private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {
+    private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
         let nextMode = Self.availableMode(mode, defaults: defaults)
         guard storedMode != nextMode else {
             if defaults.string(forKey: Self.modeKey) != nextMode.rawValue {

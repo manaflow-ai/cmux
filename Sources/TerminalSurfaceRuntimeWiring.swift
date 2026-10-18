@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import Foundation
 import CmuxFoundation
@@ -6,6 +7,18 @@ import CmuxTerminalCore
 import GhosttyKit
 import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
+
+private enum GhosttyLinkFilterAPI {
+    // Xcode 26.6's Clang importer omits this declaration even though the
+    // pinned GhosttyKit header and binary export it. Keep the ABI declaration
+    // local until the importer exposes the API directly.
+    @_silgen_name("ghostty_surface_set_link_filter")
+    static func set(
+        _ surface: ghostty_surface_t,
+        _ callback: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt) -> Bool)?,
+        _ userdata: UnsafeMutableRawPointer?
+    )
+}
 
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
@@ -30,6 +43,17 @@ extension GhosttyApp: TerminalEngineHosting {
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     let imageTransferPreparation: TerminalImageTransferPreparationService
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
+
+    init(
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
+    }
 
     @MainActor
     func makeSurfaceViews(
@@ -37,7 +61,8 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
         let view = GhosttyNSView(
             frame: initialFrame,
-            imageTransferPreparation: imageTransferPreparation
+            imageTransferPreparation: imageTransferPreparation,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
         )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
@@ -118,7 +143,15 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
+/// It also installs the surface's link filter, whose userdata shares the
+/// tee's lifetime: both are released only after the surface is freed.
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
+
+    init(scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity) {
+        self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
+    }
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -126,13 +159,27 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let linkFilter: Unmanaged<TerminalLinkHoverFilter>
+        private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
-        init(context: Unmanaged<TerminalOutputTeeContext>) {
+        init(
+            context: Unmanaged<TerminalOutputTeeContext>,
+            linkFilter: Unmanaged<TerminalLinkHoverFilter>,
+            scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
+        ) {
             self.context = context
+            self.linkFilter = linkFilter
+            self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
         }
 
         func release() {
+            let teeContext = context.takeUnretainedValue()
+            scrollbackCheckpointActivity.unregister(
+                surfaceID: teeContext.surfaceID,
+                registration: teeContext.scrollbackCheckpointFlags
+            )
             context.release()
+            linkFilter.release()
         }
     }
 
@@ -145,14 +192,22 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            scrollbackCheckpointFlags: scrollbackCheckpointActivity
+                .register(surfaceID: surfaceID)
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext)
+        let linkFilter = Unmanaged.passRetained(TerminalLinkHoverFilter(surfaceID: surfaceID))
+        GhosttyLinkFilterAPI.set(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
+        return Lease(
+            context: teeContext,
+            linkFilter: linkFilter,
+            scrollbackCheckpointActivity: scrollbackCheckpointActivity
+        )
     }
 
     @MainActor
@@ -236,6 +291,7 @@ extension TerminalSurface {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -256,6 +312,7 @@ extension TerminalSurface {
             focusPlacement: focusPlacement,
             ioMode: ioMode,
             isRemoteTerminal: isRemoteTerminal,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             manualInputHandler: manualInputHandler,
             manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,

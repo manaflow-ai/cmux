@@ -324,6 +324,7 @@ extension TerminalController {
         guard let workspaceID = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
+        let force = v2Bool(params, "force") ?? false
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
@@ -353,7 +354,18 @@ extension TerminalController {
                 )
                 return
             }
-            tabManager.closeWorkspace(workspace)
+            if !force, tabManager.workspaceNeedsConfirmCloseForClose(workspace) {
+                result = .err(
+                    code: "confirmation_required",
+                    message: String(
+                        localized: "cli.socket.error.workspaceCloseConfirmationRequired",
+                        defaultValue: "Workspace has a running process; retry with --force"
+                    ),
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            _ = tabManager.closeWorkspaceNonInteractively(workspace)
             result = .ok([
                 "closed": true,
                 "workspace_id": workspaceID.uuidString,

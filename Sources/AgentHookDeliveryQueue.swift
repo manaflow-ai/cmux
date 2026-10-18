@@ -40,6 +40,12 @@ actor AgentHookDeliveryQueue {
             }
             return newerEvent.canReplaceBufferedLifecycleState(earlierEvent)
         }
+
+        /// Identifies the teardown event that receives the reserved ingress slot.
+        var isSessionEnd: Bool {
+            guard case .event(let event) = self else { return false }
+            return event.subcommand == "session-end"
+        }
     }
 
     private struct AdmissionRecord: Sendable {
@@ -83,9 +89,9 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Builds a queue whose defaults retain at most twenty-four bounded items:
+    /// Builds a queue whose defaults retain at most twenty-five bounded items:
     /// eight actor-resident items, eight general event-ingress items, four
-    /// terminal lifecycle items, and four barriers. General event ingress
+    /// terminal lifecycle items plus one reserved teardown slot, and four barriers. General event ingress
     /// reserves one replaceable slot for high-volume tool and shell telemetry;
     /// actor execution reserves one slot for terminal transitions and one
     /// ordinary slot ahead of best-effort telemetry. Terminal transitions
@@ -112,7 +118,7 @@ actor AgentHookDeliveryQueue {
             of: Void.self,
             bufferingPolicy: .bufferingOldest(
                 maximumIngressEvents
-                    + maximumTerminalIngressEvents
+                    + maximumTerminalIngressEvents + 1
                     + maximumBarrierIngressEvents
             )
         )
@@ -207,6 +213,7 @@ actor AgentHookDeliveryQueue {
         return signal.wait(timeout: .now() + timeout) == .success
     }
 
+    /// Publishes one bounded ingress record without waiting on the actor.
     private nonisolated func publish(
         _ item: PendingItem,
         admissionClass: AdmissionClass,
@@ -220,7 +227,10 @@ actor AgentHookDeliveryQueue {
         case .lifecycle:
             capacity = maximumLifecycleIngressEvents
         case .terminalLifecycle:
-            capacity = maximumTerminalIngressEvents
+            // Keep one extra ingress token for teardown. Session-end must be
+            // accepted even when ordinary terminal events have filled their
+            // bounded class, or the pane can remain permanently live.
+            capacity = maximumTerminalIngressEvents + (item.isSessionEnd ? 1 : 0)
         case .bestEffortTool:
             capacity = maximumToolIngressEvents
         case .barrier:

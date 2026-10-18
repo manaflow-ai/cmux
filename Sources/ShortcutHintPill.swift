@@ -88,6 +88,11 @@ enum ShortcutHintPalette {
             : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
     }
 
+    /// Width of the Liquid Glass rim around the opaque center on macOS 26.
+    /// The glass takes its color from the backdrop and ignores a tint, so the
+    /// text sits on the opaque ``background(for:)`` and keeps its contrast.
+    static let glassRimWidth: CGFloat = 1.5
+
     static func border(for colorScheme: ColorScheme) -> NSColor {
         colorScheme == .dark
             ? NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.18)
@@ -100,13 +105,38 @@ struct ShortcutHintPillBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        fill
+            .shadow(color: Color.black.opacity(0.22 * emphasis), radius: 2, x: 0, y: 1)
+    }
+
+    /// A Liquid Glass rim around the opaque palette center where the OS has
+    /// glass, the bordered opaque capsule before macOS 26.
+    @ViewBuilder
+    private var fill: some View {
+        #if compiler(>=6.3)
+        if #available(macOS 26.0, *) {
+            ZStack {
+                Color.clear
+                    .glassEffect(.regular, in: Capsule(style: .continuous))
+                Capsule(style: .continuous)
+                    .inset(by: ShortcutHintPalette.glassRimWidth)
+                    .fill(Color(nsColor: ShortcutHintPalette.background(for: colorScheme)))
+            }
+        } else {
+            opaqueFill
+        }
+        #else
+        opaqueFill
+        #endif
+    }
+
+    private var opaqueFill: some View {
         Capsule(style: .continuous)
             .fill(Color(nsColor: ShortcutHintPalette.background(for: colorScheme)))
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(Color(nsColor: ShortcutHintPalette.border(for: colorScheme)), lineWidth: 0.8)
             )
-            .shadow(color: Color.black.opacity(0.22 * emphasis), radius: 2, x: 0, y: 1)
     }
 }
 

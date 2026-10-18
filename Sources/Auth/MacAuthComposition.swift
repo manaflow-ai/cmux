@@ -31,6 +31,8 @@ struct MacAuthComposition {
     /// Reconciles Cloud transports with the coordinator's selected team.
     let cloudTeamScopeObserver: CloudTeamScopeObserver
     let teamScopeRecoveryTriggers: MacAuthTeamScopeRecoveryTriggers
+    /// Identifies usage analytics as the signed-in account; resets on sign-out.
+    let postHogIdentityObserver: PostHogIdentityObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -174,6 +176,10 @@ struct MacAuthComposition {
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
         self.callbackRouter = callbackRouter
+        // Sign-out deletes only this build's tunnels. Their fingerprints are
+        // read when sign-out begins, before Cloud teardown removes the local
+        // credentials that record them.
+        let signOutTunnelRoles = SignOutTunnelRoles()
         let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
@@ -182,12 +188,14 @@ struct MacAuthComposition {
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
+            approveUnsolicitedCallback: { await UnsolicitedAuthCallbackApprovalPrompt.present($0) },
             beginSignOut: {
                 // Tear down local Cloud VM workspaces before the coordinator
                 // clears auth. This closes live WebSockets, removes persisted
                 // reconnect configuration, and prevents a signed-out Mac (or
                 // a paired phone still connected to it) from retaining a
                 // usable remote surface.
+                signOutTunnelRoles.roles = VMTunnelManager.storedRoles()
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
                 DeviceRegistryClient.shared.beginSignOut()
@@ -200,8 +208,9 @@ struct MacAuthComposition {
                 await DeviceRegistryClient.shared.withdrawForSignOut(
                     accessToken: accessToken, refreshToken: refreshToken
                 )
-                await VMClient.revokeCloudAccess(
-                    deviceID: MobileHostIdentity.deviceID(),
+                let roles = await MainActor.run { signOutTunnelRoles.take() }
+                await VMClient.revokeTunnelRoles(
+                    roles,
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
@@ -220,8 +229,9 @@ struct MacAuthComposition {
             browserSignIn: browserSignIn
         )
         self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
-        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
-            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        self.postHogIdentityObserver = PostHogIdentityObserver(auth: coordinator)
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) { isSameAccount in
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch(isSameAccount: isSameAccount)
         }
     }
 
@@ -231,6 +241,8 @@ struct MacAuthComposition {
         cloudTeamScopeObserver.start()
         teamScopeRecoveryTriggers.start()
         coordinator.start()
+        // The observer awaits launch restore before it acts on any state.
+        postHogIdentityObserver.start()
     }
 
     /// Where the file-fallback token store persists, namespaced by bundle id
@@ -412,5 +424,71 @@ final class MacAuthTeamScopeRecoveryTriggers {
                 await self?.coordinator.recoverTeamScopeIfNeeded()
             }
         })
+    }
+}
+
+/// Native confirmation shown before a stateless auth callback that cmux did
+/// not request (for example a `cmux://auth-callback` link opened by a web
+/// page) may sign the app in. Declining is the default action.
+@MainActor
+enum UnsolicitedAuthCallbackApprovalPrompt {
+    static func present(_ request: UnsolicitedAuthCallbackApprovalRequest) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = request.replacesSignedInSession ? .critical : .warning
+        alert.messageText = title(for: request)
+        alert.informativeText = message(for: request)
+        // The first button is the default (Return) action, so declining is the
+        // path of least resistance.
+        alert.addButton(withTitle: String(
+            localized: "account.callbackApproval.cancel",
+            defaultValue: "Don\u{2019}t Sign In"
+        ))
+        alert.addButton(withTitle: request.replacesSignedInSession
+            ? String(localized: "account.callbackApproval.replace.confirm", defaultValue: "Switch Account")
+            : String(localized: "account.callbackApproval.confirm", defaultValue: "Sign In"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private static func title(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        if request.replacesSignedInSession {
+            return String(
+                localized: "account.callbackApproval.replace.title",
+                defaultValue: "Switch cmux to another account?"
+            )
+        }
+        return String(
+            localized: "account.callbackApproval.title",
+            defaultValue: "Sign in to cmux from a link?"
+        )
+    }
+
+    private static func message(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        let account = String(
+            localized: "account.callbackApproval.message.unknown",
+            defaultValue: "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        )
+        guard request.replacesSignedInSession else { return account }
+        let warning = String(
+            localized: "account.callbackApproval.replace.generic",
+            defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
+        )
+        return "\(account)\n\n\(warning)"
+    }
+}
+
+/// This build's tunnels, captured when sign-out begins and revoked by the
+/// sign-out tail.
+@MainActor
+private final class SignOutTunnelRoles {
+    /// Nil until sign-out begins; an empty capture means this build had no
+    /// tunnel, and must not be refilled from disk after teardown.
+    var roles: [CloudTunnelRole]?
+
+    /// The captured roles, or the ones still on disk when sign-out began on a
+    /// path that did not capture them. Clears the capture.
+    func take() -> [CloudTunnelRole] {
+        defer { roles = nil }
+        return roles ?? VMTunnelManager.storedRoles()
     }
 }

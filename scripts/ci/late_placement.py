@@ -8,8 +8,12 @@ later. If the owned pool was full at the start, they are committed to
 Blacksmith (admission's pool, or pr_retry_runner) and wait in its queue even
 when root runners have drained in the meantime.
 
-ci-macos.yml's late-placement job runs this after admission succeeds, on
-attempt 1 of a same-repository pull request.
+ci-macos.yml's late-placement job runs this after admission succeeds, for a
+same-repository pull request: on attempt 1, and on a re-run that runs compile
+admission again (a full re-run, or a re-run of a failed admission). A re-run
+of failed jobs after admission keeps the outputs of the attempt before, so
+ci-macos.yml takes `runners` only in the attempt that made it (output
+`attempt`), and those jobs take their owned labels.
 It reads the idle root runners live through the org route App and gives
 each job that is not already owned the root label, in owned priority order,
 up to that many idle runners. The shards and friends then run
@@ -32,7 +36,7 @@ oldest runs first). Minis first: a job an idle gui runner takes now stays.
 Every other one goes where it is expected to start sooner, in seconds: on the
 gui label behind the backlog on its online runners (GUI_JOB_SECONDS a job), or
 on RETRY_RUNNER after its start latency (BLACKSMITH_START_SECONDS) behind its
-queue on the shared Blacksmith account capacity (RETRY_JOB_SECONDS a job). A tie stays
+queue on RETRY_RUNNER's label capacity (RETRY_JOB_SECONDS a job). A tie stays
 on the minis. There is no fixed allowance of queue on the gui label: until
 2026-09-29 a job stayed while it started within one gui job length
 (GUI_QUEUE_ROUNDS), whatever Blacksmith's queue, and over the 24 hours to
@@ -106,8 +110,31 @@ def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None, uni
     return plan.after
 
 
-def root_for(xcode_app: str | None) -> str:
-    """The std root label for admission's Xcode; "" when no owned pool pins it."""
+def root_for(xcode_app: str | None, selected_root: str | None = None,
+             admission_runner: str | None = None) -> str:
+    """The selected owned root label, or the office root for admission's Xcode.
+
+    A namespaced headless pool must keep its post-admission jobs in that
+    namespace. ``selected_root`` is the picker's root output; the Xcode-only
+    fallback preserves the historical office route for callers that do not
+    have it.
+    """
+    for raw in (selected_root, admission_runner):
+        candidate = (raw or "").strip()
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, list) and parsed:
+                candidate = str(parsed[0]).strip()
+        except (TypeError, ValueError):
+            pass
+        if pool.root_pool_label(candidate):
+            return candidate
+        if pool.persistent(candidate):
+            root = pool.root_label(candidate)
+            if root:
+                return root
     std = [label for label in pool.owned_pools(xcode_app) if label.startswith("glaeda-std-")]
     return pool.root_label(std[0]) if std else ""
 
@@ -179,7 +206,7 @@ def gui_backlog(github: Any, labels: Sequence[str], *, exclude_run_id: int | Non
 
 
 def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online: int, backlog: int,
-             retry_queued: int | None = None, retry_capacity: int = pool.POOL_CAPACITY,
+             retry_queued: int | None = None, retry_capacity: int | None = None,
              retry: str = "") -> tuple[str, ...]:
     """The owned gui-token jobs no idle gui runner takes now that are expected to start sooner on the
     retry pool.
@@ -197,7 +224,7 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
     keep = max(0, max(0, gui_idle) - max(0, backlog))
     if retry_queued is None:
         return tuple(mine[keep:])
-    capacity = max(1, retry_capacity)
+    capacity = max(1, retry_capacity if retry_capacity is not None else pool.BLACKSMITH_CAPACITIES.get(retry, pool.POOL_CAPACITY))
     retry_idle = capacity if retry_queued <= 0 else 0
     start = BLACKSMITH_START_SECONDS.get(retry, DEFAULT_BLACKSMITH_START_SECONDS)
     length = RETRY_JOB_SECONDS.get(retry, DEFAULT_RETRY_JOB_SECONDS)
@@ -221,7 +248,8 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
                      unit_selectors=env.get("UNIT_SELECTORS"))
     if not jobs:
         return {}, "no job runs after compile admission"
-    root = root_for(env.get("ADMISSION_XCODE_APP"))
+    root = root_for(env.get("ADMISSION_XCODE_APP"), env.get("ADMISSION_ROOT"),
+                    env.get("ADMISSION_RUNNER"))
     if not root:
         return {}, f"no owned pool runs admission's Xcode ({env.get('ADMISSION_XCODE_APP') or 'unknown'})"
     if runners is None:
@@ -263,7 +291,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             queued, retry_queued = counts.get(gui_label, 0), counts.get(retry) if labels[1:] else None
             moved_off = overflow(jobs, owned_jobs=owned_jobs, gui_idle=gui_idle, gui_online=online,
                                  backlog=queued, retry_queued=retry_queued,
-                                 retry_capacity=pool.POOL_CAPACITY, retry=retry)
+                                 retry_capacity=pool.BLACKSMITH_CAPACITIES.get(retry, pool.POOL_CAPACITY), retry=retry)
             seen += f", {queued} gui job(s) queued ahead on {online} online"
             if retry_queued is not None:
                 seen += f" and {retry_queued} on `{retry}`"
@@ -297,7 +325,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"runners={json.dumps(placed, sort_keys=True)}\n")
+            handle.write(f"runners={json.dumps(placed, sort_keys=True)}\nattempt={env.get('GITHUB_RUN_ATTEMPT', '')}\n")
             # The rescue watch's markers are for jobs moved onto owned runners; a move to Blacksmith needs none.
             onto_owned = any(pool.persistent(label) for label in placed.values())
             handle.write(f"onto_owned={str(onto_owned).lower()}\n")

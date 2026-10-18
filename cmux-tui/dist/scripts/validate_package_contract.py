@@ -300,6 +300,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
     from package_contract import (
         NPM_LAUNCHER_FILES,
         NPM_RELAY_LAUNCHER_FILES,
+        NPM_SSH_MANIFEST,
     )
 
     if package_name == "cmux":
@@ -322,6 +323,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 "package.json",
                 f"bin/cmux-tui{extension}",
                 f"bin/cmux-tui-hook{extension}",
+                NPM_SSH_MANIFEST,
             }
         )
     expected_names = {f"package/{path}" for path in expected}

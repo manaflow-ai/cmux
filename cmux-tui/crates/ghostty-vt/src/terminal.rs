@@ -160,9 +160,34 @@ impl Default for KittyReplayState {
 /// Terminal state replay plus Kitty metadata that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
+    /// Formatted state. Always ends at a parser boundary, so a consumer may
+    /// append its own sequences (for example color overrides) after it.
     pub bytes: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
     pub kitty_state: KittyReplayState,
+    /// The incomplete escape sequence, control string, Kitty command, or
+    /// UTF-8 code point the source parser is inside. Write it after `bytes`
+    /// and after anything the consumer appends, immediately before the live
+    /// stream that completes it.
+    pub pending_sequence: Vec<u8>,
+}
+
+impl VtReplay {
+    /// One byte stream for consumers that append nothing between the replay
+    /// and the live stream.
+    pub fn into_self_contained_bytes(mut self) -> Vec<u8> {
+        self.bytes.append(&mut self.pending_sequence);
+        self.bytes
+    }
+
+    /// Borrowing form of [`Self::into_self_contained_bytes`].
+    pub fn self_contained_bytes(&self) -> Cow<'_, [u8]> {
+        if self.pending_sequence.is_empty() {
+            Cow::Borrowed(&self.bytes)
+        } else {
+            Cow::Owned([self.bytes.as_slice(), &self.pending_sequence].concat())
+        }
+    }
 }
 
 /// RGB color triple.
@@ -828,6 +853,17 @@ pub struct Terminal {
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
     c1_normalizer: C1Normalizer,
+    empty_kitty_probe_filter: EmptyKittyProbeFilter,
+}
+
+enum PendingSequenceReplay<'a> {
+    /// The parser is at a boundary.
+    None,
+    /// Bytes since the last boundary.
+    Bytes(&'a [u8]),
+    /// A direct Kitty upload larger than the generic budget, which the
+    /// Kitty in-flight prefix reproduces.
+    KittyCommand,
 }
 
 #[derive(Default)]
@@ -841,11 +877,26 @@ struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 /// its UTF-8 stream behavior. Invalid UTF-8 may keep this tracker unsafe
 /// slightly longer than Ghostty, but can never make an incomplete stream look
 /// safe.
+///
+/// While unsafe it also retains the bytes fed since the last safe point. A
+/// replay that ends with them leaves a fresh parser in the same incomplete
+/// state, so the rest of the live stream completes the sequence there too.
 #[derive(Default)]
 struct VtBoundaryTracker {
     state: VtBoundaryState,
     utf8_remaining: u8,
+    /// Valid range of the next continuation byte. Ghostty's decoder is the
+    /// strict Hoehrmann DFA, so the first continuation after E0, ED, F0 and
+    /// F4 is narrower than 80..=BF.
+    utf8_next: (u8, u8),
+    pending: Vec<u8>,
+    pending_overflowed: bool,
 }
+
+/// Largest incomplete non-Kitty sequence a replay carries. Longer control
+/// strings (for example an oversized OSC 52 copy) make the replay
+/// non-resumable until the sequence ends.
+const VT_PENDING_SEQUENCE_REPLAY_MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum VtBoundaryState {
@@ -869,12 +920,71 @@ enum VtBoundaryState {
 impl VtBoundaryTracker {
     fn feed(&mut self, data: &[u8]) {
         for &byte in data {
+            let was_safe = self.is_safe();
+            // Ghostty prints U+FFFD for a ground-state code point that an
+            // invalid continuation abandons. Those bytes are now part of the
+            // screen, so they must not be replayed a second time.
+            let abandons_text = self.state == VtBoundaryState::Ground
+                && self.utf8_remaining != 0
+                && !(self.utf8_next.0..=self.utf8_next.1).contains(&byte);
+            // ESC or a C1 introducer ends the sequence in progress: Ghostty
+            // dispatches an OSC, DCS or APC string there and abandons any
+            // other sequence. Only the new sequence is still pending.
+            // A C1 value inside a UTF-8 code point is text, not an introducer.
+            let restarts = self.state != VtBoundaryState::Ground
+                && (byte == 0x1b
+                    || (self.utf8_remaining == 0
+                        && matches!(byte, 0x90 | 0x98 | 0x9b | 0x9d | 0x9e | 0x9f)));
             self.feed_byte(byte);
+            if self.is_safe() {
+                self.clear_pending();
+                continue;
+            }
+            if was_safe || abandons_text || restarts {
+                self.clear_pending();
+            }
+            // Inside an escape, CSI or control string Ghostty executes or
+            // ignores C0 controls on arrival; only DCS passthrough keeps them.
+            if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f)
+                && self.state != VtBoundaryState::DcsPassthrough
+            {
+                continue;
+            }
+            self.record_pending(byte);
         }
     }
 
     fn is_safe(&self) -> bool {
         self.state == VtBoundaryState::Ground && self.utf8_remaining == 0
+    }
+
+    /// Bytes since the last safe point, or `None` when they exceeded the
+    /// replay budget.
+    fn pending_replay(&self) -> Option<&[u8]> {
+        (!self.pending_overflowed).then_some(self.pending.as_slice())
+    }
+
+    fn record_pending(&mut self, byte: u8) {
+        if self.pending_overflowed {
+            return;
+        }
+        if self.pending.len() >= VT_PENDING_SEQUENCE_REPLAY_MAX_BYTES {
+            self.pending = Vec::new();
+            self.pending_overflowed = true;
+            return;
+        }
+        self.pending.push(byte);
+    }
+
+    fn clear_pending(&mut self) {
+        // Do not keep a large control string's allocation for the life of
+        // the terminal.
+        if self.pending.capacity() > 4096 {
+            self.pending = Vec::new();
+        } else {
+            self.pending.clear();
+        }
+        self.pending_overflowed = false;
     }
 
     fn feed_byte(&mut self, byte: u8) {
@@ -902,8 +1012,9 @@ impl VtBoundaryTracker {
 
     fn consume_utf8_byte(&mut self, byte: u8) -> bool {
         if self.utf8_remaining != 0 {
-            if matches!(byte, 0x80..=0xbf) {
+            if (self.utf8_next.0..=self.utf8_next.1).contains(&byte) {
                 self.utf8_remaining -= 1;
+                self.utf8_next = (0x80, 0xbf);
                 return true;
             }
             // Ghostty replaces the incomplete code point and retries this byte
@@ -911,11 +1022,15 @@ impl VtBoundaryTracker {
             self.utf8_remaining = 0;
         }
 
-        self.utf8_remaining = match byte {
-            0xc2..=0xdf => 1,
-            0xe0..=0xef => 2,
-            0xf0..=0xf4 => 3,
-            _ => 0,
+        (self.utf8_remaining, self.utf8_next) = match byte {
+            0xc2..=0xdf => (1, (0x80, 0xbf)),
+            0xe0 => (2, (0xa0, 0xbf)),
+            0xed => (2, (0x80, 0x9f)),
+            0xe1..=0xef => (2, (0x80, 0xbf)),
+            0xf0 => (3, (0x90, 0xbf)),
+            0xf4 => (3, (0x80, 0x8f)),
+            0xf1..=0xf3 => (3, (0x80, 0xbf)),
+            _ => (0, (0x80, 0xbf)),
         };
         self.utf8_remaining != 0
     }
@@ -1044,6 +1159,38 @@ impl C1Normalizer {
             }
         }
         output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+}
+
+/// Claude and a few other clients use an empty Kitty graphics APC as a
+/// capability probe. libghostty-vt does not give that malformed no-op a
+/// stable replay representation on every build; retaining it can make a
+/// later formatter report `OutOfSpace` even though the terminal has no image
+/// state. It has no display semantics, so discard the complete probe before
+/// feeding the parser and all replay trackers. The normalizer above converts
+/// 8-bit C1 forms to this same 7-bit spelling first.
+#[derive(Default)]
+struct EmptyKittyProbeFilter;
+
+impl EmptyKittyProbeFilter {
+    fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
+        if !data.as_ref().windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
+            return data;
+        }
+
+        let data = data.as_ref();
+        let mut output = Vec::with_capacity(data.len());
+        let mut cursor = 0;
+        while cursor < data.len() {
+            if data[cursor..].starts_with(EMPTY_PROBE) {
+                cursor += EMPTY_PROBE.len();
+                continue;
+            }
+            output.push(data[cursor]);
+            cursor += 1;
+        }
+        Cow::Owned(output)
     }
 }
 
@@ -1923,6 +2070,7 @@ impl Terminal {
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
             c1_normalizer: C1Normalizer::default(),
+            empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -2015,6 +2163,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
+        let normalized = self.empty_kitty_probe_filter.write(normalized);
         self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
@@ -2047,6 +2196,55 @@ impl Terminal {
     pub fn vt_stream_is_ground(&self) -> bool {
         self.c1_normalizer.utf8_remaining == 0
             && unsafe { sys::ghostty_terminal_vt_stream_is_ground(self.raw) }
+    }
+
+    /// Whether a replay built now, followed by the rest of the live stream,
+    /// reproduces this terminal in a fresh parser.
+    ///
+    /// Replays end with the incomplete sequence the parser is inside, so this
+    /// holds at every byte except inside a control string larger than the
+    /// pending-sequence budget. Callers that cannot resume must fall back to a
+    /// fresh attachment at a later boundary.
+    pub fn vt_replay_resumes_stream(&self) -> bool {
+        self.pending_sequence_replay().is_some()
+    }
+
+    /// Abandon a pending VT control sequence that exceeded its replay budget.
+    ///
+    /// Checkpoint capture can continue from the rendered terminal state when
+    /// a client leaves an unbounded control string (most often a Kitty upload)
+    /// open forever. CAN has no screen effect and returns the parser to ground;
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
+            return None;
+        }
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
+        self.kitty_inflight.discard_unreplayable();
+        self.vt_stream_is_ground().then_some(normalized)
+    }
+
+    /// How the replay reproduces the parser's incomplete sequence, if it can.
+    fn pending_sequence_replay(&self) -> Option<PendingSequenceReplay<'_>> {
+        if self.vt_stream_is_ground() {
+            return Some(PendingSequenceReplay::None);
+        }
+        if let Some(pending) = self.vt_boundary.pending_replay() {
+            return Some(PendingSequenceReplay::Bytes(pending));
+        }
+        // A direct Kitty upload may exceed the generic budget; its own
+        // tracker retains it up to the image limit.
+        self.kitty_inflight.has_partial_command().then_some(PendingSequenceReplay::KittyCommand)
     }
 
     fn refresh_mouse_mode_revision(&mut self) {
@@ -2550,11 +2748,14 @@ impl Terminal {
 
     /// Apply one complete replay sidecar and byte stream to this terminal.
     pub fn apply_vt_replay(&mut self, replay: &VtReplay) -> Result<()> {
-        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)
+        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)?;
+        self.vt_write(&replay.pending_sequence);
+        Ok(())
     }
 
     /// Apply replay bytes and their non-VT sidecar through the same ordering
-    /// used by owned [`VtReplay`] values.
+    /// used by owned [`VtReplay`] values. The caller writes the replay's
+    /// `pending_sequence` afterwards, after any sequences of its own.
     pub fn apply_vt_replay_parts(
         &mut self,
         bytes: &[u8],
@@ -3272,20 +3473,42 @@ impl Terminal {
 
     /// Byte-only compatibility replay. This discards Kitty number aliases.
     pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
-        Ok(self.vt_replay()?.bytes)
+        Ok(self.vt_replay()?.into_self_contained_bytes())
     }
 
     /// Reject replay state that cannot fit under `max_bytes` regardless of
     /// text or completed graphics truncation. Callers can use this before a
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
-        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
+        let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
+        let pending = pending.as_slice();
         let suffix_len = self.replay_state_suffix().len();
-        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
-        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+        if inflight
+            .len()
+            .checked_add(suffix_len)
+            .and_then(|total| total.checked_add(pending.len()))
+            .is_none_or(|total| total > max_bytes)
+        {
             return Err(Error::OutOfSpace);
         }
         Ok(())
+    }
+
+    /// The completed Kitty upload chunks a replay restores, and the
+    /// incomplete sequence it hands back separately. The generic pending
+    /// bytes already contain any partial Kitty command; a Kitty command past
+    /// their budget comes from the Kitty tracker instead.
+    fn replay_inflight_and_pending(&self, max_bytes: usize) -> Result<(Vec<u8>, Vec<u8>)> {
+        // Always ask the Kitty tracker, so its per-surface upload budget
+        // applies whichever tracker supplies the partial command.
+        let (inflight, kitty_partial) =
+            self.kitty_inflight.replay_prefix_and_partial_checked(max_bytes)?;
+        let pending = match self.pending_sequence_replay() {
+            Some(PendingSequenceReplay::Bytes(pending)) => pending.to_vec(),
+            Some(PendingSequenceReplay::KittyCommand) => kitty_partial,
+            Some(PendingSequenceReplay::None) | None => Vec::new(),
+        };
+        Ok((inflight, pending))
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -3310,7 +3533,9 @@ impl Terminal {
     /// did not set. This byte-only compatibility API discards Kitty number
     /// aliases.
     pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded_theme_portable_with_aliases(max_bytes)?.bytes)
+        Ok(self
+            .vt_replay_bounded_theme_portable_with_aliases(max_bytes)?
+            .into_self_contained_bytes())
     }
 
     /// Theme-portable replay retaining aliases for the Kitty images admitted
@@ -3386,11 +3611,12 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
-        let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
+        let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
         let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
             .checked_sub(inflight.len())
             .and_then(|remaining| remaining.checked_sub(state_suffix.len()))
+            .and_then(|remaining| remaining.checked_sub(pending.len()))
             .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
@@ -3431,6 +3657,7 @@ impl Terminal {
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
             .and_then(|total| total.checked_add(state_suffix.len()))
+            .and_then(|total| total.checked_add(pending.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3452,12 +3679,13 @@ impl Terminal {
             bytes,
             kitty_image_aliases: graphics.aliases,
             kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
+            pending_sequence: pending,
         })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.
     pub fn vt_replay_bounded_bytes(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded(max_bytes)?.bytes)
+        Ok(self.vt_replay_bounded(max_bytes)?.into_self_contained_bytes())
     }
 
     fn vt_replay_text_layout_bounded(
@@ -5602,6 +5830,19 @@ mod tests {
             terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
             "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
         );
+    }
+
+    #[test]
+    fn empty_kitty_probe_does_not_poison_replay_state() {
+        let mut terminal = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        assert!(terminal.vt_write_with_normalized(b"ready\x1b_G\x1b\\").ends_with(b"ready"));
+        assert!(terminal.vt_stream_is_ground());
+        assert!(terminal.vt_replay_bounded(1024 * 1024).is_ok());
+
+        let mut c1 = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        c1.vt_write(b"\x9fG\x9c");
+        assert!(c1.vt_stream_is_ground());
+        assert!(c1.vt_replay_bounded(1024 * 1024).is_ok());
     }
 
     #[test]

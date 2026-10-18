@@ -40,6 +40,20 @@ class MachineFailureTests(unittest.TestCase):
             with self.subTest(line=line[:40]):
                 self.assertEqual(machine_failure.reason(PREFIX + line), "the Mac does not have the Xcode the job pins")
 
+    def test_a_package_brew_could_not_install_is_a_machine_failure(self):
+        for line in (
+            "##[error][cmux-ci machine: brew-provision] tmux is missing on cmux-austin-mini-1-glaeda-1: "
+            "/opt/homebrew is owned by admin and passwordless sudo is unavailable to become them; "
+            "provision tmux on that machine",
+            "::error::[cmux-ci machine: brew-provision] ffmpeg is missing on this runner: "
+            "there is no brew on PATH; provision ffmpeg on that machine",
+        ):
+            with self.subTest(line=line[:60]):
+                self.assertEqual(
+                    machine_failure.reason(PREFIX + line),
+                    "the Mac is missing a package the tests need and Homebrew could not install it",
+                )
+
     def test_a_started_test_makes_it_the_codes_failure(self):
         for started in (
             "Test Case '-[cmuxUITests.SidebarTests testA]' started.",

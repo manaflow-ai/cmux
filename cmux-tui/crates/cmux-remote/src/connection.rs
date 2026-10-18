@@ -54,6 +54,10 @@ pub struct ReconnectPolicy {
     /// `None` retries until the client closes. A finite value is useful for
     /// one-shot agent commands that prefer a bounded failure time.
     pub maximum_attempts: Option<u32>,
+    /// Bound the complete recovery window, including backoff and transport
+    /// discovery. `None` is retained for callers that explicitly own a longer
+    /// lived connection, but Cloud supplies a finite deadline.
+    pub maximum_duration: Option<Duration>,
 }
 
 impl Default for ReconnectPolicy {
@@ -66,6 +70,10 @@ impl Default for ReconnectPolicy {
             heartbeat_interval: Some(Duration::from_secs(5)),
             heartbeat_timeout: Duration::from_secs(15),
             maximum_attempts: None,
+            // Long-lived interactive links, including direct SSH sessions,
+            // must keep retrying until their owner closes them. Callers that
+            // run bounded one-shot work can opt into a recovery deadline.
+            maximum_duration: None,
         }
     }
 }
@@ -84,6 +92,11 @@ impl ReconnectPolicy {
         if self.maximum_attempts == Some(0) {
             return Err(ConnectionError::Protocol(
                 "reconnect maximum attempts must be positive or unlimited".into(),
+            ));
+        }
+        if self.maximum_duration.is_some_and(|duration| duration.is_zero()) {
+            return Err(ConnectionError::Protocol(
+                "reconnect maximum duration must be positive or unlimited".into(),
             ));
         }
         if self.heartbeat_interval.is_some_and(|interval| interval.is_zero())
@@ -691,25 +704,53 @@ impl ClientConnection {
     ) -> Result<(), ConnectionError> {
         let mut attempt = 0_u32;
         let mut delay = self.config.reconnect.initial_delay;
+        let recovery_deadline = match self.config.reconnect.maximum_duration {
+            Some(duration) => {
+                Some(tokio::time::Instant::now().checked_add(duration).ok_or_else(|| {
+                    ConnectionError::Protocol(
+                        "reconnect maximum duration cannot be represented".into(),
+                    )
+                })?)
+            }
+            None => None,
+        };
         let mut group = self.group.read().await.clone();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
             }
             attempt = attempt.saturating_add(1);
+            if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err(ConnectionError::ReconnectDeadlineExceeded {
+                    attempts: attempt.saturating_sub(1),
+                });
+            }
+            let attempt_timeout = recovery_deadline
+                .map(|deadline| {
+                    self.config
+                        .reconnect
+                        .attempt_timeout
+                        .min(deadline.saturating_duration_since(tokio::time::Instant::now()))
+                })
+                .unwrap_or(self.config.reconnect.attempt_timeout);
             let reconnect = tokio::select! {
                 biased;
                 _ = close_state.changed() => return Err(ConnectionError::Closed),
-                reconnect = tokio::time::timeout(
-                    self.config.reconnect.attempt_timeout,
-                    self.reconnect_once(group.clone()),
-                ) => reconnect,
+                reconnect = tokio::time::timeout(attempt_timeout, self.reconnect_once(group.clone())) => reconnect,
             };
             let result = match reconnect {
                 Ok(result) => result,
-                Err(_) => Err(ConnectionError::ReconnectAttemptTimedOut {
-                    timeout: self.config.reconnect.attempt_timeout,
-                }),
+                Err(_) => Err(
+                    if recovery_deadline
+                        .is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
+                    {
+                        ConnectionError::ReconnectDeadlineExceeded { attempts: attempt }
+                    } else {
+                        ConnectionError::ReconnectAttemptTimedOut {
+                            timeout: self.config.reconnect.attempt_timeout,
+                        }
+                    },
+                ),
             };
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
@@ -737,16 +778,36 @@ impl ClientConnection {
                         let next = tokio::select! {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
-                            next = resolve_reconnect_group(
-                                source.as_ref(),
-                                self.config.reconnect.attempt_timeout,
-                            ) => next,
+                            next = async {
+                                if let Some(deadline) = recovery_deadline
+                                    && tokio::time::Instant::now() >= deadline
+                                {
+                                    return None;
+                                }
+                                let timeout = recovery_deadline
+                                    .map(|deadline| self.config.reconnect.attempt_timeout.min(deadline.saturating_duration_since(tokio::time::Instant::now())))
+                                    .unwrap_or(self.config.reconnect.attempt_timeout);
+                                let discovery = resolve_reconnect_group(
+                                    source.as_ref(), self.config.reconnect.attempt_timeout,
+                                );
+                                match recovery_deadline {
+                                    Some(deadline) => tokio::time::timeout_at(deadline, discovery).await.unwrap_or(None),
+                                    None => tokio::time::timeout(timeout, discovery).await.unwrap_or(None),
+                                }
+                            } => next,
                         };
                         if let Some(next) = next {
                             group = next;
                         }
                     }
                     let retry_delay = self.config.reconnect.retry_delay(delay);
+                    let retry_delay = recovery_deadline
+                        .map(|deadline| {
+                            retry_delay.min(
+                                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                            )
+                        })
+                        .unwrap_or(retry_delay);
                     tokio::select! {
                         biased;
                         _ = tokio::time::sleep(retry_delay) => {}
@@ -1106,6 +1167,7 @@ pub enum ConnectionError {
     GenerationChanged { expected: u64, actual: u64 },
     ReconnectExhausted { attempts: u32, last: String },
     ReconnectAttemptTimedOut { timeout: Duration },
+    ReconnectDeadlineExceeded { attempts: u32 },
     ShutdownTimedOut,
     Closed,
 }
@@ -1146,6 +1208,9 @@ impl fmt::Display for ConnectionError {
             }
             Self::ReconnectAttemptTimedOut { timeout } => {
                 write!(formatter, "reconnect attempt timed out after {}ms", timeout.as_millis())
+            }
+            Self::ReconnectDeadlineExceeded { attempts } => {
+                write!(formatter, "reconnect deadline expired after {attempts} attempts")
             }
             Self::ShutdownTimedOut => formatter.write_str("connection shutdown timed out"),
             Self::Closed => formatter.write_str("connection is closed"),
@@ -1224,6 +1289,16 @@ mod tests {
         assert!(!retryable_connection_error(&ConnectionError::Link(LinkError::Protocol(
             "invalid physical frame".into()
         ))));
+    }
+
+    #[test]
+    fn reconnect_policy_defaults_to_an_unbounded_recovery_window() {
+        assert_eq!(ReconnectPolicy::default().maximum_duration, None);
+        assert!(
+            ReconnectPolicy { maximum_duration: Some(Duration::ZERO), ..Default::default() }
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]
@@ -1990,6 +2065,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(20)),
                     heartbeat_timeout: Duration::from_millis(40),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2049,6 +2125,7 @@ mod tests {
                     heartbeat_interval: Some(Duration::from_millis(10)),
                     heartbeat_timeout: Duration::from_millis(30),
                     maximum_attempts: Some(2),
+                    maximum_duration: None,
                 },
             },
         )
@@ -2107,6 +2184,7 @@ mod tests {
                     heartbeat_interval: None,
                     heartbeat_timeout: Duration::from_secs(1),
                     maximum_attempts: None,
+                    maximum_duration: None,
                 },
             },
         )

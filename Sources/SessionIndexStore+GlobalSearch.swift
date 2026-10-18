@@ -24,6 +24,40 @@ extension SessionIndexStore {
         )
     }
 
+    /// Loads a larger bounded recent-session slice for callers that have
+    /// exhausted the initial Vault preview. This deliberately reuses the same
+    /// per-agent readers, registry, caps, and error policy as Vault instead of
+    /// introducing a second history index.
+    func loadRecentSessions(
+        limitPerAgent: Int,
+        offsetPerAgent: Int = 0
+    ) async -> SearchOutcome {
+        let safeLimit = min(max(limitPerAgent, 1), Self.searchMaxFiles)
+        let safeOffset = min(max(offsetPerAgent, 0), Self.searchMaxFiles)
+        let bag = ErrorBag()
+        let order = await Self.defaultAgentOrder(workingDirectory: nil)
+        let combined = await Self.loadAgents(
+            order.agents,
+            registry: order.registry,
+            ampSessionRepository: ampSessionRepository,
+            needle: "",
+            cwdFilter: nil,
+            offset: safeOffset,
+            limit: safeLimit,
+            errorBag: bag
+        )
+        guard !Task.isCancelled else {
+            return SearchOutcome(entries: [], errors: [])
+        }
+        return SearchOutcome(
+            entries: combined.sorted { lhs, rhs in
+                if lhs.modified != rhs.modified { return lhs.modified > rhs.modified }
+                return lhs.id < rhs.id
+            },
+            errors: bag.snapshot()
+        )
+    }
+
     /// Store-free core (also the `vault.search` socket handler's engine).
     /// Two bounded phases: metadata match against `entries`, then the
     /// existing capped per-agent transcript search for the free-text part of

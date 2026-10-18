@@ -168,7 +168,7 @@ Common response objects have these fields:
 | `computer-use-result` | `result:ComputerUseResult` |
 | `computer-use-canceled` | `invocation:ComputerUseInvocationId`, `accepted:bool` |
 
-Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
+Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1`, `process-terminal-snapshot-v1`, and `terminal-viewer-size-priority-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax. `terminal-viewer-size-priority-v1` indicates that a `terminal-bytes-v1` open accepts the optional metadata `"viewer_size_priority":"preferred"`, which asks the terminal host to size the grid from that renderer before other viewers when the host supports it; older daemons reject the key as `invalid-argument`.
 
 ## Files, search, patch, and diff
 

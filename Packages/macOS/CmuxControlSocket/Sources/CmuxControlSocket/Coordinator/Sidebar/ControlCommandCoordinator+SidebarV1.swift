@@ -60,6 +60,8 @@ extension ControlCommandCoordinator {
         case "reload_config": return sidebarReloadConfig(args)
         case "refresh_surfaces": return sidebarRefreshSurfaces()
         case "surface_health": return sidebarSurfaceHealth(args)
+        case "report_workspace_pr": return sidebarReportWorkspacePullRequest(args, context: context)
+        case "clear_workspace_pr": return sidebarClearWorkspacePullRequest(args, context: context)
         default: return nil
         }
     }
@@ -403,6 +405,7 @@ extension ControlCommandCoordinator {
         if let url = entry.urlAbsoluteString { line += " url=\(url)" }
         if entry.priority != 0 { line += " priority=\(entry.priority)" }
         if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        if let workState = entry.workState { line += " work=\(workState.rawValue)" }
         return line
     }
 

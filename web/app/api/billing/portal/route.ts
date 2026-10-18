@@ -10,15 +10,29 @@ import {
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import { resolveProPlanStatus, stripeBillingStatusForUser } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
-import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import {
+  personalPortalSession,
+  personalSwitchLinkRedirect,
+} from "../../../../services/billing/personalPortal";
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import {
+  explicitTeamId,
+  resolveTeamBillingAccess,
+  type TeamBillingAccessError,
+  type TeamBillingAccessUser,
+} from "../../../../services/billing/teamBillingAccess";
+import {
+  stripeCustomerIdForStackTeam,
+  teamBillingReturnURL,
+  teamPortalSession,
+} from "../../../../services/billing/teamPortal";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -55,7 +69,28 @@ export async function GET(request: NextRequest) {
     stackUserId = user.id;
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
+    const requestedTeamId = requestedScope === "team"
+      ? explicitTeamId(request.nextUrl.searchParams.get("teamId"))
+      : null;
+    if (requestedTeamId) return await explicitTeamPortal(request, user, requestedTeamId);
+    // Legacy `?scope=team` without a team id: the implicit billing team, which
+    // still needs the caller to be its admin.
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
+    if (team?.id) return await explicitTeamPortal(request, user, team.id);
+    const target = request.nextUrl.searchParams.get("plan");
+    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
+    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
+      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
+    }
+    // A switch the hosted portal cannot do goes to checkout or the dashboard
+    // dialog, including for an account with no Stripe customer yet.
+    const switchStatus = wantsSwitch ? await stripeBillingStatusForUser(user.id) : null;
+    const switchRedirect = switchStatus && wantsSwitch
+      ? personalSwitchLinkRedirect({
+          status: switchStatus, origin: requestOrigin(request), target, searchParams: request.nextUrl.searchParams,
+        })
+      : null;
+    if (switchRedirect) return NextResponse.redirect(switchRedirect, 302);
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
@@ -74,15 +109,12 @@ export async function GET(request: NextRequest) {
       return pricingRedirect(request, "unavailable");
     }
 
-    const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
-    const target = request.nextUrl.searchParams.get("plan");
-    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
-    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
-      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
-    }
+    const returnUrl = team?.id
+      ? teamBillingReturnURL(requestOrigin(request), team.id)
+      : new URL("/dashboard/billing", requestOrigin(request)).toString();
     const session = wantsSwitch
       ? await personalPortalSession({
-          userId: user.id, origin: requestOrigin(request), target,
+          userId: user.id, origin: requestOrigin(request), target, status: switchStatus ?? undefined,
           attribution: checkoutAttributionFromRequest({ searchParams: request.nextUrl.searchParams, referer: request.headers.get("referer") }),
         })
       : await stripe().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
@@ -98,6 +130,33 @@ export async function GET(request: NextRequest) {
     });
     return pricingRedirect(request, "error");
   }
+}
+
+/**
+ * `?scope=team&teamId=`: the named team's portal, for its admins only.
+ * Refusals return to that team's billing view with a banner code.
+ */
+async function explicitTeamPortal(
+  request: NextRequest,
+  user: TeamBillingAccessUser,
+  teamId: string,
+): Promise<NextResponse> {
+  const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: true });
+  if (!access.ok) return teamBillingRedirect(request, teamId, access.error);
+  const session = await teamPortalSession({ teamId, origin: requestOrigin(request) });
+  if (!session) return teamBillingRedirect(request, teamId, "nosub");
+  return NextResponse.redirect(session.url, 302);
+}
+
+function teamBillingRedirect(
+  request: NextRequest,
+  teamId: string,
+  billing: TeamBillingAccessError | "nosub",
+): NextResponse {
+  const url = new URL("/dashboard/billing", requestOrigin(request));
+  if (billing !== "personal_team_not_upgradable_to_team") url.searchParams.set("team", teamId);
+  url.searchParams.set("billing", billing);
+  return NextResponse.redirect(url, 302);
 }
 
 async function currentStackUser(getStackServerApp: GetStackServerApp) {
@@ -118,15 +177,6 @@ async function stripeCustomerIdForStackUser(stackUserId: string): Promise<string
         isNull(stripeCustomers.stackTeamId),
       ),
     )
-    .limit(1);
-  return rows[0]?.id ?? null;
-}
-
-async function stripeCustomerIdForStackTeam(stackTeamId: string): Promise<string | null> {
-  const rows = await cloudDb()
-    .select({ id: stripeCustomers.id })
-    .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackTeamId, stackTeamId))
     .limit(1);
   return rows[0]?.id ?? null;
 }

@@ -74,12 +74,30 @@ public struct WorktreeSeedRepository: Sendable {
         }
     }
 
-    /// Whether a path resolves to somewhere under the resolved repository root.
+    /// Whether the symlink at `url` points to somewhere under the resolved
+    /// repository root.
+    ///
+    /// The target is read and resolved by hand rather than by resolving the link
+    /// itself. `resolvingSymlinksInPath()` leaves a link whose target does not
+    /// exist looking like the link's own path, so a dangling
+    /// `gone -> /elsewhere/secret` read as inside the repository and was
+    /// reproduced in the new worktree, where it becomes a live link out of the
+    /// tree the moment the target appears.
     ///
     /// The comparison adds the separator so `/repo-backup` does not read as being
     /// inside `/repo`.
     private static func isInside(_ url: URL, resolvedRootPath: String) -> Bool {
-        let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let target: URL
+        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) {
+            target = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent())
+                .standardizedFileURL
+        } else {
+            target = url
+        }
+        // The parent is resolved, not the target: the target may not exist, and
+        // every real component above it does.
+        let parent = target.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        let resolved = parent.appendingPathComponent(target.lastPathComponent).standardizedFileURL.path
         if resolved == resolvedRootPath { return true }
         return resolved.hasPrefix(resolvedRootPath.hasSuffix("/") ? resolvedRootPath : resolvedRootPath + "/")
     }

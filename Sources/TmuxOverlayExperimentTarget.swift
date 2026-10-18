@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -12,4 +13,11 @@ enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     var usesTmuxActivePaneOverlay: Bool {
         self == .tmuxActivePane
     }
+}
+
+extension EnvironmentValues {
+    /// The window's tmux overlay experiment target, injected from its
+    /// ``TmuxOverlayExperimentTargetObserver`` so workspace views don't read
+    /// `UserDefaults` in their bodies.
+    @Entry var tmuxOverlayExperimentTarget = TmuxOverlayExperimentSettings.defaultTarget
 }

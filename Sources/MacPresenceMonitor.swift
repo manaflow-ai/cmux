@@ -157,7 +157,7 @@ extension MacPresenceMonitor {
     /// Min across keyboard, mouse-move, mouse-down, and scroll HID timestamps.
     /// `.hidSystemState` deliberately excludes session-synthesized events (see
     /// type docs for why synthetic agent input must not count as presence).
-    static func liveSecondsSinceLastHardwareInput() -> TimeInterval? {
+    private static func liveSecondsSinceLastHardwareInput() -> TimeInterval? {
         let eventTypes: [CGEventType] = [
             .keyDown,
             .mouseMoved,

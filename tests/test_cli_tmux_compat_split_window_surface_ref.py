@@ -6,7 +6,6 @@ Regression tests for `cmux __tmux-compat split-window`.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -14,6 +13,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -24,6 +24,10 @@ NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 
 class FakeCmuxState:
     def __init__(self) -> None:
+        self.split_created = False
+
+    def close_teammate_without_cli(self) -> None:
+        """Model a tab close, which bypasses tmux-compat cleanup."""
         self.split_created = False
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
@@ -121,7 +125,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if not line:
                 return
 
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -153,12 +157,10 @@ def run_cli(
     fake_home: Path,
     args: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = "%pane:1"
-    env["HOME"] = str(fake_home)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],
         capture_output=True,
@@ -174,12 +176,17 @@ def assert_successful_split(
     socket_path: Path,
     fake_home: Path,
     label: str,
+    target: str | None = None,
 ) -> None:
+    split_args = ["__tmux-compat", "split-window"]
+    if target is not None:
+        split_args.extend(["-t", target])
+    split_args.extend(["-h", "-P", "-F", "#{pane_id}"])
     proc = run_cli(
         cli_path,
         socket_path,
         fake_home,
-        ["__tmux-compat", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+        split_args,
     )
     if proc.returncode != 0:
         raise AssertionError(
@@ -197,23 +204,21 @@ def assert_resplit_after_close(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
+    state: FakeCmuxState,
 ) -> None:
     assert_successful_split(cli_path, socket_path, fake_home, "initial split-window")
 
-    closed = run_cli(
+    # A tab x closes the surface without going through the tmux shim. The
+    # persisted column anchor is therefore stale when the next spawn arrives.
+    state.close_teammate_without_cli()
+
+    assert_successful_split(
         cli_path,
         socket_path,
         fake_home,
-        ["close-surface", "--workspace", "workspace:1", "--surface", "surface:2"],
+        "second split-window",
+        target="surface:2",
     )
-    if closed.returncode != 0:
-        raise AssertionError(
-            "close-surface returned non-zero\n"
-            f"stdout={closed.stdout.strip()}\n"
-            f"stderr={closed.stderr.strip()}"
-        )
-
-    assert_successful_split(cli_path, socket_path, fake_home, "second split-window")
 
 
 def main() -> int:
@@ -235,7 +240,7 @@ def main() -> int:
             fake_home.mkdir(parents=True, exist_ok=True)
 
             try:
-                assert_resplit_after_close(cli_path, socket_path, fake_home)
+                assert_resplit_after_close(cli_path, socket_path, fake_home, state)
             finally:
                 server.shutdown()
                 server.server_close()

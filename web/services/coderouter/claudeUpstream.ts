@@ -17,6 +17,10 @@ import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
 import {
+  buildCooldownWriteExpressions,
+  NON_TRANSIENT_FAILURE_CODES,
+} from "./cooldownWrite";
+import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
   type CredentialKeyService,
@@ -274,7 +278,7 @@ function parseLabel(value: unknown): string | null {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") return null;
   const label = value.trim();
-  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[\x00-\x1f\x7f]/.test(label)) return null;
   return label;
 }
 
@@ -335,6 +339,11 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
       described.push(describeRow(await withIdentifier(row)));
     }
     return described;
+  }
+
+  /** Whether the caller can be served at all: one active account. A metadata read; nothing is decrypted or written. */
+  async function hasActive(teamId: string, access?: CoderouterAccountAccess): Promise<boolean> {
+    return (await store.list(teamId, undefined, access)).some((row) => row.state === "active");
   }
 
   async function add(
@@ -439,7 +448,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     await store.touchUsed(accountId, now(), signal);
   }
 
-  return { list, add, update, remove, removeAll, select, cooldown, touchUsed };
+  return { list, hasActive, add, update, remove, removeAll, select, cooldown, touchUsed };
 }
 
 function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
@@ -451,9 +460,6 @@ function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
   }
   return Math.max(1, soonest ?? DEFAULT_EXHAUSTED_RETRY_SECONDS);
 }
-
-/** A revoked or unauthorized credential needs a human, not a wait. */
-const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential"]);
 
 function capacityRetryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number | null {
   let soonest: number | null = null;
@@ -471,7 +477,7 @@ export function rendezvousPick<T extends { readonly id: string }>(key: string, c
   let best: T | null = null;
   let bestScore = "";
   for (const candidate of candidates) {
-    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    const score = createHash("sha256").update(`${key}\x00${candidate.id}`).digest("hex");
     if (best === null || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -674,7 +680,15 @@ const drizzleStore: ClaudeAccountStore = {
   async markCooldown(accountId, until, failureCode, signal) {
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .set({
+        ...buildCooldownWriteExpressions(
+          coderouterClaudeAccounts.cooldownUntil,
+          coderouterClaudeAccounts.lastFailureCode,
+          until,
+          failureCode,
+        ),
+        updatedAt: new Date(),
+      })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async touchUsed(accountId, at, signal) {
@@ -724,6 +738,7 @@ export const claudeAccountStore: ClaudeAccountStore = drizzleStore;
 const defaultService = createClaudeUpstreamService({ store: drizzleStore });
 
 export const listClaudeAccounts = defaultService.list;
+export const hasActiveClaudeAccount = defaultService.hasActive;
 export const addClaudeAccount = defaultService.add;
 export const updateClaudeAccount = defaultService.update;
 export const removeClaudeAccount = defaultService.remove;

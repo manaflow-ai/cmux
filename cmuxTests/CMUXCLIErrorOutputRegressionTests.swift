@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxSettings
+import CryptoKit
 import Darwin
 import Foundation
 import SQLite3
@@ -4809,10 +4810,33 @@ import Testing
     }
 }
 
+/// Gives a canned v2 response the id of the request it answers, as the app's
+/// ControlResponseEncoder does; the CLI rejects a v2 response whose id differs.
+/// Non-JSON lines (v1, `ERROR:`) and responses that already carry an `id` key
+/// (including deliberate mismatches or null) are returned byte-for-byte.
+func cliTestResponse(_ response: String, answering request: String?) -> String {
+    guard let request,
+          let requestObject = try? JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any],
+          let id = requestObject["id"],
+          let responseObject = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any],
+          responseObject["id"] == nil,
+          let idData = try? JSONSerialization.data(withJSONObject: ["id": id]),
+          let idObject = String(data: idData, encoding: .utf8) else {
+        return response
+    }
+    let trimmed = response.drop(while: \.isWhitespace)
+    guard trimmed.first == "{" else { return response }
+    let rest = trimmed.dropFirst().drop(while: \.isWhitespace)
+    // `{"id":…}` without its closing brace, so the canned fields follow it.
+    let prefix = String(idObject.dropLast())
+    return rest.first == "}" ? prefix + rest : prefix + "," + rest
+}
+
 final class UnixSocketResponder {
     let path: String
     private let responses: [String]
     private let responseDelay: TimeInterval
+    private let onRequest: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
     private var stopped = false
@@ -4823,7 +4847,12 @@ final class UnixSocketResponder {
         try self.init(path: path, responses: [response], responseDelay: responseDelay)
     }
 
-    init(path: String, responses: [String], responseDelay: TimeInterval = 0) throws {
+    init(
+        path: String,
+        responses: [String],
+        responseDelay: TimeInterval = 0,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
         guard !responses.isEmpty else {
             throw NSError(
                 domain: NSCocoaErrorDomain,
@@ -4834,6 +4863,7 @@ final class UnixSocketResponder {
         self.path = path
         self.responses = responses
         self.responseDelay = responseDelay
+        self.onRequest = onRequest
 
         unlink(path)
         listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -4954,17 +4984,22 @@ final class UnixSocketResponder {
                 }
             }
             var responseIndex = 0
-            if let line = String(data: request, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) {
+            let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let line {
                 lock.lock()
                 responseIndex = requests.count
                 requests.append(line)
                 lock.unlock()
+                onRequest?(line)
             }
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
-            let response = responses[min(responseIndex, responses.count - 1)]
+            let response = cliTestResponse(
+                responses[min(responseIndex, responses.count - 1)],
+                answering: line
+            )
             let payload = response + "\n"
             payload.withCString { pointer in
                 _ = write(clientFD, pointer, strlen(pointer))
@@ -5146,15 +5181,18 @@ final class RelaySocketResponder {
             socklen_t(MemoryLayout<Int32>.size)
         )
         let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
-        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
-        guard writeLine(#"{"ok":true}"#, to: clientFD),
+        guard writeLine(challenge, to: clientFD), let authLine = readLine(from: clientFD) else { return }
+        guard writeLine(Self.authResult(authLine: authLine, relayID: relayID), to: clientFD),
               let request = readLine(from: clientFD) else { return }
 
         lock.lock()
         let responseIndex = requests.count
         requests.append(request)
         lock.unlock()
-        _ = writeLine(responses[min(responseIndex, responses.count - 1)], to: clientFD)
+        _ = writeLine(
+            cliTestResponse(responses[min(responseIndex, responses.count - 1)], answering: request),
+            to: clientFD
+        )
     }
 
     private func readLine(from fd: Int32) -> String? {
@@ -5183,6 +5221,22 @@ final class RelaySocketResponder {
             }
             return true
         }
+    }
+
+    /// Token the relay tests pass in `CMUX_RELAY_TOKEN`.
+    static let relayToken = Data(repeating: 0x11, count: 32)
+
+    /// Success line proving the token over the client's nonce, as the app's
+    /// relay does; the CLI sends nothing further without it.
+    private static func authResult(authLine: String, relayID: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(authLine.utf8)) as? [String: Any],
+              let clientNonce = object["client_nonce"] as? String else {
+            return #"{"ok":true}"#
+        }
+        let message = "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=test-nonce\nversion=1"
+        let proof = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: relayToken))
+        let proofHex = Data(proof).map { String(format: "%02x", $0) }.joined()
+        return #"{"ok":true,"relay_mac":"\#(proofHex)"}"#
     }
 
     private static func posixError(_ operation: String) -> NSError {

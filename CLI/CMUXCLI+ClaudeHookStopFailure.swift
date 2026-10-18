@@ -10,7 +10,8 @@ extension CMUXCLI {
         icon: String,
         color: String,
         pid: Int? = nil,
-        priority: Int? = nil
+        priority: Int? = nil,
+        workState: AgentSidebarWorkState? = nil
     ) throws {
         // The socket tokenizer opens a quoted token at a bare ' or ", so a
         // localized value such as "Erreur d'API" would swallow every option
@@ -26,6 +27,16 @@ extension CMUXCLI {
         if let pid,
            ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" {
             cmd += " --pid=\(pid)"
+        }
+        // Every option here is `--key=value`, so none can swallow another and
+        // the reader takes them from a dictionary: order on the wire does not
+        // matter. This one is new and optional, so it goes last, because
+        // several existing tests pin the command up to `--tab=` and a flag
+        // inserted before that breaks them for no reason connected to what
+        // they check. A future bare flag would not be order-independent: the
+        // parser reads the next token as its value.
+        if let workState {
+            cmd += " --work=\(workState.rawValue)"
         }
         _ = try client.send(command: cmd)
     }

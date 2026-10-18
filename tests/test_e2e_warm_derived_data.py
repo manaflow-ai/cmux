@@ -3,6 +3,7 @@
 import io
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -112,6 +113,58 @@ class ReplayTimes(unittest.TestCase):
 
         self.assertNotIn("Linked/", warm.record(self.producer))
         self.assertEqual(outside.stat().st_mtime_ns, BUILD_TIME_NS)
+
+
+class GitTrackedInputs(unittest.TestCase):
+    def test_ignored_files_in_a_submodule_are_not_recorded_as_inputs(self):
+        root = Path(tempfile.mkdtemp())
+        child = root / "child"
+        workspace = root / "workspace"
+        (child / "Sources").mkdir(parents=True)
+        workspace.mkdir()
+        (child / ".gitignore").write_text("Sources/generated.swift\n")
+        (child / "Sources/App.swift").write_text("let app = 1\n")
+
+        def git_environment():
+            return {
+                name: value
+                for name, value in os.environ.items()
+                if name not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}
+            }
+
+        def git(repository, *arguments):
+            subprocess.run(
+                ["git", "-C", str(repository), *arguments],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=git_environment(),
+            )
+
+        git(child, "init", "-q")
+        git(child, "add", ".gitignore", "Sources/App.swift")
+        git(child, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "init")
+        git(workspace, "init", "-q")
+        git(
+            workspace,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(child),
+            "vendor/child",
+        )
+        git(workspace, "add", ".gitmodules", "vendor/child")
+        git(workspace, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "init")
+        (workspace / "vendor/child/Sources/generated.swift").write_text("let generated = 1\n")
+
+        with mock.patch.dict(os.environ, {"GIT_INDEX_FILE": str(root / "foreign-index")}, clear=False):
+            recorded = warm.record(workspace)
+
+        self.assertIn("vendor/child/Sources/App.swift", recorded)
+        self.assertNotIn("vendor/child/.git", recorded)
+        self.assertNotIn("vendor/child/Sources/generated.swift", recorded)
 
 
 class TrustedProducers(unittest.TestCase):

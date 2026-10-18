@@ -3,10 +3,12 @@ import CmuxTerminalSizing
 /// The sizing host of one local Mac terminal.
 ///
 /// Wraps ``TerminalSizingEngine`` with the Mac-specific rules: the Mac pane is
-/// always attached as participant ``macParticipantID``; each paired phone is
-/// `mobile:<client_id>`; a phone that someone disconnected stays out (its
-/// reports are refused) until it reattaches. Pure and synchronous, so the
-/// controller that owns the Ghostty surface decides when to apply.
+/// participant ``macParticipantID``; each paired phone or viewing Mac is
+/// `mobile:<client_id>`; a view that someone disconnected stays out (its
+/// reports are refused) until it reattaches. That includes the Mac pane's own
+/// view (tmux `detach-client` on the host's client): the PTY keeps running
+/// here and the other viewers keep their sessions. Pure and synchronous, so
+/// the controller that owns the Ghostty surface decides when to apply.
 public struct LocalTerminalSizingHost: Sendable {
     /// The engine; its `state` is what every viewer sees.
     public private(set) var engine: TerminalSizingEngine
@@ -14,6 +16,11 @@ public struct LocalTerminalSizingHost: Sendable {
     public let macParticipantID: String
     /// Phones disconnected by someone, keyed by participant id.
     public private(set) var detachedPhones: [String: TerminalSharingDetachment] = [:]
+    /// Set while someone else disconnected the Mac pane's own view.
+    public private(set) var macDetachment: TerminalSharingDetachment?
+    /// The Mac pane as it attaches: identity plus its latest grid, kept while
+    /// its view is detached so a reattach restores the current pane grid.
+    private var macParticipant: TerminalSizingParticipant
     /// Phones that reattached as viewers; their next attach has `counts_override: false`.
     private var viewerOnNextAttach: Set<String> = []
 
@@ -35,6 +42,7 @@ public struct LocalTerminalSizingHost: Sendable {
         policy: TerminalSizingPolicy = .fitEveryone
     ) {
         macParticipantID = macParticipant.id
+        self.macParticipant = macParticipant
         engine = TerminalSizingEngine(initialSize: initialSize, policy: policy)
         engine.attach(macParticipant)
     }
@@ -42,9 +50,9 @@ public struct LocalTerminalSizingHost: Sendable {
     /// The published state.
     public var state: TerminalSizingState { engine.state }
 
-    /// The Mac pane's own grid, as last reported.
+    /// The Mac pane's own grid, as last reported (also while its view is detached).
     public var macViewport: TerminalGridSize? {
-        state.participant(macParticipantID)?.participant.viewport
+        macParticipant.viewport
     }
 
     /// Attached participants other than the Mac pane.
@@ -53,10 +61,11 @@ public struct LocalTerminalSizingHost: Sendable {
     }
 
     /// What to apply to the Ghostty surface: nothing extra when the grid is the
-    /// Mac pane's own grid, otherwise a pin to the decided grid.
+    /// Mac pane's own grid, otherwise a pin to the decided grid. A detached
+    /// Mac view never sets the grid, so its pane stays pinned to it.
     public var applyTarget: TerminalSizingApplyTarget {
         let size = state.size
-        if let macViewport, macViewport == size { return .uncapped }
+        if macDetachment == nil, let macViewport, macViewport == size { return .uncapped }
         return .grid(size)
     }
 
@@ -64,14 +73,19 @@ public struct LocalTerminalSizingHost: Sendable {
     ///
     /// - Parameter id: a participant id.
     /// - Returns: `true` while a disconnect is in force.
-    public func isDetached(_ id: String) -> Bool { detachedPhones[id] != nil }
+    public func isDetached(_ id: String) -> Bool {
+        id == macParticipantID ? macDetachment != nil : detachedPhones[id] != nil
+    }
 
     // MARK: Mutations. Each returns true when the published state changed.
 
-    /// Records the Mac pane's current grid.
+    /// Records the Mac pane's current grid. While the Mac view is detached
+    /// the grid is only remembered for the reattach.
     @discardableResult
     public mutating func updateMacViewport(_ viewport: TerminalGridSize) -> Bool {
-        engine.report(macParticipantID, viewport: viewport)
+        macParticipant.viewport = viewport.clamped
+        guard macDetachment == nil else { return false }
+        return engine.report(macParticipantID, viewport: viewport)
     }
 
     /// Makes the attached phone set equal `phones`: attaches new ones (attach is
@@ -121,30 +135,48 @@ public struct LocalTerminalSizingHost: Sendable {
         engine.setCountsOverride(id, value)
     }
 
-    /// Disconnects a phone. It stays out until ``reattach(_:asViewer:)``.
-    /// The Mac pane itself cannot be disconnected from its own host.
+    /// Disconnects one view. It stays out until ``reattach(_:asViewer:)``.
+    /// For the Mac pane this detaches only its view: the PTY and every other
+    /// viewer stay.
     ///
     /// - Parameters:
-    ///   - id: the phone's participant id.
-    ///   - detachment: the reason and time to report to the phone.
+    ///   - id: the participant id (a phone, a viewing Mac or the Mac pane).
+    ///   - detachment: the reason and time to report to the view.
     /// - Returns: whether the participant was attached and is now detached.
     @discardableResult
     public mutating func disconnect(_ id: String, detachment: TerminalSharingDetachment) -> Bool {
-        guard id != macParticipantID, state.participant(id) != nil else { return false }
-        detachedPhones[id] = detachment
-        viewerOnNextAttach.remove(id)
+        guard state.participant(id) != nil else { return false }
+        if id == macParticipantID {
+            if let row = state.participant(id) { macParticipant.countsOverride = row.participant.countsOverride }
+            macDetachment = detachment
+        } else {
+            detachedPhones[id] = detachment
+            viewerOnNextAttach.remove(id)
+        }
         engine.detach(id)
         return true
     }
 
-    /// Lifts a disconnect so the phone's next report attaches it again.
+    /// Lifts a disconnect. A phone's next report attaches it again; the Mac
+    /// pane attaches at once with its latest grid.
     ///
     /// - Parameters:
-    ///   - id: the phone's participant id.
+    ///   - id: the participant id.
     ///   - asViewer: attach with `counts_override: false`.
-    public mutating func reattach(_ id: String, asViewer: Bool) {
-        detachedPhones[id] = nil
+    /// - Returns: whether a disconnect was in force.
+    @discardableResult
+    public mutating func reattach(_ id: String, asViewer: Bool) -> Bool {
+        if id == macParticipantID {
+            guard macDetachment != nil else { return false }
+            macDetachment = nil
+            var mac = macParticipant
+            mac.countsOverride = asViewer ? false : nil
+            engine.attach(mac)
+            return true
+        }
+        let wasDetached = detachedPhones.removeValue(forKey: id) != nil
         if asViewer { viewerOnNextAttach.insert(id) } else { viewerOnNextAttach.remove(id) }
+        return wasDetached
     }
 
     /// Forgets a phone whose connection closed, including a pending disconnect.

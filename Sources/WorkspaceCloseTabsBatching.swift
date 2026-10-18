@@ -62,13 +62,10 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        let warningKinds = CloseTabWarningStore(
-            defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults
-        ).warningKinds(
+        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
-        )
-        if !warningKinds.isEmpty {
+        ) {
             guard let confirmationManager else { return }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map { candidate in
@@ -81,8 +78,7 @@ extension Workspace {
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false,
-                dontAskAgain: warningKinds
+                acceptCmdD: false
             ) else { return }
         }
 
