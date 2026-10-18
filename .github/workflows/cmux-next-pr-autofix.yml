@@ -402,12 +402,20 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # The repair runs on the immutable merge tree, but the artifact must
+          # be based on the exact branch head that triggered this run. Refuse
+          # to produce a patch if either identity is missing or mismatched;
+          # otherwise a formatter-only repair can accidentally publish a
+          # commit whose parent no longer contains the PR's functional diff.
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse "${HEAD_SHA}^{commit}")" = "${HEAD_SHA}"
           # Repairs ran on the merged tree. Replace the index with the PR head
           # tree before staging so the artifact is a patch against the exact
           # branch head; this avoids applying base-only context at push time.
           git add -A
           mapfile -t changed < <(git diff --cached --name-only)
           git read-tree "$HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           tracked=() untracked=()
           for path in "${changed[@]}"; do
             if git cat-file -e "$HEAD_SHA:$path" 2>/dev/null; then
@@ -488,6 +496,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          test "$(git -C head rev-parse HEAD)" = "${HEAD_SHA}"
           apply=base/scripts/cmux-next/pr-autofix-apply.sh
           if [[ "$HAS_APP" != true ]]; then
             echo "::notice::No PR autofix App secrets (CMUX_PR_AUTOFIX_APP_ID/KEY) yet; the repairs stay in the artifact pr-autofix-patch."
@@ -507,6 +516,7 @@ jobs:
           git commit --quiet -m "chore(next): PR autofix at ${HEAD_SHA:0:12}" \
             -m "$(grep '^fixed: ' "$RUNNER_TEMP/pr-autofix/pr-autofix.txt" | sed 's/^fixed: /- /')" \
             -m "Autofix-Run: $RUN_URL"
+          test "$(git rev-parse HEAD^)" = "${HEAD_SHA}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Mint the PR autofix App token

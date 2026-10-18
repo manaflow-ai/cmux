@@ -2699,6 +2699,11 @@ Result<Json> Codec<ConversationTabSplit>::encode(const ConversationTabSplit& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("pane_id", std::move(encoded).value());
     }
+    if (!value.split_id.is_absent()) {
+        auto encoded = encode_value(value.split_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("split_id", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -2723,6 +2728,16 @@ Result<ConversationTabSplit> Codec<ConversationTabSplit>::decode(const Json& val
             auto decoded = decode_value<std::string>(*field_pane_id);
             if (!decoded) return std::move(decoded).error();
             result.pane_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_split_id = value.find("split_id");
+    if (field_split_id) {
+        if (field_split_id->is_null()) {
+            result.split_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_split_id);
+            if (!decoded) return std::move(decoded).error();
+            result.split_id = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -30114,6 +30129,11 @@ Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("shell_args", std::move(encoded).value());
     }
+    if (!value.split_id.is_absent()) {
+        auto encoded = encode_value(value.split_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("split_id", std::move(encoded).value());
+    }
     if (!value.tab_id.is_absent()) {
         auto encoded = encode_value(value.tab_id);
         if (!encoded) return std::move(encoded).error();
@@ -30228,6 +30248,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
             if (!decoded) return std::move(decoded).error();
             result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_split_id = value.find("split_id");
+    if (field_split_id) {
+        if (field_split_id->is_null()) {
+            result.split_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_split_id);
+            if (!decoded) return std::move(decoded).error();
+            result.split_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_tab_id = value.find("tab_id");
@@ -38828,6 +38858,11 @@ Result<Json> Codec<LayoutSplit>::encode(const LayoutSplit& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("split", std::move(encoded).value());
     }
+    if (value.split_id) {
+        auto encoded = encode_value(*value.split_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("split_id", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -38876,6 +38911,12 @@ Result<LayoutSplit> Codec<LayoutSplit>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_split);
         if (!decoded) return std::move(decoded).error();
         result.split = std::move(decoded).value();
+    }
+    const Json* field_split_id = value.find("split_id");
+    if (field_split_id) {
+        auto decoded = decode_value<std::string>(*field_split_id);
+        if (!decoded) return std::move(decoded).error();
+        result.split_id = std::move(decoded).value();
     }
     const Json* field_type = value.find("type");
     if (!field_type) {
@@ -40330,13 +40371,14 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand236FieldRequirements{{
     {"force", 10U, "daemon-handoff-force-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 9> kCommand239FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 10> kCommand239FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"kind", 12U, "pane-browser-kind-v1"},
     {"pane_id", 12U, "split-client-keys-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
+    {"split_id", 12U, "split-client-split-id-v1"},
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},

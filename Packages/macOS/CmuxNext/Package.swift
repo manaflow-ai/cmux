@@ -62,6 +62,8 @@ import PackageDescription
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
+//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, Design (hq#1957: the name a workspace takes from a moved
+//     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
@@ -236,6 +238,7 @@ let package = Package(
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextWorkspaceNaming",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
@@ -495,6 +498,20 @@ let package = Package(
         .target(
             name: "CmuxNextAgentCursorVisibility",
             dependencies: ["CmuxNextAgentCursor"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Workspace naming (hq#1957): the name a workspace made from a moved tab
+        // takes, and the name a default-named workspace takes from its front tab
+        // (live label, or variant B's one-time rename). Pure rules; the App
+        // supplies its browser pages, New Tab pages and the rename command.
+        .target(
+            name: "CmuxNextWorkspaceNaming",
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWorkspaceNamingTests",
+            dependencies: ["CmuxNextWorkspaceNaming"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the

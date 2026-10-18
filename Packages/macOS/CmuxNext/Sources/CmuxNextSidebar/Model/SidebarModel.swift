@@ -241,11 +241,13 @@ public final class SidebarModel {
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .close(ids):
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
@@ -345,11 +347,14 @@ public final class SidebarModel {
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.
-    private func dropClosed(_ closed: Set<WorkspaceID>) {
+    private func dropClosed(_ closed: Set<WorkspaceID>, oldOrder: [WorkspaceID]) {
+        let oldActive = activeWorkspaceID
         selection.subtract(closed)
-        if let active = activeWorkspaceID, closed.contains(active) {
-            activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
-            if let next = activeWorkspaceID { selection.insert(next) }
+        if let oldActive, closed.contains(oldActive) {
+            let surviving = allWorkspaces.map(\.id)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            activeWorkspaceID = next
+            selection = next.map { [$0] } ?? []
         }
     }
 

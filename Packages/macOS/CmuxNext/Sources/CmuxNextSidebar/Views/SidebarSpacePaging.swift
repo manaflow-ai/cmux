@@ -96,7 +96,14 @@ import QuartzCore
     /// The model shows the space a release switched to: the real list takes
     /// the page's place at once (no reload animation, no second slide).
     func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget, pendingTarget == profile else { return false }
+        guard let pendingTarget else { return false }
+        // A direct selection can supersede an in-flight swipe before its
+        // original switch callback arrives. Drop the old lock and transition
+        // state so later swipes and wheel paging remain available.
+        guard pendingTarget == profile else {
+            endPaging()
+            return false
+        }
         endPaging()
         return true
     }

@@ -169,6 +169,11 @@ extension SidebarListViewComponents {
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
         for (key, view) in rowViews where !keep.contains(key) {
+            if key == hoveredKey {
+                hoveredKey = nil
+                view.clearHoverImmediately()
+                view.layoutSubtreeIfNeeded()
+            }
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
             let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false

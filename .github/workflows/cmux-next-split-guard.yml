@@ -1,0 +1,28 @@
+name: cmux-next split guard
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+
+jobs:
+  advisory:
+    name: split-plan advisory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch split refs without blobs
+        run: git fetch --no-tags --filter=blob:none --unshallow origin
+      - name: Report split metrics
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/cmux-next/check-pr-split.py --base "$BASE_SHA" --head "$HEAD_SHA" --mode advisory

@@ -28,6 +28,7 @@ export default appsPageEntry({
     "pages/apps/AppsPage.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
+    "pages/apps/UpdatesView.tsx",
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
   ],

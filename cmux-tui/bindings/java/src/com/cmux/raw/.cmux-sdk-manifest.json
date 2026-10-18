@@ -652,8 +652,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "775bf576d950ae183631b2ef5f751b9c4a692c5dd4f3faa7b28fe7279cc06bed",
-      "size": 74350
+      "sha256": "eca6acb177d06d8f07fd6f9012a4ef8c632e8edfb56374b17b20fdb3988d061b",
+      "size": 74429
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -952,8 +952,8 @@
     },
     {
       "path": "ConversationTabSplit.java",
-      "sha256": "5090d25acc77c73d42f8969c8590096bad80411a436feb39cf96a44461fd2d40",
-      "size": 2879
+      "sha256": "45b3742739422f49b279cf97c4016b6f6f188067250e4f44a31aef134939c4d2",
+      "size": 3683
     },
     {
       "path": "ConversationTextRun.java",
@@ -1522,8 +1522,8 @@
     },
     {
       "path": "LayoutSplit.java",
-      "sha256": "424703677780650fbc0e9671ba2c49cb63ab2926b60f6e68a78d5a3a0249ce67",
-      "size": 4381
+      "sha256": "207d7ad42c9285b064757f87057171f88f00636ee2b119f5787848e500b5a5f4",
+      "size": 5149
     },
     {
       "path": "LayoutStack.java",
@@ -2012,7 +2012,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4aa886f02e6d753495961a4d50b24942a7aa50766672cfb02db5fec4e4ad57d2",
+      "sha256": "df89c487797099956d8a80bf9ddb439777a73d6ab9b9f7746510a71d1a651d1a",
       "size": 7112
     },
     {
@@ -2697,8 +2697,8 @@
     },
     {
       "path": "SplitRequest.java",
-      "sha256": "3b8bd71e38940d3fca52747d4821573168d8d0f9ef452152c850baaa947f060c",
-      "size": 9442
+      "sha256": "bcb475263db6a825d89e6ab087cf382d0a2c815e418687057d55db9604bc6e0d",
+      "size": 10089
     },
     {
       "path": "SplitRespawn.java",
@@ -3272,7 +3272,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0",
+  "ir_sha256": "0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
