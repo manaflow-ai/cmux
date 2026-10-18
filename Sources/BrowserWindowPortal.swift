@@ -731,7 +731,9 @@ final class WindowBrowserHostView: NSView {
         return decision.result
     }
 
-    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+    // Internal for tests: pass-through for a split divider and for the sidebar
+    // resizer both return nil from hitTest, so only this tells them apart.
+    func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         return shouldPassThroughToSidebarResizer(

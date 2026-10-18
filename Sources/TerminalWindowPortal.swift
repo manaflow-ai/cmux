@@ -268,7 +268,9 @@ final class WindowTerminalHostView: NSView {
         return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
-    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+    // Internal for tests: pass-through for a split divider and for the sidebar
+    // resizer both return nil from hitTest, so only this tells them apart.
+    func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
         // and steal hover/mouse events.
