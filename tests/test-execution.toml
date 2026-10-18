@@ -101,6 +101,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_coderouter_setup_token_custom_claude.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_browser_profile_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1641,6 +1646,16 @@ requirements = ["cmux-cli"]
 [[test]]
 path = "tests/test_cli_hooks_setup_arguments.py"
 lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_copilot_hooks_file.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_copilot_feed_payload.py"
+lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
