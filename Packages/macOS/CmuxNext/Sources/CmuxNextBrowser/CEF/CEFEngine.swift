@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -77,6 +78,21 @@ public final class CEFEngine: BrowserEngine {
         guard layout != nil else { return }
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
+
+    /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
+    /// and no Chromium window exists, so the first tab skips building one.
+    /// Call at an idle moment: building it holds the main thread. True when
+    /// it started.
+    @discardableResult
+    public func prepareSpareWindow() -> Bool {
+        CEFSpareWindow.shared.prepare(runtime: .shared)
+    }
+
+    /// `none`, `creating`, `live` or `taken` (`debug.cef`).
+    public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
+
+    /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
+    public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
     /// The extensions of `profile`, once Chromium runs (nil before).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {

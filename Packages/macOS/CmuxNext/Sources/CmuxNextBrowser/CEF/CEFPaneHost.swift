@@ -10,7 +10,8 @@ import os
 /// fork's tracker follows the reparent and clips the page to the visible
 /// part of the view.
 final class CEFPaneHost {
-    let key: CEFPaneKey
+    /// Changes only when a pane takes the spare window (`rekey`, CEFSpareWindow).
+    var key: CEFPaneKey
     let hostView = CEFHostView()
     unowned let runtime: CEFRuntime
 
@@ -236,6 +237,7 @@ final class CEFPaneHost {
         } else if tab.browserID == nil {
             runtime.register(tab, browser: browser)
         }
+        closeSparePlaceholder(joined: tab)
     }
 
     func windowCreated(browser: Int32, request: Int32) {

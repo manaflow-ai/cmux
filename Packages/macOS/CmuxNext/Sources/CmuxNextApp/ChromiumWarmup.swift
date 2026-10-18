@@ -4,7 +4,7 @@ import CmuxNextWakeups
 
 /// Starts Chromium before the first Chromium tab needs it, so its two
 /// unavoidable main-thread steps (`CefInitialize` and the first Chromium
-/// window, about 80-160 ms each; architecture.md 5a, the one allowed
+/// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
 /// - A few seconds after launch the framework is mapped on a background
@@ -18,8 +18,15 @@ import CmuxNextWakeups
 ///   is the default engine (`browser.defaultEngine`) also any browser tab in
 ///   any window, the palette's default browser entries (New Browser Tab,
 ///   Split Browser, New Browser Workspace), or switching the default to
-///   Chromium. Otherwise CEF stays lazy: a user who never browses never pays
-///   for it (AppServices+Chromium).
+///   Chromium. While new browser tabs default to Chromium, launch itself is
+///   the signal (`Reason.launch`, after the launch preload). Otherwise CEF
+///   stays lazy: a user who never browses never pays for it
+///   (AppServices+Chromium).
+/// - Once Chromium runs, the next idle moment builds a spare Chromium window
+///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
+///   In a macOS 26 VM `CefInitialize` and the first window each held the main
+///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
+///   the first tab.
 @MainActor
 final class ChromiumWarmup {
     enum Reason: String, Sendable {
@@ -30,6 +37,9 @@ final class ChromiumWarmup {
         case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
+        /// New browser tabs default to Chromium: start it after launch,
+        /// before any tab asks (`startsAtLaunch`).
+        case launch
     }
 
     struct Policy: Sendable {
@@ -51,6 +61,10 @@ final class ChromiumWarmup {
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
     private(set) var reason: Reason?
+    /// What the next idle moment runs: `CefInitialize`, then the spare window.
+    private var idleAction: (@MainActor () -> Void)?
+    /// Warm up after the launch preload with no other signal (`start(atLaunch:)`).
+    private var startsAtLaunch = false
 
     init(
         engine: CEFEngine,
@@ -70,11 +84,16 @@ final class ChromiumWarmup {
 
     private var isAvailable: Bool { engine.availability == .available }
 
-    /// Maps the framework `launchPreloadDelay` after launch.
-    func start() {
+    /// Maps the framework `launchPreloadDelay` after launch. `atLaunch`: new
+    /// browser tabs open in Chromium, so Chromium starts then too (CefInitialize
+    /// and the spare window at idle moments), before any tab asks.
+    func start(atLaunch: Bool = false) {
         guard !launchTimer.isScheduled, isAvailable else { return }
+        startsAtLaunch = atLaunch
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
-            self?.engine.preload()
+            guard let self else { return }
+            engine.preload()
+            if startsAtLaunch { chromiumLikely(.launch) }
         }
     }
 
@@ -84,6 +103,28 @@ final class ChromiumWarmup {
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
         self.reason = reason
         engine.preload()
+        waitForIdle { [weak self] in
+            guard let self else { return }
+            // task-owner: one warm start per process; CEFEngine owns its lifetime
+            Task { [weak self] in
+                await self?.engine.warmStart(reason: reason.rawValue)
+                self?.warmStarted()
+            }
+        }
+    }
+
+    /// Chromium runs: build the spare window (CEFSpareWindow) at the next
+    /// idle moment, a main-thread step of its own, so neither step lands in
+    /// the first tab's open.
+    private func warmStarted() {
+        guard engine.isRunning else { return }
+        waitForIdle { [weak self] in self?.engine.prepareSpareWindow() }
+    }
+
+    /// Runs `action` at the next idle moment (no input for `idleInput`, no
+    /// menu tracking), or never when the app is not idle within `maxWait`.
+    private func waitForIdle(_ action: @escaping @MainActor () -> Void) {
+        idleAction = action
         lastInput = now()
         waiting = true
         installInputMonitor()
@@ -119,10 +160,9 @@ final class ChromiumWarmup {
         let quiet = now() - lastInput
         let remaining = policy.idleInput.inSeconds - quiet
         guard remaining <= 0 else { return armIdle(after: .seconds(remaining)) }
-        guard let reason else { return }
+        let action = idleAction
         finishWaiting()
-        // task-owner: one warm start per process; CEFEngine owns its lifetime
-        Task { await engine.warmStart(reason: reason.rawValue) }
+        action?()
     }
 
     /// True when no input reached this app for `idleInput` and no menu is
@@ -148,6 +188,7 @@ final class ChromiumWarmup {
 
     private func finishWaiting() {
         waiting = false
+        idleAction = nil
         idleTimer.cancel()
         giveUpTimer.cancel()
         removeMenuObserver()

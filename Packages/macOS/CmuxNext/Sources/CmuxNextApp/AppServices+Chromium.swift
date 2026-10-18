@@ -17,9 +17,9 @@ extension AppServices {
 
     /// Starts the launch preload and the likelihood observers.
     func startChromiumWarmup() {
-        chromiumWarmup.start()
         let machines = machines
         let preference = cache.browserTabs.preference
+        chromiumWarmup.start(atLaunch: preference.defaultEngine == .chromium)
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere, or
             // any browser tab while new tabs default to Chromium.
