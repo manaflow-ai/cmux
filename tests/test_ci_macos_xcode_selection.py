@@ -67,11 +67,6 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("signing-keychain-macos.yml", "bash32-syntax"):
-        "parses shell scripts with the system /bin/bash 3.2; no Xcode",
-    ("nightly.yml", "nightly-next-macos15-launch"):
-        "launches the published, signed app on a macOS 15 runner; builds "
-        "nothing, so no Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",

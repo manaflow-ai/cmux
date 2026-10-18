@@ -15,9 +15,7 @@ on:
       - ".github/workflows/gallery-advisory.yml"
       - ".github/workflows/gallery-link.yml"
 
-permissions:
-  contents: read
-  pull-requests: write
+permissions: {}
 
 concurrency:
   group: gallery-link-${{ github.event.pull_request.number }}
@@ -26,7 +24,10 @@ concurrency:
 jobs:
   link:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Update the concise review link
         env:
