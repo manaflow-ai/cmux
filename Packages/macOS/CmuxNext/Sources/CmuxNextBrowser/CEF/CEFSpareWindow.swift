@@ -109,10 +109,11 @@ extension CEFPaneHost {
     /// True while this host is the untaken spare window.
     var isSpare: Bool { CEFSpareWindow.shared.isSpare(self) }
 
-    /// A spare window's host becomes another host key (same profile and store).
+    /// A spare window's host becomes another host key. The caller keeps the
+    /// store (`take` and `giveBack` change only the pane): a key of another
+    /// profile, machine store or incognito context is refused.
     func rekey(_ key: CEFPaneKey) {
-        precondition(key.profile == self.key.profile && key.machineKey == self.key.machineKey && key.offTheRecord == self.key.offTheRecord,
-                     "a spare Chromium window keeps its store")
+        guard key.profile == self.key.profile, key.machineKey == self.key.machineKey, key.offTheRecord == self.key.offTheRecord else { return }
         self.key = key
     }
 
