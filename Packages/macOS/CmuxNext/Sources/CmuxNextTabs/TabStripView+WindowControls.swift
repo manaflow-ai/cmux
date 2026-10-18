@@ -23,14 +23,19 @@ extension TabStripView {
     func computeWindowControlsInset() -> CGFloat {
         guard let window else { return 0 }
         let host = window as? TitlebarAccessoryHosting
-        let (strip, shown) = restingWindowRect()
-        return Self.windowControlsInset(strip: strip, shown: shown, lights: WindowTitlebar.trafficLightsFrame(in: window),
-                                        accessory: host?.titlebarAccessoryFrame, padding: metrics.stripHorizontalPadding)
+        let (strip, shown, moving) = restingWindowRect()
+        let resting = Self.windowControlsInset(strip: strip, shown: shown, lights: WindowTitlebar.trafficLightsFrame(in: window),
+                                               accessory: host?.titlebarAccessoryFrame, padding: metrics.stripHorizontalPadding)
+        // On the way, the larger of the inset it shows and the one it rests with: a column leaving
+        // the traffic lights keeps its tabs clear of them until it rests (off screen by then), and
+        // one arriving clears them from the start (while still off screen), so neither jumps in view.
+        return moving ? max(resting, windowControlsInset) : resting
     }
 
-    /// The strip's frame in window coordinates where its pane will rest, and the window
-    /// area its ancestors above that pane show (their bounds, which do not move with it).
-    private func restingWindowRect() -> (strip: CGRect, shown: CGRect) {
+    /// The strip's frame in window coordinates where its pane will rest, the window area its
+    /// ancestors above that pane show (their bounds, which do not move with it), and whether the
+    /// pane is still on its way.
+    private func restingWindowRect() -> (strip: CGRect, shown: CGRect, moving: Bool) {
         var placement: (any RestingPlacement)?
         var ancestor = superview
         while let view = ancestor, placement == nil {
@@ -38,6 +43,7 @@ extension TabStripView {
             ancestor = view.superview
         }
         var strip = convert(bounds, to: nil)
+        let moving = placement.map { $0.restOffset != .zero } ?? false
         if let placement, let parent = placement.superview {
             let now = parent.convert(placement.frame, to: nil)
             let rest = parent.convert(placement.frame.offsetBy(dx: placement.restOffset.dx, dy: placement.restOffset.dy), to: nil)
@@ -48,7 +54,7 @@ extension TabStripView {
             shown = shown.intersection(view.convert(view.bounds, to: nil))
             ancestor = view.superview
         }
-        return (strip, shown)
+        return (strip, shown, moving)
     }
 
     /// Leading points a strip at `strip` (window coordinates) keeps clear of

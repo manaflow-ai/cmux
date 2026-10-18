@@ -60,8 +60,11 @@ final class PaneHostView: NSView, RestingPlacement {
     /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
     var revealRect: CGRect?
     /// Where the host will rest minus where it shows now (`RestingPlacement`): its spring rect's
-    /// target and the strip camera's target, against the presented frame. Zero at rest.
-    var restOffset: CGVector = .zero
+    /// target and the strip camera's target, against the presented frame. Zero at rest; coming
+    /// to rest tells the content, whose window-relative chrome held its motion layout.
+    var restOffset: CGVector = .zero {
+        didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
+    }
 
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }

@@ -155,8 +155,8 @@ def check(directory, layout, lead, sign):
                 if e <= x0 + 3 or e >= x1 - 3:
                     continue
                 expected = e - dx_px
-                if expected <= x0 + 3 or expected >= x1 - 3:
-                    continue  # was cut or off screen in the previous frame
+                if expected <= x0 + 20 or expected >= x1 - 20:
+                    continue  # cut, off screen or a sliver (under the 16 px run floor) in the previous frame
                 miss = min((abs(p - expected) for p in prev), default=9999)
                 worst = max(worst, miss / S)
         if worst > 0.5 + 1e-6:
