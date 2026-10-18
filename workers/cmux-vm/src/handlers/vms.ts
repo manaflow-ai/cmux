@@ -12,6 +12,7 @@
  *   deleting the snapshot. Not atomic; see `forkVm` below.
  */
 import { HttpApiBuilder } from "@effect/platform";
+import { retireVm } from "./retire.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent } from "./idempotency.ts";
@@ -453,6 +454,7 @@ const listVms = (params: {
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
+    .handle("retireVm", ({ path }) => audited("vm.retire", auditableVmId(path.vmId), retireVm(path.vmId)))
     .handle("getVm", ({ path }) =>
       withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) =>
         Effect.gen(function* () {

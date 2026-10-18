@@ -104,6 +104,13 @@ export class VmList extends Schema.Class<VmList>("VmList")({
   nextCursor: Schema.NullOr(Schema.String).annotations({ description: "Pass as `cursor` to read the next page; null on the last page." }),
 }) {}
 
+/** An explicit receipt: a paused VM alone is not fenced against inbound wake. */
+export class RetiredVm extends Schema.Class<RetiredVm>("RetiredVm")({
+  id: VmId,
+  state: Schema.Literal("paused", "stopped"),
+  retired: Schema.Literal(true),
+}) {}
+
 const IdleTimeoutSeconds = Schema.Int.pipe(Schema.between(-1, 7 * 24 * 60 * 60)).annotations({
   description: `${IDLE_DEFINITION} Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).`,
 });
@@ -298,6 +305,12 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
     .annotateContext(describe(summary, "vm:write", details));
 
 export class VmsGroup extends HttpApiGroup.make("vms")
+  .add(
+    HttpApiEndpoint.post("retireVm", "/v1/vms/:vmId/retire")
+      .setPath(VmPath).setHeaders(TeamHeaders).addSuccess(RetiredVm)
+      .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Retire a VM permanently", "vm:write", "Confirms a zero lifetime run budget and a paused or stopped VM. Later starts, inbound wakes, exec and file writes are refused. File reads and deletion remain available, subject to existing deletion deadlines. Syncs an already running guest first, best effort and bounded; never starts a paused guest. There is no unretire operation. Retrying is safe; 503 can mean the fence applied but its final state is unconfirmed. No active VM plan is required to retire an existing VM.")),
+  )
   .add(
     HttpApiEndpoint.post("resizeVm", "/v1/vms/:vmId/resize")
       .setPath(VmPath).setHeaders(CreateHeaders).setPayload(ResizeVmRequest).addSuccess(Vm)

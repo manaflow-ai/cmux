@@ -18,6 +18,7 @@ export const TEAM_HEADER = "x-cmux-team-id";
 
 export type Vm = components["schemas"]["Vm"];
 export type VmList = components["schemas"]["VmList"];
+export type RetiredVm = components["schemas"]["RetiredVm"];
 export type VmState = Vm["state"];
 export type CreateVmRequest = components["schemas"]["CreateVmRequest"];
 export type ForkVmRequest = components["schemas"]["ForkVmRequest"];

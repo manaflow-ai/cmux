@@ -1415,3 +1415,60 @@ async fn resize_provider_failure_reports_the_actual_generated_key_without_retryi
     assert!(out.stderr.contains(key), "{}", out.stderr);
     assert!(out.stdout.is_empty());
 }
+
+#[tokio::test]
+async fn retire_confirms_the_exact_vm_for_json_and_human_callers() {
+    let server = MockServer::start().await;
+    let receipt = json!({"id": VM_ID, "state": "paused", "retired": true});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/retire")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "retire", VM_ID, "--yes"]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), receipt);
+    let human = cli(&server, &["retire", VM_ID, "--yes"]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("retired"));
+    assert!(human.stdout.contains(VM_ID));
+}
+
+#[tokio::test]
+async fn retire_needs_confirmation_and_a_valid_public_id_before_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["retire", VM_ID],
+        vec!["retire", "private-provider-reference", "--yes"],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        assert!(out.stdout.is_empty());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn retire_refuses_ordinary_pause_wrong_id_and_incomplete_receipts() {
+    for receipt in [
+        vm("paused"),
+        json!({"id": VM_ID, "state": "running", "retired": true}),
+        json!({"id": "vm_00000000000000000000000000", "state": "paused", "retired": true}),
+        json!({"id": VM_ID, "state": "paused", "retired": false}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/vms/{VM_ID}/retire")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "retire", VM_ID, "--yes"]).await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains("unconfirmed"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}

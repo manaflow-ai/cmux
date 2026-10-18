@@ -70,6 +70,17 @@ Object per tenant (`src/limits/`). Every mutation (create, start, stop,
 pause, resume, fork, delete, exec, file write) writes an audit row: tenant,
 actor (user or key id), action, cmux id, outcome; never commands or contents.
 
+`POST /v1/vms/{vmId}/retire` permanently fences an owned VM against starts,
+inbound wakes, exec and file writes. It confirms a zero lifetime run budget
+and a paused/stopped state before returning `{ id, state, retired: true }`.
+Reads and deletion remain available under their existing scopes and deletion
+deadlines. A running guest gets a bounded, best-effort `sync` before fencing;
+paused guests are never started. A 503 may leave the fence applied: retry the
+same VM to confirm it. Retirement needs `vm:write`, current ownership and the
+usual rate limit; a lapsed create plan does not block it. There is no unretire
+operation. `cmux-vm retire VM_ID --yes --json` requires explicit confirmation
+for scripts and refuses success without the matching retirement receipt.
+
 A tenant is dev/test when the Worker is not production, or when its id is in
 `DEV_TEST_TENANT_IDS` on production. Dev/test VMs get an idle timeout of at
 most 300 s (default 300); product VMs default to -1 and the web app's CloudDO

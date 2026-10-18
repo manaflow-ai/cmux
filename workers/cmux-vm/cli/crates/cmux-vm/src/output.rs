@@ -48,6 +48,16 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn retired(&mut self, body: &[u8], id: &str) -> Result<(), CliError> {
+        if self.json {
+            self.raw_json(body)
+        } else {
+            self.line(&format!(
+                "retired {id}; starts and inbound wakes are fenced"
+            ))
+        }
+    }
+
     pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

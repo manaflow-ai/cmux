@@ -92,6 +92,8 @@ enum Command {
     Stop(VmArg),
     /// Pause a running VM, keeping its memory
     Pause(VmArg),
+    /// Permanently fence a VM against starts and inbound wakes (requires confirmation)
+    Retire(DeleteArgs),
     /// Resume a paused VM
     Resume(VmArg),
     /// Fork a VM into a new VM with the same memory and disk
@@ -513,6 +515,27 @@ async fn dispatch(
             let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
+        Command::Retire(DeleteArgs { vm_id, yes }) => {
+            let id = vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            if !yes {
+                confirm(prompt, Destroy::RetireVm, id.as_str())?;
+            }
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
+                CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
+            })?;
+            if receipt["id"] != id.as_str()
+                || receipt["retired"] != true
+                || !matches!(receipt["state"].as_str(), Some("paused" | "stopped"))
+            {
+                return Err(CliError::unexpected(
+                    "retirement is unconfirmed; retry retire for the same VM",
+                ));
+            }
+            out.retired(&response, id.as_str())
+        }
         Command::Resume(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
             out.vm(&vm)
@@ -630,6 +653,7 @@ async fn api_key(
 /// A destructive verb that needs confirmation.
 #[derive(Clone, Copy)]
 enum Destroy {
+    RetireVm,
     DeleteVm,
     DeleteSnapshot,
     RevokeApiKey,
@@ -639,6 +663,7 @@ impl Destroy {
     /// The verb, the verb capitalized, and the name of the id to type.
     fn words(self) -> (&'static str, &'static str, &'static str) {
         match self {
+            Destroy::RetireVm => ("retire", "Retire", "VM id"),
             Destroy::DeleteVm => ("delete", "Delete", "VM id"),
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
@@ -657,6 +682,9 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         )));
     }
     let question = match action {
+        Destroy::RetireVm => format!(
+            "Retire {id} permanently? It cannot run again; files remain readable until deletion. Type the VM id to confirm: "
+        ),
         Destroy::RevokeApiKey => format!(
             "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
         ),
@@ -671,6 +699,7 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         Ok(())
     } else {
         let past = match action {
+            Destroy::RetireVm => "retired",
             Destroy::RevokeApiKey => "revoked",
             _ => "deleted",
         };

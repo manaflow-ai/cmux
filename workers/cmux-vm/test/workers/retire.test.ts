@@ -120,7 +120,7 @@ it("leaves retired files readable and deletable while starts, resume and exec ar
     const r = await t.request(`/v1/vms/${owned.vmId}/${action}`, bearer(key), { method: "POST", ...(action === "exec" ? { body: { command: "id" } } : {}) });
     expect(r.status).toBe(409);
   }
-  const file = await t.request(`/v1/vms/${owned.vmId}/files?path=%2Fsaved`, bearer(key));
+  const file = await t.request(`/v1/vms/${owned.vmId}/files/content?path=%2Fsaved`, bearer(key));
   expect(file.status).toBe(200);
   expect(await file.text()).toBe("saved data");
   expect(t.upstream.vms.get(owned.upstreamId)?.state).toBe("paused");

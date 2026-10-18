@@ -35,6 +35,7 @@ export const UpstreamVm = Schema.Struct({
   idleTimeoutSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   autoDeleteSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
+  maxRunTotalSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
@@ -96,6 +97,8 @@ export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Irreversibly fences this owned VM; success requires a confirmed zero budget and no running compute. */
+  readonly retireVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
   /** Ensure resource floors on exactly this owned VM; never deletes it on failure. */
   readonly resizeVm: <C, R>(
     vm: Named<R, VmId>,

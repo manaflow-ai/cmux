@@ -143,6 +143,11 @@ export const resizeMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effe
     const mayGrow = yield* tenantMayGrow(caller);
     if (owns === null || scope === null || read === null) return;
     yield* upstream.resizeVm(a, { owns, scope, mayGrow }, { vcpus: 8 });
+    yield* upstream.retireVm(a, { owns, scope });
+    // @ts-expect-error VM A's ownership cannot retire VM B
+    yield* upstream.retireVm(b, { owns, scope });
+    // @ts-expect-error read permission cannot retire a VM
+    yield* upstream.retireVm(a, { owns, scope: read });
     // @ts-expect-error VM A's ownership cannot grow VM B
     yield* upstream.resizeVm(b, { owns, scope, mayGrow }, { vcpus: 8 });
     // @ts-expect-error read permission cannot resize a VM

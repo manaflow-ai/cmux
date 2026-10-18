@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire a VM permanently
+         * @description Retire a VM permanently. Requires the vm:write scope. Confirms a zero lifetime run budget and a paused or stopped VM. Later starts, inbound wakes, exec and file writes are refused. File reads and deletion remain available, subject to existing deletion deadlines. Syncs an already running guest first, best effort and bounded; never starts a paused guest. There is no unretire operation. Retrying is safe; 503 can mean the fence applied but its final state is unconfirmed. No active VM plan is required to retire an existing VM. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["vms.retireVm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/resize": {
         parameters: {
             query?: never;
@@ -821,6 +841,48 @@ export interface components {
             _tag: "symbol";
             key: string;
         };
+        RetiredVm: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @enum {string} */
+            state: "paused" | "stopped";
+            /** @enum {boolean} */
+            retired: true;
+        };
+        Unauthorized: {
+            message: string;
+            /** @enum {string} */
+            _tag: "Unauthorized";
+        };
+        Forbidden: {
+            message: string;
+            missingScope?: string;
+            /** @enum {string} */
+            _tag: "Forbidden";
+        };
+        ServiceUnavailable: {
+            message: string;
+            /** @enum {string} */
+            _tag: "ServiceUnavailable";
+        };
+        NotFound: {
+            message: string;
+            /** @enum {string} */
+            _tag: "NotFound";
+        };
+        QuotaExceeded: {
+            message: string;
+            retryAfterSeconds?: components["schemas"]["Int"];
+            /** @enum {string} */
+            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
+            /** @enum {string} */
+            _tag: "QuotaExceeded";
+        };
+        /**
+         * int
+         * @description an integer
+         */
+        Int: number;
         /** @description Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM. */
         ResizeVmRequest: {
             resources: components["schemas"]["ResizeVmResources"];
@@ -843,11 +905,6 @@ export interface components {
              */
             diskMib?: components["schemas"]["Int"];
         };
-        /**
-         * int
-         * @description an integer
-         */
-        Int: number;
         Vm: {
             /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
@@ -882,27 +939,6 @@ export interface components {
             /** @enum {string} */
             _tag: "BadRequest";
         };
-        Unauthorized: {
-            message: string;
-            /** @enum {string} */
-            _tag: "Unauthorized";
-        };
-        Forbidden: {
-            message: string;
-            missingScope?: string;
-            /** @enum {string} */
-            _tag: "Forbidden";
-        };
-        ServiceUnavailable: {
-            message: string;
-            /** @enum {string} */
-            _tag: "ServiceUnavailable";
-        };
-        NotFound: {
-            message: string;
-            /** @enum {string} */
-            _tag: "NotFound";
-        };
         Conflict: {
             message: string;
             /** @enum {string} */
@@ -912,14 +948,6 @@ export interface components {
             message: string;
             /** @enum {string} */
             _tag: "PaymentRequired";
-        };
-        QuotaExceeded: {
-            message: string;
-            retryAfterSeconds?: components["schemas"]["Int"];
-            /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
-            /** @enum {string} */
-            _tag: "QuotaExceeded";
         };
         VmImageList: {
             items: components["schemas"]["VmImage"][];
@@ -1546,6 +1574,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+        };
+    };
+    "vms.retireVm": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description RetiredVm */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetiredVm"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };
