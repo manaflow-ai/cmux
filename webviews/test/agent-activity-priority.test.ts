@@ -39,21 +39,38 @@ describe("event-driven priority agent state", () => {
     expect(state.lanes[0]).toMatchObject({ id: "s1", workspaceId: "workspace-7", state: "working" });
   });
 
-  test("a lane carries its harness and its current step", () => {
-    const step = (session: object) =>
+  test("a lane shows the daemon's masked step, never the raw prompt", () => {
+    const lane = (session: object) =>
       applyAgentStateEvent(initialPriorityState(), {
         kind: "updated",
         sessionId: "s1",
         seq: 1,
         session: { ...summary("s1", "working", 10), harness: "codex", ...session },
       }).lanes[0];
-    // A running turn's step is its prompt, whitespace folded to one line.
-    expect(
-      step({ turn: { prompt: "Run the guard\n  tests", startedAt: 5 }, lastMessage: { role: "agent", text: "old" } }),
-    ).toMatchObject({ harness: "codex", step: "Run the guard tests" });
-    // Between turns it is the agent's last message; a person's own message says nothing new.
-    expect(step({ lastMessage: { role: "agent", text: "Opened #21700" } }).step).toBe("Opened #21700");
-    expect(step({ lastMessage: { role: "user", text: "go" } }).step).toBeNull();
+    // hq#2509: acpmux masks secrets in `lane.step` before the summary leaves it. The raw prompt
+    // beside it still holds the token, so the view must never fall back to it.
+    const token = `gh${"p"}_${"aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"}`;
+    const raw = { turn: { prompt: `push with ${token}`, startedAt: 5 }, lastMessage: { role: "agent", text: token } };
+    const masked = { state: "working", since: 5, error: null, step: "push with [github token]" };
+    expect(lane({ ...raw, lane: masked })).toMatchObject({ harness: "codex", step: "push with [github token]" });
+    // An acpmux from before `lane.step` shows no step rather than the raw text.
+    expect(lane({ ...raw, lane: { ...masked, step: undefined } }).step).toBeNull();
+  });
+
+  test("a lane's title and error are the daemon's masked ones, never the raw prompt or error", () => {
+    const token = `gh${"p"}_${"aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"}`;
+    const lane = (session: object) =>
+      applyAgentStateEvent(initialPriorityState(), {
+        kind: "updated",
+        sessionId: "s1",
+        seq: 1,
+        session: { ...summary("s1", "failed", 10), title: "", lastPrompt: `push ${token}`, ...session },
+      }).lanes[0];
+    const raw = { lastTurn: { endedAt: 10, errorText: `401 for ${token}` } };
+    const masked = { state: "failed", since: 10, error: "401 for [github token]", step: null, title: "push [github token]" };
+    expect(lane({ ...raw, lane: masked })).toMatchObject({ title: "push [github token]", error: "401 for [github token]" });
+    // An acpmux from before `lane.title` shows the session's name, not its first prompt.
+    expect(lane({ ...raw, lane: { ...masked, title: undefined } }).title).toBe("s1");
   });
 
   test("ignores duplicate and out-of-order hook events", () => {
