@@ -1922,6 +1922,25 @@ export const persistentWorkspaces = pgTable("persistent_workspaces", {
   check("persistent_workspaces_version_positive", sql`${table.version} > 0`),
 ]);
 
+/** Durable idempotency and claim ledger for successful run-attempt promotion. */
+export const runAttemptPromotions = pgTable("run_attempt_promotions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  requestKey: text("request_key").notNull(),
+  claimId: uuid("claim_id").notNull(),
+  status: text("status").$type<"reserved" | "completed">().notNull().default("reserved"),
+  promotion: jsonb("promotion").$type<Record<string, unknown> | null>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_attempt_promotions_user_request_unique").on(table.userId, table.requestKey),
+  uniqueIndex("run_attempt_promotions_user_attempt_unique").on(table.userId, table.attemptId),
+  index("run_attempt_promotions_status_updated_idx").on(table.status, table.updatedAt),
+  check("run_attempt_promotions_status_check", sql`${table.status} in ('reserved', 'completed')`),
+]);
+
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",
   {

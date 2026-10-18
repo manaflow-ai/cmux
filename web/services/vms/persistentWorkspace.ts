@@ -236,6 +236,25 @@ function newIdentity(prefix: "runtime" | "workspace"): string {
   return `${prefix}_${randomUUID().replaceAll("-", "")}`;
 }
 
+/**
+ * Production persistence uses UUIDs because the durable workspace table stores
+ * both identities as UUID columns. Tests and dependency-only callers keep the
+ * historical readable identities by using the default factory.
+ */
+export type PersistentWorkspaceIdentity = {
+  readonly runtimeId: string;
+  readonly workspaceId: string;
+};
+
+export type PersistentWorkspaceIdentityFactory = () => PersistentWorkspaceIdentity;
+
+function defaultIdentity(): PersistentWorkspaceIdentity {
+  return {
+    runtimeId: newIdentity("runtime"),
+    workspaceId: newIdentity("workspace"),
+  };
+}
+
 function requestDigest(input: PersistentWorkspaceCreateInput): string {
   const canonical = JSON.stringify({
     tenantId: input.tenantId,
@@ -346,6 +365,8 @@ export function createPersistentWorkspaceService(input: {
   readonly store: PersistentWorkspaceStore;
   readonly provider: PersistentWorkspaceProvider;
   readonly now?: () => Date;
+  /** Optional production identity source; defaults to test-friendly prefixes. */
+  readonly identity?: PersistentWorkspaceIdentityFactory;
 }): {
   readonly create: (request: PersistentWorkspaceCreateInput) => Promise<PersistentWorkspaceView>;
   readonly get: (request: PersistentWorkspaceLookupInput) => Promise<PersistentWorkspaceView>;
@@ -401,8 +422,9 @@ export function createPersistentWorkspaceService(input: {
     const ownerId = requiredText(request.ownerId, "ownerId");
     const idempotencyKey = requiredText(request.idempotencyKey, "idempotencyKey", 128);
     const workspaceName = requiredText(request.workspaceName ?? "Persistent workspace", "workspaceName", 160);
-    const runtimeId = newIdentity("runtime");
-    const workspaceId = newIdentity("workspace");
+    const identity = input.identity?.() ?? defaultIdentity();
+    const runtimeId = identity.runtimeId;
+    const workspaceId = identity.workspaceId;
     const digest = requestDigest({ ...request, tenantId, ownerId, idempotencyKey, workspaceName });
     const timestamp = now().toISOString();
     const provisional: PersistentWorkspaceRecord = {
@@ -493,9 +515,10 @@ export function createPersistentWorkspaceService(input: {
       providerInput: { providerMetadata: { providerVmId, providerWorkspaceId, providerTerminalId, sessionId } },
     });
     const timestamp = now().toISOString();
+    const identity = input.identity?.() ?? defaultIdentity();
     const provisional: PersistentWorkspaceRecord = {
-      runtimeId: newIdentity("runtime"),
-      workspaceId: newIdentity("workspace"),
+      runtimeId: identity.runtimeId,
+      workspaceId: identity.workspaceId,
       tenantId,
       ownerId,
       provider: "freestyle",
