@@ -21,6 +21,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public var onExpand: (() -> Void)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
+    private var expandTool: ChiefPetTool?
 
     public init(mascot: ChiefPetMascot = .standard, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
@@ -31,6 +32,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
             backing: .buffered,
             defer: true
         )
+        ThemeScope.app.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         // The character's PNG carries its own soft edge; a window shadow would box it.
@@ -47,10 +49,15 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.autoresizingMask = [.width, .height]
         pet.onClick = { [weak self] in self?.onClick?() }
         pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
-        pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
+        expandTool = pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
         contentView = pet
         delegate = self
+    }
+
+    /// The chevron points down while the notices are unfolded.
+    func setExpanded(_ expanded: Bool) {
+        expandTool?.turn(to: expanded ? -90 : 90)
     }
 
     override public var canBecomeKey: Bool { false }
@@ -76,7 +83,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
     }
 
-    private func saveOrigin() {
+    /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
+    func saveOrigin() {
         guard let screen else { return }
         let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: screen.visibleFrame)
         if origin != frame.origin { setFrameOrigin(origin) }
@@ -98,6 +106,7 @@ final class ChiefPetView: NSView {
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
+    private let badgeView = ChiefPetBadge()
     /// The pixel character, drawn by a layer so it scales up with whole pixels.
     private let character = NSView()
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
@@ -112,6 +121,8 @@ final class ChiefPetView: NSView {
         character.layer?.minificationFilter = .trilinear
         addSubview(character)
         addSubview(rail)
+        badgeView.isHidden = true
+        addSubview(badgeView)
         self.image = image
         character.layer?.contents = image
         character.setAccessibilityElement(true)
@@ -133,6 +144,18 @@ final class ChiefPetView: NSView {
         character.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height, width: size.width, height: size.height)
         let width = rail.width
         rail.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: 0, width: width, height: ChiefPetRail.height)
+        let badge = badgeView.fittingSize
+        badgeView.frame = CGRect(x: character.frame.maxX - badge.width, y: character.frame.maxY - badge.height, width: badge.width, height: badge.height)
+    }
+
+    /// Notices that wait for the user, on a small badge at the character's top right; 0 hides it.
+    var badge: Int = 0 {
+        didSet {
+            guard badge != oldValue else { return }
+            badgeView.count = badge
+            badgeView.isHidden = badge == 0
+            needsLayout = true
+        }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

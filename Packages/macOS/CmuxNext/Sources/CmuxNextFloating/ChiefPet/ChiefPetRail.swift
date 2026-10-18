@@ -52,11 +52,13 @@ final class ChiefPetRail: NSView {
 final class ChiefPetTool: NSButton {
     private let run: () -> Void
     /// The icon's turn, counterclockwise: the chevron is the disclosure mark pointing up, as the dock draws it.
-    private let degrees: CGFloat
+    private var degrees: CGFloat
+    private var icon: IconName
 
     init(icon: IconName, label: String, turned degrees: CGFloat = 0, action: @escaping () -> Void) {
         run = action
         self.degrees = degrees
+        self.icon = icon
         super.init(frame: NSRect(x: 0, y: 0, width: ChiefPetRail.slot, height: ChiefPetRail.height))
         isBordered = false
         imagePosition = .imageOnly
@@ -70,7 +72,15 @@ final class ChiefPetTool: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    /// Turns the icon (the chevron points down while the notices are unfolded).
+    func turn(to degrees: CGFloat) {
+        guard degrees != self.degrees else { return }
+        self.degrees = degrees
+        setIcon(icon)
+    }
+
     func setIcon(_ icon: IconName) {
+        self.icon = icon
         image = Self.turned(NSImage.icon(icon, size: 18), by: degrees)
         recolor()
     }

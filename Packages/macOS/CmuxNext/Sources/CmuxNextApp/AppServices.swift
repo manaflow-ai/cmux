@@ -341,7 +341,7 @@ final class AppServices {
         browserHost?.start()
         notifications.start(services: self)
         // Showcase captures draw the app's own windows only.
-        if !environment.showcase { chiefPet.start() }
+        if !environment.showcase { notifications.chiefPet = chiefPet.hooks; chiefPet.start() }
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
             self?.notifications.noteMouseDown(in: event.window)

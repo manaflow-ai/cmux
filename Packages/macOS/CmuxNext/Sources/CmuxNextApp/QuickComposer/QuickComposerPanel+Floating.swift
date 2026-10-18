@@ -66,19 +66,3 @@ extension QuickComposerPanel {
         frames.save(frame, onDisplay: FloatingChatFrames.display(screen))
     }
 }
-
-/// The floating chat's top edge: a drag there moves the panel. The page
-/// under it would take the press, and a web view never moves its window.
-final class FloatingChatGrip: NSView {
-    static let height: CGFloat = 12
-
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
-    }
-}

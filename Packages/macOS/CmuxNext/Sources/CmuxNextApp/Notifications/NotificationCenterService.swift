@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -44,6 +45,8 @@ final class NotificationCenterService {
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
+    /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
+    @ObservationIgnored var chiefPet: ChiefPetHooks?
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -239,6 +242,7 @@ final class NotificationCenterService {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
+        chiefPet?.read(tab.id)
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
@@ -323,6 +327,7 @@ final class NotificationCenterService {
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
         moveToTop(located.workspace)
+        notifyChiefPet(notification, located: located, decision: decision, program: program)
         // Showcase captures read and order rows as the app does, and post nothing.
         guard desktopPostingEnabled else {
             note("desktop posting suppressed")
