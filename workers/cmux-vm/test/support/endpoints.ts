@@ -3,7 +3,7 @@
  * request for it. The isolation suite runs each one as another tenant and as a
  * key without the scope, and checks that this table covers openapi.json.
  */
-import type { Scope } from "../../src/domain/scopes.ts";
+import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
 
 export interface VmEndpointCase {
   readonly name: string;
@@ -100,25 +100,7 @@ export const TENANT_ENDPOINTS = [
   { name: "revokeApiKey", method: "DELETE", template: "/v1/api-keys/{keyId}", scope: "admin" },
 ] as const;
 
-export const ALL_SCOPES: ReadonlyArray<Scope> = [
-  "vm:read",
-  "vm:write",
-  "vm:exec",
-  "vm:files",
-  "vm:terminal",
-  "snapshot:*",
-  "snapshot:read",
-  "snapshot:write",
-  "domain:*",
-  "deploy:*",
-  "git:*",
-  "mesh:read",
-  "mesh:write",
-  "mesh:join",
-  "acl:read",
-  "acl:write",
-  "admin",
-];
+export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
 
 /**
  * Mesh experiment endpoints (cx-0op); test/workers/mesh.test.ts runs the
