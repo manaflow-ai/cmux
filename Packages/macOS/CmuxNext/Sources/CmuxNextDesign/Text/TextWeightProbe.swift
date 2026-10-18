@@ -82,7 +82,8 @@ public struct TextWeightProbe {
             }
         }
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        // close, not only orderOut: willClose invalidates the window's FrameScheduler (its link and observer).
+        defer { window.close() }
         // The window server shows the rows some frames after the commit (later on a loaded host):
         // read them once two captures a few frames apart agree.
         var shown: CGImage?
