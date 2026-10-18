@@ -13,6 +13,7 @@ export interface FakeVm {
   displayName: string | null;
   metadata: Record<string, string>;
   snapshotId: string | null;
+  maxRunTotalSeconds?: number | null;
 }
 
 export interface FakeSnapshot {
@@ -44,6 +45,7 @@ export type UpstreamOperation =
   | "write"
   | "dir"
   | "resize"
+  | "update"
   | "listTlsRules"
   | "replaceTlsRule"
   | "getSnapshot";
@@ -58,6 +60,7 @@ const vmBody = (vm: FakeVm) => ({
   state: vm.state,
   resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
+  maxRunTotalSeconds: vm.maxRunTotalSeconds ?? null,
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
@@ -86,6 +89,7 @@ export function makeFakeUpstream(apiKey: string) {
   /** Exec responses by command; the default echoes the command. */
   const execReplies = new Map<string, () => Response>();
   const resizeReplies = new Map<string, () => Response>();
+  const updateReplies = new Map<string, () => Response>();
 
   const takeFailure = (operation: UpstreamOperation): Response | null => {
     const queue = failures.get(operation);
@@ -163,6 +167,7 @@ export function makeFakeUpstream(apiKey: string) {
         return new Response(null, { status: 204 });
       case "start":
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         vm.state = "running";
         return Response.json(vmBody(vm));
       case "pause":
@@ -170,6 +175,17 @@ export function makeFakeUpstream(apiKey: string) {
         if (vm.state !== "running") return conflict("the VM is not running");
         vm.state = "paused";
         return Response.json(vmBody(vm));
+      case "update": {
+        if (vm === undefined) return notFound();
+        const reply = updateReplies.get(vm.id);
+        if (reply !== undefined) return reply();
+        const body: unknown = await request.clone().json();
+        if (typeof body === "object" && body !== null && "maxRunTotalSeconds" in body && body.maxRunTotalSeconds === 0) {
+          vm.maxRunTotalSeconds = 0;
+          if (vm.state !== "stopped") vm.state = "paused";
+        }
+        return Response.json(vmBody(vm));
+      }
       case "snapshot": {
         if (vm === undefined) return notFound();
         if (vm.state !== "running" && vm.state !== "paused") return conflict("the VM is neither running nor paused");
@@ -206,6 +222,7 @@ export function makeFakeUpstream(apiKey: string) {
       }
       case "exec": {
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         const body: unknown = await request.clone().json();
         const command = typeof body === "object" && body !== null && "command" in body ? String(body.command) : "";
         const reply = execReplies.get(command);
@@ -236,6 +253,7 @@ export function makeFakeUpstream(apiKey: string) {
       }
       case "write": {
         if (vm === undefined) return notFound();
+        if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         const path = url.searchParams.get("path") ?? "";
         files.set(fileKey(vm.id, path), new Uint8Array(await request.clone().arrayBuffer()));
         return new Response(null, { status: 204 });
@@ -276,6 +294,7 @@ export function makeFakeUpstream(apiKey: string) {
     if (rest === undefined) {
       if (method === "GET") return { operation: "get", vmId };
       if (method === "DELETE") return { operation: "delete", vmId };
+      if (method === "PATCH") return { operation: "update", vmId };
       return null;
     }
     const table: Record<string, UpstreamOperation> = {
@@ -315,6 +334,7 @@ export function makeFakeUpstream(apiKey: string) {
     calls,
     tlsRules,
     resizeReplies,
+    updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];
