@@ -30,9 +30,10 @@ export function getEntryStore(): EntryStore {
 
 /** A frame store can load one source when the shell supplies its path; direct links fall back to all. */
 export function createFrameEntryStore(sourcePath?: string): EntryStore {
-  const sources = sourcePath && entrySources.some((source) => source.path === sourcePath)
-    ? entrySources.filter((source) => source.path === sourcePath)
-    : entrySources;
+  const sources =
+    sourcePath && entrySources.some((source) => source.path === sourcePath)
+      ? entrySources.filter((source) => source.path === sourcePath)
+      : entrySources;
   return createEntryStore(sources);
 }
 
