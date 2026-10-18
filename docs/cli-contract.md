@@ -139,17 +139,17 @@ Environment:
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). `--command <text>` runs in the initial interactive shell; see [Initial terminal command](#initial-terminal-command). |
 | `layout` | Saved workspace layouts: `save <name> [--workspace <ref>] [--overwrite] [--description <text>]`, `list [--json]`, `get <name>`, `open <name> [--cwd <dir>] [--focus <true\|false>]`, `delete <name>`. |
-| `ssh` | Open an SSH-backed workspace. Switches to it only when run interactively (`--focus [true\|false]`, `--focus=<bool>` and `--no-focus` override; `ssh-tmux` takes the same flags). Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
+| `ssh` | Open an SSH-backed workspace. `ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A\|-a] [--ssh-option <opt>]... [--window <id\|ref\|index>] [--transport <ssh\|mosh>] [--focus\|--no-focus] [--command <text> \| -- <remote-command-args>]`. `--ssh-option` adds one `ssh -o` option and may repeat; `--command` runs its text once in the first remote terminal after the shell starts; `--transport mosh` carries only the interactive terminal over Mosh and falls back to SSH when Mosh is missing on either side; arguments after `--` are passed to the remote command and cannot be combined with `--command`. Switches to it only when run interactively (`--focus [true\|false]`, `--focus=<bool>` and `--no-focus` override; `ssh-tmux` takes the same flags). Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
 | `mosh` | Open an SSH-backed workspace that uses Mosh as the interactive transport, while SSH stays the management lane. Takes the same arguments as `ssh`. |
-| `mosh-tmux` | Open a Mosh-backed workspace whose terminal creates or attaches to one named remote tmux session (`--session <name>`, default `main`), surviving workspace reconnect and session restore. Every other workspace and SSH bootstrap flag matches `mosh`; without Mosh on the host, the same tmux profile runs over SSH. |
+| `mosh-tmux` | Open a Mosh-backed workspace whose terminal creates or attaches to one named remote tmux session (`--session <name>`, default `main`), surviving workspace reconnect and session restore. Every other workspace and SSH bootstrap flag matches `mosh`, but it takes no remote command arguments after `--`; without Mosh on the host, the same tmux profile runs over SSH. |
 | `ssh-tmux` | Mirror a remote host's tmux sessions into the current window over SSH tmux control mode (`tmux -CC`): each session becomes a workspace, each window a tab, each pane a split. `ssh-tmux <destination> [list|ls [--json] | attach <session>] [--port <n>] [--identity <path>] [--name <title>] [--no-focus]`. `list`/`ls` discovers sessions without opening a workspace; `--json` emits the socket response; `attach <session>` mirrors only the named existing session and fails if it is missing. With no subcommand, the historical whole-server mirror remains the default. |
 | `local-tmux` | Opt in to a user-owned local tmux server. `start`, `attach`, `list`, `status`, `detach`, `close`, and `cleanup` preserve and manage named sessions independently of the cmux GUI; `cleanup` previews stale records unless `--prune` is supplied. `list`, `status`, `detach`, `close`, `cleanup`, and `attach --headless` work without a running cmux control socket. This preserves live processes across cmux lifecycle events, not a machine shutdown or reboot; use a remote tmux owner for continuity while the Mac is offline. See [`docs/local-tmux.md`](local-tmux.md). |
 | `tmux attach` | Compatibility alias for `local-tmux attach`. |
 | `local-zellij` | Opt in to zellij sessions in a private socket directory. `start`, `attach`, `list`, `status`, and `close` manage named sessions independently of the cmux GUI; clients attach with `--on-force-close detach`, so closing a surface detaches instead of ending the session. `list`, `status`, `close`, `start --detached`, and `attach --headless` work without a running cmux control socket. See [`docs/local-zellij.md`](local-zellij.md). |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
-| `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
-| `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. |
-| `ssh-session-cleanup` | Close one or all persisted SSH PTY sessions. Supports `--json`. |
+| `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace (`--workspace <id\|ref\|index>`, default `$CMUX_WORKSPACE_ID`) or every active remote workspace (`--all-workspaces`). Supports `--json`. |
+| `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. `ssh-session-attach --session-id <id> [--workspace <id\|ref\|index>] [--pane <id\|ref\|index> \| --split <left\|right\|up\|down> [--surface <id\|ref\|index>]] [--focus <true\|false>]`. `--pane` puts the new surface in that pane; `--split` opens a new split instead, beside `--surface`, and cannot be combined with `--pane`; the attached surface is focused unless `--focus false`. Supports `--json`. |
+| `ssh-session-cleanup` | Close persisted SSH PTY sessions: one (`--session-id <id>`) or all (`--all`) in one remote workspace (`--workspace <id\|ref\|index>`, default `$CMUX_WORKSPACE_ID`) or in every active remote workspace (`--all-workspaces`). Supports `--json`. |
 | `new-split` | Split from a surface in a direction. `--command <text>` starts a command in the new terminal; see [Initial terminal command](#initial-terminal-command). |
 | `list-panes` | List panes in a workspace. |
 | `list-pane-surfaces` | List surfaces in a pane. |
@@ -1056,17 +1056,29 @@ the expected text without connecting to a cmux socket.
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
 - `cmux new-workspace --help` -> `--command <text>`
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
-- `cmux ssh --help` -> `Usage: cmux ssh <destination>`
-- `cmux ssh --help` -> `--forward-agent`
+- `cmux ssh --help` -> `Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]`
+- `cmux ssh --help` -> `--name <title>`
+- `cmux ssh --help` -> `--port <n>`
+- `cmux ssh --help` -> `--identity <path>`
+- `cmux ssh --help` -> `-A, --forward-agent`
+- `cmux ssh --help` -> `-a, --no-forward-agent`
+- `cmux ssh --help` -> `--ssh-option <opt>`
+- `cmux ssh --help` -> `--window <id|ref|index>`
 - `cmux ssh --help` -> `--transport <ssh|mosh>`
-- `cmux mosh --help` -> `Usage: cmux mosh <destination>`
-- `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination>`
+- `cmux mosh --help` -> `Usage: cmux mosh <destination> [flags] [-- <remote-command-args>]`
+- `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination> [--session <name>] [flags]`
 - `cmux mosh-tmux --help` -> `--session <name>`
 - `cmux ssh --help` -> `--command <text>`
+- `cmux ssh --help` -> `--focus                 Switch to the new workspace`
 - `cmux ssh --help` -> `--no-focus              Open it in the background`
-- `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
-- `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
-- `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`
+- `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]`
+- `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id> [flags]`
+- `cmux ssh-session-attach --help` -> `--workspace <id|ref|index>`
+- `cmux ssh-session-attach --help` -> `--pane <id|ref|index>`
+- `cmux ssh-session-attach --help` -> `--split <left|right|up|down>`
+- `cmux ssh-session-attach --help` -> `--surface <id|ref|index>`
+- `cmux ssh-session-attach --help` -> `--focus <true|false>`
+- `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)`
 - `cmux new-split --help` -> `Usage: cmux new-split`
 - `cmux new-split --help` -> `--command <text>`
 - `cmux list-panes --help` -> `Usage: cmux list-panes`

@@ -52,20 +52,37 @@ public struct CloudNotificationPlacementResolver: Sendable {
     public init(
         machine: SurfaceMachineID,
         projections: @escaping @MainActor (SurfaceResourceID) -> [SurfaceProjection],
-        remoteWorkspaceID: @escaping @MainActor (_ terminalID: String) -> String?,
+        remoteWorkspaceIDs: @escaping @MainActor (_ terminalID: String) -> [String],
         boundWorkspaces: @escaping @MainActor () -> [CloudNotificationBoundWorkspace]
     ) {
         self.machine = machine
         self.projections = projections
-        self.remoteWorkspaceID = remoteWorkspaceID
+        self.remoteWorkspaceIDs = remoteWorkspaceIDs
         self.boundWorkspaces = boundWorkspaces
+    }
+
+    /// A resolver for a graph that places each terminal in at most one remote
+    /// workspace.
+    public init(
+        machine: SurfaceMachineID,
+        projections: @escaping @MainActor (SurfaceResourceID) -> [SurfaceProjection],
+        remoteWorkspaceID: @escaping @MainActor (_ terminalID: String) -> String?,
+        boundWorkspaces: @escaping @MainActor () -> [CloudNotificationBoundWorkspace]
+    ) {
+        self.init(
+            machine: machine,
+            projections: projections,
+            remoteWorkspaceIDs: { remoteWorkspaceID($0).map { [$0] } ?? [] },
+            boundWorkspaces: boundWorkspaces
+        )
     }
 
     public let machine: SurfaceMachineID
     /// Local panes showing a resource of this machine.
     public var projections: @MainActor (SurfaceResourceID) -> [SurfaceProjection]
-    /// The remote workspace whose tab shows the terminal, from the accepted graph.
-    public var remoteWorkspaceID: @MainActor (_ terminalID: String) -> String?
+    /// The remote workspaces whose tabs show the terminal, from the accepted
+    /// graph, in graph order.
+    public var remoteWorkspaceIDs: @MainActor (_ terminalID: String) -> [String]
     /// Local workspaces bound to the machine, in sidebar order.
     public var boundWorkspaces: @MainActor () -> [CloudNotificationBoundWorkspace]
 
@@ -89,19 +106,22 @@ public struct CloudNotificationPlacementResolver: Sendable {
         let resourceProjections = projections(resource)
         // A terminal can briefly have more than one local projection while a
         // Cloud mirror is being moved between panes. Prefer the projection in
-        // the daemon's remote workspace when that identity is available. The
-        // catalog stores projections in a set and hands them back sorted by
-        // `panelID.uuidString`, so without that identity the ring lands on
-        // whichever duplicate happens to sort first.
-        let preferredRemoteWorkspaceID = remoteWorkspaceID(terminalID)
-        if let projection = resourceProjections.first(where: {
-            guard let preferredRemoteWorkspaceID else { return false }
-            return $0.remoteWorkspaceID == preferredRemoteWorkspaceID
-        }) ?? resourceProjections.first {
+        // one of the daemon's remote workspaces for the terminal when that
+        // identity is available. The catalog stores projections in a set and
+        // hands them back sorted by `panelID.uuidString`, so without that
+        // identity the ring lands on whichever duplicate happens to sort first.
+        let terminalRemoteWorkspaceIDs = remoteWorkspaceIDs(terminalID)
+        let preferredProjection = terminalRemoteWorkspaceIDs.lazy.compactMap { remoteWorkspaceID in
+            resourceProjections.first { $0.remoteWorkspaceID == remoteWorkspaceID }
+        }.first
+        if let projection = preferredProjection ?? resourceProjections.first {
             return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
         }
-        guard let preferredRemoteWorkspaceID else { return nil }
-        return bound.first { $0.remoteWorkspaceID == preferredRemoteWorkspaceID }
-            .map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
+        for remoteWorkspaceID in terminalRemoteWorkspaceIDs {
+            if let workspace = bound.first(where: { $0.remoteWorkspaceID == remoteWorkspaceID }) {
+                return CloudNotificationDeliveryTarget(workspaceID: workspace.workspaceID, panelID: nil)
+            }
+        }
+        return nil
     }
 }

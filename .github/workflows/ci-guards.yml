@@ -137,6 +137,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate merge freezes as issues
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_freeze.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -384,6 +388,10 @@ jobs:
       - name: Test fake-socket CLI test helpers
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
+
+      - name: Test the /release changelog line classifier
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_changelog_lines.py
 
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
@@ -1184,6 +1192,12 @@ jobs:
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
+
+      - name: Validate nightly signing admission and its shadow mode
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_sign_admit.py
+          python3 tests/test_nightly_sign_shadow_workflow.py
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}

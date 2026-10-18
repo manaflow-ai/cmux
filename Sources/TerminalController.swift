@@ -2631,7 +2631,7 @@ class TerminalController {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
                     continue
                 }
-                handleEventsStreamRequest(
+                await handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
                     authorizationGeneration: authorizationGeneration,
@@ -2641,11 +2641,15 @@ class TerminalController {
                 return
             }
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
-                await processSocketLineAsync(
-                    trimmed,
-                    passwordAuthorization: passwordAuthorization,
-                    rateLimiter: rateLimiter
-                )
+                await SocketCommandTaskPolicy.$peerProcessID.withValue(pid) {
+                    await SocketCommandTaskPolicy.$peerHasSameUID.withValue(peerHasSameUID) {
+                        await processSocketLineAsync(
+                            trimmed,
+                            passwordAuthorization: passwordAuthorization,
+                            rateLimiter: rateLimiter
+                        )
+                    }
+                }
             }
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
@@ -4321,6 +4325,7 @@ class TerminalController {
         id: Any?,
         timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
+        daemonUnavailableMessage: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4384,13 +4389,13 @@ class TerminalController {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
             if let linkError = error as? CloudMachineLink.LinkError,
-               String(describing: linkError).lowercased().contains("daemon") {
+               linkError.category == .daemonUnavailable {
                 return v2Error(
                     id: id,
                     code: "vm_tui_daemon_unavailable",
-                    message: String(
-                        localized: "socket.cloudVM.tuiDaemonUnavailable",
-                        defaultValue: "The machine's cmux-tui daemon is unavailable. Wake the machine or retry `cmux vm workspace new`."
+                    message: daemonUnavailableMessage ?? String(
+                        localized: "socket.cloudVM.daemonUnavailable",
+                        defaultValue: "The Cloud VM connection is unavailable. Wake the machine or retry the command."
                     )
                 )
             }
@@ -6946,6 +6951,47 @@ class TerminalController {
         let webView: WKWebView
     }
 
+    /// The error a legacy `browser.*` socket method gets for tab
+    /// `surfaceId` when a browser REPL session drives it or typed a secret
+    /// into it (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``),
+    /// or nil. Every legacy resolver that hands a method a browser panel
+    /// asks it, so no method reads, evaluates, captures or sends input to
+    /// such a tab; listing tabs (id, title, URL) still shows it.
+    func v2BrowserReplTabRefusal(_ surfaceId: UUID) -> V2CallResult? {
+        guard let message = browserReplTabRefusalMessage(surfaceId) else { return nil }
+        return .err(
+            code: "denied",
+            message: message,
+            data: ["surface_id": surfaceId.uuidString, "reason": "browser_repl_tab"]
+        )
+    }
+
+    /// Why another socket client may not use, close, move, detach, reload
+    /// or navigate tab `surfaceId`, or nil: a browser REPL session drives it
+    /// or typed a secret into it (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``).
+    /// Every socket method that closes, moves, detaches, reloads or
+    /// navigates a surface asks it for each tab it would change, so another
+    /// local client cannot take a session's tab away from it. The user's
+    /// own window controls (tab close buttons, drags, menus) are not socket
+    /// clients and keep working.
+    func browserReplTabRefusalMessage(_ surfaceId: UUID) -> String? {
+        guard let refusal = BrowserReplTabAttachments.shared.outsideClientRefusal(panelID: surfaceId) else { return nil }
+        let message: String
+        switch refusal {
+        case .drivenBySession:
+            message = String(
+                localized: "cli.browser.error.replSessionTab",
+                defaultValue: "This tab belongs to a browser REPL session, which is driving it, so other clients cannot read or drive it. Use `cmux browser repl` to drive it."
+            )
+        case .holdsTypedSecrets:
+            message = String(
+                localized: "cli.browser.error.replSecretTab",
+                defaultValue: "A browser REPL session typed a secret into this tab, so other clients cannot read or drive it until it closes. Use `cmux browser repl` to drive it."
+            )
+        }
+        return message
+    }
+
     func v2ResolveBrowserPanelContext(
         params: [String: Any],
         tabManager: TabManager,
@@ -6956,6 +7002,7 @@ class TerminalController {
             tabManager: tabManager
         )
         if dockResolution.handled {
+            // The dock resolver asks v2BrowserReplTabRefusal itself.
             return (dockResolution.context, dockResolution.error)
         }
 
@@ -6980,6 +7027,9 @@ class TerminalController {
         }
         guard let browserPanel = ws.browserPanelForAutomation(surfaceId) else {
             return (nil, .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]))
+        }
+        if let refusal = v2BrowserReplTabRefusal(surfaceId) {
+            return (nil, refusal)
         }
         return (
             V2BrowserPanelContext(
@@ -9038,58 +9088,22 @@ class TerminalController {
         }
 
         // A native descriptor is the only path that can provide trusted WebKit
-        // defaults. Socket traffic uses the asynchronous readiness path in
-        // `ControlSocketAsync`; this synchronous adapter is retained only for
-        // in-process callers that are already on the main thread.
+        // defaults. Every socket entry point (`ControlSocketAsync` and the
+        // worker's `processCommandUsingSocketExecutionPolicy`) sends such a
+        // key to the asynchronous `v2BrowserKeyboardNativeResult` before it
+        // reaches this synchronous router; that path awaits WebKit's key
+        // queue before an Edit menu shortcut, which a synchronous caller
+        // cannot. A native key here is refused, never downgraded to a DOM
+        // KeyboardEvent.
         if event.nativeKey != nil {
-            guard Thread.isMainThread else {
-                return .err(
-                    code: "invalid_dispatch",
-                    message: String(
-                        localized: "cli.browser.error.operationFailed",
-                        defaultValue: "Browser operation failed"
-                    ),
-                    data: nil
-                )
-            }
-            return v2BrowserWithPanelContext(params: params) { ctx in
-                MainActor.assumeIsolated {
-                    guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
-                            ctx.webView.backForwardList.currentItem != nil else {
-                        return .err(
-                            code: "timeout",
-                            message: String(
-                                localized: "browser.automation.error.documentReadinessTimedOut",
-                                defaultValue: "Timed out waiting for the browser document to become ready"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-
-                    switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
-                    case .delivered:
-                        let payload: [String: Any] = [
-                            "workspace_id": ctx.workspaceId.uuidString,
-                            "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                            "surface_id": ctx.surfaceId.uuidString,
-                            "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
-                        ]
-                        return .ok(payload)
-                    case .unsupported, .eventCreationFailed:
-                        // The descriptor was resolved before entering this branch;
-                        // a failed native delivery must not silently become an
-                        // untrusted page-world KeyboardEvent.
-                        return .err(
-                            code: "internal_error",
-                            message: String(
-                                localized: "cli.browser.error.operationFailed",
-                                defaultValue: "Browser operation failed"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-                }
-            }
+            return .err(
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
         }
 
         // Preserve the historical compatibility path for opaque key tokens
@@ -9538,7 +9552,21 @@ class TerminalController {
     /// GUI "act on the focused browser" semantics: an explicit `surface_id` browser wins,
     /// otherwise the workspace's focused browser, otherwise the sole browser in the workspace.
     @MainActor
+    /// The browser a focused-action method (devtools, console, focus mode,
+    /// zoom) acts on, or nil; `refusal` when that browser is a tab a browser
+    /// REPL session drives or typed a secret into (``v2BrowserReplTabRefusal(_:)``).
     private func v2ResolveBrowserPanelForFocusedAction(
+        workspace: Workspace,
+        params: [String: Any]
+    ) -> (target: (panel: BrowserPanel, surfaceId: UUID)?, refusal: V2CallResult?) {
+        guard let target = v2FindBrowserPanelForFocusedAction(workspace: workspace, params: params) else {
+            return (nil, nil)
+        }
+        if let refusal = v2BrowserReplTabRefusal(target.surfaceId) { return (nil, refusal) }
+        return (target, nil)
+    }
+
+    private func v2FindBrowserPanelForFocusedAction(
         workspace: Workspace,
         params: [String: Any]
     ) -> (panel: BrowserPanel, surfaceId: UUID)? {
@@ -9656,6 +9684,11 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let browserSurfaceId = v2UUID(params, "surface_id")
             let returnSurfaceId = v2UUID(params, "return_to")
+            if let target = tabManager.reactGrabBrowserPanelId(in: ws, browserSurfaceId: browserSurfaceId),
+               let refusal = v2BrowserReplTabRefusal(target) {
+                result = refusal
+                return
+            }
             guard let actedBrowserId = tabManager.toggleReactGrab(
                 in: ws,
                 browserSurfaceId: browserSurfaceId,
@@ -9696,8 +9729,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             let handled = target.panel.toggleDeveloperTools()
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
@@ -9732,8 +9770,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             let handled = target.panel.showDeveloperToolsConsole()
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
@@ -9802,8 +9845,13 @@ class TerminalController {
                 ))
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             // Entering browser focus mode requires the target browser to be the focused, on-screen
             // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
             // that is not focused, focus it first so "enter" actually engages instead of no-opping.
@@ -9898,8 +9946,13 @@ class TerminalController {
                 }
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let resolved = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params)
+            if let refusal = resolved.refusal {
+                result = refusal
+                return
+            }
+            guard let target = resolved.target else { return }
             switch mutate(target.panel) {
             case .success(let handled):
                 var payloadExtra = extra
@@ -11519,6 +11572,10 @@ class TerminalController {
                     return
                 }
 
+                if let refusal = v2BrowserReplTabRefusal(targetId) {
+                    result = refusal
+                    return
+                }
                 if dock.panels.count <= 1 {
                     result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                     return
@@ -11567,6 +11624,10 @@ class TerminalController {
                 return
             }
 
+            if let refusal = v2BrowserReplTabRefusal(targetId) {
+                result = refusal
+                return
+            }
             if ws.panels.count <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return

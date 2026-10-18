@@ -26,9 +26,14 @@ seconds = float(sys.argv[1])
 argv = sys.argv[2:]
 if not argv:
     raise SystemExit("missing command")
-process = subprocess.Popen(argv, start_new_session=True)
+process = None
+pending_signal = None
 
 def terminate(_signum, _frame):
+    global pending_signal
+    if process is None:
+        pending_signal = _signum
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=5)
@@ -45,6 +50,9 @@ def terminate(_signum, _frame):
 for signum in (signal.SIGINT, signal.SIGTERM):
     if signal.getsignal(signum) != signal.SIG_IGN:
         signal.signal(signum, terminate)
+process = subprocess.Popen(argv, start_new_session=True)
+if pending_signal is not None:
+    terminate(pending_signal, None)
 try:
     raise SystemExit(process.wait(timeout=seconds))
 except subprocess.TimeoutExpired:

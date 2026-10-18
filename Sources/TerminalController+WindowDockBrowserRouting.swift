@@ -129,6 +129,9 @@ extension TerminalController {
                 )
             )
         }
+        if let refusal = v2BrowserReplTabRefusal(surfaceID) {
+            return (true, nil, refusal)
+        }
         return (
             true,
             V2BrowserPanelContext(

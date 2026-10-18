@@ -104,7 +104,7 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side. The standalone Computer Use
     # helper starts once the thin variants are cut (the first signing step) and
     # overlaps the remaining signing work; the outer app and final DMG still
@@ -166,54 +166,90 @@ jobs:
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
             core.setOutput('release_state', 'clear');
+            core.setOutput('resume_release_id', '');
+            core.setOutput('resume_assets', '');
+            core.setOutput('resume_asset_count', '');
             if (!tag) {
               core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
               return;
             }
+            const { owner, repo } = context.repo;
+            // The tags endpoint 404s for drafts, so list every release for the
+            // tag as well. One release object may exist: with two, the assets
+            // and the published release can differ (v0.65.2 shipped 0 assets).
+            let byTag = null;
             try {
-              const release = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag,
-              });
-              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
-              const {
-                conflicts,
-                missingImmutableAssets,
-                guardState,
-                hasPartialConflict,
-                shouldSkipBuildAndUpload,
-              } = evaluateReleaseAssetGuard({ existingAssetNames });
-
-              core.setOutput('release_state', guardState);
-
-              if (hasPartialConflict) {
-                core.setFailed(
-                  `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
-                  `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
-                  'Resolve release assets manually before rerunning.'
-                );
-                return;
-              }
-
-              if (shouldSkipBuildAndUpload) {
-                core.notice(
-                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
-                  'Skipping build, notarization, and upload to preserve existing signed artifacts.'
-                );
-                core.setOutput('skip_all', 'true');
-                core.setOutput('skip_upload', 'true');
-                return;
-              }
-
-              core.notice(`Release ${tag} exists but has no immutable release assets yet; continuing.`);
+              byTag = (await github.rest.repos.getReleaseByTag({ owner, repo, tag })).data;
             } catch (error) {
-              if (error.status === 404) {
-                core.notice(`Release ${tag} does not exist yet; safe to build and publish assets.`);
-                return;
-              }
-              throw error;
+              if (error.status !== 404) throw error;
             }
+            const listed = (await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 }))
+              .filter((entry) => entry.tag_name === tag);
+            const ids = [...new Set([...(byTag ? [byTag.id] : []), ...listed.map((entry) => entry.id)])];
+            if (ids.length > 1) {
+              core.setFailed(
+                `Release ${tag} has ${ids.length} release objects (ids ${ids.sort((a, b) => a - b).join(', ')}). ` +
+                'Delete the duplicate drafts, then rerun.'
+              );
+              return;
+            }
+            const release = byTag || listed[0];
+            if (!release) {
+              core.notice(`Release ${tag} does not exist yet; safe to build and publish assets.`);
+              return;
+            }
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner, repo, release_id: release.id, per_page: 100,
+            });
+            const existingAssetNames = assets.filter((asset) => asset.state === 'uploaded').map((asset) => asset.name);
+            const {
+              conflicts,
+              missingImmutableAssets,
+              guardState,
+              hasPartialConflict,
+              shouldSkipBuildAndUpload,
+            } = evaluateReleaseAssetGuard({ existingAssetNames });
+
+            core.setOutput('release_state', guardState);
+
+            if (hasPartialConflict) {
+              core.setFailed(
+                `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
+                `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
+                'Resolve release assets manually before rerunning.'
+              );
+              return;
+            }
+
+            if (shouldSkipBuildAndUpload && !release.draft) {
+              core.notice(
+                `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                'Skipping build, notarization, and upload to preserve existing signed artifacts.'
+              );
+              core.setOutput('skip_all', 'true');
+              core.setOutput('skip_upload', 'true');
+              return;
+            }
+
+            if (shouldSkipBuildAndUpload) {
+              // A failure between upload and publish left a complete staged
+              // draft. A rebuild would produce different signed bytes, so never
+              // rebuild: publish this draft by id and upload its own appcast to
+              // R2. A published release stays a no-op, so a rerun never
+              // republishes a release someone demoted.
+              core.notice(
+                `Release ${tag} is a staged draft (id ${release.id}) with every immutable asset ` +
+                `(${conflicts.join(', ')}). Skipping build and upload; resuming publication from the draft.`
+              );
+              core.setOutput('skip_all', 'true');
+              core.setOutput('skip_upload', 'true');
+              core.setOutput('resume_release_id', String(release.id));
+              core.setOutput('resume_assets', existingAssetNames.join(' '));
+              core.setOutput('resume_asset_count', String(assets.length));
+              return;
+            }
+
+            core.notice(`Release ${tag} exists but has no immutable release assets yet; continuing.`);
 
       - name: Select Xcode
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -746,6 +782,10 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
@@ -754,7 +794,10 @@ jobs:
           arch: arm64
         run: |
           set -euo pipefail
+          # The DMG around the stapled app is submitted without a wait; one
+          # step below waits for both variants at once.
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state" \
+          CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff" \
             ./scripts/ci/notarize-nightly-dmg.sh \
             "variants/$arch/cmux.app" \
             "cmux-macos-$arch.dmg" \
@@ -774,6 +817,10 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
@@ -782,11 +829,30 @@ jobs:
           arch: x86_64
         run: |
           set -euo pipefail
+          # The DMG around the stapled app is submitted without a wait; one
+          # step below waits for both variants at once.
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state" \
+          CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff" \
             ./scripts/ci/notarize-nightly-dmg.sh \
             "variants/$arch/cmux.app" \
             "cmux-macos-$arch.dmg" \
             "$RUNNER_TEMP/cmux-macos-$arch-verified.dmg"
+
+      # Both thin variants' DMGs around their stapled apps share one bounded
+      # wait (25 min), so the second submission does not add a wait per
+      # variant to the 355 min job.
+      - name: Finish the stapled-app thin DMGs
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        timeout-minutes: 35
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m
+        run: |
+          ./scripts/ci/finish-stapled-app-dmgs.sh \
+            "$RUNNER_TEMP/stapled-app-arm64.handoff" \
+            "$RUNNER_TEMP/stapled-app-x86_64.handoff"
 
       - name: Gate distribution with syspolicy_check
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -858,12 +924,14 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release asset
+        id: upload_release
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --github-output "$GITHUB_OUTPUT" \
             --immutable cmux-macos.dmg \
             --immutable cmux-macos-arm64.dmg \
             --immutable cmux-macos-x86_64.dmg \
@@ -877,7 +945,7 @@ jobs:
       # example v0.62.1 after v0.63.1) is published without taking it over.
       - name: Decide whether this release is latest
         id: latest_release
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        if: (steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.resume_release_id != '') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -891,36 +959,54 @@ jobs:
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # publish-release-assets.py stages a missing release as a draft
-      # prerelease. GitHub refuses make_latest on a prerelease, and the publish
-      # action adopts an existing draft without clearing the flag, so clear it
-      # on every draft for this tag (reruns leave earlier drafts behind).
-      # Drafts stay hidden; only the next step publishes.
-      - name: Clear prerelease on staged drafts
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      # A rerun whose guard found a complete staged release builds nothing, so
+      # take the appcasts the R2 step uploads from that release itself. They
+      # were signed for exactly the DMGs on the release.
+      - name: Download the staged appcasts for a resumed release
+        if: steps.guard_release_assets.outputs.resume_release_id != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          RESUME_RELEASE_ID: ${{ steps.guard_release_assets.outputs.resume_release_id }}
+        run: |
+          python3 scripts/ci/finalize-release.py download \
+            --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RESUME_RELEASE_ID" \
+            --asset appcast-arm64.xml --asset appcast-x86_64.xml --asset appcast.xml --dest .
+
+      # Publish the exact release the upload step staged (or the guard found),
+      # by id. A tag lookup cannot see drafts: softprops/action-gh-release made
+      # a second release for v0.65.2 and published it with 0 assets while the
+      # assets sat on the staged draft. finalize-release.py refuses any other
+      # release for the tag and verifies the published release by tag.
+      - name: Publish verified release
+        if: (steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.resume_release_id != '') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.upload_release.outputs.release_id || steps.guard_release_assets.outputs.resume_release_id }}
+          UPLOADED_ASSETS: ${{ steps.upload_release.outputs.asset_names }}
+          UPLOADED_COUNT: ${{ steps.upload_release.outputs.asset_count }}
+          RESUME_ASSETS: ${{ steps.guard_release_assets.outputs.resume_assets }}
+          RESUME_COUNT: ${{ steps.guard_release_assets.outputs.resume_asset_count }}
+          MAKE_LATEST: ${{ steps.latest_release.outputs.make_latest }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq ".[] | select(.draft and .prerelease and .tag_name == \"$GITHUB_REF_NAME\") | .id" |
-          while read -r release_id; do
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=false --jq '"cleared prerelease on draft \(.id)"'
-          done
-
-      # Keep a new stable release hidden until its entire asset set is verified.
-      - name: Publish verified release
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          prerelease: false
-          draft: false
-          make_latest: ${{ steps.latest_release.outputs.make_latest }}
+          expect=()
+          names=()
+          if [ -n "$UPLOADED_ASSETS" ]; then
+            read -ra names <<<"$UPLOADED_ASSETS"
+            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            expect+=(--expect-count "$UPLOADED_COUNT")
+          else
+            # Resumed: everything already on the complete staged release.
+            read -ra names <<<"$RESUME_ASSETS"
+            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            expect+=(--expect-count "$RESUME_COUNT")
+          fi
+          python3 scripts/ci/finalize-release.py publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RELEASE_ID" \
+            --generate-notes --prerelease false --make-latest "$MAKE_LATEST" "${expect[@]}"
 
       - name: Upload release appcast to R2
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        if: (steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.resume_release_id != '') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
