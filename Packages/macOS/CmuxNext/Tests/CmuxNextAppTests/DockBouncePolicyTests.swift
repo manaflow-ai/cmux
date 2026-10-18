@@ -14,7 +14,7 @@ struct DockBouncePolicyTests {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = appActive
         arrival.workspaceMuted = muted
-        return NotificationPolicy.decide(arrival, prefs: prefs)
+        return NotificationPolicy(prefs: prefs).decide(arrival)
     }
 
     @Test func anAlertWhileInactiveBouncesOnceByDefault() {
@@ -37,6 +37,17 @@ struct DockBouncePolicyTests {
     @Test func aNotificationThatDoesNotAlertDoesNotBounce() {
         #expect(Self.decide(muted: true).bounce == nil)
         #expect(Self.decide(desktop: .never).bounce == nil)
+    }
+
+    @Test func quietHoursDoNotBounce() {
+        var prefs = NotificationPreferences()
+        prefs.dockBounce = .untilActive
+        prefs.quietHours = QuietHours(start: 22 * 60, end: 7 * 60)
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.minuteOfDay = 23 * 60
+        #expect(NotificationPolicy(prefs: prefs).decide(arrival).bounce == nil)
+        arrival.minuteOfDay = 12 * 60
+        #expect(NotificationPolicy(prefs: prefs).decide(arrival).bounce == .untilActive)
     }
 
     @Test func theSettingLoadsFromCmuxJSON() {

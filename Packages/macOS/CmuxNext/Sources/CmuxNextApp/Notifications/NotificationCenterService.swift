@@ -216,7 +216,7 @@ final class NotificationCenterService {
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
         acknowledge(tab)
     }
@@ -276,7 +276,7 @@ final class NotificationCenterService {
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy.decide(arrival, prefs: preferences)
+        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
