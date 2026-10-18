@@ -85,6 +85,10 @@ struct WorkspaceRowHoverMotionTests {
         let row = WorkspaceRowView(key: .workspace(WorkspaceID("realization")))
         row.sidebarList = list
         list.hoverFollowsScroll = true
+        // AppKit marks a freshly constructed row for its initial layout. Clear
+        // that baseline before asserting that realization does not enqueue a
+        // second hover layout or fade.
+        row.layoutSubtreeIfNeeded()
 
         row.isHovered = true
 
