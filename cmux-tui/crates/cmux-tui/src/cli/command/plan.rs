@@ -20,11 +20,35 @@ pub(in crate::cli) struct RequestPlan {
 /// The part of a result a command prints. `TerminalProgramStatus` is
 /// `terminal <selector> status`: the `extra.program_status` records of the
 /// `terminal.get` result (OSC 7501), `[]` when the terminal has none.
+/// `AgentRoster` is `agent list`: the `agent.list` rows ranked, limited and
+/// counted on the client (wire/agent_roster.rs).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
+    AgentRoster(AgentRosterView),
+}
+
+/// How `agent list` orders and trims its rows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) struct AgentRosterView {
+    pub sort: AgentSort,
+    /// At most this many rows; the counts still cover every listed agent.
+    pub limit: Option<usize>,
+}
+
+/// `agent list --sort`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) enum AgentSort {
+    /// Blocked first, then working, then idle and done, then unknown; the
+    /// most recently updated first within each group.
+    #[default]
+    NeedsMe,
+    /// The most recently updated first.
+    Recent,
+    /// The daemon's order.
+    None,
 }
 
 impl ResponseView {
