@@ -1,22 +1,29 @@
 import { env } from "cloudflare:workers";
+import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
+import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
+import { TenantId } from "../../src/lib/ids.ts";
 
 it("persists recovery identity and retained quota through the real SQLite-backed Durable Object RPC", async () => {
-  const id = env.TENANT_LIMITS.idFromName(crypto.randomUUID()), first = env.TENANT_LIMITS.get(id);
+  const tenant = TenantId.make(crypto.randomUUID()), id = env.TENANT_LIMITS.idFromName(tenant), first = env.TENANT_LIMITS.get(id);
   expect(await first.begin("request", "fingerprint", 0)).toEqual({ state: "new" });
   expect(await first.reserve("vm", 1, 0, 0, "slot")).toMatchObject({ ok: true });
   const intent = { phase: "creating" as const, vmId: "vm_00000000000000000000000001", reservationId: "slot", createdBy: "service:team-vm", context: "opaque-context" };
-  await first.advance("request", intent, 1);
+  expect(await first.advance("request", intent, 1)).toBe(true);
   await first.abandon("request", 2);
   await first.release("slot");
   const reloaded = env.TENANT_LIMITS.get(id), later = IDEMPOTENCY_TTL_MS + 1;
   expect(await reloaded.reserve("vm", 1, 0, later, "extra")).toEqual({ ok: false });
   expect(await reloaded.begin("request", "fingerprint", later)).toEqual({ state: "resume", progress: intent });
   expect(await reloaded.creationReservation("request", intent.vmId)).toBe("slot");
-  await expect(reloaded.advance("request", { phase: "done", vmId: "different-allocation" }, later + 1)).rejects.toThrow("allocation intent cannot be replaced");
+  const failedWrite = await Effect.runPromiseExit(Effect.provide(
+    Effect.flatMap(TenantLimits, (limits) => limits.advance(tenant, "request", { phase: "done", vmId: "different-allocation" })),
+    durableObjectLimitsLayer(env.TENANT_LIMITS),
+  ));
+  expect(Exit.isFailure(failedWrite)).toBe(true);
   expect(await reloaded.reserve("vm", 1, 0, later + 2, "still-blocked")).toEqual({ ok: false });
-  await reloaded.advance("request", { phase: "done", vmId: intent.vmId }, later + 3);
+  expect(await reloaded.advance("request", { phase: "done", vmId: intent.vmId }, later + 3)).toBe(true);
   expect(await reloaded.reserve("vm", 1, 0, later + 4, "free")).toMatchObject({ ok: true });
 });
 

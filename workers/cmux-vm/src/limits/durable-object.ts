@@ -43,8 +43,10 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.begin(key, fingerprint, nowMs);
   }
 
-  advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void> {
-    return this.ledger.advance(key, progress, nowMs);
+  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
+    // Expected stale/conflicting claims return a receipt rather than a rejected RPC promise.
+    try { await this.ledger.advance(key, progress, nowMs); return true; }
+    catch { return false; }
   }
 
   abandon(key: string, nowMs: number): Promise<void> {
