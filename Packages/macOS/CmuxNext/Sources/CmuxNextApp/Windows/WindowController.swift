@@ -133,8 +133,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their
-    /// terminal surfaces already left the warm set) and mount again when shown. The one under a
-    /// top page stays: it is this window's workspace.
+    /// terminal surfaces already left the warm set) and mount again when shown, with their
+    /// view-only state (strip and screen bar scroll) reset. The one under a top page stays: it is
+    /// this window's workspace.
     func releaseParked() {
         for (id, controller) in parked where content != nil || id != state.workspaceID {
             parked[id] = nil
@@ -271,8 +272,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     private func park(_ controller: WorkspaceContentController) {
         parkSerial &+= 1
-        controller.parkedSerial = parkSerial
-        controller.park()
+        controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
     }
 
