@@ -89,6 +89,9 @@ if [[ ! "$PINNED_GO" =~ ^go1\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 export GOTOOLCHAIN=local
+# The build info records these; an environment value also overrides a
+# `go env -w` file, so a runner image cannot change the bytes on one side.
+export GOAMD64=v1 GOARM64=v8.0 GOFLAGS= GOEXPERIMENT=
 ACTUAL_GO="$(go -C "$DAEMON_ROOT" env GOVERSION)"
 if [[ "$ACTUAL_GO" != "$PINNED_GO" ]]; then
   echo "error: cmuxd-remote needs ${PINNED_GO} (daemon/remote/go.mod), but go is ${ACTUAL_GO}" >&2
