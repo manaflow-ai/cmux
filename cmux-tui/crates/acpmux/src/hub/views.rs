@@ -74,11 +74,13 @@ impl Hub {
 /// error from it. Waiting reads `inputSince` (when it began waiting), so a
 /// later record or a draft save does not move it.
 ///
-/// `step` is what it is doing now (hq#2509), see `lane_step`. The error and
-/// the step are masked (`secret_scan`) here, before the summary reaches a
-/// client or an acpmux peer.
+/// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
+/// session's title, else its first prompt. The lane's error, step and title
+/// are masked (`secret_scan`), so a view that reads only the lane never shows
+/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// `lastMessage`, `preview`, `title`) still carry the raw text.
 ///
-/// `{state, since, error, step}`; null for a closed session.
+/// `{state, since, error, step, title}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -106,7 +108,7 @@ pub fn lane(summary: &Value) -> Value {
         _ => Value::Null,
     };
     let error = error.as_str().map_or(Value::Null, |e| Value::String(crate::secret_scan::mask(e)));
-    json!({"state": state, "since": since, "error": error, "step": lane_step(summary)})
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
 }
 
 /// The lane's step, one line: the running turn's prompt, else the agent's
@@ -122,12 +124,31 @@ fn lane_step(summary: &Value) -> Value {
     let line = summary["turn"]["prompt"]
         .as_str()
         .or_else(reply)
-        .map(|text| super::session::short_text(&crate::secret_scan::mask(text), LANE_STEP_CHARS));
+        .map(masked_line);
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// The lane's title: the session's title, else its first prompt, masked and
+/// cut like the step. Null when there is neither.
+fn lane_title(summary: &Value) -> Value {
+    let title = summary["title"].as_str().filter(|t| !t.trim().is_empty());
+    let line = title.or_else(|| summary["lastPrompt"].as_str()).map(masked_line);
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// `text` masked, folded to one line and cut to `LANE_STEP_CHARS`. Only the
+/// head is scanned (a pasted log can be megabytes), and it is masked before
+/// the cut, so a cut never leaves part of a secret unmasked.
+fn masked_line(text: &str) -> String {
+    let head = text.char_indices().nth(LANE_SCAN_CHARS).map_or(text, |(at, _)| &text[..at]);
+    super::session::short_text(&crate::secret_scan::mask(head), LANE_STEP_CHARS)
 }
 
 /// How long a lane's step may be; the row clips it to its width anyway.
 const LANE_STEP_CHARS: usize = 240;
+/// How much of a step or title is scanned: far past the cut, so a secret
+/// that starts before it is still whole.
+const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
 pub fn decide(summary: &mut Value) {

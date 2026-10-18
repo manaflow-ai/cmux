@@ -4,8 +4,9 @@
 //!
 //! This is a destructive transform, not a visual cover: `mask` returns new
 //! text that no longer holds the secret, so a client or an acpmux peer that
-//! receives it never has the source to reveal. The original stays wherever
-//! it already was (the transcript, the store); only the masked copy leaves.
+//! reads only the masked copy never has the source to reveal. The original
+//! stays wherever it already was (the transcript, the store, and the
+//! summary's raw fields beside the lane).
 //!
 //! The lanes view's step line (`hub::views::lane`) is the first user. The
 //! module only reads text, so transcripts, notifications and the phone relay
@@ -144,13 +145,24 @@ fn is_placeholder(value: &str) -> bool {
     v.starts_with(['$', '<', '[']) || v.chars().all(|c| c == '*' || c == 'x' || c == 'X')
 }
 
+/// An assignment's value that can be a secret: not a placeholder, not a path
+/// (`secret_scan::mask`), and with a letter and a digit, so a count
+/// (`max_tokens: 100000`) or a word (`token: expired`) is left alone.
+fn is_value(value: &str) -> bool {
+    let v = value.trim_matches(['"', '\'']);
+    !is_placeholder(v)
+        && !v.starts_with(':')
+        && v.bytes().any(|b| b.is_ascii_alphabetic())
+        && v.bytes().any(|b| b.is_ascii_digit())
+}
+
 /// Every secret in `text`, in order, with overlapping finds merged into one.
 pub fn find(text: &str) -> Vec<Found> {
     let mut all: Vec<(usize, Found)> = Vec::new();
     for (order, rule) in RULES.iter().enumerate() {
         for caps in rule.re.captures_iter(text) {
             let Some(m) = caps.get(rule.group) else { continue };
-            if rule.kind == SecretKind::Assignment && is_placeholder(m.as_str()) {
+            if rule.kind == SecretKind::Assignment && !is_value(m.as_str()) {
                 continue;
             }
             // `sk-learn-preprocessing-pipelines` is a package, not a key: a key has digits and capitals.

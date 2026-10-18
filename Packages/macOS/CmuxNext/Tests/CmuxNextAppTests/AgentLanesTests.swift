@@ -80,7 +80,7 @@ struct AgentLanesTests {
 
     @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
         let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
-        let lane = AgentActivityLane.of(summary: summary, title: nil)
+        let lane = AgentActivityLane.of(summary: summary)
         #expect(lane?.workspaceID == "workspace-7")
     }
 
@@ -94,21 +94,25 @@ struct AgentLanesTests {
         summary["turn"] = ["prompt": "push with \(token)", "startedAt": 1_760_000_500_000.0]
         summary["lastMessage"] = ["role": "agent", "text": token]
         summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "step": "push with [github token]"]
-        let lane = AgentActivityLane.of(summary: summary, title: nil)
+        let lane = AgentActivityLane.of(summary: summary)
         #expect(lane?.harness == "codex")
         #expect(lane?.step == "push with [github token]")
 
         summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
-        #expect(AgentActivityLane.of(summary: summary, title: nil)?.step == nil, "an acpmux from before lane.step shows no step")
+        #expect(AgentActivityLane.of(summary: summary)?.step == nil, "an acpmux from before lane.step shows no step")
     }
 
-    /// hq#2509: the title the app passes in can be the session's first prompt, raw. acpmux's
-    /// masked `lane.title` wins over it.
+    /// hq#2509: a lane's title is acpmux's masked `lane.title`, never the summary's raw title or
+    /// first prompt; an acpmux from before it shows the session's name.
     @Test func aLanesTitleIsTheDaemonsMaskedTitle() {
         let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
         var summary = Self.summary("op-busy", "working")
+        summary["title"] = "push \(token)"
+        summary["lastPrompt"] = "push \(token)"
         summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "title": "push [github token]"]
-        #expect(AgentActivityLane.of(summary: summary, title: "push \(token)")?.title == "push [github token]")
+        #expect(AgentActivityLane.of(summary: summary)?.title == "push [github token]")
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary)?.title == "op-busy")
     }
 
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {

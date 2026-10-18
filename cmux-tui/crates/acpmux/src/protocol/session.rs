@@ -198,6 +198,9 @@ pub struct Lane {
     /// What the session is doing now, one line: the running turn's prompt,
     /// else the agent's last reply line, secrets masked (`secret_scan`).
     pub step: Option<String>,
+    /// The session's title, else its first prompt, one line, secrets masked
+    /// (`secret_scan`).
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

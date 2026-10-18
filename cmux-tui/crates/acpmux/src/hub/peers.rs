@@ -206,8 +206,10 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
-        // A peer from before `indicator` or `lane` sends none: decide them here.
-        if summary.get("indicator").is_none() || summary.get("lane").is_none() {
+        // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
+        // sends none: decide them here.
+        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
         summary
@@ -564,6 +566,7 @@ mod tests {
                 "sessionId": "mux-1",
                 "name": "review",
                 "status": "running",
+                "indicator": "working",
                 "turnCount": 1,
                 "updatedAt": 9,
                 "turn": {"prompt": format!("push {token}"), "startedAt": 5},

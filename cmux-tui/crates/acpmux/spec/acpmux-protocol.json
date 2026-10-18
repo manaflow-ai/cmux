@@ -1100,13 +1100,21 @@
             "string",
             "null"
           ]
+        },
+        "title": {
+          "description": "The session's title, else its first prompt, one line, secrets masked\n(`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "error",
         "since",
         "state",
-        "step"
+        "step",
+        "title"
       ],
       "type": "object"
     },

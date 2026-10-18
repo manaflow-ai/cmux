@@ -30,19 +30,19 @@ function laneState(session: SessionSummary): LaneState {
 function laneFor(session: SessionSummary, workspaceId: string | null | undefined, peer?: string | null): Lane {
   const state = laneState(session);
   const since = session.lane?.since ?? session.inputSince ?? session.updatedAt;
-  const error = session.lastTurn?.errorText ?? session.lastTurn?.detail ?? null;
   return {
     id: session.sessionId,
     name: session.name || session.sessionId,
-    title: session.title || session.lastPrompt || session.name || session.sessionId,
+    // acpmux masks secrets in the lane's title, error and step (hq#2509); the raw prompt and
+    // error beside them are never a fallback.
+    title: session.lane?.title || session.name || session.sessionId,
     parent: session.parentId ?? session.spawnedBy ?? null,
     peer: peer ?? session.peer ?? null,
     workspaceId: workspaceId ?? null,
     state,
     since,
-    error: state === "failed" ? error : null,
+    error: state === "failed" ? (session.lane?.error ?? null) : null,
     harness: session.harness || null,
-    // acpmux masks secrets in the step (hq#2509); the raw prompt is never a fallback.
     step: session.lane?.step || null,
   };
 }
