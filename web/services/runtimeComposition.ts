@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 
 import { cloudDb } from "../db/client";
-import { persistentWorkspaces, runAttemptPromotions } from "../db/schema";
+import { persistentWorkspaces, runAttemptPromotions, runAttempts } from "../db/schema";
 import {
   configurePersistentWorkspaceService,
   createPersistentWorkspacePromotionRuntimePort,
@@ -188,18 +188,31 @@ export class DrizzleAttemptPromotionStore implements AttemptPromotionStorePort {
   }
 
   async complete(input: { readonly reservation: { readonly claimId: string }; readonly promotion: PromotionView }): Promise<PromotionView> {
-    const [updated] = await cloudDb().update(runAttemptPromotions).set({
-      status: "completed",
-      promotion: input.promotion,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(runAttemptPromotions.claimId, input.reservation.claimId),
-      eq(runAttemptPromotions.status, "reserved"),
-    )).returning();
-    if (updated) return promotionFromRow(updated);
-    const existing = (await cloudDb().select().from(runAttemptPromotions).where(eq(runAttemptPromotions.claimId, input.reservation.claimId)).limit(1))[0];
-    if (existing?.status === "completed") return promotionFromRow(existing);
-    throw new Error("promotion reservation is stale or missing");
+    requireUuid(input.promotion.runtime.id, "promotion runtime id");
+    return cloudDb().transaction(async (tx) => {
+      const [updated] = await tx.update(runAttemptPromotions).set({
+        status: "completed",
+        promotion: input.promotion,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(runAttemptPromotions.claimId, input.reservation.claimId),
+        eq(runAttemptPromotions.status, "reserved"),
+      )).returning();
+      if (updated) {
+        const [linked] = await tx.update(runAttempts).set({
+          runtimeId: input.promotion.runtime.id,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(runAttempts.id, input.promotion.attemptId),
+          eq(runAttempts.runId, input.promotion.runId),
+        )).returning();
+        if (!linked) throw new Error("promotion attempt could not be linked to the runtime");
+        return promotionFromRow(updated);
+      }
+      const existing = (await tx.select().from(runAttemptPromotions).where(eq(runAttemptPromotions.claimId, input.reservation.claimId)).limit(1))[0];
+      if (existing?.status === "completed") return promotionFromRow(existing);
+      throw new Error("promotion reservation is stale or missing");
+    });
   }
 
   async release(reservation: { readonly claimId: string }): Promise<void> {
