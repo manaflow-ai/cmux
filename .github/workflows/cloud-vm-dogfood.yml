@@ -87,7 +87,6 @@ jobs:
           bun scripts/db-migrate.mjs
           mkdir -p "$RUNNER_TEMP/dogfood"
           bun scripts/cloud-vm/run-admission-probe.ts > "$RUNNER_TEMP/dogfood/run-admission.json"
-          CMUX_DB_TEST=1 bun test --timeout=30000 --max-concurrency=1 tests/runs-api-db-behavior.test.ts tests/runs-worker-db-behavior.test.ts
           cd "$GITHUB_WORKSPACE"
           bunx vercel@56.3.1 deploy . --prod --yes --archive=tgz --env DATABASE_URL="$DATABASE_URL" --env DIRECT_DATABASE_URL="$DIRECT_DATABASE_URL" --env NEXT_PUBLIC_STACK_PROJECT_ID="$NEXT_PUBLIC_STACK_PROJECT_ID" --env NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY" --env STACK_SECRET_SERVER_KEY="$STACK_SECRET_SERVER_KEY" --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard

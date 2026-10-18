@@ -14,6 +14,8 @@ export type RunSnapshot = {
 export class RunIdempotencyConflictError extends Error {}
 export class RunAdmissionError extends Error {}
 export class RunArtifactConflictError extends Error {}
+type RunReadDatabase = Pick<ReturnType<typeof cloudDb>, "select">;
+type RunAdmissionDatabase = RunReadDatabase & Pick<ReturnType<typeof cloudDb>, "transaction">;
 
 function scopeWhere(scope: RunScope) {
   return or(eq(runs.ownerTeamId, scope.ownerTeamId), and(isNull(runs.ownerTeamId), eq(runs.userId, scope.userId)));
@@ -24,8 +26,8 @@ export async function createRunRecord(input: RunScope & {
   readonly idempotencyKey: string;
   readonly requestDigest: string;
   readonly spec: RunSpec;
-}): Promise<{ readonly snapshot: RunSnapshot; readonly reused: boolean }> {
-  const result = await cloudDb().transaction(async (tx) => {
+}, database: RunAdmissionDatabase = cloudDb()): Promise<{ readonly snapshot: RunSnapshot; readonly reused: boolean }> {
+  const result = await database.transaction(async (tx) => {
     // One admission lock per immutable owner serializes duplicate keys AND the
     // bounded queue count. Provider capacity remains owned by createVm.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run-admission:${input.ownerTeamId}`}, 0))`);
@@ -49,18 +51,18 @@ export async function createRunRecord(input: RunScope & {
     ]);
     return { id: run.id, reused: false };
   });
-  const snapshot = await readRunSnapshot(result.id, input);
+  const snapshot = await readRunSnapshot(result.id, input, database);
   if (!snapshot) throw new Error("Run record disappeared after admission");
   return { snapshot, reused: result.reused };
 }
 
-export async function readRunSnapshot(runId: string, scope: RunScope): Promise<RunSnapshot | null> {
-  const [run] = await cloudDb().select().from(runs).where(and(eq(runs.id, runId), scopeWhere(scope))).limit(1);
+export async function readRunSnapshot(runId: string, scope: RunScope, database: RunReadDatabase = cloudDb()): Promise<RunSnapshot | null> {
+  const [run] = await database.select().from(runs).where(and(eq(runs.id, runId), scopeWhere(scope))).limit(1);
   if (!run) return null;
   const [attempts, events, artifacts] = await Promise.all([
-    cloudDb().select().from(runAttempts).where(eq(runAttempts.runId, run.id)).orderBy(asc(runAttempts.ordinal)),
-    cloudDb().select().from(runEvents).where(eq(runEvents.runId, run.id)).orderBy(asc(runEvents.sequence)).limit(1000),
-    cloudDb().select().from(runArtifacts).where(eq(runArtifacts.runId, run.id)).orderBy(asc(runArtifacts.createdAt)).limit(128),
+    database.select().from(runAttempts).where(eq(runAttempts.runId, run.id)).orderBy(asc(runAttempts.ordinal)),
+    database.select().from(runEvents).where(eq(runEvents.runId, run.id)).orderBy(asc(runEvents.sequence)).limit(1000),
+    database.select().from(runArtifacts).where(eq(runArtifacts.runId, run.id)).orderBy(asc(runArtifacts.createdAt)).limit(128),
   ]);
   return { run, attempts, events, artifacts };
 }

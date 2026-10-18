@@ -32,6 +32,7 @@ export async function runAdmissionProbe(): Promise<boolean> {
   const receipt: Record<string, unknown> = { schema: "cmux.run-admission-probe/v1", ok: false };
   let stage = "config";
   let admissionAttempted = false;
+  const rollback = new Error("Admission probe rollback");
   try {
     receipt.driver = cloudDbConfig().driver;
     stage = "schema";
@@ -63,29 +64,34 @@ export async function runAdmissionProbe(): Promise<boolean> {
     });
     stage = "create";
     admissionAttempted = true;
-    const created = await runWithCloudDbQuerySignal(AbortSignal.timeout(30_000), () => createRunRecord({ ...scope, billingTeamId: scope.ownerTeamId, idempotencyKey: key, requestDigest: runSpecDigest(spec), spec }));
-    receipt.runId = created.snapshot.run.id;
-    stage = "snapshot";
-    const snapshot = await runWithCloudDbQuerySignal(AbortSignal.timeout(30_000), () => readRunSnapshot(created.snapshot.run.id, scope));
-    if (!snapshot || snapshot.attempts.length !== 1 || snapshot.events.length !== 2
-      || snapshot.events[0].kind !== "run.created" || snapshot.events[1].kind !== "attempt.queued"
-      || snapshot.events[0].sequence !== 0 || snapshot.events[1].sequence !== 1) {
-      throw new Error("Probe snapshot invariant failed");
-    }
-    receipt.attemptId = snapshot.attempts[0].id;
-    receipt.events = snapshot.events.map(({ sequence, kind }) => ({ sequence, kind }));
-    receipt.ok = true;
+    await runWithCloudDbQuerySignal(AbortSignal.timeout(30_000), () => cloudDb().transaction(async (tx) => {
+      const created = await createRunRecord({ ...scope, billingTeamId: scope.ownerTeamId, idempotencyKey: key, requestDigest: runSpecDigest(spec), spec }, tx);
+      receipt.runId = created.snapshot.run.id;
+      stage = "snapshot";
+      const snapshot = await readRunSnapshot(created.snapshot.run.id, scope, tx);
+      if (!snapshot || snapshot.attempts.length !== 1 || snapshot.events.length !== 2
+        || snapshot.events[0].kind !== "run.created" || snapshot.events[1].kind !== "attempt.queued"
+        || snapshot.events[0].sequence !== 0 || snapshot.events[1].sequence !== 1) {
+        throw new Error("Probe snapshot invariant failed");
+      }
+      receipt.attemptId = snapshot.attempts[0].id;
+      receipt.events = snapshot.events.map(({ sequence, kind }) => ({ sequence, kind }));
+      // Never commit a queued synthetic Run: global workers cannot observe it.
+      throw rollback;
+    }));
   } catch (error) {
-    receipt.failure = { stage, ...safeRunAdmissionError(error) };
+    if (error === rollback) receipt.ok = true;
+    else receipt.failure = { stage, ...safeRunAdmissionError(error) };
   } finally {
     try {
-      // Query by the unguessable probe scope/key even if create committed and
-      // its subsequent snapshot read failed before returning the new Run ID.
+      // A separate transaction must confirm rollback; never delete a committed
+      // row to disguise a visibility failure.
       const owned = and(eq(runs.ownerTeamId, scope.ownerTeamId), eq(runs.userId, scope.userId), eq(runs.idempotencyKey, key));
-      const deleted = admissionAttempted
-        ? await runWithCloudDbQuerySignal(AbortSignal.timeout(10_000), () => cloudDb().delete(runs).where(owned).returning({ id: runs.id }))
+      const remaining = admissionAttempted
+        ? await runWithCloudDbQuerySignal(AbortSignal.timeout(10_000), () => cloudDb().select({ id: runs.id }).from(runs).where(owned))
         : [];
-      receipt.cleanup = { ok: true, deletedRunIds: deleted.map(({ id }) => id) };
+      receipt.cleanup = { ok: remaining.length === 0, rolledBack: admissionAttempted && remaining.length === 0, verifiedAbsent: remaining.length === 0 };
+      if (remaining.length > 0) receipt.ok = false;
     } catch (error) {
       receipt.ok = false;
       receipt.cleanup = { ok: false, ...safeRunAdmissionError(error) };
