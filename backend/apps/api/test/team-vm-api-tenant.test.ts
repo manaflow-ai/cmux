@@ -54,6 +54,6 @@ it("keeps the Stack tenant out of the public team membership view", async () => 
   const t = await mirroredTeam("Public guard")
   const response = await call(t.token, "/v1/read", { op: "team.directory", params: {} }, t.team)
   expect(response.status).toBe(200)
-  expect(response.body.ok).toBe(true)
+  expect(response.body).toMatchObject({ value: { team: t.team } })
   expect(JSON.stringify(response.body)).not.toContain(t.stackTeam)
 })
