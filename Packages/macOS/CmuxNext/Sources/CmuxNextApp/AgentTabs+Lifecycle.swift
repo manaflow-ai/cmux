@@ -74,6 +74,7 @@ extension AgentTabStore {
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
+        let sendsSplitID = daemon.supports(DaemonCapabilities.shared.splitClientSplitID)
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
@@ -94,7 +95,8 @@ extension AgentTabStore {
             do {
                 guard let self else { throw CancellationError() }
                 let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
-                                                           splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID) })
+                                                           splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
+                                                                                          splitID: sendsSplitID ? $0.1.splitID : nil) })
                 tabCreated(key, as: created)
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)

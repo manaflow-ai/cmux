@@ -88,14 +88,20 @@ final class DividerHandleView: NSView {
         CATransaction.commit()
     }
 
-    /// A column edge or a row edge: it sits in a gap and draws only while
-    /// hovered or dragged.
+    /// A column edge sits in a gap and draws only while hovered or dragged.
     private var isColumnEdge: Bool {
         switch kind {
-        case .columnEdge, .rowEdge: true
-        case .split: false
+        case .columnEdge: true
+        case .split, .rowEdge: false
         }
     }
+
+    private var isRowEdge: Bool {
+        if case .rowEdge = kind { return true }
+        return false
+    }
+
+    private var isEdgeHandle: Bool { isColumnEdge || isRowEdge }
 
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
@@ -136,6 +142,16 @@ final class DividerHandleView: NSView {
 
     /// The line's color as drawn now.
     var lineColor: CGColor? { line.backgroundColor }
+
+    /// Whether the native line currently contributes pixels. Edge handles use
+    /// a transparent line at rest and only draw while hovered or dragged; the
+    /// overlay must not reserve a Chromium occlusion hole for that clear state.
+    var isLineVisible: Bool {
+        // Use the presentation color while the hover fade is running. The
+        // page must remain covered until the last visible native pixel fades.
+        guard let color = (line.presentation() ?? line).backgroundColor else { return false }
+        return color.alpha > 0.001 && line.opacity > 0.001
+    }
 
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
@@ -185,12 +201,18 @@ final class DividerHandleView: NSView {
     }
 
     private func applyColors() {
-        let isEdge = isColumnEdge
+        let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine
             let color: NSColor
             if isEdge {
-                color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
+                if active {
+                    color = Palette.focusRing.withAlphaComponent(isRowEdge ? 0.6 : 0.45)
+                } else if isRowEdge, showsIdleLine {
+                    color = Palette.separator.withAlphaComponent(0.32)
+                } else {
+                    color = .clear
+                }
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
@@ -198,17 +220,6 @@ final class DividerHandleView: NSView {
                 line.backgroundColor = color.cgColor
                 line.cornerRadius = isEdge ? 1 : 0
             }
-        }
-    }
-}
-
-extension DividerHandleView.Kind {
-    /// Id of this divider's `LayoutMouseArea`.
-    var mouseAreaID: String {
-        switch self {
-        case .split(let id): "split:\(id.rawValue)"
-        case .columnEdge(let id): "column:\(id.rawValue)"
-        case .rowEdge(_, let row): "row:\(row.rawValue)"
         }
     }
 }

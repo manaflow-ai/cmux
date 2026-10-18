@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0";
+inline constexpr std::string_view kProtocolIrSha256 = "0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2326,6 +2326,7 @@ struct ConversationSnapshotResult {
 struct ConversationTabSplit {
     std::string direction{};
     Field<std::string> pane_id{};
+    Field<std::string> split_id{};
     friend bool operator==(const ConversationTabSplit&, const ConversationTabSplit&) = default;
 };
 
@@ -2673,6 +2674,7 @@ struct LayoutSplit {
     SplitDirection dir{};
     float ratio{};
     std::optional<Id> split{};
+    std::optional<std::string> split_id{};
     friend bool operator==(const LayoutSplit&, const LayoutSplit&) = default;
 };
 
@@ -5061,6 +5063,7 @@ struct SplitRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> split_id{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};

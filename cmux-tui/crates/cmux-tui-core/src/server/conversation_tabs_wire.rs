@@ -94,6 +94,9 @@ pub(super) struct ConversationTabSplitParams {
     direction: String,
     #[serde(default)]
     pane_id: Option<String>,
+    /// `split-client-split-id-v1`: caller-minted public id of the new split.
+    #[serde(default)]
+    split_id: Option<String>,
 }
 
 impl ConversationTabSplitParams {
@@ -113,7 +116,17 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: pane_id {pane_id:?} is not a pane id")
             })?;
         }
-        Ok(ConversationTabTarget::Split { pane, direction, pane_id: self.pane_id })
+        if let Some(split_id) = &self.split_id {
+            crate::resource::SplitPublicId::parse(split_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
+            })?;
+        }
+        Ok(ConversationTabTarget::Split {
+            pane,
+            direction,
+            pane_id: self.pane_id,
+            split_id: self.split_id,
+        })
     }
 }
 
