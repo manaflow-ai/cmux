@@ -77,6 +77,9 @@ jobs:
           VERCEL_PROJECT_ID: prj_804LTAUdOwulMvEfcmfnU8bvGo3T
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN" || { echo "::error::staging deploy requires the existing VERCEL_TOKEN secret"; exit 1; }
