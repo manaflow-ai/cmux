@@ -37,10 +37,11 @@ try {
   if (error instanceof PlanetScaleOperatorConfigError) {
     console.error(error.message);
   } else {
-    const code = typeof error?.code === "string" ? error.code : "unknown_code";
-    const detail = typeof error?.message === "string"
-      ? error.message.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 300)
-      : "unknown database error";
+    const cause = error?.cause && typeof error.cause === "object" ? error.cause : error;
+    const code = typeof cause?.code === "string" ? cause.code : "unknown_code";
+    const detail = typeof cause?.message === "string"
+      ? cause.message.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 300)
+      : typeof error?.message === "string" ? error.message.slice(0, 300) : "unknown database error";
     console.error(`${project.label} PlanetScale ${checkOnly ? "connection check" : "migration"} failed (${code}): ${detail}`);
   }
   process.exitCode = 1;
