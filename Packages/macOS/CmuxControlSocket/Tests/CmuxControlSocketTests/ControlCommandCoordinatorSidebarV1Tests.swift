@@ -273,4 +273,43 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.manualPullRequestCall == nil)
     }
 
+    @Test func leftSidebarForwardsTokensAndRepliesOK() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let windowID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "left_sidebar",
+            args: "hide --window=\(windowID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.leftSidebarTokens == ["hide", "--window=\(windowID.uuidString)"])
+    }
+
+    @Test func leftSidebarModeRepliesVisibleOnly() throws {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.leftSidebarResolution = .state(visible: false)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = try #require(coordinator.handleSidebarV1(command: "left_sidebar", args: "mode"))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+        )
+
+        #expect(payload.count == 1)
+        #expect(payload["visible"] as? Bool == false)
+    }
+
+    @Test func leftSidebarFailureRepliesWithTheAppMessage() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.leftSidebarResolution = .failure(message: "ERROR: Left sidebar target not found")
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        #expect(
+            coordinator.handleSidebarV1(command: "left_sidebar", args: "show --tab=\(UUID().uuidString)")
+                == "ERROR: Left sidebar target not found"
+        )
+    }
+
 }
