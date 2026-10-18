@@ -12,20 +12,28 @@ import os
 /// Past ``maximumDuration``, or from input below 16 kHz, it keeps nothing
 /// more and ``wav()`` returns nil: that session goes as its transcript alone.
 ///
-/// Lock carve-out: the tap is a synchronous real-time audio callback, so it
-/// cannot hop to an actor. The lock guards an append to one buffer.
-public final class DictationAudioRecording: @unchecked Sendable {
+/// The tap is a synchronous real-time audio callback, so it cannot hop to an
+/// actor; one unfair lock guards the state, and each tap holds it for one
+/// buffer's append.
+public final class DictationAudioRecording: Sendable {
     public static let sampleRate: Double = 16_000
     /// Two minutes: 3.84 MB of PCM, about 5 MB as the base64 a prompt carries.
     public static let maximumDuration: Double = 120
 
-    private let lock = OSAllocatedUnfairLock()
-    // Guarded by `lock`.
-    private var samples: [Int16] = []
-    /// Ran past ``maximumDuration`` or came in below 16 kHz.
-    private var discarded = false
-    /// The input samples summed toward the next output sample, and how many.
-    private var pending: (sum: Double, count: Double) = (0, 0)
+    private struct State {
+        var samples: [Int16] = []
+        /// Ran past ``maximumDuration`` or came in below 16 kHz.
+        var discarded = false
+        /// The input summed toward the next output sample, and how much of it.
+        var pending: (sum: Double, count: Double) = (0, 0)
+
+        mutating func discard() {
+            discarded = true
+            samples = []
+        }
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init() {}
 
@@ -42,46 +50,33 @@ public final class DictationAudioRecording: @unchecked Sendable {
     /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
     public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
         let limit = Int(Self.sampleRate * Self.maximumDuration)
-        lock.lock()
-        defer { lock.unlock() }
-        guard !discarded else { return }
-        guard sampleRate >= Self.sampleRate else {
-            discard()
-            return
-        }
-        // Input samples per output sample.
-        let step = sampleRate / Self.sampleRate
-        for value in input {
-            let sample = Double(value.isFinite ? value : 0)
-            var left = 1.0
-            while left > 0 {
-                let take = min(left, step - pending.count)
-                pending.sum += sample * take
-                pending.count += take
-                left -= take
-                guard pending.count >= step - 1e-9 else { continue }
-                guard samples.count < limit else {
-                    discard()
-                    return
+        state.withLock { state in
+            guard !state.discarded else { return }
+            guard sampleRate >= Self.sampleRate else { return state.discard() }
+            // Input samples per output sample.
+            let step = sampleRate / Self.sampleRate
+            for value in input {
+                let sample = Double(value.isFinite ? value : 0)
+                var left = 1.0
+                while left > 0 {
+                    let take = min(left, step - state.pending.count)
+                    state.pending.sum += sample * take
+                    state.pending.count += take
+                    left -= take
+                    guard state.pending.count >= step - 1e-9 else { continue }
+                    guard state.samples.count < limit else { return state.discard() }
+                    let mean = max(-1, min(1, state.pending.sum / step))
+                    state.samples.append(Int16(mean * Double(Int16.max)))
+                    state.pending = (0, 0)
                 }
-                let mean = max(-1, min(1, pending.sum / step))
-                samples.append(Int16(mean * Double(Int16.max)))
-                pending = (0, 0)
             }
         }
     }
 
-    /// Keeps nothing more; ``wav()`` returns nil. Called with `lock` held.
-    private func discard() {
-        discarded = true
-        samples = []
-    }
-
-    /// The recording as a WAV file, or nil when it is empty or ran past ``maximumDuration``.
+    /// The recording as a WAV file, or nil when it is empty, ran past ``maximumDuration`` or came
+    /// in below 16 kHz.
     public func wav() -> Data? {
-        lock.lock()
-        let samples = discarded ? [] : samples
-        lock.unlock()
+        let samples = state.withLock { $0.discarded ? [] : $0.samples }
         guard !samples.isEmpty else { return nil }
         let rate = UInt32(Self.sampleRate)
         let bytes = UInt32(samples.count * MemoryLayout<Int16>.size)
