@@ -25,7 +25,7 @@ warnings only.
                  its intent (debug.tab_switch; a frame check), its main-thread apply over 4 ms is a
                  warning. The socket reply also waits for the daemon's confirm: reported, not gated.
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
-                 3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
+                 2 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   relaunch       the app quits and starts again on the same tag, so it restores the grid with
                  its hidden New Tab pages (state an earlier launch left, as a person's app has);
                  then tabs and split again in that grid, with the tabs and split budgets (I2,
@@ -65,11 +65,12 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-3.4): the new pane's mount snapshot,
-    # one re-run that changes nothing, the shell's titles (0.6-1.4, the shell's timing); the new
-    # pane's first apply after the split sends one more topology. Causes 2 and 4 are open.
-    # Target 2 / 2 / 1.
-    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 2.4-3.4): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id, so the daemon's
+    # confirm sends none); snapshots: the new pane's mount, the daemon's confirm (surface, handle,
+    # terminal state and size change, after the first frame), the shell's titles (0.4-1.4, the
+    # shell's timing).
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 4},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
