@@ -29,6 +29,18 @@ const diffText = (item: AcpmuxActivity) => (item.tool?.diffs ?? []).map((diff) =
 /** What Find reads of one tool call or thought. */
 export const activityText = (item: AcpmuxActivity) => `${drawnText(item)}\n${diffText(item)}`;
 
+// Find reveal hooks run in each tool row while the bar is open. Activity snapshots are immutable,
+// so reuse their case-folded text instead of rebuilding long command output and diffs per render.
+const searchableActivityTextCache = new WeakMap<AcpmuxActivity, string>();
+
+function searchableActivityText(item: AcpmuxActivity): string {
+  const cached = searchableActivityTextCache.get(item);
+  if (cached !== undefined) return cached;
+  const text = activityText(item).toLocaleLowerCase();
+  searchableActivityTextCache.set(item, text);
+  return text;
+}
+
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
 function rowText(row: AcpmuxRow): string | undefined {
@@ -157,7 +169,7 @@ export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => activityText(item).toLocaleLowerCase().includes(reveal.needle)));
+  const hit = Boolean(reveal && items.some((item) => searchableActivityText(item).includes(reveal.needle)));
   useLayoutEffect(() => {
     if (!hit) return;
     open();
