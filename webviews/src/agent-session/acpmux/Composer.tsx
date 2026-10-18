@@ -814,7 +814,12 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
+      const chat = form.current?.closest(".acpmux-main") ?? form.current;
+      // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
+      const rows = chat?.querySelectorAll<HTMLElement>(
+        ".acpmux-composer-queue .acpmux-queued, .acpmux-queue-foldbar .acpmux-queue-fold",
+      );
       const last = rows?.[rows.length - 1];
       if (last) {
         event.preventDefault();
@@ -1047,6 +1052,9 @@ export function Composer({
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
       <ComposerQueue
+        // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
+        key={snapshot.summary?.sessionId || sessionId}
+        chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         t={t}
