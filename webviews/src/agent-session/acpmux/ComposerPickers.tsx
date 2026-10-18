@@ -740,7 +740,13 @@ function AccessMenu({
   return (
     <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
+        <MenuButton
+          className="acpmux-picker-button acpmux-access-trigger"
+          label={label}
+          /* tooltip-allow: the chip is its shield alone; the tooltip names the mode */
+          title={`${label}: ${currentMode?.name ?? label}`}
+          aria-haspopup="menu"
+        >
           {modes.length > 0 ? <ModeShield modeId={value} /> : <LockIcon />}
           <span className="acpmux-mode-text">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
