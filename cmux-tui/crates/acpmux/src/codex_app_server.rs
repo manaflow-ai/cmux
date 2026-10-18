@@ -121,11 +121,17 @@ mod tests {
         let tr = translator();
         let start = split(tr.start());
         let id = start.server[0]["id"].clone();
-        split(tr.from_server(&json!({"jsonrpc": "2.0", "id": id, "result": {"userAgent": user_agent}})));
+        split(tr.from_server(
+            &json!({"jsonrpc": "2.0", "id": id, "result": {"userAgent": user_agent}}),
+        ));
         let reply = split(tr.from_client(&json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1},
         })));
-        let result = reply.hub.iter().find_map(|m| m.to_value().get("result").cloned()).expect("initialize result");
+        let result = reply
+            .hub
+            .iter()
+            .find_map(|m| m.to_value().get("result").cloned())
+            .expect("initialize result");
         result["agentCapabilities"]["promptCapabilities"]["audio"] == json!(true)
     }
 
