@@ -84,6 +84,10 @@ enum Strings {
     static var workspaceMenu: String { String(localized: "sidebar.a11y.workspaceMenu", defaultValue: "Workspace options", bundle: .module) }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
+    static var priorityView: String { String(localized: "sidebar.priority.title", defaultValue: "Priority", bundle: .module) }
+    static var showWorkspaces: String { String(localized: "sidebar.priority.showWorkspaces", defaultValue: "Show Workspaces", bundle: .module) }
+    static var priorityEmpty: String { String(localized: "sidebar.priority.empty", defaultValue: "No active workspace attention", bundle: .module) }
+    static var priorityIdle: String { String(localized: "sidebar.priority.idle", defaultValue: "Idle", bundle: .module) }
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }

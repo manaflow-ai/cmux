@@ -89,6 +89,7 @@ extension SidebarView {
             }
             lastSections = model.sections
         }
+        if showsPriority { priorityView.reload() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
