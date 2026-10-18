@@ -654,7 +654,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<Int>,
+        pub exit_code: ::std::option::Option<i64>,
         #[serde(rename = "sessionId")]
         pub session_id: Int,
     }
@@ -2701,7 +2701,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<Int>,
+        pub exit_code: ::std::option::Option<i64>,
         pub stderr: ::std::string::String,
         pub stdout: ::std::string::String,
     }
@@ -2725,7 +2725,7 @@ pub mod types {
         pub mode: i64,
         ///Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps.
         #[serde(deserialize_with = "::std::option::Option::deserialize")]
-        pub mtime: ::std::option::Option<FileStatMtime>,
+        pub mtime: ::std::option::Option<i64>,
         ///a string at most 256 character(s) long
         pub owner: FileStatOwner,
         pub size: i64,
@@ -2780,21 +2780,6 @@ pub mod types {
                 })
         }
     }
-    ///`FileStatMtime`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    #[serde(deny_unknown_fields)]
-    pub enum FileStatMtime {}
     ///a string at most 256 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -7077,7 +7062,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<Int>,
+        pub exit_code: ::std::option::Option<i64>,
         #[serde(deserialize_with = "::std::option::Option::deserialize")]
         pub name: ::std::option::Option<::std::string::String>,
         pub rows: Int,

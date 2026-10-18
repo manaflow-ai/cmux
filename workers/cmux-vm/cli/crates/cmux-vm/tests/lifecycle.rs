@@ -1571,3 +1571,25 @@ async fn file_stat_human_output_escapes_guest_control_characters() {
     assert!(!out.stdout.contains('\u{1b}'));
     assert!(out.stdout.contains("\\nname"));
 }
+
+#[tokio::test]
+async fn file_stat_round_trips_numeric_and_unknown_modification_times() {
+    for mtime in [
+        json!(-1),
+        json!(1790812800_i64),
+        json!(253402300799_i64),
+        json!(null),
+    ] {
+        let server = MockServer::start().await;
+        let stat = json!({"kind": "file", "size": 12, "mode": 416, "mtime": mtime, "owner": "ubuntu", "group": "staff"});
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&stat))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "file", "stat", VM_ID, "/saved"]).await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        assert_eq!(json_stdout(&out), stat);
+    }
+}
