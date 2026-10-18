@@ -197,6 +197,7 @@ import {
   configureThreadTitle,
   useThreadTitle,
 } from "./header/headerStyle";
+import { configureLabs } from "./labs";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
@@ -3563,6 +3564,7 @@ function AcpmuxPane() {
           configureHeaderStyle(customization.layout);
           configureThreadTitle(customization.layout);
           configurePointerCursor(customization.layout);
+          configureLabs(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },

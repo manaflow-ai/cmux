@@ -1,0 +1,48 @@
+import { useSyncExternalStore } from "react";
+
+/// Chat features being tried out (Lucas 2026-10-18: generative UI and chat parity), each its own
+/// switch and off by default, so today's chat is untouched until one is turned on:
+/// - `liveRender`: render pages run on their own, can talk back to the chat (window.cmux), take
+///   React components, and draw on the dev server too (conversation/RenderCard.tsx).
+///
+/// Turn one on with `"labs": {"liveRender": true}` in `agent-pane/layout.json` (the App pushes the
+/// file to every chat), or in the dev server with `?data-lab-live-render=on`. Each switch is also
+/// `data-lab-<name>="on"` on `<html>`, for CSS.
+export const LABS = ["liveRender"] as const;
+export type Lab = (typeof LABS)[number];
+
+const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+
+let fromLayout = new Set<Lab>();
+const listeners = new Set<() => void>();
+
+/// The host pushed `layout.json` (or `{}` when it was removed): every lab follows at once.
+export function configureLabs(layout: Record<string, unknown> | undefined): void {
+  const labs = layout?.labs;
+  const next = new Set<Lab>(
+    labs && typeof labs === "object" ? LABS.filter((lab) => (labs as Record<string, unknown>)[lab] === true) : [],
+  );
+  if (next.size === fromLayout.size && [...next].every((lab) => fromLayout.has(lab))) return;
+  if (typeof document !== "undefined")
+    for (const lab of LABS) {
+      // A dev URL's own `?data-lab-…=on` stays; layout.json only adds and removes its own.
+      if (next.has(lab)) document.documentElement.setAttribute(attribute(lab), "on");
+      else if (fromLayout.has(lab)) document.documentElement.removeAttribute(attribute(lab));
+    }
+  fromLayout = next;
+  for (const listener of listeners) listener();
+}
+
+/// Whether `lab` is on now: layout.json's, else the page's `data-lab-<name>`.
+export function labOn(lab: Lab): boolean {
+  if (fromLayout.has(lab)) return true;
+  return typeof document !== "undefined" && document.documentElement.getAttribute(attribute(lab)) === "on";
+}
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
+
+/// Whether `lab` is on, live.
+export const useLab = (lab: Lab): boolean => useSyncExternalStore(subscribe, () => labOn(lab), () => labOn(lab));
