@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  createAuthenticatedWorkspaceProvisioner,
   configureRuntimeCompositionFromEnv,
   createRequestScopedWorkspaceService,
   installRuntimeComposition,
@@ -115,5 +116,40 @@ describe("runtime composition", () => {
       },
     })).toThrow("request-scoped workspace context is incomplete");
     expect(called).toBe(false);
+  });
+
+  test("maps resolved entitlements into the authenticated createVm workflow", async () => {
+    let captured: unknown;
+    const provision = createAuthenticatedWorkspaceProvisioner({
+      context: requestContext,
+      provider: "freestyle",
+      resolveImage: () => ({ image: "cmux-base", imageVersion: "v1" }),
+      createVm: async (input) => {
+        captured = input;
+        return { providerVmId: "vm-1" };
+      },
+    });
+    await provision(requestContext, {
+      runtimeId: "runtime-1",
+      workspaceId: "workspace-1",
+      tenantId: "team-request-scoped",
+      ownerId: "user-request-scoped",
+      generation: 1,
+      effectKey: "effect-1",
+      workspaceName: "review",
+      workspaceKey: "workspace-key",
+      providerInput: { memoryMb: 8192 },
+    } as never);
+    expect(captured).toMatchObject({
+      userId: "user-request-scoped",
+      billingTeamId: "team-request-scoped",
+      billingPlanId: "pro",
+      provider: "freestyle",
+      image: "cmux-base",
+      imageVersion: "v1",
+      memoryMb: 8192,
+      perMachineHome: true,
+      idempotencyKey: "runtime-1",
+    });
   });
 });

@@ -243,6 +243,54 @@ export type RequestScopedWorkspaceContext = {
   readonly entitlements: VmEntitlements;
 };
 
+export type AuthenticatedWorkspaceCreateVmInput = {
+  readonly userId: string;
+  readonly billingCustomerType: VmEntitlements["billingCustomerType"];
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number | null;
+  readonly provider: string;
+  readonly image: string;
+  readonly imageVersion?: string | null;
+  readonly memoryMb?: number;
+  readonly displayName: string;
+  readonly perMachineHome: true;
+  readonly idempotencyKey: string;
+};
+
+/**
+ * Adapt the existing authenticated createVm workflow to the workspace
+ * provider seam. Image resolution and the workflow itself remain injected so
+ * routes cannot accidentally bypass admission, billing, or model-plane setup.
+ */
+export function createAuthenticatedWorkspaceProvisioner(input: {
+  readonly context: RequestScopedWorkspaceContext;
+  readonly provider: string;
+  readonly resolveImage: (request: Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0] extends { provisionVm: (request: infer R) => unknown } ? R : never) => {
+    readonly image: string;
+    readonly imageVersion?: string | null;
+  };
+  readonly createVm: (request: AuthenticatedWorkspaceCreateVmInput) => Promise<{ readonly providerVmId: string }>;
+}): RequestScopedWorkspaceInfrastructure["provisionVm"] {
+  return async (_context, request) => {
+    const image = input.resolveImage(request);
+    return input.createVm({
+      userId: input.context.userId,
+      billingCustomerType: input.context.entitlements.billingCustomerType,
+      billingTeamId: input.context.entitlements.billingTeamId,
+      billingPlanId: input.context.entitlements.planId,
+      maxActiveVms: input.context.entitlements.maxActiveVms,
+      provider: input.provider,
+      image: image.image,
+      ...(image.imageVersion !== undefined ? { imageVersion: image.imageVersion } : {}),
+      ...(request.providerInput?.memoryMb !== undefined ? { memoryMb: request.providerInput.memoryMb } : {}),
+      displayName: request.workspaceName,
+      perMachineHome: true,
+      idempotencyKey: request.runtimeId,
+    });
+  };
+}
+
 /**
  * Build the provider only after a route has authenticated and resolved VM
  * entitlements. A missing adapter is an intentional fail-closed result: the
