@@ -20,7 +20,7 @@ final class RemoteInputCaptureView: NSView {
     /// The key event being interpreted by the input method.
     private var interpretingEvent: NSEvent?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

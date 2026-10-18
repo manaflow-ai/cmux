@@ -46,6 +46,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     private var uiScaleObservation: Task<Void, Never>?
+    /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
+    private var statusLookObservation: Task<Void, Never>?
+    private var reduceMotionObservers: [any NSObjectProtocol] = []
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -195,6 +198,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         scripts = PageScriptPipeline { script in webKitBridge.evaluate(script) }
         super.init(frame: .zero)
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
+        observeStatusLook()
         wantsLayer = true
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
@@ -255,7 +259,31 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            statusLookObservation?.cancel()
+            reduceMotionObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            reduceMotionObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         }
+    }
+
+    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n): a change of
+    /// the setting or of Reduce Motion pushes the theme again.
+    private func observeStatusLook() {
+        statusLookObservation = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
+                guard let self else { return }
+                self.applyTheme()
+            }
+        }
+        // Reduce Motion is not observable through Observation.
+        reduceMotionObservers = [
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            },
+            NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            },
+        ]
     }
 
     private func observeUIScale() {
@@ -284,7 +312,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         WindowTitlebar.performDoubleClick(in: window)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     public override func layout() {
         super.layout()
