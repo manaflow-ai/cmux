@@ -31,7 +31,7 @@ export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxP
               {entry.status === "completed" && <Check size={10} />}
             </span>
             <span className="cv-plan__text">{entry.content}</span>
-            {/* The marks and strike-through are drawn only; a screen reader hears the state. */}
+            {/* The marks are drawn only; a screen reader hears the state. */}
             <span className="cv-plan__state">{t(STATUS[entry.status])}</span>
           </li>
         ))}

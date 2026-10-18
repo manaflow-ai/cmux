@@ -287,7 +287,7 @@ function shapeTurn(
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns)
       : last
-        ? turn
+        ? turn.map(endedPlan)
         : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
@@ -324,7 +324,7 @@ function shapeTurn(
   }
   shaped.push(...groups.map(endedPlan), ...renderRows(body, version));
   if (answer) shaped.push(answer);
-  shaped.push(...rest, ...editsCard(edits));
+  shaped.push(...rest.map(endedPlan), ...editsCard(edits));
   const preview = turnPreviewUrl(user, turn);
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
@@ -338,7 +338,7 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  shaped.push(...turn.slice(end + 1));
+  shaped.push(...turn.slice(end + 1).map(endedPlan));
   return shaped;
 }
 
@@ -405,7 +405,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   const final = answerAt(rows);
   const before = final >= 0 ? rows.slice(0, final) : rows;
   const work = before.filter((row) => !staysOut(row));
-  if (work.length === 0) return rows;
+  if (work.length === 0) return rows.map(endedPlan);
   const id = `${WORKED}-${user.id}`;
   const open = expanded.has(id);
   const edits = work.filter(isEdit);

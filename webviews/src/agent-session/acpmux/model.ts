@@ -465,7 +465,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return 16 + 16 + row.plan.length * 24;
+  if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   if (
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
