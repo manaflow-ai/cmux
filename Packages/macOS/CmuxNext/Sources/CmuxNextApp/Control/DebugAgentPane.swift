@@ -30,7 +30,8 @@ import WebKit
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
-/// `models` (the harness's models), `set_model` (`model`, `effort`),
+/// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`:
+/// what moved after the page first showed its content, layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
@@ -50,7 +51,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "load_seed": "loadSeed", "load_run": "loadRun",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
@@ -174,7 +175,7 @@ enum DebugAgentPane {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -293,6 +294,13 @@ enum DebugAgentPane {
             return [options]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
+        case "layout_watch":
+            // What moved after the page first showed its content (layoutWatch.ts), watched for `ms`.
+            var options: [String: Any] = [:]
+            for key in ["ms", "tolerance"] {
+                if let value = params[key]?.doubleValue { options[key] = value }
+            }
+            return [options]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         case "send_prompt":
