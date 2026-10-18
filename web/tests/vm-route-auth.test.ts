@@ -515,6 +515,7 @@ describe("VM REST auth", () => {
         snapshot: true,
         restore: true,
         fork: false,
+        restart: false,
         exec: true,
         stats: true,
         ports: true,

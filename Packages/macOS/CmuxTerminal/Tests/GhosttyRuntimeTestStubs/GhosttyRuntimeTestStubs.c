@@ -42,6 +42,8 @@ static bool cmux_test_surface_key_called = false;
 static int cmux_test_surface_key_mods_value = 0;
 static uint32_t cmux_test_surface_key_unshifted_codepoint_value = 0;
 static char cmux_test_surface_key_text_value[32];
+static int cmux_test_input_event_kinds[32];
+static uint32_t cmux_test_input_event_count_value = 0;
 static pthread_mutex_t cmux_test_surface_free_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_surface_free_condition = PTHREAD_COND_INITIALIZER;
 static bool cmux_test_surface_free_should_block = false;
@@ -174,6 +176,7 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_surface_key_mods_value = 0;
     cmux_test_surface_key_unshifted_codepoint_value = 0;
     cmux_test_surface_key_text_value[0] = '\0';
+    cmux_test_input_event_count_value = 0;
 }
 
 void cmux_test_ghostty_surface_key_reset(void) {
@@ -197,6 +200,19 @@ uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void) {
 
 const char* cmux_test_ghostty_surface_key_text(void) {
     return cmux_test_surface_key_text_value;
+}
+
+void cmux_test_ghostty_input_events_reset(void) {
+    cmux_test_input_event_count_value = 0;
+}
+
+uint32_t cmux_test_ghostty_input_event_count(void) {
+    return cmux_test_input_event_count_value;
+}
+
+int cmux_test_ghostty_input_event_kind(uint32_t index) {
+    if (index >= cmux_test_input_event_count_value) return 0;
+    return cmux_test_input_event_kinds[index];
 }
 
 void cmux_test_ghostty_surface_free_blocking_begin(void *surface) {
@@ -621,6 +637,9 @@ bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event)
     if (key_event.action != 1) {
         return true;
     }
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 2;
+    }
     cmux_test_surface_key_called = true;
     cmux_test_surface_key_mods_value = key_event.mods;
     cmux_test_surface_key_unshifted_codepoint_value = key_event.unshifted_codepoint;
@@ -778,8 +797,16 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
-void ghostty_surface_text(void) {}
-void ghostty_surface_text_input(void) {}
+void ghostty_surface_text(void) {
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 1;
+    }
+}
+void ghostty_surface_text_input(void) {
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 1;
+    }
+}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
     (void)raw_config;
     cmux_test_last_updated_surface = surface;

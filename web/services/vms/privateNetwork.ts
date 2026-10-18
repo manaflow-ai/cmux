@@ -919,6 +919,12 @@ export function revokeVmAccessGrant(input: {
   readonly userId: string;
   readonly accessGrantId?: string;
   readonly deviceId?: string;
+  /**
+   * Also revoke the grant's Stack sessions: they are queued in the same
+   * transaction as the grant revocation; the first retry is due at this time.
+   * The Mac's own sign-out path omits it and revokes only its own session.
+   */
+  readonly revokeStackSessions?: { readonly firstRetryAt: Date };
 }) {
   return Effect.gen(function* () {
     const repo = yield* requirePrivateAccessRepo("freestyle");
@@ -927,10 +933,9 @@ export function revokeVmAccessGrant(input: {
       accessGrantId: input.accessGrantId,
       deviceId: input.deviceId,
     });
-    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
+    if (!grant) return { revoked: false, accessGrantId: null, stackSessionIds: [] as string[] } as const;
     return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
       const gateway = yield* VmProviderGateway;
-      const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
       const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
       for (const tunnel of tunnels) {
         if (gateway.deleteTunnel) {
@@ -938,8 +943,13 @@ export function revokeVmAccessGrant(input: {
         }
         yield* repo.revokeTunnel(tunnel.id);
       }
-      const revoked = yield* repo.revokeAccessGrant(grant.id);
-      return { revoked, stackSessionIds } as const;
+      const { revoked, stackSessionIds } = yield* repo.revokeAccessGrant({
+        id: grant.id,
+        revokeStackSessions: input.revokeStackSessions
+          ? { userId: input.userId, firstRetryAt: input.revokeStackSessions.firstRetryAt }
+          : null,
+      });
+      return { revoked, accessGrantId: grant.id, stackSessionIds: [...stackSessionIds] } as const;
     }));
   });
 }
