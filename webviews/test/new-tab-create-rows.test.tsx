@@ -32,7 +32,10 @@ test("an address keeps its top hit, the web search and Ask, then the create acti
 
 test("a full list still ends with the create actions", () => {
   const many = context({
-    history: Array.from({ length: 30 }, (_, index) => ({ url: `https://red${index}.example.com/`, title: `Red ${index}` })),
+    history: Array.from({ length: 30 }, (_, index) => ({
+      url: `https://red${index}.example.com/`,
+      title: `Red ${index}`,
+    })),
   });
   const rows = screenRows("red", many);
   expect(rows.length).toBe(MAX_SUGGESTIONS + create.length);
