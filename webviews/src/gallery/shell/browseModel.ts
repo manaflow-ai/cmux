@@ -187,6 +187,12 @@ export function filterBrowseItems(
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */
-export function browseFrameHref(entry: GalleryEntry, variant: string, env: GalleryEnv, tune = ""): string {
-  return `frame.html?${frameQuery({ entry: entry.id, variant, tune }, env)}`;
+export function browseFrameHref(
+  entry: GalleryEntry,
+  variant: string,
+  env: GalleryEnv,
+  tune = "",
+  source?: string,
+): string {
+  return `frame.html?${frameQuery({ entry: entry.id, variant, tune, source }, env)}`;
 }

@@ -444,6 +444,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         hrefFor={(target, targetVariant) =>
           href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
         }
+        sourceFor={(target) => states.find((state) => state.entry?.id === target.id)?.path}
       />
     </>
   );

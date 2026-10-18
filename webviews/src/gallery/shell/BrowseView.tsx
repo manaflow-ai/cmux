@@ -22,6 +22,7 @@ export function BrowseView({
   onBrowseChange,
   onOpen,
   hrefFor,
+  sourceFor,
 }: {
   entries: readonly GalleryEntry[];
   env: GalleryEnv;
@@ -30,6 +31,7 @@ export function BrowseView({
   onBrowseChange: (browse: BrowseState, replace?: boolean) => void;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  sourceFor: (entry: GalleryEntry) => string | undefined;
 }) {
   const PAGE_SIZE = 24;
   const items = useMemo(
@@ -138,6 +140,7 @@ export function BrowseView({
               tune={tune}
               onOpen={onOpen}
               hrefFor={hrefFor}
+              sourcePath={sourceFor(entry)}
               onPick={(entryId, variant) =>
                 onBrowseChange({ ...browse, picks: { ...browse.picks, [entryId]: variant } }, true)
               }
@@ -194,6 +197,7 @@ function BrowseCard({
   tune,
   onOpen,
   hrefFor,
+  sourcePath,
   onPick,
   cycle,
   variantOnly,
@@ -206,6 +210,7 @@ function BrowseCard({
   tune: string;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  sourcePath?: string;
   onPick: (entryId: string, variant: string) => void;
   cycle: boolean;
   variantOnly: boolean;
@@ -293,6 +298,7 @@ function BrowseCard({
             state={selectedVariant}
             env={env}
             tune={tune}
+            sourcePath={sourcePath}
             available={{ width, height: Number.POSITIVE_INFINITY }}
             thumbnail
           />
@@ -310,7 +316,11 @@ function BrowseCard({
         >
           Open full view
         </a>
-        <a href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune)} target="_blank" rel="noreferrer">
+        <a
+          href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune, sourcePath)}
+          target="_blank"
+          rel="noreferrer"
+        >
           Open frame
         </a>
       </footer>
