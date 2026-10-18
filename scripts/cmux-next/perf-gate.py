@@ -72,6 +72,9 @@ BUDGET = {
     "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 4},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    # Per restored pane, from the relaunched app's first answer until the restore settled: one
+    # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
+    "restore": {"pane_snapshots": 1},
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
@@ -732,6 +735,7 @@ class Gate:
         grid, workspace = self.grid, self.grid_workspace
         pages = self.page_tabs()
         app.relaunch()
+        app.counters()  # reset: the window below is the restore, from the relaunched app's first answer
         app.action("goToWorkspace", {"workspace": workspace})
         shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
         if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
@@ -754,9 +758,16 @@ class Gate:
             last = now
             time.sleep(1.0)  # test script: the gap between two reads while the restore settles
         settled = round(time.monotonic() - start, 1)
-        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3}
+        measured = app.counters()
+        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3,
+                                        "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                        "sources": measured["sources"]}
         if still < 3:
             warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
+        breaches = over(measured, BUDGET["restore"], grid[0])
+        check(not breaches, f"the restore of {grid[0]} panes settled in {settled} s: {measured.get('pane_snapshots', 0)} pane snapshots"
+                            f" (budget {BUDGET['restore']} per pane)" + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""),
+              "relaunch")
         self.tabs("relaunch tabs")
         self.split("relaunch split")
 
