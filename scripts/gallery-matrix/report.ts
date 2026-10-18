@@ -49,7 +49,12 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
           const capture = receipt.captureId ? `<code>${escapeHtml(receipt.captureId)}</code>` : "unknown capture";
           const sha = receipt.sha ? ` · head <code>${escapeHtml(receipt.sha.slice(0, 12))}</code>` : "";
           const capturedAt = receipt.capturedAt ? ` · ${escapeHtml(receipt.capturedAt)}` : "";
-          return `<li><strong>${role}</strong> ${capture}${sha}${capturedAt}</li>`;
+          const status = receipt.status ? ` · ${escapeHtml(receipt.status)}` : "";
+          const quality = receipt.quality ? ` · quality ${escapeHtml(receipt.quality)}` : "";
+          const scenario = receipt.scenarioFingerprint
+            ? ` · scenario <code>${escapeHtml(receipt.scenarioFingerprint.slice(0, 12))}</code>`
+            : "";
+          return `<li><strong>${role}</strong> ${capture}${sha}${status}${quality}${scenario}${capturedAt}</li>`;
         })
         .join("")}</ol></details>`
     : "";

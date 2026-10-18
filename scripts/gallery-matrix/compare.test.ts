@@ -293,7 +293,15 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
       freshness: { status: "verified" },
       history: [
         { captureId: "base-capture", role: "baseline", sha: "base-head", capturedAt: "2026-10-18T01:00:00Z" },
-        { captureId: "head-capture", role: "candidate", sha: "candidate-head", capturedAt: "2026-10-18T01:01:00Z" },
+        {
+          captureId: "head-capture",
+          role: "candidate",
+          sha: "candidate-head",
+          status: "complete",
+          quality: "pass",
+          scenarioFingerprint: "b".repeat(64),
+          capturedAt: "2026-10-18T01:01:00Z",
+        },
         { captureId: "repeat-capture", role: "determinism-check", sha: "candidate-head", capturedAt: "2026-10-18T01:02:00Z" },
       ],
     },
@@ -306,6 +314,8 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
   expect(html).toContain("repeat-capture");
   expect(html).toContain("Comparison history (3)");
   expect(html).toContain("determinism-check");
+  expect(html).toContain("scenario <code>bbbbbbbbbbbb</code>");
+  expect(html).toContain("quality pass");
   expect(html).toContain("2026-10-18T01:02:00Z");
   expect(html).toContain('href="comparison.json"');
 });
