@@ -1271,6 +1271,7 @@
 		B9000076A1B2C3D4E5F60719 /* CMUXCLI+CampfireNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000077A1B2C3D4E5F60719 /* CMUXCLI+CampfireNotifications.swift */; };
 		C79630010000000000000002 /* CMUXCLI+ClaudeHookAck.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79630010000000000000001 /* CMUXCLI+ClaudeHookAck.swift */; };
 		79390007AA11BB22CC33DD07 /* CMUXCLI+ClaudeHookDeliveryTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390008AA11BB22CC33DD08 /* CMUXCLI+ClaudeHookDeliveryTarget.swift */; };
+		FCA963F1CA2A312D03456D26 /* CMUXCLI+ClaudeHookPaneDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */; };
 		C85350000000000000000201 /* CMUXCLI+ClaudeHookSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85350000000000000000202 /* CMUXCLI+ClaudeHookSettings.swift */; };
 		0D30D13A4E42D5315B53BBCE /* CMUXCLI+ClaudeHookStopFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0221E931A45B517F9BCC1EF5 /* CMUXCLI+ClaudeHookStopFailure.swift */; };
 		C72280000000000000000002 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */; };
@@ -5971,6 +5972,7 @@
 		B9000077A1B2C3D4E5F60719 /* CMUXCLI+CampfireNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CampfireNotifications.swift"; sourceTree = "<group>"; };
 		C79630010000000000000001 /* CMUXCLI+ClaudeHookAck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookAck.swift"; sourceTree = "<group>"; };
 		79390008AA11BB22CC33DD08 /* CMUXCLI+ClaudeHookDeliveryTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookDeliveryTarget.swift"; sourceTree = "<group>"; };
+		C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookPaneDirectory.swift"; sourceTree = "<group>"; };
 		C85350000000000000000202 /* CMUXCLI+ClaudeHookSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookSettings.swift"; sourceTree = "<group>"; };
 		0221E931A45B517F9BCC1EF5 /* CMUXCLI+ClaudeHookStopFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookStopFailure.swift"; sourceTree = "<group>"; };
 		C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookWorkspaceRouting.swift"; sourceTree = "<group>"; };
@@ -12646,6 +12648,7 @@
 				5B85EF1F8C40AF5C89F442A8 /* CMUXCLI+AgentMessageSettings.swift */,
 				6EA23FD5F4147585610132E4 /* CMUXCLI+BrowserRepl.swift */,
 				F0226FF4BE571A2BA5B5AB16 /* CMUXCLI+VPN.swift */,
+				C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -17571,6 +17574,7 @@
 				B9000076A1B2C3D4E5F60719 /* CMUXCLI+CampfireNotifications.swift in Sources */,
 				C79630010000000000000002 /* CMUXCLI+ClaudeHookAck.swift in Sources */,
 				79390007AA11BB22CC33DD07 /* CMUXCLI+ClaudeHookDeliveryTarget.swift in Sources */,
+				FCA963F1CA2A312D03456D26 /* CMUXCLI+ClaudeHookPaneDirectory.swift in Sources */,
 				C85350000000000000000201 /* CMUXCLI+ClaudeHookSettings.swift in Sources */,
 				0D30D13A4E42D5315B53BBCE /* CMUXCLI+ClaudeHookStopFailure.swift in Sources */,
 				C72280000000000000000002 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift in Sources */,

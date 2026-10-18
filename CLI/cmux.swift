@@ -31419,6 +31419,14 @@ struct CMUXCLI {
                     color: "#8E8E93",
                     pid: claudePid
                 )
+                // `claude --worktree` starts the session outside the shell's
+                // directory; the pane follows the session from here on.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
             }
             printClaudeHookAck()
 
@@ -31535,6 +31543,14 @@ struct CMUXCLI {
                     printClaudeHookAck()
                     return
                 }
+
+                // A worktree entered or left during the turn shows up here.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
 
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
@@ -31814,6 +31830,12 @@ struct CMUXCLI {
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                 store: sessionStore,
                 telemetry: telemetry
+            )
+            reportClaudeHookPaneDirectory(
+                hookCwd: hookCwd,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
             )
             try setClaudeStatus(
                 client: client,
@@ -32310,6 +32332,18 @@ struct CMUXCLI {
                         "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
                         client: client
                     )
+                    // The shell re-reports only a directory it has not sent,
+                    // so hand the pane back to where Claude was launched.
+                    // `/clear` ends a session but Claude keeps running, and
+                    // the next SessionStart reports its cwd again.
+                    let endReason = normalizedHookValue(parsedInput.object?["reason"] as? String)
+                    if !relayOrigin, endReason?.lowercased() != "clear" {
+                        restoreClaudeLaunchPaneDirectory(
+                            workspaceId: workspaceId,
+                            surfaceId: cleanupSurfaceId,
+                            client: client
+                        )
+                    }
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
