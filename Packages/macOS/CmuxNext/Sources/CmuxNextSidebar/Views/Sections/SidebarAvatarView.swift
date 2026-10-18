@@ -13,7 +13,7 @@ final class SidebarAvatarView: NSView {
     /// (the same rule as the sidebar's other icon items).
     var isStrong = false { didSet { if isStrong != oldValue { needsDisplay = true } } }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// The circle, in this view's coordinates: centered `bounds.height / 2`

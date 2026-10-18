@@ -46,6 +46,9 @@ import PackageDescription
 // Since a19c884fa a released drawable keeps its pixels while another owner
 // holds it (the layer's presented frame, an evicted terminal's last frame;
 // cmux marks those volatile while hidden; PR 42).
+// Since ced99dcde a new drawn terminal (a restore, the reflow preview) keeps
+// rows whose content is the same (PR 43) and the renderer's cell size
+// follows its font grid only (PR 44), so a font change rebuilds once.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -70,8 +73,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a19c884fa8d132378ae838dcba95654b177b6723-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "94ff3178e862b6bb86f126f9e14f92359f8182f48726e46d4870d2cddf2a10a4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ced99dcde2f11df0e9f9e4a3d768c2a8ff62d903-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "1b63ad807de22b8c51489c3bf1640dbc2b8582beca9f74a516471f59ac0e63ed"
         ),
     ]
 )

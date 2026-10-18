@@ -204,7 +204,7 @@ public final class TabStripView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Keyboard navigation (the key view loop, Full Keyboard Access) may focus the strip, where F2
