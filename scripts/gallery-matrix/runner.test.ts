@@ -34,6 +34,19 @@ test("matrix index exposes receipt metadata and triage state filtering", () => {
   expect(html).toContain("play-failed");
 });
 
+test("matrix index pages large result sets instead of mounting every card", () => {
+  const results = Array.from({ length: 49 }, (_, index) => ({
+    id: `case-${index}`,
+    engine: "chromium",
+    screenshot: `${index}.png`,
+    ready: "1",
+  }));
+  const html = renderIndex(results);
+  expect(html).toContain("const pageSize=24");
+  expect(html).toContain('id="pages"');
+  expect(html).toContain('data-page="next"');
+});
+
 test("motion review cards include an opt-in video", () => {
   const html = renderIndex([{ id: "motion", engine: "webkit", screenshot: "motion.png", video: "motion.webm" }]);
   expect(html).toContain("r.video");
