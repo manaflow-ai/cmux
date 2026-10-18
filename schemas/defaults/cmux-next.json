@@ -388,6 +388,8 @@
     "setting.history.terminalCommands": false,
     "setting.home.attachments.keepLocation": false,
     "setting.home.channelsEnabled": false,
+    "setting.home.chiefPetEnabled": false,
+    "setting.home.chiefPetMascot": "orb",
     "setting.labs.classicHome": false,
     "setting.labs.previewFeatures": false,
     "setting.layout.centerFocusedColumn": "never",
