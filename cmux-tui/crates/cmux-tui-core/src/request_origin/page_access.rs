@@ -239,6 +239,11 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedList
         | Op::ClosedDelete
         | Op::ClosedReopen
+        | Op::StashCreate
+        | Op::StashList
+        | Op::StashRestore
+        | Op::StashDelete
+        | Op::StashImport
         | Op::WindowRecordList
         | Op::SettingsSchema
         | Op::SettingsList

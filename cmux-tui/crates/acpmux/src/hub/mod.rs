@@ -80,6 +80,7 @@ mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+mod start_gate;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;

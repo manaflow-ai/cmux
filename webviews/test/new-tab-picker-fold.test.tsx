@@ -127,7 +127,9 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
       </QueryClientProvider>,
     );
   });
-  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Claude Opus 5.5");
+  // The chip draws the name without the vendor its mark shows; the title keeps the full name.
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Opus 5.5");
+  expect(host.querySelector('[data-menu="Model"]')?.getAttribute("title")).toBe("Claude Opus 5.5");
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const rows = () =>
     [...host.querySelectorAll('[data-key^="model:"] .acpmux-menu-label')].map((row) => row.textContent);

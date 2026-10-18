@@ -14,7 +14,7 @@ final class PaletteScopeChipsView: NSView {
     private var style: PaletteScopeChipStyle = .token
     private var chipViews: [PaletteScopeChipView] = []
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(chips: [PaletteScopeChip], style: PaletteScopeChipStyle) {
         let visible = Array(chips.suffix(2))
@@ -86,7 +86,7 @@ final class PaletteScopeChipView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The icon's square: measured and laid out with the same value.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space1 }
@@ -157,7 +157,7 @@ final class PaletteKeywordHintView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func update(title: String?) {
         isHidden = title == nil
