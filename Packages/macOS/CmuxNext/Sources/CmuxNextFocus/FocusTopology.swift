@@ -21,7 +21,8 @@ public nonisolated struct FocusTopology: Hashable, Sendable, Codable {
 
     public struct Tab: Hashable, Sendable, Codable {
         public var id: String
-        /// Daemon surface id; nil for session-local browser tabs.
+        /// Daemon surface id; nil for session-local browser tabs and for tabs the window minted
+        /// (their expectations name the tab id: the surface changes when the daemon confirms them).
         public var surface: String?
         public var kind: Kind
 

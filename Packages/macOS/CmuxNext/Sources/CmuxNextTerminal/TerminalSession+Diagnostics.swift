@@ -42,6 +42,13 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var localSnapshots: Int = 0
     /// Kitty images the owner left out of its image replays.
     public var skippedImages: Int = 0
+    /// Ghostty's frame counters (`ghostty_surface_render_counters`): frames drawn, frame updates
+    /// that rebuilt cells, and frames drawn while a theme color blend ran (those change only the
+    /// color table the shaders read).
+    public var renderCounters: TerminalRenderCounters? = nil
+    /// The surface's rect in its window as fractions of the window frame, top-left origin
+    /// (x, y, width, height): where a window recording shows this terminal.
+    public var windowFraction: CGRect? = nil
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -79,7 +86,37 @@ extension TerminalSession {
             swappedSurfaces: swappedSurfaces,
             localHistoryMismatches: localHistoryMismatches,
             localSnapshots: localSnapshots,
-            skippedImages: skippedImages
+            skippedImages: skippedImages,
+            renderCounters: surface.surface.map { surface in
+                let counters = ghostty_surface_render_counters(surface)
+                return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
+                                              blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
+                                              fullPalette: counters.full_palette, fullConfig: counters.full_config,
+                                              fullFont: counters.full_font, fullOther: counters.full_other)
+            },
+            windowFraction: surface.window.flatMap { window in
+                let frame = window.frame
+                guard frame.width > 0, frame.height > 0 else { return nil }
+                let rect = surface.convert(surface.bounds, to: nil)
+                return CGRect(x: rect.minX / frame.width, y: 1 - rect.maxY / frame.height,
+                              width: rect.width / frame.width, height: rect.height / frame.height)
+            }
         )
     }
+}
+
+/// Ghostty's frame counters for one surface (``TerminalSurfaceDiagnostics/renderCounters``).
+public struct TerminalRenderCounters: Sendable, Equatable {
+    public var frames: UInt64
+    /// Frame updates that rebuilt at least one row of cells.
+    public var cellRebuilds: UInt64
+    public var blendFrames: UInt64
+    /// Frame updates, with or without rebuilt rows.
+    public var frameUpdates: UInt64
+    /// Rebuilds of every row by cause: the terminal's palette (OSC 4, a restore), a config change
+    /// of what cells hold (not only colors), a new font grid, anything else (resize, clear).
+    public var fullPalette: UInt64
+    public var fullConfig: UInt64
+    public var fullFont: UInt64
+    public var fullOther: UInt64
 }
