@@ -150,6 +150,14 @@ describe("VM image resolver: request by kind", () => {
     });
   });
 
+  test("a historical image with no current default to migrate to is refused, not booted", () => {
+    // Size-less legacy entries follow the requested memory; above the ladder
+    // there is no current default, and the superseded image must not boot.
+    const err = captureImageConfigError(() =>
+      resolveVmImage("freestyle", legacySnapshot, deployed, { kind: "base", memoryMb: 1_048_576 }));
+    expect(err.reason).toMatch(/superseded base image and no current base default fits 1048576 MiB/);
+  });
+
   test("the committed manifest ladder serves both kinds; no memory means the smallest size", () => {
     // The manifest is the only source of truth: the entries flagged
     // defaultForKind are what every runtime serves, deployed or local. With no
