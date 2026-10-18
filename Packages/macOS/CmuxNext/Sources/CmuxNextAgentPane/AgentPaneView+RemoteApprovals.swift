@@ -43,7 +43,7 @@ extension AgentPaneView {
     /// without a notice. Reads the views a person sees, nothing else.
     public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {
         guard let notice = remoteApprovalsNotice else { return nil }
-        let lines = notice.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let lines = notice.arrangedSubviews.compactMap { ($0 as? any ShownText)?.stringValue }
         return (lines, notice.arrangedSubviews.contains { ($0 as? NSButton)?.isEnabled == true })
     }
 
@@ -71,7 +71,7 @@ extension AgentPaneView {
             guard let self, let notice, self.remoteApprovalsNotice === notice else { return }
             guard let failure else { return self.hideRemoteApprovalsOff() }
             sender?.isEnabled = true
-            if let detail = notice.arrangedSubviews.dropFirst().first as? NSTextField {
+            if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
                 detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
             }
         }

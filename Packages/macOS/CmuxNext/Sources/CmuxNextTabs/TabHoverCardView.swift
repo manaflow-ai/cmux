@@ -217,7 +217,7 @@ extension TabHoverCardView: HoverCardTextReporting {
     /// The card's shown lines, top to bottom (`debug.hover_cards`, tests).
     var reportedLines: [String] {
         [titleLabel.stringValue] + rows.arrangedSubviews.compactMap { view in
-            guard !view.isHidden, let field = view as? NSTextField, !field.stringValue.isEmpty else { return nil }
+            guard !view.isHidden, let field = view as? any ShownText, !field.stringValue.isEmpty else { return nil }
             return field.stringValue
         }
     }

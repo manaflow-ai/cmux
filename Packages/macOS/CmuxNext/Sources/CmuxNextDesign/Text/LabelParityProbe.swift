@@ -1,0 +1,195 @@
+#if DEBUG
+public import AppKit
+
+/// `debug.label_parity` (DEBUG; text-weight-e2e.py, cx-8w027.26): ``ChromeLabel`` next to a stock
+/// `NSTextField` label with the same settings, over the settings the app uses (factory, font,
+/// text, line count, line break, preferred width, frame width).
+///
+/// Each pair is checked for what moves a layout or what VoiceOver reads: the intrinsic size, the
+/// first and last baselines, the ink of the text in the same frame (its bounding box and amount,
+/// drawn through `cacheDisplay` as a drag image is), the layer drawing (`CALayer.render(in:)`,
+/// the other drag image path) and the accessibility role and value.
+public struct LabelParityProbe {
+    public init() {}
+
+    public struct Report: Sendable {
+        public var checked = 0
+        public var mismatches: [String] = []
+        public var mismatchCount = 0
+    }
+
+    private enum Factory: String, CaseIterable { case label, wrapping, font }
+
+    private static let texts = ["", "Hi", "Workspace notes 0123 quick brown fox jumps over the lazy dog again",
+                                "line one\nline two is longer"]
+    private static let fonts: [(String, NSFont)] = [
+        ("13r", .systemFont(ofSize: 13)), ("11r", .systemFont(ofSize: 11)), ("12m", .systemFont(ofSize: 12, weight: .medium)),
+    ]
+    private static let lineCounts: [Int?] = [nil, 1, 2, 0]
+    private static let lineBreaks: [NSLineBreakMode?] = [nil, .byTruncatingTail, .byWordWrapping]
+    private static let preferredWidths: [CGFloat] = [0, 140]
+    private static let widths: [CGFloat] = [70, 220]
+
+    public func measure() -> Report {
+        var report = Report()
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 600, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        let root = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
+        root.wantsLayer = true
+        window.contentView = root
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        for factory in Factory.allCases {
+            for (fontName, font) in Self.fonts {
+                for (textIndex, text) in Self.texts.enumerated() {
+                    for lines in Self.lineCounts {
+                        for lineBreak in Self.lineBreaks {
+                            for preferred in Self.preferredWidths {
+                                let name = "\(factory.rawValue) \(fontName) t\(textIndex) lines=\(lines.map(String.init) ?? "-") "
+                                    + "lb=\(lineBreak.map { "\($0.rawValue)" } ?? "-") pmlw=\(Int(preferred))"
+                                let stock = Self.stock(factory, text: text, font: font)
+                                let label = Self.chrome(factory, text: text, font: font)
+                                if let lines { stock.maximumNumberOfLines = lines; label.maximumNumberOfLines = lines }
+                                if let lineBreak { stock.lineBreakMode = lineBreak; label.lineBreakMode = lineBreak }
+                                stock.preferredMaxLayoutWidth = preferred
+                                label.preferredMaxLayoutWidth = preferred
+                                stock.textColor = .black
+                                label.textColor = .black
+                                compare(stock, label, name: name, in: root, into: &report)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return report
+    }
+
+    private static func stock(_ factory: Factory, text: String, font: NSFont) -> NSTextField {
+        switch factory {
+        case .label: let field = NSTextField(labelWithString: text); field.font = font; return field
+        case .wrapping: let field = NSTextField(wrappingLabelWithString: text); field.font = font; return field
+        case .font:
+            // ChromeLabel(font:)'s settings on a stock label.
+            let field = NSTextField(labelWithString: "")
+            field.font = font
+            field.lineBreakMode = .byTruncatingTail
+            field.maximumNumberOfLines = 1
+            field.cell?.truncatesLastVisibleLine = true
+            field.stringValue = text
+            return field
+        }
+    }
+
+    private static func chrome(_ factory: Factory, text: String, font: NSFont) -> ChromeLabel {
+        switch factory {
+        case .label: let label = ChromeLabel(labelWithString: text); label.font = font; return label
+        case .wrapping: let label = ChromeLabel(wrappingLabelWithString: text); label.font = font; return label
+        case .font: let label = ChromeLabel(font: font); label.stringValue = text; return label
+        }
+    }
+
+    private func compare(_ stock: NSTextField, _ label: ChromeLabel, name: String, in root: NSView, into report: inout Report) {
+        func differ(_ what: String, _ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.01) {
+            report.checked += 1
+            guard abs(a - b) > tolerance else { return }
+            note("\(name) \(what): stock \(a) label \(b)", into: &report)
+        }
+        let free = (stock.intrinsicContentSize, label.intrinsicContentSize)
+        differ("intrinsic.w", free.0.width, free.1.width)
+        differ("intrinsic.h", free.0.height, free.1.height)
+        root.addSubview(stock)
+        root.addSubview(label)
+        defer {
+            stock.removeFromSuperview()
+            label.removeFromSuperview()
+        }
+        for width in Self.widths {
+            let height = max(stock.fittingSize.height, free.0.height, 1)
+            stock.frame = NSRect(x: 10, y: 10, width: width, height: height)
+            label.frame = NSRect(x: 10, y: 150, width: width, height: height)
+            let at = "w=\(Int(width))"
+            differ("\(at) intrinsic.h", stock.intrinsicContentSize.height, label.intrinsicContentSize.height)
+            differ("\(at) baseline.first", stock.firstBaselineOffsetFromTop, label.firstBaselineOffsetFromTop)
+            differ("\(at) baseline.last", stock.lastBaselineOffsetFromBottom, label.lastBaselineOffsetFromBottom)
+            let inks = (Self.ink(cached: stock), Self.ink(cached: label))
+            report.checked += 1
+            if !Self.same(inks.0, inks.1) { note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report) }
+            label.display()
+            let layered = Self.ink(rendered: label)
+            report.checked += 1
+            if (layered.amount > 0) != (inks.0.amount > 0) || inks.0.amount > 0 && abs(layered.amount / inks.0.amount - 1) > 0.2 {
+                note("\(name) \(at) layer render: stock \(inks.0) label layer \(layered)", into: &report)
+            }
+        }
+        report.checked += 1
+        let stockAX = "\(stock.accessibilityRole()?.rawValue ?? "-") \(String(describing: stock.accessibilityValue() ?? "-"))"
+        let labelAX = "\(label.accessibilityRole()?.rawValue ?? "-") \(String(describing: label.accessibilityValue() ?? "-"))"
+        if stockAX != labelAX || stock.isAccessibilityElement() != label.isAccessibilityElement() {
+            note("\(name) ax: stock \(stockAX) \(stock.isAccessibilityElement()) label \(labelAX) \(label.isAccessibilityElement())", into: &report)
+        }
+    }
+
+    private func note(_ line: String, into report: inout Report) {
+        report.mismatchCount += 1
+        if report.mismatches.count < 80 { report.mismatches.append(line) }
+    }
+
+    /// The text's ink in a view image: the box of the pixels it covers (pixels, top-left
+    /// origin) and the sum of their alpha (0...1 each).
+    struct Ink: CustomStringConvertible {
+        var box: CGRect
+        var amount: Double
+        var description: String { "box \(Int(box.minX)),\(Int(box.minY)) \(Int(box.width))x\(Int(box.height)) ink \(Int(amount))" }
+    }
+
+    private static func same(_ a: Ink, _ b: Ink) -> Bool {
+        if a.amount == 0 || b.amount == 0 { return a.amount == b.amount }
+        let edges = [a.box.minX - b.box.minX, a.box.minY - b.box.minY, a.box.maxX - b.box.maxX, a.box.maxY - b.box.maxY]
+        return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.03
+    }
+
+    private static func ink(cached view: NSView) -> Ink {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return Ink(box: .null, amount: 0) }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let image = rep.cgImage else { return Ink(box: .null, amount: 0) }
+        return ink(image)
+    }
+
+    private static func ink(rendered view: NSView) -> Ink {
+        guard let layer = view.layer else { return Ink(box: .null, amount: 0) }
+        let scale = view.window?.backingScaleFactor ?? 2
+        let width = Int((view.bounds.width * scale).rounded(.up)), height = Int((view.bounds.height * scale).rounded(.up))
+        guard width > 0, height > 0,
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Ink(box: .null, amount: 0) }
+        ctx.scaleBy(x: scale, y: scale)
+        layer.render(in: ctx)
+        guard let image = ctx.makeImage() else { return Ink(box: .null, amount: 0) }
+        return ink(image)
+    }
+
+    private static func ink(_ image: CGImage) -> Ink {
+        let width = image.width, height = image.height
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = ctx.data else { return Ink(box: .null, amount: 0) }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        var box = CGRect.null, amount = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let alpha = bytes[(y * width + x) * 4 + 3]
+                guard alpha > 24 else { continue }
+                amount += Double(alpha) / 255
+                // Row 0 of the context's memory is the top of the image.
+                box = box.union(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+        }
+        return Ink(box: box, amount: amount)
+    }
+}
+#endif

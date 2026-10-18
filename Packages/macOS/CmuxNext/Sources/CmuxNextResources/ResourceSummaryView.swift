@@ -56,9 +56,9 @@ public final class ResourceSummaryView: NSView {
     /// The text the view shows, one entry per line (tests, accessibility).
     public var lines: [String] {
         stack.arrangedSubviews.filter { !$0.isHidden }.compactMap { view in
-            if let field = view as? NSTextField { return field.stringValue }
+            if let field = view as? any ShownText { return field.stringValue }
             if let row = view as? NSStackView {
-                return row.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " ")
+                return row.arrangedSubviews.compactMap { ($0 as? any ShownText)?.stringValue }.joined(separator: " ")
             }
             return nil
         }
