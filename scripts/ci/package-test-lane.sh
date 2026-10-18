@@ -385,8 +385,6 @@ prebuild_packages() {
 }
 
 run_package_tests() {
-  # TEMP diagnostic (drop before merge): print a symbolicated backtrace when a test process crashes.
-  export SWIFT_BACKTRACE="enable=yes,interactive=no,timeout=0s,symbolicate=full,color=no,threads=all"
   # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
   # not execute the SPM package test targets. Run them here so package
   # tests (settings stores, secret-file migration, socket-control
