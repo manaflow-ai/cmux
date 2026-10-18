@@ -30,12 +30,20 @@ extension GhosttyRuntime {
     /// Records whether the window is see-through around `host`, and reloads the config when that
     /// turns ``seeThroughShown`` on or off.
     static func setSeeThrough(_ seeThrough: Bool, host: AnyObject) {
-        let before = seeThroughShown
         if seeThrough { seeThroughHosts.add(host) } else { seeThroughHosts.remove(host) }
-        guard seeThroughShown != before else { return }
-        // Not inside the theme pass that asked: the reload repaints the hosts again.
-        DispatchQueue.main.async { shared.reloadConfig() }
+        guard seeThroughShown != seeThroughLoaded, !seeThroughReloadPending else { return }
+        // Not inside the theme pass that asked: the reload repaints the hosts again. One reload
+        // per turn, and none when the set flipped back (a host moving between superviews).
+        seeThroughReloadPending = true
+        DispatchQueue.main.async {
+            seeThroughReloadPending = false
+            if seeThroughShown != seeThroughLoaded { shared.reloadConfig() }
+        }
     }
+
+    /// The ``seeThroughShown`` the loaded config's surface policy read.
+    static var seeThroughLoaded = false
+    private static var seeThroughReloadPending = false
 
     /// Config lines that turn the config's `background-opacity` and
     /// `background-blur` into what `background` resolves them to; empty

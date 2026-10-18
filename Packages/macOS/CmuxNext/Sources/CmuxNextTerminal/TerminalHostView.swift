@@ -51,6 +51,7 @@ public final class TerminalHostView: NSView {
     }
 
     private var configObserver: (any NSObjectProtocol)?
+    private var transparencyObserver: (any NSObjectProtocol)?
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
@@ -76,6 +77,12 @@ public final class TerminalHostView: NSView {
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.needsLayout = true }
+        }
+        // Reduce Transparency turns the window opaque or see-through without a theme change.
+        transparencyObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
+            MainActor.assumeIsolated { self?.paintBackground() }
         }
     }
 
@@ -136,6 +143,7 @@ public final class TerminalHostView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+            if let transparencyObserver { NSWorkspace.shared.notificationCenter.removeObserver(transparencyObserver) }
         }
     }
 

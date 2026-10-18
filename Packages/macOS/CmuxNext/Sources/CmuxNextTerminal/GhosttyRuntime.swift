@@ -224,6 +224,7 @@ public final class GhosttyRuntime {
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
+        seeThroughLoaded = seeThroughShown
         if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
                                                            ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
