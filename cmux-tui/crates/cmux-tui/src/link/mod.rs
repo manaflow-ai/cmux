@@ -121,7 +121,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
-        print!("{}", catalog().remote_client.link_help);
+        print!("{}", help_text());
         return 0;
     }
     match run_link(args) {
@@ -133,13 +133,17 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
+fn help_text() -> String {
+    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+}
+
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
 }
 
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
-    let help = || anyhow!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
+    let help = || anyhow!(help_text());
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
@@ -286,7 +290,7 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else {
-        return Err(anyhow!(catalog().remote_client.link_help));
+        return Err(anyhow!(help_text()));
     };
     let rest = &args[1..];
     match action {

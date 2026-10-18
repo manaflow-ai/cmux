@@ -73,7 +73,12 @@ fn command(home: &Path, args: &[&str]) -> Output {
 }
 
 fn command_locale(home: &Path, args: &[&str], locale: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+    cli(home, args, locale).output().unwrap()
+}
+
+fn cli(home: &Path, args: &[&str], locale: &str) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
         .arg0("cmux")
         .args(args)
         .env_clear()
@@ -82,9 +87,8 @@ fn command_locale(home: &Path, args: &[&str], locale: &str) -> Output {
         .env("LANG", locale)
         .env("CMUX_TUI_STATE_DIR", home.join("daemon"))
         .stdin(Stdio::null())
-        .current_dir(home)
-        .output()
-        .unwrap()
+        .current_dir(home);
+    command
 }
 
 #[test]
@@ -102,7 +106,8 @@ fn paired_server_link_help_explains_the_existing_identity_in_all_supported_langu
         ("zh_Hant.UTF-8", "現有身分"),
     ] {
         let out = command_locale(home.path(), &["link", "--help"], locale);
-        let help = String::from_utf8(out.stderr).unwrap();
+        assert!(out.status.success());
+        let help = String::from_utf8(out.stdout).unwrap();
         assert!(help.contains("--server-identity FILE"), "{locale}: {help}");
         assert!(help.contains(words), "{locale}: {help}");
     }
@@ -322,10 +327,75 @@ fn add_peer(links: &Links, state: &Path, install: &str, public: &str, udp: &str)
     ]);
 }
 
-async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
+async fn within<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(10), future)
         .await
         .expect("owned loopback links must answer within ten seconds")
+}
+
+/// The real daemon is signed as the same code as each link. Readiness uses its
+/// inherited one-shot descriptor rather than polling or weakening caller checks.
+struct Daemon(std::process::Child);
+
+impl Daemon {
+    async fn start(home: &Path, socket: &Path) -> Self {
+        use std::io::Read as _;
+        use std::os::fd::AsRawFd;
+
+        let (mut read, write) = std::io::pipe().unwrap();
+        let fd = write.as_raw_fd();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["--headless", "--link-entry", "--socket"])
+            .arg(socket)
+            .arg("--state")
+            .arg(home.join("daemon.json"))
+            .arg("--owner-ready-fd")
+            .arg(fd.to_string())
+            .env_clear()
+            .env("HOME", home)
+            .env("TMPDIR", home)
+            .env("CMUX_TUI_CONFIG", home.join("config.json"))
+            .env("CMUX_TUI_STATE_DIR", home.join("daemon"))
+            .current_dir(home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(home.join("daemon.log")).unwrap());
+        // SAFETY: fcntl is async-signal-safe; only this owned descriptor has
+        // close-on-exec cleared in the child, which claims and closes it.
+        unsafe {
+            command.pre_exec(move || {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let daemon = Self(command.spawn().unwrap());
+        drop(write);
+        let ready = within(tokio::task::spawn_blocking(move || {
+            let mut byte = [0];
+            read.read_exact(&mut byte).map(|()| byte[0])
+        }))
+        .await
+        .unwrap()
+        .unwrap_or_else(|error| {
+            panic!(
+                "daemon readiness: {error}: {}",
+                std::fs::read_to_string(home.join("daemon.log")).unwrap_or_default()
+            )
+        });
+        assert_eq!(ready, b'1');
+        daemon
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 #[tokio::test]
@@ -349,9 +419,7 @@ async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_
     ]);
 
     let session = links.home.path().join("s.sock");
-    let entry = cmux_link::entry_path::remote_entry_socket_path(&session);
-    std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
-    let entry = tokio::net::UnixListener::bind(&entry).unwrap();
+    let _daemon = Daemon::start(links.home.path(), &session).await;
     let server_live = links.json(&[
         "link",
         "ensure",
@@ -370,39 +438,33 @@ async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_
     );
     add_peer(&links, &client, INSTALL, &public, server_live["udp"].as_str().unwrap());
 
-    let remote = tokio::spawn(async move {
-        let (mut stream, _) = within(entry.accept()).await.unwrap();
-        stream.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
-        let mut stream = BufReader::new(stream);
-        let mut line = String::new();
-        within(stream.read_line(&mut line)).await.unwrap();
-        let stamp: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(stamp["link_peer"]["install"], "inst_client");
-        line.clear();
-        within(stream.read_line(&mut line)).await.unwrap();
-        assert_eq!(line, "ping\n");
-        stream.get_mut().write_all(b"pong\n").await.unwrap();
-    });
-    let mut caller =
-        tokio::net::UnixStream::connect(client_live["socket"].as_str().unwrap()).await.unwrap();
-    caller
-        .write_all(
-            format!(
-                "{{\"op\":\"link.dial\",\"host\":\"{INSTALL}\",\"service\":\"daemon\"}}\nping\n"
-            )
-            .as_bytes(),
-        )
-        .await
-        .unwrap();
-    let mut caller = BufReader::new(caller);
+    let mut command = cli(
+        links.home.path(),
+        &["link", "dial", "--host", INSTALL, "--socket", client_live["socket"].as_str().unwrap()],
+        "en_US.UTF-8",
+    );
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut caller = tokio::process::Command::from(command).kill_on_drop(true).spawn().unwrap();
+    let mut input = caller.stdin.take().unwrap();
+    let mut output = BufReader::new(caller.stdout.take().unwrap());
+    let mut status = BufReader::new(caller.stderr.take().unwrap());
     let mut line = String::new();
-    within(caller.read_line(&mut line)).await.unwrap();
+    within(status.read_line(&mut line)).await.unwrap();
     let dial: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(dial["ok"], true, "{dial}");
+    // The actual daemon's remote entry must answer through the encrypted link,
+    // while retaining its denial of command execution for this paired peer.
+    let marker = links.home.path().join("remote-command-ran");
+    let request = json!({"id":1,"cmd":"run","argv":["/usr/bin/touch",marker.to_str().unwrap()],"new_workspace":true});
+    input.write_all(format!("{request}\n").as_bytes()).await.unwrap();
     line.clear();
-    within(caller.read_line(&mut line)).await.unwrap();
-    assert_eq!(line, "pong\n");
-    within(remote).await.unwrap();
+    within(output.read_line(&mut line)).await.unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["error_code"], "remote_denied");
+    assert!(!marker.exists());
+    drop(input);
+    assert!(within(caller.wait()).await.unwrap().success());
     let status = links.json(&["link", "status", "--state-dir", server.to_str().unwrap()]);
     assert_eq!(status["public_key"], public);
     assert_eq!(status["identity_source"], "server_pairing");
