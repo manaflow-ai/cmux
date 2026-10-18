@@ -27,6 +27,9 @@ export type ScreenRow =
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string };
 
+/// Which row a prompt's Return takes (Leo 2026-10-18, reversing R86): the agent's, or the web search.
+export type ScreenMode = "ask" | "search";
+
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
@@ -57,11 +60,11 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
 /// The popover's rows (Leo 10-13: Chrome's and Arc's order). Empty text and `!`: none. An address,
 /// or a word that completes one: the top hit (the address, else its best completion), then the
 /// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
-/// Other text: Ask first, a web search, then the matches. One row per page: a page an open tab
+/// Other text: Ask first, a web search (the other way round in Search mode), then the matches. One row per page: a page an open tab
 /// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
 export function screenRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; mode?: ScreenMode },
 ): ScreenRow[] {
   const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
   if (intent.kind === "none" || intent.kind === "terminal") return [];
@@ -76,13 +79,15 @@ export function screenRows(
     const [top, ...rest] = found;
     return [...(top ? [top] : []), ...ranked(rest).slice(0, MAX_SUGGESTIONS - 1 - tail.length), ...tail];
   }
-  return [...ask, search, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
+  const lead = context.mode === "search" ? [search, ...ask] : [...ask, search];
+  return [...lead, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
 }
 
 /// The row Return takes before Down or Ctrl-N: the top one, unless it is only a web search for a
-/// prompt (no agent to ask: Return says so instead of searching).
-export function defaultSelection(rows: readonly ScreenRow[]): number {
-  return rows[0] && rows[0].type !== "search" ? 0 : -1;
+/// prompt in Ask mode (no agent to ask: Return says so instead of searching). In Search mode the
+/// web search is what Return is for.
+export function defaultSelection(rows: readonly ScreenRow[], mode: ScreenMode = "ask"): number {
+  return rows[0] && (rows[0].type !== "search" || mode === "search") ? 0 : -1;
 }
 
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).

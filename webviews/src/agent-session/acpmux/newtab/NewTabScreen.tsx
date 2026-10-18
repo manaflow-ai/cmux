@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -25,6 +25,7 @@ import {
   shellEntry,
   shortHost,
   stepSelection,
+  type ScreenMode,
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
@@ -124,6 +125,8 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<number | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// Which row a prompt's Return takes (Leo 2026-10-18): Ask the agent, or Search the web. Tab flips it.
+  const [mode, setMode] = useState<ScreenMode>("ask");
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
@@ -169,12 +172,12 @@ export function NewTabScreen(props: Props) {
   const textRef = useRef(text);
   textRef.current = text;
   const suggested = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask],
+    () => (touched && !shell ? screenRows(text, { omnibar, home, mode, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask, mode],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
+  const current = selected === undefined ? defaultSelection(rows, mode) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -332,7 +335,14 @@ export function NewTabScreen(props: Props) {
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
-    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
+    // A switch whose rows have not rendered yet: Return takes the new mode's row.
+    const switched = liveMode.current !== mode && !shell;
+    const fresh = switched ? screenRows(text, { omnibar, home, mode: liveMode.current, ...(ask ? { ask } : {}) }) : [];
+    const row = switched
+      ? fresh[defaultSelection(fresh, liveMode.current)]
+      : rows.length
+        ? rows[current]
+        : suggested[defaultSelection(suggested, mode)];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
@@ -434,6 +444,23 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };
+  // Search | Ask: the highlight goes back to the row Return takes in the new mode. The switch's
+  // thumb moves first, straight on the element (a compositor-only transform), and the rows follow
+  // as a transition: under CPU load the thumb never waits for the rows' render (Leo 2026-10-18).
+  const modeSwitch = useRef<HTMLSpanElement>(null);
+  // The mode the keys act on before the transition commits (Tab twice, or Tab then Return, fast).
+  // chooseMode is the only writer of both, so this is never behind `mode`.
+  const liveMode = useRef(mode);
+  const chooseMode = (next: ScreenMode) => {
+    touch();
+    liveMode.current = next;
+    modeSwitch.current?.setAttribute("data-mode", next);
+    startTransition(() => {
+      setMode(next);
+      setSelected(undefined);
+    });
+  };
+  const placeholder = mode === "search" ? nt("searchPlaceholder") : nt("placeholder");
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -453,7 +480,11 @@ export function NewTabScreen(props: Props) {
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     const step = listStep(event);
-    if (step && rows.length) {
+    if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      // Tab and Shift-Tab flip Search | Ask in place, as the switch's hint says; the field keeps focus.
+      event.preventDefault();
+      chooseMode(liveMode.current === "ask" ? "search" : "ask");
+    } else if (step && rows.length) {
       event.preventDefault();
       setSelected(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
@@ -548,8 +579,8 @@ export function NewTabScreen(props: Props) {
               className="nt-field"
               rows={1}
               data-focus-ring="none"
-              aria-label={shell ? t("composer.shell") : nt("placeholder")}
-              placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+              aria-label={shell ? t("composer.shell") : placeholder}
+              placeholder={shell ? t("composer.shellPlaceholder") : placeholder}
               value={text}
               aria-controls="nt-rows"
               aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
@@ -566,6 +597,30 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
+            {!shell && (
+              // Search | Ask (Leo 2026-10-18): which row Return takes. The field's row keeps the focus
+              // in the field on a press (focusFromRow), so a click here never takes the caret away.
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
+                <span className="nt-mode-hint" aria-hidden="true">
+                  {nt("mode.hint")}
+                </span>
+                <span className="nt-mode-track">
+                  <span className="nt-mode-thumb" aria-hidden="true" />
+                  <button
+                    type="button"
+                    data-mode="search"
+                    aria-pressed={mode === "search"}
+                    onClick={() => chooseMode("search")}
+                  >
+                    {nt("mode.search")}
+                  </button>
+                  <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
+                    {nt("mode.ask")}
+                  </button>
+                </span>
+              </span>
+            )}
           </div>
           {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
             this page draws no context ring. */}

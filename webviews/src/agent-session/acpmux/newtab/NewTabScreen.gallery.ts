@@ -400,6 +400,16 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "typed-search-mode": {
+      note: "Leo 2026-10-18 (reverses R86): Tab flips the glass Search | Ask switch at the field's right; in Search the web search leads and Return takes it.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-mode[data-mode="search"]'));
+      },
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
