@@ -1024,9 +1024,10 @@ pre.cv-math-source {
 }
 .cv-worked__time {
   flex: none;
-  margin-left: 6px;
+  margin-inline-start: 6px;
 }
-/* The working mark (WorkingMark.tsx): three accent dots that pulse in turn, centred on the 20px
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse in turn
+   on a slow 2s cycle, centred on the 20px
    line; with Reduce Motion on they hold at full strength. */
 .cv-working-mark {
   flex: none;
@@ -1034,7 +1035,7 @@ pre.cv-math-source {
   align-items: center;
   gap: 2px;
   height: 20px;
-  margin-right: 6px;
+  margin-inline-end: 6px;
 }
 .cv-working-mark > span {
   width: 3px;
@@ -1044,13 +1045,13 @@ pre.cv-math-source {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-working-mark > span {
-    animation: cv-working-dot 1.2s ease-in-out infinite;
+    animation: cv-working-dot 2s ease-in-out infinite;
   }
   .cv-working-mark > span:nth-child(2) {
-    animation-delay: 0.15s;
+    animation-delay: 0.25s;
   }
   .cv-working-mark > span:nth-child(3) {
-    animation-delay: 0.3s;
+    animation-delay: 0.5s;
   }
 }
 @keyframes cv-working-dot {
@@ -1063,29 +1064,9 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
-/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
-@keyframes cv-thinking-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-thinking {
-    color: transparent;
-    background: linear-gradient(
-        90deg,
-        var(--cv-text-muted) 40%,
-        var(--cv-text) 50%,
-        var(--cv-text-muted) 60%
-      )
-      0 0 / 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: cv-thinking-sweep 2s linear infinite;
-  }
+/* "Thinking" stays still in the muted color; the working dots carry the motion. */
+.cv-thinking {
+  color: var(--cv-text-muted);
 }
 
 .cv-tools {

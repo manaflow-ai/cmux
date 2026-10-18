@@ -13,6 +13,8 @@ import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import type { Translate } from "../i18n";
+import { toolLabel } from "../toolPaths";
+import { isRunning } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -448,8 +450,8 @@ function inFlightTitle(row: AcpmuxRow): string | undefined {
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
     const tool = items[index]?.tool;
-    if (tool && (tool.status === "in_progress" || tool.status === "pending") && tool.title.trim())
-      return tool.title.trim();
+    // The row's own label, never the call's raw JSON input; a command reads as itself.
+    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
   }
   return undefined;
 }
