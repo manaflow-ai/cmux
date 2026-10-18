@@ -399,7 +399,7 @@ public struct DaemonCapabilities: Sendable {
     /// scripts/cmux-next/check-daemon-capabilities.sh fails the build when it
     /// does not serve one of these or `required`. The GUI still checks each
     /// with `DaemonIdentity.supports`, for remote and older daemons.
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
@@ -419,7 +419,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [] }
+    public var unservedByBundledDaemon: [String] { [workspaceNameSource] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.
