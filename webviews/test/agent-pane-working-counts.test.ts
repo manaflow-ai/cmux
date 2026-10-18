@@ -127,7 +127,10 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       kind,
       msg,
     }));
-  const chats: Record<string, ReturnType<typeof events>> = { [BUSY]: events(busy, BUSY), [QUIET]: events(quiet, QUIET) };
+  const chats: Record<string, ReturnType<typeof events>> = {
+    [BUSY]: events(busy, BUSY),
+    [QUIET]: events(quiet, QUIET),
+  };
   const session = (sessionId: string) => ({
     sessionId,
     cwd: "/home/dev/uploader",
