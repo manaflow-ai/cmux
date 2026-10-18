@@ -49,7 +49,10 @@ struct AppleAerialsCatalogTests {
         #expect(wallpapers.aerialNames() == ["D4-E5": "Iceland Dusk"])
         let videos = wallpapers.videos()
         #expect(videos.count == 1)
-        guard case .system(let path) = videos.first else { return Issue.record("no aerial listed") }
+        guard case .system(let path) = videos.first else {
+            Issue.record("no aerial listed")
+            return
+        }
         #expect(path.hasPrefix(aerials.path + "/"), "an aerial path left the Customer folder: \(path)")
     }
 }
