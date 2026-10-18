@@ -13,7 +13,7 @@ interface Machine {
 export const teamVmApiService = (tenant: string) => {
   const vms = new Map<string, Machine>(), intents = new Map<string, { body: string; id: string }>()
   const calls: Array<{ method: string; path: string; body: Record<string, any> | null; key: string | null }> = []
-  const control = { loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0 }
+  const control = { loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
   const bodyOf = (m: Machine) => ({ id: m.id, displayName: m.displayName, labels: m.labels, state: m.state,
     resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: 300,
     maxRunSeconds: null, autoDeleteSeconds: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" })
@@ -78,6 +78,14 @@ export const teamVmApiService = (tenant: string) => {
       control.fileReads++
       const bytes = new TextEncoder().encode("saved content"), range = r.headers.get("range")
       const start = range ? Number(/^bytes=(\d+)-$/.exec(range)?.[1]) : 0
+      control.fileOffsets.push(start)
+      if (control.breakNextFileRead) {
+        control.breakNextFileRead = false
+        let sent = false
+        return new Response(new ReadableStream<Uint8Array>({ pull(c) {
+          if (!sent) { sent = true; c.enqueue(bytes.slice(0, 5)) } else c.error(new Error("lost saved-disk stream"))
+        } }), { headers: { "content-length": String(bytes.length) } })
+      }
       return new Response(bytes.slice(start), { status: range ? 206 : 200, headers: { "content-length": String(bytes.length - start), ...(range ? { "content-range": `bytes ${start}-${bytes.length - 1}/${bytes.length}` } : {}) } })
     }
     throw new Error(`unexpected API route ${r.method} ${u.pathname}`)

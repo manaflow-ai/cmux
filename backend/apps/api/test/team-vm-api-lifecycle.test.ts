@@ -17,11 +17,17 @@ it("routes an API VM's retirement, saved files and deletion through its recorded
     expect(exported.ok).toBe(true)
     if (!exported.ok) throw Error(exported.code)
     const ticket = String(exported.value.path).split("/").pop()!
+    t.service.control.breakNextFileRead = true
     const response = await t.owner.exportDownload(t.team, ticket)
     expect(response.status).toBe(200)
     expect(new TextDecoder().decode(await response.arrayBuffer())).toContain("saved content")
+    expect(t.service.control.fileOffsets).toEqual([0, 5])
     expect((await t.owner.exportDownload(t.team, ticket)).status).toBe(404)
     expect(t.service.calls.slice(before).every((c) => c.method === "GET" && c.path.includes("/files/"))).toBe(true)
+    t.service.control.forbidden = true
+    await expect(t.owner.adminAction(t.team, { action: "delete", vm: old, by: t.user, key: crypto.randomUUID() })).rejects.toThrow("delete HTTP 404")
+    expect((await t.owner.ledger(t.team)).rows.find((r) => r.provider_id === old)?.state).toBe("confirmed")
+    t.service.control.forbidden = false
     const gone = await t.owner.adminAction(t.team, { action: "delete", vm: old, by: t.user, key: crypto.randomUUID() })
     expect(gone.ok).toBe(true)
     expect(t.service.vms.has(old)).toBe(false)
@@ -66,14 +72,16 @@ it("replays the pinned create after a lost response and changed image, prefix an
   })
 })
 
-it.each(["credential", "deadline"])("refuses an uncertain create after its %s changes without another POST", async (change) => {
+it.each(["credential", "deadline", "missing-context", "partial-context"])("refuses an uncertain create after its %s changes without another POST", async (change) => {
   await withTeamVmApi(async (t) => {
     t.service.control.loseNextCreate = true
     await t.wake()
     if (change === "credential") {
       t.service.control.key = "rotated-test-key"
       await t.restart({ TEAM_VM_API_SERVICE_KEY: "rotated-test-key" })
-    } else t.state.storage.sql.exec(`UPDATE team_vm_ledger SET api_sent_at = ?`, Date.now() - 23 * 60 * 60_000)
+    } else if (change === "deadline") t.state.storage.sql.exec(`UPDATE team_vm_ledger SET api_sent_at = ?`, Date.now() - 23 * 60 * 60_000)
+    else if (change === "missing-context") t.state.storage.sql.exec(`UPDATE team_vm_ledger SET api_sent_key = NULL, api_sent_at = NULL`)
+    else t.state.storage.sql.exec(`UPDATE team_vm_ledger SET api_sent_at = NULL`)
     await t.owner.fakeAlarm(5_000)
     expect((await t.status()).vm).toBeNull()
     expect(t.service.calls.filter((c) => c.method === "POST" && c.path === "/v1/vms")).toHaveLength(1)
@@ -138,4 +146,14 @@ it("refuses a rebuild before changing the current VM if its recorded backend is 
     expect((await t.status()).vm).toBe(old)
     expect((await t.status()).retired ?? []).toEqual([])
   })
+})
+
+it("refuses an unknown creation default without provisioning a tenant or using the legacy backend", async () => {
+  await withTeamVmApi(async (t) => {
+    await t.wake()
+    expect((await t.status()).vm).toBeNull()
+    expect((await t.status()).last_error?.code).toBe("team_vm.not_configured")
+    expect(t.identityCreates).toBe(0)
+    expect(t.service.calls).toHaveLength(0)
+  }, { TEAM_VM_TRANSPORT: "unknown" })
 })
