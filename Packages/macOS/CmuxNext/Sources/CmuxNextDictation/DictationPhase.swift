@@ -40,11 +40,15 @@ public struct DictationUpdate: Equatable, Sendable {
     public var level: Float
     /// The session was cancelled: the composer drops ``text``.
     public var cancelled: Bool
+    /// The session's audio as a WAV file, on the update that ends a session
+    /// recorded for a harness that takes voice input (``DictationSession/recordsAudio``).
+    public var audio: Data?
 
-    public init(phase: DictationPhase, text: String = "", level: Float = 0, cancelled: Bool = false) {
+    public init(phase: DictationPhase, text: String = "", level: Float = 0, cancelled: Bool = false, audio: Data? = nil) {
         self.phase = phase
         self.text = text
         self.level = level
         self.cancelled = cancelled
+        self.audio = audio
     }
 }

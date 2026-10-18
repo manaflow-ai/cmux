@@ -71,8 +71,21 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
   submit?(): void;
 };
 
+/// Voice input for a harness that takes it. While `accepts` (the chat's ACP
+/// `promptCapabilities.audio`), the host keeps each session's audio (`dictation.audio`), and the
+/// session's last update hands it to `attach` before its words land, so the recording goes with
+/// the prompt the transcript is in. Otherwise the session is dictation alone.
+export type DictationAudio = {
+  accepts: boolean;
+  attach(audio: { mimeType: string; data: string }): void;
+};
+
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
-export function useDictation(prompt: React.RefObject<DictationField | null>, call: Call): Dictation {
+export function useDictation(
+  prompt: React.RefObject<DictationField | null>,
+  call: Call,
+  audio?: DictationAudio,
+): Dictation {
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
@@ -82,6 +95,14 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
   const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
+  const attachAudio = useRef(audio?.attach);
+  attachAudio.current = audio?.attach;
+  const acceptsAudio = audio?.accepts === true;
+
+  // The host decides for every start (the mic, its shortcut, the palette), so it hears each change.
+  useEffect(() => {
+    void call("dictation.audio", { enabled: acceptsAudio }).catch(() => {});
+  }, [acceptsAudio, call]);
 
   useEffect(() => {
     let composing = false;
@@ -103,6 +124,8 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The recording joins the composer before the words do, so an auto-send takes both.
+      if (update.state === "idle" && !update.cancelled && update.audio) attachAudio.current?.(update.audio);
       // A session the shortcut started writes where the user will type, as undoable edits.
       if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
       const splice = applyDictation(field.text(), anchor.current, update);

@@ -1,14 +1,14 @@
-/// Files the composer attaches to a prompt. Images and PDFs go to the agent as
-/// ACP content blocks. A text file is written into the prompt's text because
+/// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
+/// the agent as ACP content blocks. A text file is written into the prompt's text because
 /// the web view never learns a dropped file's path; other files are refused.
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document";
+  kind: "image" | "text" | "document" | "audio";
   name: string;
   mimeType: string;
   size: number;
-  /** Base64 image bytes, without the data: prefix. */
+  /** Base64 image, PDF or audio bytes, without the data: prefix. */
   data?: string;
   /** A text file's contents. */
   text?: string;
@@ -23,7 +23,8 @@ export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported"
 export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
-  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string };
+  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "audio"; mimeType: string; data: string };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -168,7 +169,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image.
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF and recording.
 export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
@@ -178,7 +179,23 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "audio" && attachment.data)
+      blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   return blocks;
+}
+
+/// A dictation session's recording as a chip, for a harness that takes voice input
+/// (`promptCapabilities.audio`): it goes with the prompt beside the transcript.
+export function audioAttachment(audio: { mimeType: string; data: string }, name: string): ComposerAttachment {
+  const padding = audio.data.endsWith("==") ? 2 : audio.data.endsWith("=") ? 1 : 0;
+  return {
+    id: crypto.randomUUID(),
+    kind: "audio",
+    name,
+    mimeType: audio.mimeType,
+    size: Math.floor((audio.data.length * 3) / 4) - padding,
+    data: audio.data,
+  };
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */
