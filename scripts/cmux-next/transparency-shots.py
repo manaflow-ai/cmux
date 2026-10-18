@@ -32,14 +32,12 @@ def shot(name):
     print(name, json.dumps(rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, name + ".png")}, timeout=60))[:160], flush=True)
 try:
     shot("1-new-tab-page")
-    print(rpc("action.run", {"id": "newTerminalTab", "args": {}}))
-    shot("2-terminal")
-    print(rpc("action.run", {"id": "openBrowser", "args": {"url": "about:blank"}}))
-    shot("3-browser")
-    print(rpc("action.run", {"id": "openSettings", "args": {}}))
-    shot("4-settings")
-    print(rpc("action.run", {"id": "palette.newAgentChat", "args": {}}))
-    shot("5-agent-chat")
+    for name, action, args in [("2-terminal", "newSurface", {}), ("3-browser", "openBrowser", {"url": "https://example.com"}),
+                               ("4-settings", "openSettings", {}), ("5-agent-chat", "palette.newAgentChat", {})]:
+        print(name, json.dumps(rpc("action.run", {"id": action, "args": args}))[:120], flush=True)
+        time.sleep(1)  # proof capture: the tab lands
+        rpc("action.run", {"id": "selectSurfaceByNumber", "args": {"index": 9}})
+        shot(name)
 finally:
     rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10)
     time.sleep(5)  # test harness: let the app quit before NX_APP_STOP checks
