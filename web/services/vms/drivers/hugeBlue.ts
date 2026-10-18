@@ -159,7 +159,8 @@ export class HugeBlueProvider implements VMProvider {
       const commandForHost = command
         .replaceAll("/usr/local/bin/cmux-tui", config.cmuxTuiBin)
         .replaceAll("/usr/local/bin/cmux", config.cmuxAgentBin)
-        .replaceAll("--session 'cloud'", `--session '${config.session}'`);
+        .replaceAll("--session 'cloud'", `--session '${config.session}'`)
+        .replaceAll("--session cloud", `--session ${config.session}`);
       return await this.runCommand({
         host: config.host,
         command: commandForHost,
