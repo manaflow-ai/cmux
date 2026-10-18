@@ -11,7 +11,9 @@ extension ChatsFeed {
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
-        turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
+        let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
+        turns.start(localHost: localHost)
+        SidebarSessionTreeFeed.shared.start(services, localHost: localHost) // the sidebar's session tree reads these lanes
         return ChatsFeed(socketPath: environment.socketPath)
     }
 }

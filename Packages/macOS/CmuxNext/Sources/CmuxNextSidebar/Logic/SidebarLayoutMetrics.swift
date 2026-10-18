@@ -125,6 +125,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
     /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
     public var groupsByFolder = false
+    /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
+    /// carry their pull requests and keycaps. Nil (off) draws the list as before.
+    public var sessionTree: SidebarSessionTreeState?
+    /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
+    public var keycaps: [WorkspaceID: Int] = [:]
 
     public init() {}
 }
@@ -139,6 +144,15 @@ nonisolated extension SidebarLayoutOptions {
     /// stage), the status block, counts and badges; the working spinner,
     /// loading, the progress bar and attention states still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        var content = plainRowContent(ws, machine: machine)
+        if let sessionTree {
+            content.keycap = keycaps[ws.id]
+            content.pullRequests = sessionTree.pullRequests[ws.id]
+        }
+        return content
+    }
+
+    private func plainRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
                                        showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
