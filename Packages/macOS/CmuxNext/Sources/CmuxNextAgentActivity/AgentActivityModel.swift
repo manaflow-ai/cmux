@@ -83,11 +83,13 @@ public final class AgentActivityModel {
         // while walking the two maps instead; this preserves the old result
         // without allocating or sorting a union set.
         var firstChanged: String?
-        for id in oldByID.keys {
-            if oldByID[id] != newByID[id], firstChanged == nil || id < firstChanged! { firstChanged = id }
+        for id in oldByID.keys where oldByID[id] != newByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
         }
-        for id in newByID.keys {
-            if newByID[id] != oldByID[id], firstChanged == nil || id < firstChanged! { firstChanged = id }
+        for id in newByID.keys where newByID[id] != oldByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
         }
         return firstChanged
     }
