@@ -541,12 +541,26 @@ struct AppDelegateDisplayConfigRestoreTests {
         #expect(window.frame == moved)
     }
 
-    private func spinMainRunLoop(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-    }
-
     private final class NotificationCounter: @unchecked Sendable {
         var count = 0
+    }
+
+    /// Runs the main run loop until `condition` holds or `timeout` elapses.
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    /// Drops reconcile passes already queued, so a test only sees ones its own
+    /// calls schedule.
+    private func discardQueuedReconciles(_ appDelegate: AppDelegate) {
+        NotificationQueue.default.dequeueNotifications(
+            matching: Notification(name: AppDelegate.screenChangeReconcileNotification, object: appDelegate),
+            coalesceMask: Int(NotificationQueue.NotificationCoalescing([.onName, .onSender]).rawValue)
+        )
     }
 
     @Test
@@ -556,7 +570,10 @@ struct AppDelegateDisplayConfigRestoreTests {
         // with nothing to consume it.
         let appDelegate = testAppDelegate()
         defer { resetDisplayChangeState(appDelegate) }
-        spinMainRunLoop(0.2)
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        discardQueuedReconciles(appDelegate)
 
         let counter = NotificationCounter()
         let observer = NotificationCenter.default.addObserver(
@@ -566,14 +583,9 @@ struct AppDelegateDisplayConfigRestoreTests {
         ) { _ in counter.count += 1 }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        appDelegate.handleDisplayReconfiguration(isBeginning: true)
-        appDelegate.reconcileMainWindowFramesAfterScreenChange()
-        spinMainRunLoop(0.2)
-        let before = counter.count
         appDelegate.handleDisplayReconfiguration(isBeginning: false)
-        spinMainRunLoop(0.3)
 
-        #expect(counter.count > before)
+        #expect(waitUntil { counter.count > 0 })
     }
 
     @Test
@@ -589,8 +601,20 @@ struct AppDelegateDisplayConfigRestoreTests {
 
         appDelegate.handleDisplayReconfiguration(isBeginning: true)
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        discardQueuedReconciles(appDelegate)
+
+        let counter = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: AppDelegate.screenChangeReconcileNotification,
+            object: appDelegate,
+            queue: nil
+        ) { _ in counter.count += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
         appDelegate.handleDisplayReconfiguration(isBeginning: false)
-        spinMainRunLoop(0.3)
+        // The pass the end callback queued; without it the marker stays set.
+        #expect(waitUntil { counter.count > 0 })
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
 
         // The user then places the window, and a later Dock resize raises a
         // screen-parameters change. It must not be pulled back.
@@ -599,7 +623,6 @@ struct AppDelegateDisplayConfigRestoreTests {
         moved.size.width -= 100
         window.setFrame(moved, display: false)
         appDelegate.handleScreenParametersDidChange()
-        spinMainRunLoop(0.3)
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
 
         #expect(window.frame == moved)
