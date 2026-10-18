@@ -86,7 +86,7 @@ jobs:
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
           cd "$GITHUB_WORKSPACE"
-          bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN"
+          bunx vercel@56.3.1 deploy . --prod --yes --archive=tgz --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard
         env:
           TARGET: ${{ inputs.target || 'staging' }}
