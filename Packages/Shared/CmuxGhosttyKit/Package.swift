@@ -43,6 +43,9 @@ import PackageDescription
 // frame counters (ghostty_surface_render_counters; PR 40).
 // Since e6a27a1fb a config change of colors only rebuilds no cells, and the
 // render counters report full rebuilds by cause (PR 41).
+// Since a19c884fa a released drawable keeps its pixels while another owner
+// holds it (the layer's presented frame, an evicted terminal's last frame;
+// cmux marks those volatile while hidden; PR 42).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -67,8 +70,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e6a27a1fb507f0e2dec899e309b0dd7d7c339d48-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "83b12005fa6e92c5bc9cee08b443bcb714760754e30c87d56fffd8e9b844e872"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a19c884fa8d132378ae838dcba95654b177b6723-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "94ff3178e862b6bb86f126f9e14f92359f8182f48726e46d4870d2cddf2a10a4"
         ),
     ]
 )
