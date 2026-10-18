@@ -434,7 +434,7 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   height: 28px;
-  border-radius: 7px;
+  border-radius: 999px;
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -447,11 +447,12 @@
    control's own ink at 6% over the card, tight to the control, a step further on press; no
    opaque block. */
 .acpmux-composer-bar {
-  --acpmux-row-hover: var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent));
-  --acpmux-row-press: color-mix(in srgb, currentcolor 12%, transparent);
+  --acpmux-row-hover: var(--acpmux-pill-hover, var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent)));
+  --acpmux-row-press: var(--acpmux-pill-press, color-mix(in srgb, currentcolor 12%, transparent));
 }
 .acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"] {
-  background: var(--acpmux-row-hover);
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
 }
 /* Hover only under a fine pointer (cg-composer click polish): a tap never leaves a wash behind. */
 @media (hover: hover) and (pointer: fine) {
@@ -467,6 +468,12 @@
 .acpmux-composer-bar .acpmux-steer:active,
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
+}
+.acpmux-composer-bar
+  :is(.acpmux-model, .acpmux-effort, .acpmux-access)
+  .acpmux-picker-button:focus-visible {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
 }
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
   color: var(--acpmux-warning);

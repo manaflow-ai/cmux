@@ -28,10 +28,11 @@ extension DaemonConnection {
     @discardableResult
     public func renameWorkspace(_ key: WorkspaceKey, to name: String, source: WorkspaceNameSource? = nil,
                                 expectedNameRevision: UInt64? = nil, release: Bool = false) async throws -> WorkspaceMutationResult {
+        // The bundled cmux-tui currently implements the legacy workspace rename
+        // command only. Keep automatic name provenance fail-closed until the
+        // daemon-side source/revision fields land together with their capability.
         if source == .auto {
-            guard identity?.supports(DaemonCapabilities.shared.workspaceNameSource) == true else {
-                throw DaemonError.missingCapabilities([DaemonCapabilities.shared.workspaceNameSource])
-            }
+            throw DaemonError.missingCapabilities(["workspace-name-source-v1"])
         }
         let nameMutation: MutationIdentity = {
             guard source == .auto else { return mutation() }

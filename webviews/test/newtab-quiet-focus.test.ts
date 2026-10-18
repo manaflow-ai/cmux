@@ -255,10 +255,16 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         element.parentElement!.append(probe);
         const wash = getComputedStyle(probe).backgroundColor;
         probe.remove();
+        const openProbe = document.createElement("div");
+        openProbe.style.background = "var(--acpmux-pill-open)";
+        element.parentElement!.append(openProbe);
+        const open = getComputedStyle(openProbe).backgroundColor;
+        openProbe.remove();
         return {
           focused: document.activeElement === element,
           background: style.backgroundColor,
           wash,
+          open,
           outline: style.outlineStyle,
           offset: style.outlineOffset,
           color: style.color,
@@ -268,7 +274,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     const keyboard = await chip();
     expect(keyboard.focused, "Tab reaches the chip").toBe(true);
     expect(keyboard.wash, "the row's hover wash resolves").not.toBe("rgba(0, 0, 0, 0)");
-    expect(keyboard.background, "the chip takes its hover wash").toBe(keyboard.wash);
+    expect(keyboard.background, "the focused chip takes the stronger open-pill fill").toBe(keyboard.open);
     expect(keyboard.outline, "the shared ring still draws").toBe("solid");
     expect(keyboard.offset, "the ring sits on the wash's edge").toBe("0px");
     expect(keyboard.color, "the chip's ink steps up as on hover").toBe(keyboard.text);
