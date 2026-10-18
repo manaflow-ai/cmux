@@ -1269,13 +1269,14 @@ struct BrowserWebContentProcessTests {
             """
             const platform =
               await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-            const conditional =
-              typeof PublicKeyCredential.isConditionalMediationAvailable === "function"
-                ? await PublicKeyCredential.isConditionalMediationAvailable()
-                : null;
+            const conditionalMethodAvailable =
+              typeof PublicKeyCredential.isConditionalMediationAvailable === "function";
+            const conditional = conditionalMethodAvailable
+              ? await PublicKeyCredential.isConditionalMediationAvailable()
+              : null;
             return {
               platformType: typeof platform,
-              conditionalType: typeof conditional
+              conditionalType: conditionalMethodAvailable ? typeof conditional : "unsupported"
             };
             """,
             arguments: [:],
@@ -1284,7 +1285,7 @@ struct BrowserWebContentProcessTests {
         ) as? [String: String]
 
         #expect(result?["platformType"] == "boolean")
-        #expect(result?["conditionalType"] == "boolean" || result?["conditionalType"] == "object")
+        #expect(result?["conditionalType"] == "boolean" || result?["conditionalType"] == "unsupported")
     }
 
     @Test(arguments: [nil, Data()] as [Data?])
