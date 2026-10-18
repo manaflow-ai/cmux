@@ -42,7 +42,7 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
     return `<span class="evidence-item"><strong>${label}</strong> ${details}</span>`;
   };
   const freshness = evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
-  return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong><span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}</div>`;
+  return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong><span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}<a href="comparison.json">comparison receipt</a></div>`;
 }
 
 export const COMMENT_MARKER = "<!-- cmux-gallery-pr -->";

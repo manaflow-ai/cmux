@@ -296,6 +296,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
   expect(html).toContain("base-capture");
   expect(html).toContain("head-capture");
   expect(html).toContain("repeat-capture");
+  expect(html).toContain('href="comparison.json"');
 });
 
 test("entry-filter counts only outcomes belonging to the selected entry", () => {
