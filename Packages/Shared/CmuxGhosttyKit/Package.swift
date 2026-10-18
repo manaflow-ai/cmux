@@ -33,6 +33,10 @@ import PackageDescription
 // Since 48d353b8c a macOS surface can be host-sized
 // (ghostty_surface_set_host_sized): its target follows set_size, not the
 // view's bounds, so a pane drag keeps the last frame (PR 38).
+// Since c5926d664 a host-locked mirror draws its own reflow at the view's
+// grid until the owner announces it (ghostty_surface_set_reflow_preview),
+// and reports the grid its last frame drew (ghostty_surface_drawn_grid;
+// PR 39).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -57,8 +61,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-48d353b8c3a6518c11cfd1e0ad1bbd3e75d725a2-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "a01bc971185d86e72f6fe882090607c49323d10c7699fc492bea0835f7cec56d"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c5926d664798b4ad09428b095a9baa3cbdc6a766-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "417f084918804fccfe5724e5052888f7c92aa6b2531a41dd2d184acacfc04714"
         ),
     ]
 )
