@@ -239,6 +239,21 @@ class BootstrapJourney(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     release.render(plan)
 
+    def test_public_bootstrap_descriptor_refuses_unrecognized_operator_fields(self):
+        for scope in ("release", "archive"):
+            with self.subTest(scope=scope):
+                plan = copy.deepcopy(self.plan)
+                destination = plan if scope == "release" else plan["archives"]["x86_64-linux"]
+                destination["operator_only"] = "fixture-must-not-be-published"
+                with self.assertRaises(ValueError):
+                    release.render(plan)
+
+    def test_schema_is_an_integer_not_a_json_boolean(self):
+        plan = copy.deepcopy(self.plan)
+        plan["schema"] = True
+        with self.assertRaises(ValueError):
+            release.render(plan)
+
 
 if __name__ == "__main__":
     unittest.main()
