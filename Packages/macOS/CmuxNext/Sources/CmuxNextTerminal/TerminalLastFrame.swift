@@ -21,7 +21,7 @@ public final class TerminalLastFrame {
     public init?(of session: TerminalSession) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
         self.surface = surface
-        surface.setPurgeable(.volatile, oldState: nil)
+        surface.setPurgeable(IOSurface.volatile)
     }
 
     /// The frame for a new surface that shows it from now on (non-volatile for good); nil when
@@ -47,11 +47,9 @@ public final class TerminalLastFrame {
     /// reclaimed it.
     private func pin() -> IOSurface? {
         guard !purged else { return nil }
-        var old = IOSurfacePurgeabilityState.nonVolatile
-        surface.setPurgeable(.nonVolatile, oldState: &old)
-        guard old != .empty else {
+        guard surface.setPurgeable(IOSurface.nonVolatile) != IOSurface.empty else {
             purged = true
-            surface.setPurgeable(.volatile, oldState: nil)
+            surface.setPurgeable(IOSurface.volatile)
             return nil
         }
         pins += 1
@@ -60,6 +58,22 @@ public final class TerminalLastFrame {
 
     private func unpin() {
         pins -= 1
-        if pins == 0, !taken { surface.setPurgeable(.volatile, oldState: nil) }
+        if pins == 0, !taken { surface.setPurgeable(IOSurface.volatile) }
+    }
+}
+
+/// kIOSurfacePurgeable* states by value (IOSurfaceTypes.h: NonVolatile 0, Volatile 1, Empty 2):
+/// the imported Swift names differ between SDKs.
+private extension IOSurface {
+    static let nonVolatile: UInt32 = 0
+    static let volatile: UInt32 = 1
+    static let empty: UInt32 = 2
+
+    /// Sets the purgeable state; returns the state before.
+    @discardableResult
+    func setPurgeable(_ state: UInt32) -> UInt32 {
+        var old: UInt32 = 0
+        IOSurfaceSetPurgeable(self, state, &old)
+        return old
     }
 }
