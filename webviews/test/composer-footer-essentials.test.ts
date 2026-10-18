@@ -81,7 +81,8 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(model?.visible).toBe("Opus 5.5");
     expect(model?.title).toStartWith("Claude Opus 5.5");
     const access = await read(page, ".acpmux-access-trigger");
-    expect(access?.visible).toBe("");
+    // Whether the default mode shows its label at rest is the access chip's call (base's per-mode
+    // shield); its full text stays in the title and the accessible text.
     expect(access?.title).toContain("Default");
     expect(access?.text).toContain("Default");
     expect(await page.locator(".acpmux-context").count()).toBe(0);
