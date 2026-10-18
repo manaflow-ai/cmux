@@ -30,6 +30,8 @@ type Control = {
   box: Span;
   /** What it draws, leading to trailing: text runs and icons (Send: its disc). */
   parts: { kind: "text" | "icon" | "disc"; left: number; right: number }[];
+  /** The shared down-chevron's optical correction, when this control has one. */
+  chevronY?: number;
 };
 type Row = { bar: Span; content: Span; controls: Control[] };
 
@@ -61,6 +63,12 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       if (!element || !shown(element)) return [];
       const rect = element.getBoundingClientRect();
       const parts: Control["parts"] = [];
+      const chevron = element.querySelector<SVGElement>(":scope > .acpmux-icon:last-child");
+      const chevronTransform = chevron ? getComputedStyle(chevron).transform : "none";
+      const chevronY =
+        chevronTransform !== "none"
+          ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^\)]+)\)/)?.[1] ?? "NaN")
+          : undefined;
       const disc = getComputedStyle(element).backgroundColor;
       if (name === "send" && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
         parts.push({ kind: "disc", left: rect.left, right: rect.right });
@@ -107,7 +115,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         walk(element);
       }
       parts.sort((a, b) => a.left - b.left);
-      return [{ name, box: { left: rect.left, right: rect.right }, parts }];
+      return [{ name, box: { left: rect.left, right: rect.right }, parts, chevronY }];
     });
     controls.sort((a, b) => a.box.left - b.box.left);
     return {
@@ -261,6 +269,11 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
             problems.push(
               `chips' ${key} differs: ${insides.map((inside) => `${inside.name} ${inside[key]?.toFixed(1) ?? "-"}`).join(", ")}`,
             );
+        }
+        // Location and composer pickers share the same optical correction for their down-chevron.
+        for (const control of controls.filter(({ name }) => ["model", "effort", "mode"].includes(name))) {
+          if (control.chevronY === undefined || Math.abs(control.chevronY - 0.75) > 0.05)
+            problems.push(`${control.name} chevron transform is ${control.chevronY ?? "missing"}, expected 0.75`);
         }
         // The + glyph and Send's disc sit the same distance from the bar's sides.
         const lead = controls[0] ? drawn(controls[0]).left - measured.bar.left : 0;
