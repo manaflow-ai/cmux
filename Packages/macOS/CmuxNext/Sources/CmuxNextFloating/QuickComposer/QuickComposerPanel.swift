@@ -1,15 +1,15 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The Quick Agent Chat panel: a borderless composer floating over any app
 /// and every Space. Unlike `ActiveAppKeyPanel` it takes the keys while cmux
 /// is in the background, without activating cmux, so the summoning hot key
 /// leaves the user in their app.
-final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
+public final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     static let size = CGSize(width: 680, height: 220)
 
-    var onResignKey: (() -> Void)?
-    var onCancel: (() -> Void)?
+    public var onResignKey: (() -> Void)?
+    public var onCancel: (() -> Void)?
     private let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
     /// The floating chat (cx-b9qi, `QuickComposerPanel+Floating`).
     var holdsChat = false
@@ -19,7 +19,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     let frames = FloatingChatFrames(defaults: .standard)
     let grip = FloatingChatGrip()
 
-    init() {
+    public init() {
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -49,10 +49,10 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         delegate = self
     }
 
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
+    override public var canBecomeKey: Bool { true }
+    override public var canBecomeMain: Bool { false }
 
-    func present(_ content: NSView, focus: NSView?) {
+    public func present(_ content: NSView, focus: NSView?) {
         // Read per show: the panel is reused, and motion settings change live.
         animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         if content.superview !== surface.contentView {
@@ -82,7 +82,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         if let focus { makeFirstResponder(focus) }
     }
 
-    func dismiss() {
+    public func dismiss() {
         orderOut(nil)
     }
 
@@ -104,7 +104,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
 
     /// ⌘-drag anywhere moves the floating chat, as it moves any background
     /// window; the page never sees that press.
-    override func sendEvent(_ event: NSEvent) {
+    override public func sendEvent(_ event: NSEvent) {
         if holdsChat, event.type == .leftMouseDown,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command {
             performDrag(with: event)
@@ -113,12 +113,12 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         super.sendEvent(event)
     }
 
-    override func resignKey() {
+    override public func resignKey() {
         super.resignKey()
         onResignKey?()
     }
 
-    override func cancelOperation(_ sender: Any?) {
+    override public func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
 
@@ -126,7 +126,7 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     /// editing keys (copy, paste, select all, undo, redo) go on to the Edit
     /// menu, and other command keys stop here, since the main menu would act
     /// on the window behind (Close Tab, New Tab, Quit).
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    override public func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
