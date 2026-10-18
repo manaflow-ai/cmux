@@ -50,7 +50,10 @@ function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly stri
     elements.map((element, index) => {
       const rect = element.getBoundingClientRect();
       const shift = drawnShift(element);
-      return [keys[index], { x: rect.left - origin.left - shift.x, y: rect.top - origin.top - shift.y }] as const;
+      return [
+        keys[index],
+        { x: rect.left - origin.left - shift.x, y: rect.top - origin.top - shift.y },
+      ] as const;
     }),
   );
 }
@@ -60,7 +63,11 @@ function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly stri
 /// Places are relative to the list, so a list that moves as a whole (the template switch) carries
 /// its rows, and they are measured again when the list resizes (the cards grid changes its columns
 /// with the pane's width, with no render), so a later change never slides from a stale place.
-export function useListMotion(list: RefObject<HTMLElement | null>, rows: string, keys: readonly string[]): void {
+export function useListMotion(
+  list: RefObject<HTMLElement | null>,
+  rows: string,
+  keys: readonly string[],
+): void {
   const places = useRef<Places>(new Map());
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
@@ -116,7 +123,9 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+    const drawn = new Map(
+      elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const),
+    );
     if (changed) cancelRunning(running);
     const after = measure(root, elements, currentKeys);
     places.current = after;
@@ -139,7 +148,10 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       const is = after.get(key);
       if (!was || !is) {
         if (appear > 0)
-          trackAnimation(running, element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
+          trackAnimation(
+            running,
+            element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }),
+          );
         continue;
       }
       const shift = drawn.get(key) ?? { x: 0, y: 0 };
