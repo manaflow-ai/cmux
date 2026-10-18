@@ -1,3 +1,4 @@
+import { createSshHostLeaseClient } from "./sshHostLeaseClient";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -84,8 +85,6 @@ export type VmHostLeaseReservation =
 export interface VmHostLeaseStore {
   reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation>;
   complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord>;
-  /** Release an abandoned pending reservation so provider/validation failures can be retried. */
-  abort(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void>;
 }
 
 export interface VmHostLeaseProviderClient {
@@ -117,50 +116,6 @@ export class VmHostLeaseError extends Error {
     super(message);
     this.name = "VmHostLeaseError";
   }
-}
-
-const FORBIDDEN_METADATA_KEY = /(?:token|secret|password|authorization|credential|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|private.?key)/i;
-const FORBIDDEN_METADATA_VALUE = /(?:\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+\b|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b|(?:token|secret|password|authorization|credential|api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[^\s,;]+)/i;
-const MAX_METADATA_DEPTH = 5;
-const MAX_METADATA_STRING = 2_048;
-
-function safeMetadataValue(value: unknown, depth: number): unknown {
-  if (depth > MAX_METADATA_DEPTH) {
-    throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is too deeply nested");
-  }
-  if (typeof value === "string") {
-    if (value.length > MAX_METADATA_STRING || /[\u0000-\u001f\u007f]/.test(value) || FORBIDDEN_METADATA_VALUE.test(value)) {
-      throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains an unsafe string");
-    }
-    return value;
-  }
-  if (value === null || typeof value === "boolean") return value;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains an invalid number");
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > 256) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata array is too large");
-    return value.map((entry) => safeMetadataValue(entry, depth + 1));
-  }
-  if (typeof value === "object") return safeMetadata(value, depth + 1);
-  throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is not safe JSON data");
-}
-
-function safeMetadata(value: unknown, depth = 0): Readonly<Record<string, unknown>> {
-  if (depth > MAX_METADATA_DEPTH || !value || typeof value !== "object" || Array.isArray(value)) {
-    throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is not safe JSON data");
-  }
-  const output: Record<string, unknown> = {};
-  const entries = Object.entries(value);
-  if (entries.length > 256) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata has too many fields");
-  for (const [key, child] of entries) {
-    if (!key || key.length > 128 || FORBIDDEN_METADATA_KEY.test(key)) {
-      throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains a forbidden field");
-    }
-    output[key] = safeMetadataValue(child, depth);
-  }
-  return output;
 }
 
 function validateToken(label: string, value: string): string {
@@ -222,7 +177,7 @@ function normalizeProviderResult(
     throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt returned an invalid expiry", { expiresAtMs: result.expiresAtMs });
   }
   if (result.providerLeaseId !== undefined && result.providerLeaseId !== null) validateToken("providerLeaseId", result.providerLeaseId);
-  return { ...result, metadata: safeMetadata(result.metadata ?? {}) };
+  return result;
 }
 
 function recordFrom(
@@ -286,50 +241,22 @@ export class VmHostLeaseTransport {
       throw new VmHostLeaseError("lease_conflict", "the same host lease effect is already in progress");
     }
     const adapter = this.adapters.get(provider);
-    if (!adapter || adapter.provider !== provider) {
-      await this.abortReservation(input, provider, reservation.reservationToken);
-      throw new VmHostLeaseError("provider_mismatch", `no adapter configured for ${provider}`);
-    }
+    if (!adapter || adapter.provider !== provider) throw new VmHostLeaseError("provider_mismatch", `no adapter configured for ${provider}`);
     let providerResult: VmHostLeaseProviderResult;
     try {
       providerResult = await adapter.execute(providerOperation(input));
     } catch (cause) {
-      // The provider may have applied the effect before the transport saw the
-      // error. Keep the durable reservation fenced so a retry cannot duplicate
-      // an uncertain acquire/renew/release operation.
       if (cause instanceof VmHostLeaseError) throw cause;
       throw new VmHostLeaseError("provider_error", "host lease provider operation failed", cause);
     }
-    let completed: VmHostLeaseRecord;
-    try {
-      completed = recordFrom(input, provider, providerResult);
-    } catch (cause) {
-      // An invalid receipt follows provider I/O; retain the reservation until
-      // reconciliation rather than risking a duplicate provider effect.
-      throw cause;
-    }
-    let stored: VmHostLeaseRecord;
-    try {
-      stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
-    } catch (cause) {
-      // Completion failure is also ambiguous after provider I/O. The durable
-      // reservation remains the replay/reconciliation fence.
-      throw cause;
-    }
+    const completed = recordFrom(input, provider, providerResult);
+    const stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
     // The store is authoritative for fencing and dedupe. It may normalize
     // provider metadata, but must return the same operation identity.
     if (stored.leaseId !== completed.leaseId || stored.effectKey !== completed.effectKey || stored.generation !== completed.generation) {
       throw new VmHostLeaseError("store_error", "lease store returned a mismatched completion record");
     }
     return { ...stored, replayed: false };
-  }
-
-  private async abortReservation(input: Required<VmHostLeaseInput>, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
-    try {
-      await this.store.abort(input, provider, reservationToken);
-    } catch (cause) {
-      throw new VmHostLeaseError("store_error", "failed to release abandoned host lease reservation", cause);
-    }
   }
 }
 
@@ -414,14 +341,6 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
     this.current.set(currentKey(input), completed);
     return completed;
   }
-
-  async abort(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
-    const key = operationKey(input);
-    if (this.pendingTokens.get(key) !== reservationToken) return;
-    this.pending.delete(key);
-    this.pendingTokens.delete(key);
-    if (this.pendingByLease.get(currentKey(input)) === key) this.pendingByLease.delete(currentKey(input));
-  }
 }
 
 function operationKey(input: VmHostLeaseInput): string {
@@ -476,6 +395,16 @@ export function createHugeBlueHostLeaseHttpClient(config: VmHostLeaseHttpClientC
   return createHttpHostLeaseClient(config);
 }
 
+/**
+ * Freestyle's broker gateway uses the same provider-neutral lease envelope.
+ * The web runtime may still inject the native SDK facade below, while the
+ * independently deployed worker uses this HTTP form so the SDK and its
+ * credentials stay outside the worker image.
+ */
+export function createFreestyleHostLeaseHttpClient(config: VmHostLeaseHttpClientConfig): VmHostLeaseProviderClient {
+  return createHttpHostLeaseClient(config);
+}
+
 export type FreestyleHostLeaseSdk = {
   readonly hostLeases: VmHostLeaseProviderClient;
 };
@@ -488,6 +417,42 @@ export type ConfiguredHostLeaseAdapters = {
     readonly client: VmHostLeaseProviderClient;
   }>;
 };
+
+/**
+ * Build provider clients for the web composition root from deployment
+ * configuration. Provider credentials stay in the process environment and
+ * are only used by the HTTPS gateway client; they never enter broker payloads
+ * or persisted receipts.
+ */
+export function createConfiguredHostLeaseAdaptersFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ReadonlyMap<VmHostLeaseProvider, VmHostLeaseProviderAdapter> {
+  const adapters = new Map<VmHostLeaseProvider, VmHostLeaseProviderAdapter>();
+  const hugeUrl = env.HUGE_BLUE_HOST_LEASE_URL?.trim();
+  const hugeToken = (env.HUGE_BLUE_HOST_LEASE_TOKEN?.trim() || env.HUGE_BLUE_API_TOKEN?.trim());
+  if (hugeUrl && hugeToken) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createHugeBlueHostLeaseHttpClient({
+      baseUrl: hugeUrl,
+      token: () => hugeToken,
+    })));
+  }
+  const freestyleUrl = env.FREESTYLE_HOST_LEASE_URL?.trim();
+  const freestyleToken = (env.FREESTYLE_HOST_LEASE_TOKEN?.trim() || env.FREESTYLE_API_TOKEN?.trim());
+  if (freestyleUrl && freestyleToken) {
+    adapters.set("freestyle", createFreestyleHostLeaseAdapter(createFreestyleHostLeaseHttpClient({
+      baseUrl: freestyleUrl,
+      token: () => freestyleToken,
+    })));
+  }
+  if (!adapters.has("huge-blue") && env.HUGE_BLUE_SSH_HOST) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createSshHostLeaseClient(env.HUGE_BLUE_SSH_HOST, {
+      user: env.HUGE_BLUE_SSH_USER,
+      identityFile: env.HUGE_BLUE_SSH_KEY,
+      proxyCommand: env.HUGE_BLUE_SSH_PROXY_COMMAND,
+    })));
+  }
+  return adapters;
+}
 
 /** Adapt the configured Freestyle SDK facade without importing credentials here. */
 export function createFreestyleHostLeaseClient(config: { readonly sdk: FreestyleHostLeaseSdk }): VmHostLeaseProviderClient {
@@ -551,7 +516,7 @@ async function requestHostLeaseGateway(
   } catch (cause) {
     throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned invalid JSON", cause);
   }
-  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status });
+  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status, payload });
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned a non-object receipt");
   const value = payload as Record<string, unknown>;
   return {

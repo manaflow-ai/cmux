@@ -1,0 +1,11 @@
+{
+  "name": "@cmux/agent-broker-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun ../../web/scripts/agent-broker-worker.ts",
+    "once": "CMUX_BROKER_ONCE=1 bun ../../web/scripts/agent-broker-worker.ts",
+    "bundle": "bun build ../../web/scripts/agent-broker-worker.ts --target=bun --outdir=dist",
+    "typecheck": "../../web/node_modules/.bin/tsgo --noEmit --project ../../web/tsconfig.json"
+  }
+}
