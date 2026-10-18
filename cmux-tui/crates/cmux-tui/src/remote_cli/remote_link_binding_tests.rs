@@ -6,7 +6,7 @@ use std::os::unix::net::UnixListener;
 struct Sidecar {
     directory: tempfile::TempDir,
     runtime: crate::remote_runtime::DaemonRuntimeHandle,
-    _mux: UnixListener,
+    mux: Option<UnixListener>,
     mux_path: PathBuf,
 }
 
@@ -34,7 +34,7 @@ impl Sidecar {
             },
         )
         .unwrap();
-        Self { directory, runtime, _mux: mux, mux_path }
+        Self { directory, runtime, mux: Some(mux), mux_path }
     }
 
     fn attach(&self, mux: Option<&Path>) -> anyhow::Result<()> {
@@ -66,6 +66,16 @@ fn remote_mux_binding_rejects_a_missing_requested_owner() {
     let result = sidecar.attach(Some(&sidecar.directory.path().join("missing.sock")));
     sidecar.runtime.shutdown().unwrap();
     assert!(result.is_err(), "a live sidecar hid the requested daemon's disappearance");
+}
+
+#[test]
+fn remote_mux_binding_rejects_a_stale_requested_owner_socket() {
+    let mut sidecar = Sidecar::start();
+    drop(sidecar.mux.take());
+    assert!(sidecar.mux_path.exists());
+    let result = sidecar.attach(Some(&sidecar.mux_path));
+    sidecar.runtime.shutdown().unwrap();
+    assert!(result.is_err(), "a stale socket pathname counted as a running mux owner");
 }
 
 #[test]

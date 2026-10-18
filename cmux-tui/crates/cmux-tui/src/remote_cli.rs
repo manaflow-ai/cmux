@@ -15,10 +15,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
-use cmux_remote::admin::{
-    AdminRequest, AdminResponse, UnixPeerAuthError, call_admin, call_admin_with_peer_exit,
-    verify_unix_peer_owner,
-};
+#[cfg(test)]
+use cmux_remote::admin::UnixPeerAuthError;
+use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
 use cmux_remote::bridge::LocalPortForward;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
@@ -53,9 +52,9 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
-mod remote_link_mux;
 #[cfg(test)]
 mod remote_link_binding_tests;
+mod remote_link_mux;
 use remote_link_mux::{mux_owner_args, socket_for};
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -2285,9 +2284,15 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
-    ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
+    let stream = ensure_daemon(
+        &session,
+        state_dir.as_deref(),
+        &session_state,
+        &link,
+        mux_socket.as_deref(),
+    )?;
     let runtime = tokio_runtime()?;
-    let result = runtime.block_on(proxy_stdio(&link));
+    let result = runtime.block_on(proxy_stdio(stream));
     // Tokio reads stdin on a blocking thread that cannot be cancelled: when
     // the link side ended first, do not wait for the next byte on stdin
     // before exiting (cx-bj1o review).
@@ -2582,10 +2587,16 @@ fn ensure_daemon(
     session_state: &Path,
     link: &Path,
     mux_socket_override: Option<&Path>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<UnixStream> {
     let _lock = lock_daemon_start(session_state)?;
-    if connect_same_user_socket(link).is_ok() {
-        return Ok(());
+    if let Ok(stream) = connect_same_user_socket(link) {
+        return remote_link_mux::check_binding(
+            stream,
+            session,
+            state_root,
+            link,
+            mux_socket_override,
+        );
     }
 
     // Spawn the daemon from this client's own running build (open inode on
@@ -2643,7 +2654,20 @@ fn ensure_daemon(
     command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
-    wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+    wait_for_detached_socket(
+        &mut child,
+        link,
+        Duration::from_secs(20),
+        "remote daemon",
+        &log_path,
+    )?;
+    remote_link_mux::check_binding(
+        connect_same_user_socket(link)?,
+        session,
+        state_root,
+        link,
+        mux_socket_override,
+    )
 }
 
 /// The mux owner and sidecar of a link with its own state directory log to
@@ -2867,14 +2891,21 @@ fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
     Ok(lock)
 }
 
-async fn proxy_stdio(link: &Path) -> anyhow::Result<()> {
-    proxy_stdio_with_io(link, tokio::io::stdin(), tokio::io::stdout(), verify_unix_peer_owner).await
+async fn proxy_stdio(stream: UnixStream) -> anyhow::Result<()> {
+    stream.set_nonblocking(true)?;
+    proxy_connected_stdio_with_io(
+        tokio::net::UnixStream::from_std(stream)?,
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+    )
+    .await
 }
 
+#[cfg(test)]
 async fn proxy_stdio_with_io<R, W, V>(
     link: &Path,
-    mut stdin: R,
-    mut stdout: W,
+    stdin: R,
+    stdout: W,
     verify_peer: V,
 ) -> anyhow::Result<()>
 where
@@ -2882,10 +2913,21 @@ where
     W: tokio::io::AsyncWrite + Unpin,
     V: FnOnce(&tokio::net::UnixStream) -> Result<(), UnixPeerAuthError>,
 {
-    use tokio::io::{AsyncWriteExt, copy};
-
     let stream = tokio::net::UnixStream::connect(link).await?;
     verify_peer(&stream)?;
+    proxy_connected_stdio_with_io(stream, stdin, stdout).await
+}
+
+async fn proxy_connected_stdio_with_io<R, W>(
+    stream: tokio::net::UnixStream,
+    mut stdin: R,
+    mut stdout: W,
+) -> anyhow::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncWriteExt, copy};
     let (mut socket_read, mut socket_write) = stream.into_split();
     let upload = async {
         copy(&mut stdin, &mut socket_write).await?;

@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
-use cmux_remote::admin::serve_admin_with_shutdown;
+use cmux_remote::admin::{MuxBinding, serve_admin_with_mux_binding};
 use cmux_remote::bridge::serve_mux_bridge;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
@@ -2328,12 +2328,13 @@ async fn run_daemon(
             // host's filesystem path as the default route for mobile clients.
             push_unique_route(&mut routes, unix_route);
 
-            let admin = serve_admin_with_shutdown(
+            let admin = serve_admin_with_mux_binding(
                 daemon,
                 &admin_socket,
                 routes.clone(),
                 Some(lifecycle_id.clone()),
                 Some(owner_shutdown),
+                Some(MuxBinding::new(&mux_socket, &link_socket)?),
             )
             .await?;
             let info = DaemonRuntimeInfo {

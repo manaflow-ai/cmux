@@ -12,6 +12,35 @@ use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
 
+/// Keep the verified connection across the stdio relay, so a replacement at the
+/// same pathname cannot change the destination after approval. The admin read is
+/// served by the live sidecar; runtime.json has no authority over this decision.
+pub(super) fn check_binding(
+    stream: std::os::unix::net::UnixStream,
+    session: &str,
+    state_root: Option<&Path>,
+    link: &Path,
+    explicit: Option<&Path>,
+) -> anyhow::Result<std::os::unix::net::UnixStream> {
+    let Some(mux) = explicit else { return Ok(stream) };
+    // A stale socket pathname is not a running supervisor-owned daemon.
+    let _owner = super::connect_same_user_socket(mux)?;
+    let (_, _, admin) = crate::remote_runtime::daemon_paths(session, state_root)?;
+    stream.set_nonblocking(true)?;
+    let result: anyhow::Result<_> = super::tokio_runtime()?.block_on(async {
+        let stream = tokio::net::UnixStream::from_std(stream)?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            cmux_remote::admin::verify_mux_binding(&stream, &admin, link, mux),
+        )
+        .await??;
+        Ok(stream.into_std()?)
+    });
+    result.map_err(|error| {
+        error.context(crate::localization::catalog().remote_client.remote_mux_binding_refused)
+    })
+}
+
 /// Arguments for the headless mux owner `ensure_daemon` starts. A derived
 /// socket path is left for the owner to derive again from the same session,
 /// so it keeps the owner checks it applies to its own runtime directory.
