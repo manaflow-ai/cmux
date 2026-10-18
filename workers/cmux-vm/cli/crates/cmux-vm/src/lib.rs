@@ -406,7 +406,9 @@ async fn dispatch(
                         Some(id) => format!("The API did not confirm the requested VM creation policy; inspect VM {id}. Creation may have succeeded"),
                         None => "The API did not confirm the requested VM creation policy; creation may have succeeded".to_owned(),
                     };
-                    return Err(CliError::unexpected(message).with_idempotency_hint(&key_text));
+                    return Err(CliError::unexpected(format!(
+                        "{message}; retry the same intent with --idempotency-key {key_text}"
+                    )));
                 }
             }
             out.vm(&vm)
