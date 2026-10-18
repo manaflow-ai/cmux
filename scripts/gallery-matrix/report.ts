@@ -59,7 +59,10 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
         .join("")}</ol></details>`
     : "";
   const recordedFreshness = evidence.freshness && typeof evidence.freshness === "object" ? (evidence.freshness as { status?: string }).status : undefined;
-  const freshness = recordedFreshness ? `Candidate freshness: ${recordedFreshness}` : evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
+  const freshnessRecord = evidence.freshness && typeof evidence.freshness === "object" ? (evidence.freshness as { status?: string; observedSha?: string; reason?: string }) : undefined;
+  const freshnessDetail = freshnessRecord?.observedSha ? ` · observed <code>${escapeHtml(freshnessRecord.observedSha.slice(0, 12))}</code>` : "";
+  const freshnessReason = freshnessRecord?.reason ? ` · ${escapeHtml(freshnessRecord.reason)}` : "";
+  const freshness = recordedFreshness ? `Candidate freshness: ${recordedFreshness}${freshnessDetail}${freshnessReason}` : evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
   const comparison = evidence.comparisonId ? `<span>comparison <code>${escapeHtml(evidence.comparisonId)}</code></span>` : "";
   const supersession = evidence.supersession && typeof evidence.supersession === "object" ? (evidence.supersession as { status?: string }).status : undefined;
   const baselineRelation = supersession ? `<span>Baseline relation: ${escapeHtml(supersession)}</span>` : "";

@@ -291,7 +291,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
       base: { captureId: "base-capture", sha: "base-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
       head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass" },
       repeat: { captureId: "repeat-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
-      freshness: { status: "verified" },
+      freshness: { status: "verified", observedSha: "candidate-head-observed", reason: "live head matches candidate head" },
       history: [
         { captureId: "base-capture", role: "baseline", sha: "base-head", capturedAt: "2026-10-18T01:00:00Z" },
         {
@@ -309,6 +309,8 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
   });
   expect(html).toContain('data-evidence="comparison"');
   expect(html).toContain("Candidate freshness: verified");
+  expect(html).toContain("observed <code>candidate-he</code>");
+  expect(html).toContain("live head matches candidate head");
   expect(html).toContain("cmp-18189-ab12");
   expect(html).toContain("Baseline relation: not-claimed");
   expect(html).toContain("base-capture");
