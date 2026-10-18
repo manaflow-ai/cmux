@@ -57,3 +57,20 @@ test("between calls, the line reads Working for, with the same mark", () => {
 test("Thinking carries the mark too", () => {
   expect(renderToStaticMarkup(<Thinking />)).toContain("cv-working-mark");
 });
+
+test("a call whose title is its raw input reads as a label, not JSON", () => {
+  const read = {
+    kind: "tool",
+    text: "",
+    tool: {
+      id: "r",
+      title: '{"file_path":"src/app.ts"}',
+      kind: "read",
+      status: "in_progress",
+      inputSummary: '{"file_path":"src/app.ts"}',
+    },
+  };
+  const status = statusLine([read]);
+  expect(status.doing).toContain("app.ts");
+  expect(status.doing).not.toContain("{");
+});
