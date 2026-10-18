@@ -127,6 +127,10 @@ def main():
             if not row["ok"]:
                 failed += 1
                 row["screen"] = [l for l in text.get(made[0], []) if l][-6:] if made else []
+                row["tabs"] = [{k: t.get(k) for k in ("id", "kind", "surface", "terminal", "title")}
+                               for w in app.topology().get("workspaces") or [] for sc in w.get("screens") or []
+                               for p in sc.get("panes") or [] if p.get("id") in new for t in p.get("tabs") or []]
+                row["surfaces"] = sorted(text)
             print(json.dumps(row), flush=True)
             rows.append(row)
             if n % 2 == 0:  # back to one pane (an action, not input), so panes stay wide enough for a line
