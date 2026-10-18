@@ -129,7 +129,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services)
+        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).

@@ -35,6 +35,31 @@ struct SidebarCloseSelectionTests {
         #expect(model.selection == Set([ids[3]]))
     }
 
+    @Test func closingASelectedRowClosesTheWholeSelectionInRowOrder() {
+        let (model, ids) = Self.model(active: 1)
+        model.selection = [ids[3], ids[1], ids[2]]
+        #expect(model.closeTargets(for: ids[2]) == [ids[1], ids[2], ids[3]])
+    }
+
+    @Test func closingARowOutsideTheSelectionClosesOnlyThatRow() {
+        let (model, ids) = Self.model(active: 1)
+        model.selection = [ids[1], ids[2]]
+        #expect(model.closeTargets(for: ids[0]) == [ids[0]])
+    }
+
+    @Test func closingTheOnlySelectedRowClosesOnlyThatRow() {
+        let (model, ids) = Self.model(active: 1)
+        #expect(model.closeTargets(for: ids[1]) == [ids[1]])
+    }
+
+    @Test func closingAWholeSelectionSelectsTheRowAfterIt() {
+        let (model, ids) = Self.model(active: 1)
+        model.selection = [ids[1], ids[2]]
+        model.apply(.close(model.closeTargets(for: ids[1])))
+        #expect(model.activeWorkspaceID == ids[3])
+        #expect(model.selection == Set([ids[3]]))
+    }
+
     @Test func closingAnUnfocusedWorkspaceKeepsFocus() {
         let (model, ids) = Self.model(active: 1)
         model.apply(.close([ids[3]]))

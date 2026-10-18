@@ -55,6 +55,15 @@ opacity, dot size, pulse low opacity, native steps. Style precedence: Debug over
 hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
 false, or a list of sources such as `["explicit", "run"]`), then the setting.
 
+Static look (cx-sya4n, Leo 2026-10-13: blinking and pulsing lights give a teammate headaches):
+`StatusIndicatorSettings.animation` (`animated`, the default, or `static`; its Settings row is a later
+#20511 slice). With `static`, and always under Reduce Motion (`StatusIndicatorConfig.isStatic`), nothing
+animates and every indicator draws the Static set's glyphs (`StaticStatusGlyph`, `StatusIconSet.still`)
+whatever the Debug icon set; loading keeps its style's still glyph and known progress its ring. The Debug
+toggle `status.static.shapes` draws `StatusIndicatorPlan.stillPlan` instead: a solid accent dot for work, a
+hand, ? bubble, key or ! for the waiting kinds, an x in a ring for an error, a check for done and an empty
+ring for paused.
+
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
 `status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and
 `status.inferCommandBusyAfter` (3 s): when on, a plain shell command shows as busy once it has run that long;
