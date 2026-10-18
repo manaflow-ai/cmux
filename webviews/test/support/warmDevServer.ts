@@ -44,8 +44,10 @@ export async function warmDevServer(
   const seen = new Set<string>();
   const queue: string[] = [];
   const pageUrl = new URL(page, base);
-  const warmGalleryEntries =
-    includeGalleryEntries ?? (pageUrl.pathname !== "/gallery/frame.html" || pageUrl.searchParams.has("entry"));
+  // Both the shell warm-up and a concrete frame are lazy registry surfaces. A concrete frame
+  // imports its requested entry after boot; crawling every *.gallery module here recreates the
+  // compile burst this helper is intended to avoid. Full registry warming remains opt-in.
+  const warmGalleryEntries = includeGalleryEntries ?? pageUrl.pathname !== "/gallery/frame.html";
   const follow = (text: string, from: string, pattern: RegExp) => {
     for (const match of text.matchAll(pattern)) {
       const url = new URL(match[1], new URL(from, base));
