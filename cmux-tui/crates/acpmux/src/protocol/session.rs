@@ -36,6 +36,11 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The pull request URLs its `gh pr create` calls printed, oldest first;
+    /// absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub pull_requests: Vec<String>,
     pub title: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,

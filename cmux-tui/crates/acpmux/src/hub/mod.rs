@@ -77,6 +77,7 @@ mod permission_groups;
 mod permissions;
 pub mod person;
 mod processes;
+mod pull_requests;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -550,6 +551,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
+            pr_creates: StdMutex::new(Default::default()),
         })
     }
 

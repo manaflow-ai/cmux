@@ -86,6 +86,40 @@ import Testing
         let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "x", "spawnedBy": "", "lane": ["state": "idle"]], title: nil))
         #expect(bare.spawnedBy == nil)
         #expect(bare.cwd == nil)
+        #expect(bare.pullRequests.isEmpty)
+    }
+
+    @Test func aLaneKeepsThePullRequestsItsSessionOpened() throws {
+        let lane = try #require(AgentActivityLane.of(summary: [
+            "sessionId": "op", "lane": ["state": "idle"],
+            "pullRequests": ["https://github.com/o/r/pull/1", "", 3, "https://github.com/o/s/pull/2"],
+        ], title: nil))
+        #expect(lane.pullRequests == ["https://github.com/o/r/pull/1", "https://github.com/o/s/pull/2"])
+    }
+
+    /// A session that opened pull requests from several branches counts each, once: its folder's
+    /// branch's pull request may be one it opened, and two sessions may name the same one.
+    @Test func aBadgeCountsEveryPullRequestItsSessionsOpenedOnce() {
+        func lane(_ id: String, cwd: String?, opened: [String]) -> AgentActivityLane {
+            AgentActivityLane(id: id, name: id, title: id, peer: nil, parent: nil, state: .idle, since: nil, error: nil,
+                              cwd: cwd, pullRequests: opened)
+        }
+        func pr(_ number: Int, _ state: String) -> AgentPanePullRequest {
+            AgentPanePullRequest(url: "https://github.com/o/r/pull/\(number)", number: number, state: state, mergeable: "mergeable",
+                                 checks: .init(state: "passing", passed: 1, total: 1))
+        }
+        let lanes = [
+            lane("a", cwd: "/src/app", opened: ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"]),
+            lane("b", cwd: "/src/app", opened: ["https://github.com/o/r/pull/2", "https://github.com/o/r/pull/3"]),
+        ]
+        let asks = SidebarSessionTreeFeed.asks(lanes)
+        #expect(asks == ["/src/app", "https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2",
+                         "https://github.com/o/r/pull/3"])
+        // The folder's branch is pull/2; pull/3 has no answer yet.
+        let answers = ["/src/app": pr(2, "open"), "https://github.com/o/r/pull/1": pr(1, "merged"),
+                       "https://github.com/o/r/pull/2": pr(2, "open")]
+        #expect(SidebarSessionTreeFeed.badge(asks, answers: answers) == SidebarPullRequestBadge(count: 2, status: .passing))
+        #expect(SidebarSessionTreeFeed.badge(asks, answers: [:]) == nil)
     }
 
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {

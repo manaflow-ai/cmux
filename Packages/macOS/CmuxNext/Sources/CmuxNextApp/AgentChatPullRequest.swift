@@ -36,11 +36,20 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
     }()
 
     func read(in folder: String) async -> AgentPanePullRequest? {
+        await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
+    }
+
+    /// The pull request at `url` (`gh pr view <url>`), wherever its branch is checked out.
+    func read(url: String) async -> AgentPanePullRequest? {
+        await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: nil)
+    }
+
+    private func read(arguments: [String], in folder: String?) async -> AgentPanePullRequest? {
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
         let timeout = timeout, environment = Self.environment(environment)
         return await withCheckedContinuation { continuation in
             Self.queue.addOperation {
-                continuation.resume(returning: Self.run(gh, in: folder, environment: environment, timeout: timeout)
+                continuation.resume(returning: Self.run(gh, arguments: arguments, in: folder, environment: environment, timeout: timeout)
                     .flatMap(AgentPanePullRequest.init(ghView:)))
             }
         }
@@ -66,11 +75,12 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
         let process = Process()
     }
 
-    private static func run(_ gh: String, in folder: String, environment: [String: String], timeout: Duration) -> Data? {
+    private static func run(_ gh: String, arguments: [String], in folder: String?, environment: [String: String],
+                            timeout: Duration) -> Data? {
         let held = Held(), process = held.process
         process.executableURL = URL(fileURLWithPath: gh)
-        process.arguments = ["pr", "view", "--json", AgentPanePullRequest.fields]
-        process.currentDirectoryURL = URL(fileURLWithPath: folder)
+        process.arguments = arguments
+        if let folder { process.currentDirectoryURL = URL(fileURLWithPath: folder) }
         process.environment = environment
         // A file, not a pipe: a child gh left holding its output cannot keep this read (and one of
         // the queue's two runs) waiting past the deadline.

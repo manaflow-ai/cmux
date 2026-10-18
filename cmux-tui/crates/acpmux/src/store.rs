@@ -219,6 +219,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
+    /// once each, oldest first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<String>,
 }
 
 /// What one turn, or a session's turns together, cost (`hub/turn_usage.rs`).
