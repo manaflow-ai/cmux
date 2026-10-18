@@ -60,10 +60,17 @@ func makeM4A(at url: URL, location: String) async throws {
         items.append(item)
     }
     session.metadata = items
-    session.outputURL = url
-    session.outputFileType = .m4a
-    await session.export()
-    #expect(session.status == .completed, "m4a export failed: \(String(describing: session.error))")
+    // The async `export()` resumes its continuation from a completion handler that
+    // crashed the test process on macOS 15 (signal 11 in AVExportSessionExportAsynchronously
+    // CompletionHandler); there it exports the way AttachmentMedia does.
+    if #available(macOS 15, iOS 18, *) {
+        try await session.export(to: url, as: .m4a)
+    } else {
+        session.outputURL = url
+        session.outputFileType = .m4a
+        await session.export()
+        #expect(session.status == .completed, "m4a export failed: \(String(describing: session.error))")
+    }
 }
 
 /// IPTC location keys an image may carry as text.
