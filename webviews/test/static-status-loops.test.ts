@@ -47,7 +47,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
     `<div class="cv-md is-waiting"><span class="cv-caret"></span></div>` +
-    `<button class="acpmux-jump-latest" data-shown><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
+    `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
     `<span class="hc-writing">writing</span>`;
   const diffLoops = `<span class="base-picker-spinner"></span><div id="status" data-pending="true">Loading</div>`;
 
