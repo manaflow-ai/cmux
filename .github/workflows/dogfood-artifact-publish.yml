@@ -200,6 +200,8 @@ jobs:
           DIGEST: ${{ steps.artifact.outputs.digest }}
           DOWNLOAD_URL: ${{ steps.signed-url.outputs.url }}
           BUILD_TIME: ${{ steps.pr.outputs.build_time }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
         run: |
           set -euo pipefail
@@ -216,7 +218,12 @@ jobs:
               f"SHA-256: `{os.environ['DIGEST']}`\n"
               f"Tag: `{os.environ['TAG']}`\n\n"
               f"Build time: `{os.environ['BUILD_TIME']}`\n\n"
-              "The download URL expires after 15 minutes."
+              "The download URL expires after 15 minutes. "
+              # The comment outlives the signed link; the CI artifact it came
+              # from stays downloadable for org members until it expires.
+              f"After that, [the CI run]({os.environ['SOURCE_RUN_URL']}) still has it: "
+              f"`gh run download {os.environ['SOURCE_RUN_ID']} -R {os.environ['GH_REPO']} "
+              f"-n dogfood-app-{os.environ['PR']}-{os.environ['HEAD_SHA']}`"
           )
           Path(os.environ['BODY_PATH']).write_text(body + "\n", encoding="utf-8")
           PY
