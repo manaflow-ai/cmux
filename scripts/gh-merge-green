@@ -303,7 +303,7 @@ if ! runs=$(jq -r '
   | sort_by(.name, (.id // 0))
   | group_by(.name)[]
   | last
-  | [.name,.status,(.conclusion // ""),(.app.slug // ""),(.id // 0)]
+  | [.name,.status,(.conclusion // ""),(.app.slug // "")]
   | @tsv
   ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
@@ -506,7 +506,7 @@ if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --p
 fi
 if ! statuses=$(jq -r '
   (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
-  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state, "", (.id // 0)] | @tsv
+  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
 ' <<<"$statuses_json" 2>/dev/null); then
   refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
 fi
@@ -530,33 +530,21 @@ fi
 all_verdicts="$runs"$'\n'"$statuses"
 while IFS= read -r required_context; do
   [ -n "$required_context" ] || continue
-  line=$(printf '%s\n' "$all_verdicts" | awk -F '\t' -v required="$required_context" '
-    $1 == required {
-      id = ($5 ~ /^[0-9]+$/ ? $5 + 0 : 0)
-      if (!found || id > latest) { found = 1; latest = id; row = $0 }
-    }
-    END { if (found) print row }
-  ')
-  if [ -z "$line" ]; then
-    refuse \
-      "not green: required context '$required_context' has not reported on $sha" \
-      'wait for the required branch context on the exact head, then retry'
-  fi
-  required_status=$(cut -f2 <<<"$line")
-  required_conclusion=$(cut -f3 <<<"$line")
-  if [ "$required_status" != completed ]; then
-    refuse \
-      "not green: required context '$required_context' is $required_status/$required_conclusion on $sha" \
-      'wait for the required branch context on the exact head, then retry'
-  fi
-  case "$required_conclusion" in
-    success|neutral|skipped) ;;
-    *)
-      refuse \
-        "not green: required context '$required_context' is $required_status/$required_conclusion on $sha" \
-        'repair the required branch context on the exact head, then retry'
-      ;;
-  esac
+  required_seen=0
+  while IFS=$'\t' read -r context status conclusion _; do
+    [ "$context" = "$required_context" ] || continue
+    required_seen=1
+    if [ "$status" != completed ]; then
+      refuse         "not green: required context '$required_context' is $status/$conclusion on $sha"         'wait for the required branch context on the exact head, then retry'
+    fi
+    case "$conclusion" in
+      success|neutral|skipped) ;;
+      *)
+        refuse           "not green: required context '$required_context' is $status/$conclusion on $sha"           'repair the required branch context on the exact head, then retry'
+        ;;
+    esac
+  done <<<"$all_verdicts"
+  [ "$required_seen" -eq 1 ] || refuse     "not green: required context '$required_context' has not reported on $sha"     'wait for the required branch context on the exact head, then retry'
 done <<<"$required_contexts"
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
