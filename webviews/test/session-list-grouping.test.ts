@@ -23,3 +23,11 @@ test("ungrouped sidebar sections keep archived, side, and folded chats out", () 
     "parent",
   ]);
 });
+
+test("session search refreshes when an immutable snapshot is replaced", () => {
+  const first = session("one", "/tmp/one");
+  expect(sidebarSections([first], "one", false).active).toHaveLength(1);
+  const replacement = { ...first, displayTitle: "two", cwd: "/tmp/two" };
+  expect(sidebarSections([replacement], "one", false).active).toHaveLength(0);
+  expect(sidebarSections([replacement], "two", false).active).toHaveLength(1);
+});
