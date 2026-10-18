@@ -45,7 +45,10 @@ import UniformTypeIdentifiers
         #expect(max(drawn.width, drawn.height) == 512, "a large photo was kept at \(drawn.width)×\(drawn.height)")
         #expect(files.avatar() == "avatar.png")
         #expect(files.headerAvatar().picture != nil)
-        guard case .picture = files.tileAvatar() else { return Issue.record("the tile shows no picture") }
+        guard case .picture = files.tileAvatar() else {
+            Issue.record("the tile shows no picture")
+            return
+        }
 
         let gif = source.appendingPathComponent("wave.gif")
         try Self.picture(.gif, width: 64, height: 64, frames: 3, to: gif)
