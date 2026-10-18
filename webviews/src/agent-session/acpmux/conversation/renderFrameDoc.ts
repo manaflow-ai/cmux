@@ -20,7 +20,7 @@ export function reactRenderPage(code: string): string {
     function fail(error) { if (window.__cmuxRenderKit) parent.postMessage({type:'cmux-render-error',error:String(error.message || error).slice(0,500)},'*'); root.style.color = 'var(--cmux-muted)'; root.textContent = String(error.message || error); }
     addEventListener('error', function (event) { fail(event.error || event.message); });
     ${reactDependenciesSource()}
-    prepareReact(${literal(translate("render.loadFailed"))})
+    window.__cmuxReactReady = prepareReact(${literal(translate("render.loadFailed"))})
       .then(function () {
         var source = ${literal(source)};
         var code = Babel.transform(source + '\\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));', { presets: ['react'] }).code;

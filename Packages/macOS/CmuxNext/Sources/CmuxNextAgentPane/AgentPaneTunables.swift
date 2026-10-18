@@ -157,6 +157,19 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.renderKit", PageTunables.section, "Native styles for chat renders",
         help: "Native controls, charts and follow-ups in live chat renders. New agent tabs.",
         default: true, code: "AgentPaneTunables.renderKit")
+    /// Agent preview and wide-table trials share the pane's live layout overrides.
+    public static let renderPreview = Tunable<Bool>.toggle(
+        "agentPane.labs.renderPreview", PageTunables.section, "Let agents preview chat renders",
+        help: "Capture sandboxed renders with diagnostics before showing them. New agent tabs.",
+        default: true, code: "AgentPaneTunables.renderPreview")
+    public static let renderExpand = Tunable<Bool>.toggle(
+        "agentPane.labs.renderExpand", PageTunables.section, "Open chat renders larger",
+        help: "A quiet hover control opens a render in a larger dialog. New agent tabs.",
+        default: true, code: "AgentPaneTunables.renderExpand")
+    public static let tableScroll = Tunable<Bool>.toggle(
+        "agentPane.labs.tableScroll", PageTunables.section, "Scroll wide chat tables",
+        help: "Keep wide tables within the reply column. New agent tabs.",
+        default: true, code: "AgentPaneTunables.tableScroll")
     public static let contextMeter = Tunable<Bool>.toggle(
         "agentPane.labs.contextMeter", PageTunables.section, "Context ring beside the model",
         help: "A ring beside the model shows context use and opens its token details. New agent tabs.",
@@ -183,7 +196,7 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.shortcutsHelp")
 
     static let labTunables: [String: Tunable<Bool>] = [
-        "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
+        "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "render-preview": renderPreview, "render-expand": renderExpand, "table-scroll": tableScroll, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
         "shortcuts-help": shortcutsHelp
     ]
@@ -262,5 +275,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

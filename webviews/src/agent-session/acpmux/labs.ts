@@ -6,6 +6,9 @@ import { useSyncExternalStore } from "react";
 ///   components, and draw inline as they are written, on the dev server too
 ///   (conversation/RenderCard.tsx).
 /// - `renderKit`: native styles, charts and declarative actions in live render frames.
+/// - `renderPreview`: offscreen screenshots and diagnostics for the agent's MCP tool.
+/// - `renderExpand`: a hover control opens closed renders in a larger, accessible dialog.
+/// - `tableScroll`: constrain wide Markdown cells and let keyboards reach every column.
 /// - `renderGuide`: teach agents the inline render fences once per session, with liveRender on.
 /// - `contextMeter`: show the context ring beside the model, with its token details.
 /// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
@@ -22,6 +25,9 @@ export const LABS = [
   "liveRender",
   "renderGuide",
   "renderKit",
+  "renderPreview",
+  "renderExpand",
+  "tableScroll",
   "contextMeter",
   "promptCollapse",
   "messageTimes",
@@ -30,7 +36,9 @@ export const LABS = [
   "shortcutsHelp",
 ] as const;
 export type Lab = (typeof LABS)[number];
-const defaults: Partial<Record<Lab, boolean>> = { liveRender: true, renderGuide: true, renderKit: true };
+const defaults: Partial<Record<Lab, boolean>> = {
+  liveRender: true, renderGuide: true, renderKit: true, renderPreview: true, renderExpand: true, tableScroll: true,
+};
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 

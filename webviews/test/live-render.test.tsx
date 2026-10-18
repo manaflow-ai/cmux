@@ -997,3 +997,23 @@ test("kit toggles and frame remounts reset the first-error limit and note", asyn
   report("Third failure");
   expect(host.textContent).toContain("Third failure");
 });
+
+test("render expansion uses an accessible dialog and its lab can remove the control", async () => {
+  document.documentElement.setAttribute("data-lab-render-expand", "on");
+  await draw();
+  const button = host.querySelector<HTMLButtonElement>(".acpmux-render-enlarge")!;
+  expect(button.getAttribute("aria-label")).toBe("Open preview");
+  await act(async () => button.click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(dialog).not.toBeNull();
+  expect(dialog.getAttribute("aria-label")).toBe("Interactive page");
+  expect(dialog.querySelectorAll("iframe").length).toBe(1);
+  expect(dialog.querySelector(".acpmux-render-enlarge")).toBeNull();
+  await act(async () => dialog.querySelector<HTMLButtonElement>("button")!.click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(button);
+  document.documentElement.setAttribute("data-lab-render-expand", "off");
+  await draw();
+  expect(host.querySelector(".acpmux-render-enlarge")).toBeNull();
+  document.documentElement.setAttribute("data-lab-render-expand", "on");
+});

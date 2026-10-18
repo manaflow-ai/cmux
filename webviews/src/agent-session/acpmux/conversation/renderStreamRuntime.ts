@@ -135,6 +135,8 @@ export function renderStreamScript(): string {
       }
       document.dispatchEvent(new Event('DOMContentLoaded', { bubbles: true }));
       window.dispatchEvent(new Event('load'));
+      if (window.__cmuxReactReady) await window.__cmuxReactReady;
+      document.dispatchEvent(new Event('cmux-render-settled'));
     });
     function ready() { parent.postMessage({ type: 'cmux-render-stream-ready' }, '*'); }
     if (document.readyState === 'loading') addEventListener('DOMContentLoaded', ready, { once: true });

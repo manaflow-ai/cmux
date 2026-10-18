@@ -588,6 +588,8 @@ function Block({
 }): ReactNode {
   const liveRender = useLab("liveRender");
   const rowId = useContext(TranscriptRowContext);
+  const tableScroll = useLab("tableScroll");
+  const tableT = useT();
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
   switch (block.type) {
@@ -651,7 +653,13 @@ function Block({
       const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
       const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
       return (
-        <div className={`cv-table-wrap${motion}`}>
+        <div
+          className={`cv-table-wrap${motion}`}
+          // ui-allow: Keyboard users need to scroll wide table columns.
+          tabIndex={tableScroll ? 0 : undefined}
+          role={tableScroll ? "region" : undefined}
+          aria-label={tableScroll ? tableT("table.scroll") : undefined}
+        >
           <table className="cv-table">
             <thead>
               <tr>

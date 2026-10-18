@@ -88,3 +88,7 @@ const BASE = [
   ":where(input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible){outline:1.5px solid var(--cmux-accent);outline-offset:1px}",
   ":where(input[type=checkbox],input[type=radio],input[type=range],progress){accent-color:var(--cmux-text)}",
 ].join("");
+
+/// Chat and offscreen previews share the same inset (Lucas 2026-10-19).
+// l10n-allow: frame stylesheet, not pane copy
+export const embeddedFrameCSS = () => `${renderFrameCSS()}@layer cmux{:where(body){margin:4px 0}}`;

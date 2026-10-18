@@ -145,12 +145,15 @@ export function renderBridgeScript(theme: string, css: string): string {
       var margins = (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
       var height = content + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0) + margins;
       if (!content && (children.length || body.textContent.trim())) height = Math.max(120, height);
+      // Preview reads the measurement even when live sizing suppresses viewport feedback.
+      window.__cmuxRenderContentHeight = Math.ceil(height);
       if (Math.ceil(height) === Math.ceil(window.innerHeight + margins)) return;
       height = Math.ceil(height);
       if (height === lastHeight) return;
       lastHeight = height;
       parent.postMessage({ type: 'cmux-render-content-size', height: height }, '*');
     }
+    window.__cmuxMeasureRenderContent = size;
     function scheduleSize() {
       if (sizing) return;
       sizing = true;

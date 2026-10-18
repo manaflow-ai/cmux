@@ -1,6 +1,7 @@
 // l10n-allow-file: executable chart helper; labels come from agent content.
 
-/// Self-contained SVG charts stay inside the opaque frame (Lucas 2026-10-19).
+/// Self-contained SVG charts stay inside the opaque frame (Lucas 2026-10-19). A donut is a stroked
+/// ring, so its hole is the page itself in any theme.
 export function renderChartSource(): string {
   return `function installCharts() {
     var charts = new Map(), ns = 'http://www.w3.org/2000/svg';
@@ -40,13 +41,15 @@ export function renderChartSource(): string {
         if (pie) {
           var values = series[0].values.map(function (v) { return Math.max(0, v); }), sum = values.reduce(function (a, b) { return a + b; }, 0), angle = -Math.PI / 2;
           var cx = width / 2, cy = (height - 24) / 2, radius = Math.min(width / 3, (height - 48) / 2);
+          var ring = type === 'donut', r = ring ? radius * .825 : radius;
           values.forEach(function (v, i) {
             if (!v || !sum) return;
-            var end = angle + v / sum * Math.PI * 2, x = cx + radius * Math.cos(angle), y = cy + radius * Math.sin(angle);
-            var path = sum === v ? add('circle', { cx: cx, cy: cy, r: radius, fill: color(i) }) : add('path', { d: 'M' + cx + ',' + cy + ' L' + x + ',' + y + ' A' + radius + ',' + radius + ' 0 ' + (end - angle > Math.PI ? 1 : 0) + ' 1 ' + (cx + radius * Math.cos(end)) + ',' + (cy + radius * Math.sin(end)) + ' Z', fill: color(i) });
+            var end = angle + v / sum * Math.PI * 2, x = cx + r * Math.cos(angle), y = cy + r * Math.sin(angle);
+            var arc = 'M' + x + ',' + y + ' A' + r + ',' + r + ' 0 ' + (end - angle > Math.PI ? 1 : 0) + ' 1 ' + (cx + r * Math.cos(end)) + ',' + (cy + r * Math.sin(end));
+            var paint = ring ? { fill: 'none', stroke: color(i), 'stroke-width': radius * .35 } : { fill: color(i) };
+            var path = sum === v ? add('circle', Object.assign({ cx: cx, cy: cy, r: r }, paint)) : add('path', Object.assign({ d: ring ? arc : 'M' + cx + ',' + cy + ' L' + arc.slice(1) + ' Z' }, paint));
             path.append(node('title', {}, labels[i] + ': ' + v)); angle = end;
           });
-          if (type === 'donut') add('circle', { cx: cx, cy: cy, r: radius * .65, fill: 'var(--cmux-canvas)' });
         } else {
           var all = series.flatMap(function (s) { return s.values.filter(function (v) { return v !== null; }); }), low = Math.min(0, ...all), high = Math.max(0, ...all);
           var rough = (high - low || 1) / 4, power = Math.pow(10, Math.floor(Math.log10(rough))), unit = rough / power;

@@ -2543,3 +2543,21 @@ pre.cv-math-source {
   background: transparent;
   box-shadow: none;
 }
+
+/* Keep a wide table inside flex/grid replies, including nested Markdown (Lucas 2026-10-19). */
+:root[data-lab-table-scroll="on"] .cv-md { min-width:0; max-width:100%; }
+:root[data-lab-table-scroll="on"] .cv-table-wrap { min-width:0; max-width:100%; overscroll-behavior-x:contain; }
+:root[data-lab-table-scroll="on"] .cv-table :is(th,td) { min-width:128px; max-width:256px; overflow-wrap:anywhere; }
+:root[data-lab-table-scroll="on"] .cv-table-wrap:focus-visible { outline:1px solid var(--cv-muted); outline-offset:2px; }
+
+.acpmux-render-card { position:relative; }
+.acpmux-render-enlarge { position:absolute; top:4px; right:4px; z-index:1; opacity:0; background:var(--agent-surface); border-radius:5px; }
+.acpmux-render-card:hover > .acpmux-render-enlarge,
+.acpmux-render-card:focus-within > .acpmux-render-enlarge { opacity:1; }
+@media (hover:none) { .acpmux-render-enlarge { opacity:1; } }
+.acpmux-render-dialog { z-index:var(--layer-overlay); position:fixed; inset:4vh 4vw; width:92vw; height:92vh; max-width:none; box-sizing:border-box; display:flex; flex-direction:column; padding:16px; border:1px solid var(--agent-border); border-radius:12px; background:var(--agent-accent-text, Canvas); color:var(--agent-text); overflow:hidden; }
+.acpmux-render-dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; font-size:13px; }
+.acpmux-render-dialog-body { min-height:0; overflow:auto; flex:1; }
+
+/* The side panel fills a fixed parent; the dialog follows the measured document height. */
+.acpmux-render-dialog .acpmux-artifact-frame { flex:none; }

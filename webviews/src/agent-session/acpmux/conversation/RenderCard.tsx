@@ -5,7 +5,8 @@ import { translate, useT } from "../i18n";
 import { useLab } from "../labs";
 import { ArtifactContext, documentName } from "./artifactPreview";
 import { Expand } from "./icons";
-import { renderFrameCSS } from "./renderBase";
+import { Dialog } from "../../../ui/Dialog";
+import { renderFrameCSS, embeddedFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFrameDoc";
 import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
@@ -34,8 +35,7 @@ const devServer = () => import.meta.env?.DEV === true && /^https?:$/.test(locati
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
 /// The theme for a page embedded in the chat: no side inset, so it lines up with the reply's text
 /// (Lucas 2026-10-18); a page's own `body` margin still wins.
-// l10n-allow: frame stylesheet, not pane copy
-const embeddedFrameCSS = () => `${renderFrameCSS()}@layer cmux{:where(body){margin:4px 0}}`;
+
 
 export function useRenderFrame(
   html: string,
@@ -190,6 +190,9 @@ export function RenderCard({
 }) {
   const t = useT();
   const live = useLab("liveRender");
+  const renderExpand = useLab("renderExpand");
+  const [large, setLarge] = useState(false);
+  const expandButton = useRef<HTMLButtonElement>(null);
   const kit = useLab("renderKit") && live;
   const bridge = useContext(RenderBridgeContext);
   const open = useContext(ArtifactContext);
@@ -221,6 +224,38 @@ export function RenderCard({
       className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}
       style={live && streaming && isReactRender(call.html) ? { display: "none" } : undefined}
     >
+      {live && renderExpand && !panel && !streaming && !requests.pending && (
+        <button
+          type="button"
+          ref={expandButton}
+          className="cv-iconbtn cv-iconbtn--compact acpmux-render-enlarge"
+          aria-label={t("artifact.open")}
+          title={t("artifact.open")}
+          onClick={() => setLarge(true)}
+        >
+          <Expand />
+        </button>
+      )}
+      {large && (
+        <Dialog
+          open={large}
+          onOpenChange={setLarge}
+          label={title}
+          finalFocus={expandButton}
+          className="acpmux-render-dialog"
+          backdropClassName="acpmux-image-viewer-backdrop"
+        >
+          <div className="acpmux-render-dialog-head">
+            <span>{title}</span>
+            <button type="button" className="acpmux-review-changes" onClick={() => setLarge(false)}>
+              {t("artifact.close")}
+            </button>
+          </div>
+          <div className="acpmux-render-dialog-body">
+            <RenderCard call={call} panel />
+          </div>
+        </Dialog>
+      )}
       {!live && (
         <div className="acpmux-render-card-head">
           <span className="acpmux-render-card-title">{title}</span>
