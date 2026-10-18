@@ -24,7 +24,7 @@ public final class BackdropImagesPageProvider: PageProvider {
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
-                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }) {
+                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
         self.images = images
         self.use = use
         self.reveal = reveal
