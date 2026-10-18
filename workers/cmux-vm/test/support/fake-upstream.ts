@@ -85,6 +85,7 @@ export function makeFakeUpstream(apiKey: string) {
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
   const execReplies = new Map<string, () => Response>();
+  const resizeReplies = new Map<string, () => Response>();
 
   const takeFailure = (operation: UpstreamOperation): Response | null => {
     const queue = failures.get(operation);
@@ -201,7 +202,7 @@ export function makeFakeUpstream(apiKey: string) {
           return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 });
         }
         vm.resources = next;
-        return Response.json(vmBody(vm));
+        return resizeReplies.get(vm.id)?.() ?? Response.json(vmBody(vm));
       }
       case "exec": {
         if (vm === undefined) return notFound();
@@ -313,6 +314,7 @@ export function makeFakeUpstream(apiKey: string) {
     files,
     calls,
     tlsRules,
+    resizeReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];

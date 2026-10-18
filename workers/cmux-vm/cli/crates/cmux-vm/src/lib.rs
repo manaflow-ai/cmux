@@ -80,6 +80,8 @@ struct Cli {
 enum Command {
     /// Create a VM
     Create(CreateArgs),
+    /// Grow an existing VM to at least the requested resources
+    Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
     /// List the team's VMs
@@ -220,6 +222,24 @@ struct DeleteArgs {
     /// Delete without asking; required when stdin is not a terminal
     #[arg(long)]
     yes: bool,
+}
+
+#[derive(Args, Debug)]
+struct ResizeArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Minimum vCPU count; larger current values are retained
+    #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32), required_unless_present_any = ["memory_mib", "disk_mib"])]
+    vcpus: Option<u32>,
+    /// Minimum memory in MiB
+    #[arg(long, value_parser = clap::value_parser!(u32).range(4096..=65536))]
+    memory_mib: Option<u32>,
+    /// Minimum disk in MiB; growing the disk requires a running VM
+    #[arg(long, value_parser = clap::value_parser!(u32).range(16384..=131072))]
+    disk_mib: Option<u32>,
+    /// Reuse this key when retrying the same resize
+    #[arg(long, value_name = "KEY")]
+    idempotency_key: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -412,6 +432,39 @@ async fn dispatch(
                 }
             }
             out.vm(&vm)
+        }
+        Command::Resize(args) => {
+            let vm_id = parse_key::<types::VmId>(&args.vm_id)?;
+            let body: types::ResizeVmRequest = request_body(json!({ "resources": {
+                "vcpus": args.vcpus, "memoryMib": args.memory_mib, "diskMib": args.disk_mib,
+            }}))?;
+            let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
+            let key = parse_key::<types::VmsResizeVmIdempotencyKey>(&key_text)?;
+            let response =
+                fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
+                    .await
+                    .map_err(|e| e.with_retry_key(&key_text))?;
+            let confirmed = serde_json::from_slice::<types::Vm>(&response)
+                .ok()
+                .is_some_and(|actual| {
+                    actual.id.as_str() == vm_id.as_str()
+                        && args
+                            .vcpus
+                            .is_none_or(|want| actual.resources.vcpus >= f64::from(want))
+                        && args
+                            .memory_mib
+                            .is_none_or(|want| actual.resources.memory_mib >= f64::from(want))
+                        && args
+                            .disk_mib
+                            .is_none_or(|want| actual.resources.disk_mib >= f64::from(want))
+                });
+            if !confirmed {
+                return Err(CliError::unexpected(format!(
+                    "The API did not confirm the requested resources for VM {}; inspect it and retry the same intent with --idempotency-key {key_text}",
+                    vm_id.as_str()
+                )));
+            }
+            out.vm(&response)
         }
         Command::Image(ImageCommand::List) => {
             let images = fetch_body(client.vms_list_vm_images(None)).await?;

@@ -39,6 +39,166 @@
         "summary": "Liveness check; no credentials needed"
       }
     },
+    "/v1/vms/{vmId}/resize": {
+      "post": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.resizeVm",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vm"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "PaymentRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Grow a VM. Requires the vm:write scope. Requires the tenant's VM plan. Requested axes are minimums: larger values are retained, never shrunk. Disk growth requires a running VM. The API confirms resource floors before success, including after a failed provider response. A retry with the same Idempotency-Key replays the current VM; changed resource intent is 409. A partial failure can leave grown resources; no VM is deleted. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Grow a VM",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResizeVmRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/v1/vm-images": {
       "get": {
         "tags": [
@@ -6056,51 +6216,193 @@
           }
         ]
       },
-      "VmImageList": {
+      "ResizeVmRequest": {
         "type": "object",
         "required": [
-          "items"
+          "resources"
         ],
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/VmImage"
-            }
+          "resources": {
+            "$ref": "#/components/schemas/ResizeVmResources"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM."
       },
-      "VmImage": {
+      "ResizeVmResources": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "vcpus": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 2 and 32",
+            "title": "between(2, 32)",
+            "minimum": 2,
+            "maximum": 32
+          },
+          "memoryMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 4096 and 65536",
+            "title": "between(4096, 65536)",
+            "minimum": 4096,
+            "maximum": 65536
+          },
+          "diskMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 16384 and 131072",
+            "title": "between(16384, 131072)",
+            "minimum": 16384,
+            "maximum": 131072
+          }
+        },
+        "additionalProperties": false,
+        "description": "Nonempty minimum resource floors. Omitted axes stay unchanged and larger axes are retained.",
+        "minProperties": 1
+      },
+      "Int": {
+        "type": "integer",
+        "description": "an integer",
+        "title": "int"
+      },
+      "Vm": {
         "type": "object",
         "required": [
           "id",
-          "revision",
-          "displayName"
+          "displayName",
+          "labels",
+          "state",
+          "resources",
+          "idleTimeoutSeconds",
+          "maxRunSeconds",
+          "autoDeleteSeconds",
+          "createdAt",
+          "updatedAt"
         ],
         "properties": {
           "id": {
             "type": "string",
-            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
-            "title": "maxLength(63)",
-            "minLength": 1,
-            "maxLength": 63,
-            "pattern": "^[a-z][a-z0-9-]*$"
-          },
-          "revision": {
-            "type": "string",
-            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "title": "maxLength(64)",
-            "minLength": 1,
-            "maxLength": 64,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name given at create or fork; null when none was given."
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "stopped",
+              "unknown"
+            ],
+            "description": "starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/VmResources"
+          },
+          "idleTimeoutSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness."
+          },
+          "maxRunSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pauses the VM once a single run lasts this long; each start resets it. Null: no cap."
+          },
+          "autoDeleteSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
             "type": "string"
           }
         },
-        "additionalProperties": false,
-        "description": "Public image identity; provider snapshot references are never returned."
+        "additionalProperties": false
+      },
+      "Labels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
+      },
+      "VmResources": {
+        "type": "object",
+        "required": [
+          "vcpus",
+          "memoryMib",
+          "diskMib"
+        ],
+        "properties": {
+          "vcpus": {
+            "type": "number"
+          },
+          "memoryMib": {
+            "type": "number"
+          },
+          "diskMib": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BadRequest": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "BadRequest"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "Unauthorized": {
         "type": "object",
@@ -6182,6 +6484,63 @@
         },
         "additionalProperties": false
       },
+      "NotFound": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "NotFound"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Conflict": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "Conflict"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PaymentRequired": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "PaymentRequired"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "QuotaExceeded": {
         "type": "object",
         "required": [
@@ -6221,10 +6580,51 @@
         },
         "additionalProperties": false
       },
-      "Int": {
-        "type": "integer",
-        "description": "an integer",
-        "title": "int"
+      "VmImageList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmImage"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "displayName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
+            "title": "maxLength(63)",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "maxLength(64)",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Public image identity; provider snapshot references are never returned."
       },
       "CreateVmRequest": {
         "type": "object",
@@ -6395,16 +6795,6 @@
         "additionalProperties": false,
         "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
       },
-      "Labels": {
-        "type": "object",
-        "required": [],
-        "properties": {},
-        "additionalProperties": {
-          "type": "string",
-          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-        }
-      },
       "CreatedVm": {
         "type": "object",
         "required": [
@@ -6502,26 +6892,6 @@
         },
         "additionalProperties": false
       },
-      "VmResources": {
-        "type": "object",
-        "required": [
-          "vcpus",
-          "memoryMib",
-          "diskMib"
-        ],
-        "properties": {
-          "vcpus": {
-            "type": "number"
-          },
-          "memoryMib": {
-            "type": "number"
-          },
-          "diskMib": {
-            "type": "number"
-          }
-        },
-        "additionalProperties": false
-      },
       "InitialVmNetworkReceipt": {
         "type": "object",
         "required": [
@@ -6541,82 +6911,6 @@
         },
         "additionalProperties": false,
         "description": "Accepted creation-time policy. Proxy credentials and destination origins are never returned."
-      },
-      "BadRequest": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "BadRequest"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "NotFound": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "NotFound"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "Conflict": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "Conflict"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "PaymentRequired": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "PaymentRequired"
-            ]
-          }
-        },
-        "additionalProperties": false
       },
       "VmList": {
         "type": "object",
@@ -6641,97 +6935,6 @@
               }
             ],
             "description": "Pass as `cursor` to read the next page; null on the last page."
-          }
-        },
-        "additionalProperties": false
-      },
-      "Vm": {
-        "type": "object",
-        "required": [
-          "id",
-          "displayName",
-          "labels",
-          "state",
-          "resources",
-          "idleTimeoutSeconds",
-          "maxRunSeconds",
-          "autoDeleteSeconds",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The name given at create or fork; null when none was given."
-          },
-          "labels": {
-            "$ref": "#/components/schemas/Labels"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "starting",
-              "running",
-              "pausing",
-              "paused",
-              "stopped",
-              "unknown"
-            ],
-            "description": "starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name."
-          },
-          "resources": {
-            "$ref": "#/components/schemas/VmResources"
-          },
-          "idleTimeoutSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness."
-          },
-          "maxRunSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pauses the VM once a single run lasts this long; each start resets it. Null: no cap."
-          },
-          "autoDeleteSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
           }
         },
         "additionalProperties": false

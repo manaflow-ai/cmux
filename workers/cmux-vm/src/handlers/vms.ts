@@ -15,6 +15,8 @@ import { HttpApiBuilder } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent } from "./idempotency.ts";
+import { resizeVm } from "./resize.ts";
+import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
 import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
@@ -43,38 +45,8 @@ import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamClient, type SizeRequest, type UpstreamError, type UpstreamVm } from "../upstream/client.ts";
+import { UpstreamClient, type SizeRequest, type UpstreamError } from "../upstream/client.ts";
 import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
-
-const KNOWN_STATES: ReadonlyArray<VmState> = ["starting", "running", "pausing", "paused", "stopped"];
-
-const stateOf = (state: string): VmState => KNOWN_STATES.find((known) => known === state) ?? "unknown";
-
-/** Negative or absent provider limits read as "none". */
-const limitOf = (value: number | null | undefined): number | null => (value === undefined || value === null || value < 0 ? null : value);
-
-/** The public view: the cmux id, the ownership row's name and labels, and an allowlist of provider fields. */
-export const toVm = (
-  id: VmId,
-  row: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> },
-  upstream: UpstreamVm,
-): Vm =>
-  new Vm({
-    id,
-    displayName: row.displayName,
-    labels: row.labels,
-    state: stateOf(upstream.state),
-    resources: {
-      vcpus: upstream.resources.cpu,
-      memoryMib: upstream.resources.memory,
-      diskMib: upstream.resources.storage,
-    },
-    idleTimeoutSeconds: upstream.idleTimeoutSeconds ?? null,
-    maxRunSeconds: limitOf(upstream.maxRunSeconds),
-    autoDeleteSeconds: limitOf(upstream.autoDeleteSeconds),
-    createdAt: upstream.createdAt,
-    updatedAt: upstream.updatedAt,
-  });
 
 /** Provider failures on an existing VM: 404 means the VM is gone; 409 is the given conflict; the rest is ours. */
 const onVm =
@@ -493,6 +465,9 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
+    .handle("resizeVm", ({ path, payload, headers }) =>
+      audited("vm.resize", auditableVmId(path.vmId), resizeVm(path.vmId, payload, headers["idempotency-key"])),
+    )
     .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ items })))))
     .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
       audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),

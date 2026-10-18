@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/resize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grow a VM
+         * @description Grow a VM. Requires the vm:write scope. Requires the tenant's VM plan. Requested axes are minimums: larger values are retained, never shrunk. Disk growth requires a running VM. The API confirms resource floors before success, including after a failed provider response. A retry with the same Idempotency-Key replays the current VM; changed resource intent is 409. A partial failure can leave grown resources; no VM is deleted. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["vms.resizeVm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vm-images": {
         parameters: {
             query?: never;
@@ -801,22 +821,66 @@ export interface components {
             _tag: "symbol";
             key: string;
         };
-        VmImageList: {
-            items: components["schemas"]["VmImage"][];
+        /** @description Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM. */
+        ResizeVmRequest: {
+            resources: components["schemas"]["ResizeVmResources"];
         };
-        /** @description Public image identity; provider snapshot references are never returned. */
-        VmImage: {
+        /** @description Nonempty minimum resource floors. Omitted axes stay unchanged and larger axes are retained. */
+        ResizeVmResources: {
             /**
-             * maxLength(63)
-             * @description a string matching the pattern ^[a-z][a-z0-9-]*$
+             * between(2, 32)
+             * @description a number between 2 and 32
              */
+            vcpus?: components["schemas"]["Int"];
+            /**
+             * between(4096, 65536)
+             * @description a number between 4096 and 65536
+             */
+            memoryMib?: components["schemas"]["Int"];
+            /**
+             * between(16384, 131072)
+             * @description a number between 16384 and 131072
+             */
+            diskMib?: components["schemas"]["Int"];
+        };
+        /**
+         * int
+         * @description an integer
+         */
+        Int: number;
+        Vm: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
+            /** @description The name given at create or fork; null when none was given. */
+            displayName: string | null;
+            labels: components["schemas"]["Labels"];
             /**
-             * maxLength(64)
-             * @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
+             * @description starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
+             * @enum {string}
              */
-            revision: string;
-            displayName: string;
+            state: "starting" | "running" | "pausing" | "paused" | "stopped" | "unknown";
+            resources: components["schemas"]["VmResources"];
+            /** @description Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. */
+            idleTimeoutSeconds: number | null;
+            /** @description Pauses the VM once a single run lasts this long; each start resets it. Null: no cap. */
+            maxRunSeconds: number | null;
+            /** @description Deletes the VM once it has gone this long without running; each start resets the clock. Null: never. */
+            autoDeleteSeconds: number | null;
+            createdAt: string;
+            updatedAt: string;
+        };
+        Labels: {
+            [key: string]: string;
+        };
+        VmResources: {
+            vcpus: number;
+            memoryMib: number;
+            diskMib: number;
+        };
+        BadRequest: {
+            message: string;
+            /** @enum {string} */
+            _tag: "BadRequest";
         };
         Unauthorized: {
             message: string;
@@ -834,6 +898,21 @@ export interface components {
             /** @enum {string} */
             _tag: "ServiceUnavailable";
         };
+        NotFound: {
+            message: string;
+            /** @enum {string} */
+            _tag: "NotFound";
+        };
+        Conflict: {
+            message: string;
+            /** @enum {string} */
+            _tag: "Conflict";
+        };
+        PaymentRequired: {
+            message: string;
+            /** @enum {string} */
+            _tag: "PaymentRequired";
+        };
         QuotaExceeded: {
             message: string;
             retryAfterSeconds?: components["schemas"]["Int"];
@@ -842,11 +921,23 @@ export interface components {
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };
-        /**
-         * int
-         * @description an integer
-         */
-        Int: number;
+        VmImageList: {
+            items: components["schemas"]["VmImage"][];
+        };
+        /** @description Public image identity; provider snapshot references are never returned. */
+        VmImage: {
+            /**
+             * maxLength(63)
+             * @description a string matching the pattern ^[a-z][a-z0-9-]*$
+             */
+            id: string;
+            /**
+             * maxLength(64)
+             * @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
+             */
+            revision: string;
+            displayName: string;
+        };
         /** @description Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise. */
         CreateVmRequest: {
             image?: components["schemas"]["VmImageSelection"];
@@ -933,9 +1024,6 @@ export interface components {
              */
             diskMib?: components["schemas"]["Int"];
         };
-        Labels: {
-            [key: string]: string;
-        };
         CreatedVm: {
             /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
@@ -959,61 +1047,15 @@ export interface components {
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
             bootImage?: components["schemas"]["VmImage"];
         };
-        VmResources: {
-            vcpus: number;
-            memoryMib: number;
-            diskMib: number;
-        };
         /** @description Accepted creation-time policy. Proxy credentials and destination origins are never returned. */
         InitialVmNetworkReceipt: {
             publicEgress: boolean;
             httpsProxyHosts: string[];
         };
-        BadRequest: {
-            message: string;
-            /** @enum {string} */
-            _tag: "BadRequest";
-        };
-        NotFound: {
-            message: string;
-            /** @enum {string} */
-            _tag: "NotFound";
-        };
-        Conflict: {
-            message: string;
-            /** @enum {string} */
-            _tag: "Conflict";
-        };
-        PaymentRequired: {
-            message: string;
-            /** @enum {string} */
-            _tag: "PaymentRequired";
-        };
         VmList: {
             items: components["schemas"]["Vm"][];
             /** @description Pass as `cursor` to read the next page; null on the last page. */
             nextCursor: string | null;
-        };
-        Vm: {
-            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
-            id: string;
-            /** @description The name given at create or fork; null when none was given. */
-            displayName: string | null;
-            labels: components["schemas"]["Labels"];
-            /**
-             * @description starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
-             * @enum {string}
-             */
-            state: "starting" | "running" | "pausing" | "paused" | "stopped" | "unknown";
-            resources: components["schemas"]["VmResources"];
-            /** @description Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. */
-            idleTimeoutSeconds: number | null;
-            /** @description Pauses the VM once a single run lasts this long; each start resets it. Null: no cap. */
-            maxRunSeconds: number | null;
-            /** @description Deletes the VM once it has gone this long without running; each start resets the clock. Null: never. */
-            autoDeleteSeconds: number | null;
-            createdAt: string;
-            updatedAt: string;
         };
         /** @description Replace an existing creation-time HTTPS proxy; destinations must remain approved by the deployment. Omitted headers clear the previous header set. */
         ReplaceVmHttpsProxyRequest: {
@@ -1504,6 +1546,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+        };
+    };
+    "vms.resizeVm": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResizeVmRequest"];
+            };
+        };
+        responses: {
+            /** @description Vm */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Vm"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description PaymentRequired */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentRequired"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };

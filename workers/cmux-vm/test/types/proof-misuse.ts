@@ -9,6 +9,7 @@ import { Effect, Redacted } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
+import { tenantMayGrow } from "../../src/proofs/tenant-may-grow.ts";
 import { tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
 import { vmImageAllowed } from "../../src/proofs/vm-image.ts";
 import { vmNetworkAllowed } from "../../src/proofs/vm-network.ts";
@@ -131,4 +132,27 @@ export const imageMisuse = (principal: Principal, vmId: VmId) => Effect.gen(func
     // @ts-expect-error raw image input cannot bypass the proof argument
     yield* upstream.createVm(caller, { ...spec, image: { id: "cloud-standard", revision: "r1" } }, { scope, mayCreate: decision.proof });
   })));
+});
+
+export const resizeMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, vmA, vmB, (caller, a, b) => Effect.gen(function* () {
+    const owns = yield* tenantOwnsVm(caller, a);
+    const scope = keyHasScope(caller, "vm:write");
+    const read = keyHasScope(caller, "vm:read");
+    const mayGrow = yield* tenantMayGrow(caller);
+    if (owns === null || scope === null || read === null) return;
+    yield* upstream.resizeVm(a, { owns, scope, mayGrow }, { vcpus: 8 });
+    // @ts-expect-error VM A's ownership cannot grow VM B
+    yield* upstream.resizeVm(b, { owns, scope, mayGrow }, { vcpus: 8 });
+    // @ts-expect-error read permission cannot resize a VM
+    yield* upstream.resizeVm(a, { owns, scope: read, mayGrow }, { vcpus: 8 });
+    // @ts-expect-error ownership and scope do not establish the tenant's VM plan
+    yield* upstream.resizeVm(a, { owns, scope }, { vcpus: 8 });
+    yield* name(principal, (other) => Effect.gen(function* () {
+      const otherPlan = yield* tenantMayGrow(other);
+      // @ts-expect-error another caller's entitlement cannot authorize this resize
+      yield* upstream.resizeVm(a, { owns, scope, mayGrow: otherPlan }, { vcpus: 8 });
+    }));
+  }));
 });

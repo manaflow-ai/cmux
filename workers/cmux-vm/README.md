@@ -35,7 +35,7 @@ a VM `role=chief` to hand it to the service.
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
 `TenantOwnsResource` (carries the provider id as evidence),
-`TenantMayCreate`, `VmNetworkAllowed`, `VmImageAllowed` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
+`TenantMayCreate`, `TenantMayGrow`, `VmNetworkAllowed`, `VmImageAllowed` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
 exact named arguments, and tenant provider ids are reachable only through a
 `TenantOwnsResource` proof. Operator image references require `VmImageAllowed`. `test/types/proof-misuse.ts` lists calls that must
 not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.
@@ -67,6 +67,34 @@ pauses them. Until the billing source is wired (TODO in
 
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
+
+## Grow an existing VM
+
+`POST /v1/vms/{vmId}/resize` takes a nonempty `resources` object with one or
+more `vcpus` (2–32), `memoryMib` (4096–65536), or `diskMib` (16384–131072).
+Values are integer minimums: omitted axes stay unchanged and already larger
+axes are retained. No VM is recreated or shrunk. Growing the disk requires a
+running VM; CPU and memory changes on paused/stopped VMs apply on resume/boot.
+
+The caller needs `vm:write`, ownership (including resource allowlists/service
+labels), and the tenant's VM plan. Growth does not reserve another VM quota
+slot. `TenantMayGrow` binds the plan decision to the exact caller, alongside
+scope and ownership proofs. The response is the current public VM, with
+provider-confirmed resources satisfying every requested minimum.
+
+After a provider error, the API reads the VM: satisfied floors count as
+success, otherwise the failure is returned. Partial growth is retained; the
+API never deletes an existing VM after resize failure. Retry the same intent
+with the same `Idempotency-Key`; only unfinished axes grow. Completed retries
+read the current VM during the existing 24-hour ledger window. Changed axes or
+VM IDs under the same key conflict with 409. Capacity errors are 429, growth
+conflicts are 409, and unavailable/unconfirmed outcomes are 503.
+
+`cmux-vm resize VM_ID --disk-mib 65536 --idempotency-key KEY --json` exposes
+the same path; `--vcpus` and `--memory-mib` may be combined. Omit the key to
+generate one. Errors retain the sent key, and the CLI refuses responses for
+another VM or below the requested floors. It does not automatically retry or
+delete the VM.
 
 ## Approved service boot images
 

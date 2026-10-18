@@ -430,9 +430,8 @@
       ]
     },
     "resize_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["vms.createVm", "vms.resizeVm"]
     },
     "snapshot_vm": {
       "status": "wrapped",

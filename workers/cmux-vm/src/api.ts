@@ -128,6 +128,18 @@ export const RequestedResources = Schema.Struct({
     "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
 });
 
+/** Requested values are resource floors, so a retry never shrinks a VM. */
+export class ResizeVmRequest extends Schema.Class<ResizeVmRequest>("ResizeVmRequest")({
+  resources: RequestedResources.pipe(Schema.filter((value) => Object.values(value).some((axis) => axis !== undefined), {
+    message: () => "Specify at least one resource axis",
+    jsonSchema: { minProperties: 1 },
+  })).annotations({ identifier: "ResizeVmResources", description: "Nonempty minimum resource floors. Omitted axes stay unchanged and larger axes are retained.", parseOptions: { onExcessProperty: "error" } }),
+}, {
+  parseOptions: { onExcessProperty: "error" },
+  description: "Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM.",
+  message: () => ({ message: "Invalid VM resize request", override: true }),
+}) {}
+
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
     image: Schema.optionalWith(VmImageSelection, { exact: true }),
@@ -284,6 +296,12 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
     .annotateContext(describe(summary, "vm:write", details));
 
 export class VmsGroup extends HttpApiGroup.make("vms")
+  .add(
+    HttpApiEndpoint.post("resizeVm", "/v1/vms/:vmId/resize")
+      .setPath(VmPath).setHeaders(CreateHeaders).setPayload(ResizeVmRequest).addSuccess(Vm)
+      .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(PaymentRequired).addError(QuotaExceeded)
+      .annotateContext(describe("Grow a VM", "vm:write", "Requires the tenant's VM plan. Requested axes are minimums: larger values are retained, never shrunk. Disk growth requires a running VM. The API confirms resource floors before success, including after a failed provider response. A retry with the same Idempotency-Key replays the current VM; changed resource intent is 409. A partial failure can leave grown resources; no VM is deleted.")),
+  )
   .add(
     HttpApiEndpoint.get("listVmImages", "/v1/vm-images").setHeaders(TeamHeaders).addSuccess(VmImageList)
       .addError(QuotaExceeded).addError(ServiceUnavailable)

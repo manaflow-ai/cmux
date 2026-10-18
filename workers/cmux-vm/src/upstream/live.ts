@@ -16,6 +16,7 @@ import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
+  resourceFloorsReached,
   UpstreamError,
   UpstreamVm,
   type FileRead,
@@ -203,6 +204,20 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
+      const current = yield* getVmById("resizeVm", id);
+      if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
+        return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
+      }
+      return yield* growVm(id, current, size).pipe(
+        Effect.flatMap((grown) => resourceFloorsReached(grown, size) ? Effect.succeed(grown) : Effect.fail(new UpstreamError({ operation: "resizeVm", status: null }))),
+        // An error can follow an applied or partially applied resize. Confirm before reporting failure.
+        Effect.catchAll((error) => getVmById("resizeVm", id).pipe(
+          Effect.catchAll(() => Effect.fail(error)),
+          Effect.flatMap((latest) => resourceFloorsReached(latest, size) ? Effect.succeed(latest) : Effect.fail(error)),
+        )),
+      );
+    })),
     ...makeHttpsProxies(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 

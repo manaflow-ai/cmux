@@ -18,6 +18,7 @@ import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
 import type { VmImageAllowed } from "../proofs/vm-image.ts";
 import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
@@ -52,6 +53,12 @@ export interface SizeRequest {
   readonly memoryMib?: number | undefined;
   readonly diskMib?: number | undefined;
 }
+
+/** Provider-confirmed resources must satisfy every requested floor. */
+export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolean =>
+  (size.vcpus === undefined || vm.resources.cpu >= size.vcpus)
+  && (size.memoryMib === undefined || vm.resources.memory >= size.memoryMib)
+  && (size.diskMib === undefined || vm.resources.storage >= size.diskMib);
 
 export interface CreateVmSpec {
   readonly cmuxId: VmId;
@@ -89,6 +96,12 @@ export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Ensure resource floors on exactly this owned VM; never deletes it on failure. */
+  readonly resizeVm: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayGrow: TenantMayGrow<C> },
+    size: SizeRequest,
+  ) => Effect.Effect<UpstreamVm, UpstreamError>;
   readonly replaceVmHttpsProxy: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },

@@ -1294,3 +1294,80 @@ async fn resize_human_output_confirms_all_requested_axes() {
     assert!(out.stdout.contains("16384 MiB"));
     assert!(out.stdout.contains("65536 MiB"));
 }
+
+#[tokio::test]
+async fn resize_rejects_invalid_or_missing_resource_axes_without_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["resize", VM_ID],
+        vec!["resize", VM_ID, "--vcpus", "1"],
+        vec!["resize", VM_ID, "--memory-mib", "65537"],
+        vec!["resize", VM_ID, "--disk-mib", "16384.5"],
+        vec!["resize", "private-provider-reference", "--vcpus", "8"],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn resize_refuses_insufficient_or_wrong_vm_receipts_and_retains_the_key() {
+    for wrong_id in [false, true] {
+        let server = MockServer::start().await;
+        let mut response = vm("running");
+        if wrong_id {
+            response["id"] = json!("vm_00000000000000000000000000");
+            response["resources"]["diskMib"] = json!(65536);
+        }
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/vms/{VM_ID}/resize")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "resize",
+                VM_ID,
+                "--disk-mib",
+                "65536",
+                "--idempotency-key",
+                "resize-receipt",
+            ],
+        )
+        .await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains("resize-receipt"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn resize_provider_failure_reports_the_actual_generated_key_without_retrying() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/resize")))
+        .and(wiremock::matchers::header_exists("idempotency-key"))
+        .respond_with(ResponseTemplate::new(503).set_body_json(
+            json!({"_tag": "ServiceUnavailable", "message": "VM service unavailable"}),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "resize", VM_ID, "--disk-mib", "65536"]).await;
+    assert_eq!(out.code, exit::SERVICE_UNAVAILABLE, "{}", out.stderr);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let key = requests[0]
+        .headers
+        .get("idempotency-key")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(out.stderr.contains(key), "{}", out.stderr);
+    assert!(out.stdout.is_empty());
+}
