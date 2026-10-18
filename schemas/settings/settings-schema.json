@@ -338,6 +338,7 @@
             "rows" : [
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
+              "workspaces.autoName",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -4443,6 +4444,59 @@
       "title" : {
         "key" : "settings.sidebar.groupByComputer",
         "text" : "Group Workspaces by Computer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaces.autoName.help",
+        "text" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoName",
+      "keywords" : [
+        "workspace",
+        "name",
+        "rename",
+        "auto",
+        "title",
+        "tab",
+        "chat",
+        "page",
+        "folder",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoName"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaces.autoName",
+        "text" : "Name Workspaces from Tabs"
       },
       "validation" : "portable"
     },
@@ -24998,7 +25052,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fd4f8f37b75939fc97aaa9a07d4afd9a289b89297f8f27023db93b9e1a04ee26",
+  "schema_hash" : "522f5d2e5cb7e2727a6d1df2df9b8205c42e036c41ad447df91c2d088815d4a1",
   "sections" : [
     {
       "id" : "general",
