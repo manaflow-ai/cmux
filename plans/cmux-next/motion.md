@@ -203,8 +203,16 @@ nxmot (MacBook Pro, 120 Hz).
 | Loop | Period | Used by |
 | --- | --- | --- |
 | `spinner` | 0.9 s | busy tab spinner, sidebar agent spinner |
-| `pulse` | 1.8 s | sidebar agent-waiting pulse |
-| `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
+| `pulse` | 1.8 s (at least 0.5 s) | sidebar agent-waiting pulse |
+| `flash` | 1.0 s (at least 1.0 s) | pane attention flash (two blinks half a period apart; the attention ring's blinks take half a period each; one 0.5 s fade under Reduce Motion) |
+
+The 2 Hz cap (cx-sya4n): nothing flashes faster than twice a second, in any
+mode. Every on-off-on cycle of an opacity loop lasts at least 0.5 s
+(`MotionLoop.shortestFlashCycle`), so the `pulse` period is at least 0.5 s and
+the `flash` period at least 1.0 s, Debug Settings overrides included
+(`MotionLoop.minimumPeriod`). `normal` speed slows the flash and the
+attention blinks; the pulse keeps its period at every speed.
+`BlinkRateCapTests` checks every flash at the fastest settings.
 
 | Marquee (`MotionMarquee`) | Value | Used by |
 | --- | --- | --- |
@@ -291,7 +299,7 @@ rest).
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
 | Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
 | Divider hover | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
-| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 0.6 s (0.3 s reduced; none when off) | 900 ms | 600 ms | - |
+| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 1.0 s (0.5 s reduced; none when off) | 900 ms | 1000 ms | - |
 | Programmatic window close | window fade 0.18 s ease-in | instant (the windows work on this branch made it close in the same turn as the transition) | 180 ms | 0 | - |
 | Notifications and bubbles | no dedicated animation; tab badge color changes with the tab fill fade | `hover` | 140 ms | 80 ms | - |
 

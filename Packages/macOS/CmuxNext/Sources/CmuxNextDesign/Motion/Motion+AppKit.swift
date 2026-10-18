@@ -349,11 +349,13 @@ extension Motion {
     }
 
     /// Attention flash: two blinks, one fade under Reduce Motion, nil when off.
+    /// The blinks peak half a `flash` period apart (the 2 Hz cap,
+    /// `MotionLoop.shortestFlashCycle`).
     public static func flashAnimation() -> CAAnimation? {
         guard animatesFades else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
         if animatesLoops {
-            flash.values = [0, 1, 1, 0, 1, 0]
+            flash.values = [0, 1, 0, 1, 0]
             flash.duration = MotionLoop.flash.period * speed.timeScale
         } else {
             flash.values = [1, 0]
