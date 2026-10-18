@@ -190,7 +190,6 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
-import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -266,7 +265,6 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
-  sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -577,13 +575,10 @@ const MessageRow = memo(
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
-  function ToolActivityRow({ row, sessionId }: RowProps) {
-    return <ToolRows row={row} sessionId={sessionId} />;
+  function ToolActivityRow({ row }: RowProps) {
+    return <ToolRows row={row} />;
   },
-  (previous, next) =>
-    previous.row.id === next.row.id &&
-    previous.row.version === next.row.version &&
-    previous.sessionId === next.sessionId,
+  (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
 
 /// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
@@ -725,14 +720,10 @@ const SubagentOfPillRow = memo(
 );
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
-  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
+  function EditedFilesRow({ row, onOpenDiff }: RowProps) {
+    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
   },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.sessionId === b.sessionId &&
-    a.onOpenDiff === b.onOpenDiff,
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
@@ -983,12 +974,24 @@ const currentRegistry = (): NativeRegistry => ({
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
+/// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
+/// resting zone so every token does not write a new fractional scroll offset (and make the thumb
+/// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
+/// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
+/// give while a burst is measured and one correction when that burst is meaningful.
+export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
-  atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
+  atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
+
+function settleFollowBottom(node: HTMLElement, latest: number): boolean {
+  if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
+  node.scrollTop = latest;
+  return true;
+}
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
@@ -1127,7 +1130,7 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
-  /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
+  /// Pages older history in (canLoadOlder): asked again on each render while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
@@ -1495,10 +1498,6 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
-  // Find highlights only need repainting when the query/target, row content, or mounted DOM
-  // window changes. Keep this signature primitive so scroll and layout state updates that leave
-  // the mounted rows alone do not walk every text node in the transcript again.
-  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -1667,7 +1666,7 @@ export function VirtualTranscript({
         ? true
         : clamped || unmoved
           ? scrolledTo.current.atLatest
-          : top >= old.totalHeight - node.clientHeight - 1 ||
+          : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
             (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
@@ -1676,10 +1675,8 @@ export function VirtualTranscript({
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
-        if (Math.abs(step) > 0.5) {
-          node.scrollTop = latest;
-          followTrace.set(latest);
-        }
+        const settled = settleFollowBottom(node, latest);
+        if (settled) followTrace.set(latest);
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
         // again by its drawn height, both before the frame paints: each step glides, and the
@@ -1689,7 +1686,7 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
           glide(thread.current, step);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -1764,21 +1761,19 @@ export function VirtualTranscript({
   // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
   const findQuery = find?.open ? find.query : "";
   const findTarget = find?.matches[find.active];
-  const findTargetRowId = findTarget?.rowId;
-  const findTargetOccurrence = findTarget?.occurrence;
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
-  const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
+  const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
-    findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+    findTarget && findQuery && drawnId !== undefined
+      ? `${drawnId}:${drawnCard}:${findTarget.occurrence}:${findQuery}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
-  const [revealed, setRevealed] = useState(0);
+  const [, setRevealed] = useState(0);
   // Keyed on what it names, not the match object, which is new on each update while Find is open:
   // a new value would open again every group a reader closed.
   const findReveal = useMemo(
@@ -1814,8 +1809,8 @@ export function VirtualTranscript({
     const current = paintFindHighlights(
       node,
       findQuery,
-      findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
+      findTarget && drawnId !== undefined
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTarget.occurrence }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -1839,19 +1834,7 @@ export function VirtualTranscript({
       if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
         scrollRangeIn(box, current);
     scrollRangeIn(node, current);
-    // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
-    // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
-  }, [
-    drawnCard,
-    drawnId,
-    findQuery,
-    findTargetOccurrence,
-    findTargetRowId,
-    mountedRangeKey,
-    revealed,
-    rows,
-    targetKey,
-  ]);
+  });
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
   const reportedAnchor = useRef<string | undefined>(undefined);
@@ -1912,14 +1895,16 @@ export function VirtualTranscript({
     // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
-    const layoutDriven = followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= 0.5;
+    const layoutDriven =
+      followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
-      scrolledTo.current = { top: latest, atLatest: true };
-      followTrace.set(latest);
+      const settled = settleFollowBottom(node, latest);
+      const resting = settled ? latest : next;
+      scrolledTo.current = { top: resting, atLatest: true };
+      followTrace.set(resting);
       follow(true);
-      setScroll((current) => ({ top: latest, delta: latest - current.top }));
+      setScroll((current) => ({ top: resting, delta: resting - current.top }));
       return;
     }
     const was = scrolledTo.current;
@@ -2003,27 +1988,11 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
-  const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
-    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
-      olderLoadRequested.current = undefined;
-      return;
-    }
-    if (node.scrollTop >= node.clientHeight * 2) {
-      // Allow the next visit to the threshold to request the next page, even when the first row
-      // did not change while the reader was away from the top.
-      olderLoadRequested.current = undefined;
-      return;
-    }
-    if (olderLoadRequested.current === olderLoadKey) return;
-    olderLoadRequested.current = olderLoadKey;
-    onLoadOlder().catch(() => {
-      // Keep transient transport failures retryable without turning every render into a request.
-      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
-    });
-  }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
+    if (node.scrollTop < node.clientHeight * 2) onLoadOlder().catch(() => {});
+  });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
@@ -2109,7 +2078,6 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
-                        sessionId={sessionId}
                         onToggleActivity={onToggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
@@ -3529,7 +3497,6 @@ function AcpmuxPane() {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
-        configureTurnActionsPlacement(theme.turnActionsPlacement);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));

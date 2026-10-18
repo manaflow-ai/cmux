@@ -78,8 +78,18 @@ public final class AgentActivityModel {
     private static func changedLaneID(old: [AgentActivityLane]?, new: [AgentActivityLane]?) -> String? {
         let oldByID = Dictionary(uniqueKeysWithValues: (old ?? []).map { ($0.id, $0) })
         let newByID = Dictionary(uniqueKeysWithValues: (new ?? []).map { ($0.id, $0) })
-        for id in Set(oldByID.keys).union(newByID.keys).sorted() where oldByID[id] != newByID[id] { return id }
-        return nil
+        // Keep this projection linear on the main actor. The sorted union
+        // allocated and sorted every lane ID for each ACPmux update.
+        var firstChanged: String?
+        for id in oldByID.keys where oldByID[id] != newByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
+        }
+        for id in newByID.keys where newByID[id] != oldByID[id] {
+            if let firstChanged, id >= firstChanged { continue }
+            firstChanged = id
+        }
+        return firstChanged
     }
 
     public init(source: any AgentActivitySource) {

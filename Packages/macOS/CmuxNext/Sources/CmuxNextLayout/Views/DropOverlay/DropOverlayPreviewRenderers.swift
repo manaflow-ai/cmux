@@ -61,7 +61,7 @@ final class TabGhostRenderer: DropOverlayRenderer {
     private let tint = DropOverlayRenderers.shape()
     private let pill: OverlaySurfaceView
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     init(material: OverlayMaterial?) {
         pill = OverlaySurfaceView(material: material)

@@ -47,10 +47,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// When its window parked it (`WindowController.mountedContents` order).
+    private(set) var parkedSerial: UInt64 = 0
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
-    func park() {
+    func park(serial: UInt64) {
+        parkedSerial = serial
         isParked = true
         attentionObservation?.cancel()
     }
@@ -162,7 +165,18 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
-        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else { return }
+        // Commands translate through the current handles even when the tree is unchanged (the
+        // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
+        let topologyMoved = adoptHandles(result.handles)
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else {
+            if topologyMoved {
+                // The one topology of this change (adoptions inside sent none); the focus it lands
+                // rings in this frame.
+                sendTopology()
+                layoutView.syncWithModel()
+            }
+            return
+        }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
@@ -170,11 +184,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let wasApplying = isApplying
         isApplying = true
         defer { isApplying = wasApplying }
-        handles = result.handles
-        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
-        for (id, controller) in panes {
-            if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
-        }
         if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
@@ -191,6 +200,28 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+    }
+
+    /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its
+    /// controller, which moves to the new record (the echo of an optimistic split updates the
+    /// provisional record in place, so it adopts nothing). True when the focus topology may have
+    /// changed: a controller adopted, or a pane with no controller got a new handle (the
+    /// topology reads its record through the handle). The adoptions send no topology themselves.
+    private func adoptHandles(_ next: LayoutHandleMap) -> Bool {
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
+        var moved = false
+        if handles != next {
+            moved = next.panes.contains { id, handle in panes[id] == nil && handles.panes[id] != handle }
+            handles = next
+        }
+        for (id, controller) in panes {
+            guard let handle = handles.panes[id], let model = daemon.store.pane(handle), model !== controller.pane else { continue }
+            controller.adopt(model)
+            moved = true
+        }
+        return moved
     }
 
     /// A workspace with no pane shows its title; Return creates the first

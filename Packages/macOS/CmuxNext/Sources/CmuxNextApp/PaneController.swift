@@ -17,7 +17,7 @@ import CmuxNextFocus
 final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
-    var pane: PaneModel // set only by adopt(_:): the daemon pane replacing a provisional one
+    var pane: PaneModel // set only by adopt(_:): a resync's new record of the same pane
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
     let stripModel = TabStripModel()

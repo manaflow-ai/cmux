@@ -6,7 +6,7 @@ import CmuxNextDesign
 final class BookmarkBarItemView: NSView {
     let node: BookmarkNode
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var hovered = false
     private var pressed = false
     /// Only a hover change fades the fill (`ChromeHover.fade`); redraws for
