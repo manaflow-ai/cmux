@@ -49,7 +49,11 @@ public struct CloudTerminalAttachmentPlacementPolicy: Sendable {
             return materializedPlacement
         }
         if let catalogPlacement {
-            if let materializedPlacement, materializedPlacement != catalogPlacement {
+            // Compare coordinates only: a projected tab carries a cursor that the
+            // catalog view does not.
+            if let materializedPlacement,
+               materializedPlacement.workspaceID != catalogPlacement.workspaceID
+                || materializedPlacement.tabID != catalogPlacement.tabID {
                 guard allowsRepair, materializedPlacement.workspaceID == catalogPlacement.workspaceID else {
                     throw CloudDiagnosticFailure.placement
                 }
