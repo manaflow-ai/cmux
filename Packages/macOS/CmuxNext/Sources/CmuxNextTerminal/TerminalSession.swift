@@ -234,9 +234,8 @@ public final class TerminalSession {
     @discardableResult
     public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
         guard !surfaceHasContent else { return "has_content" }
-        guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: frame.surface, over: surfaceView, in: view)
         return nil
     }
 

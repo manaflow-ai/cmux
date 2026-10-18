@@ -28,7 +28,7 @@ extension TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
         terminals[key] = entry
-        if let frame = lastFrames.removeValue(forKey: key) { lastFrameOutcomes[session.showLastFrame(frame) ?? "shown", default: 0] += 1 }
+        if let frame = lastFrames.remove(key) { lastFrames.note(session.showLastFrame(frame) ?? "shown") }
         session.isRenderingSuspended = !render
         contentDidMount(key)
         return entry
@@ -37,7 +37,7 @@ extension TabContentCache {
     /// Drops `key`'s surface (its session went away, or the tab closed);
     /// the pane presenting it lets the view go first.
     func discardTerminal(_ key: String) {
-        lastFrames[key] = nil
+        lastFrames.remove(key)
         guard let stale = terminals.removeValue(forKey: key) else { return }
         if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))

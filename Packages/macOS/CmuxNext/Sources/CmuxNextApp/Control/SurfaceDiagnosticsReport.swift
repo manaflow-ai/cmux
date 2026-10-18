@@ -85,7 +85,7 @@ enum SurfaceDiagnosticsReport {
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
             "invariant_checks": JSONValue(services.surfaceInvariant.checks),
             "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
-            "last_frames": .object(services.cache.lastFrameOutcomes.mapValues { JSONValue($0) }
+            "last_frames": .object(services.cache.lastFrames.outcomes.mapValues { JSONValue($0) }
                 .merging(["stored": JSONValue(services.cache.lastFrames.count)]) { $1 }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernation": hibernation(services),

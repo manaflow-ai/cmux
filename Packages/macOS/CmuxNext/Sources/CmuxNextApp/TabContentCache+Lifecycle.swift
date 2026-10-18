@@ -67,6 +67,7 @@ extension TabContentCache {
         defer { evictsAtOnce = false }
         warmBudget = budget
         apply(ledger.setCapacity(budget.terminalCapacity))
+        retire(lastFrames.trim(to: budget.terminalCapacity))
     }
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
@@ -86,19 +87,32 @@ extension TabContentCache {
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
-    /// A hidden terminal leaves the warm set: its last frame stays (volatile, no copy), then it closes.
+    /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
         // The frame is read while the surface is still in its window, before it closes.
-        let frame: TerminalLastFrame?
-        if evictsAtOnce { frame = nil; lastFrameOutcomes["evicted_at_once", default: 0] += 1 }
-        else if !entry.session.showsOutput { frame = nil; lastFrameOutcomes["evicted_no_output", default: 0] += 1 }
-        else {
-            frame = TerminalLastFrame(of: entry.session)
-            lastFrameOutcomes[frame == nil ? "evicted_no_frame" : "kept", default: 0] += 1
-        }
-        lastFrames[key] = frame
+        lastFrames.remove(key)
+        if evictsAtOnce { lastFrames.note("evicted_at_once") }
+        else if !entry.session.showsOutput { lastFrames.note("evicted_no_output") }
+        else if let frame = TerminalLastFrame(of: entry.session) {
+            lastFrames.note("kept")
+            retire(lastFrames.insert(frame, for: key, capacity: warmBudget.terminalCapacity))
+        } else { lastFrames.note("evicted_no_frame") }
         entry.session.view.removeFromSuperview()
         entry.close()
+    }
+
+    /// Last frames the bound dropped: each leaves a small hover card picture (off the main thread),
+    /// unless the terminal came back or the tab closed meanwhile.
+    private func retire(_ dropped: [(key: String, frame: TerminalLastFrame)]) {
+        for (key, frame) in dropped {
+            lastFrames.note("retired")
+            Task { [weak self] in
+                let image = await frame.snapshot(maxPixelSize: 480)
+                guard let image, let self, self.terminals[key] == nil, self.lastFrames[key] == nil,
+                      self.lifecycle.record(key) != nil else { return }
+                self.previews.insert(image, for: key)
+            }
+        }
     }
 
     // MARK: Lifecycle effects
