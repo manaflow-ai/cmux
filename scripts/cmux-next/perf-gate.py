@@ -22,8 +22,8 @@ warnings only.
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
                  snapshots, 0 sidebar list reloads (I6).
-  split          split right + close pane 10 times in the 16 panes: per pair at most 3 applies,
-                 3 topology sends, 4 pane snapshots (lower after cx-8w027.14).
+  split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
+                 3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -53,12 +53,17 @@ from tag_teardown import TagTeardown  # noqa: E402
 # Budgets: the measured values after the perf lanes (perf-speed-of-light.md Status). Tighten here.
 BUDGET = {
     # Per workspace switch (and per theme switch).
-    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0},
+    # The sidebar repaints the old and new selected row or tile only: no row configure, no band layout (cx-8w027.17).
+    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0, "row_configures": 0,
+               "band_updates": 0},
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair; 2/2/1 after cx-8w027.14 (perf-split).
-    "split": {"workspace_applies": 3, "topology_sends": 3, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-3.4): the new pane's mount snapshot,
+    # one re-run that changes nothing, the shell's titles (0.6-1.4, the shell's timing); the new
+    # pane's first apply after the split sends one more topology. Causes 2 and 4 are open.
+    # Target 2 / 2 / 1.
+    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 4},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
 }
@@ -66,10 +71,7 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {
-    ("workspaces", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
-    ("theme", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
-}
+KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
 
@@ -262,8 +264,9 @@ class App:
         layout = self.rpc("debug.layout_counters", {"reset": reset}) or {}
         sidebar = self.rpc("debug.sidebar_perf", {"reset": reset}) or {}
         out = {k: v for k, v in layout.items() if isinstance(v, (int, float))}
-        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and k not in out})
-        out["sources"] = layout.get("sources") or {}
+        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and "@" not in k and k not in out})
+        # The sidebar names the caller of each list reload as "list_reloads@<file>:<line>".
+        out["sources"] = {**(layout.get("sources") or {}), **{k: v for k, v in sidebar.items() if "@" in k}}
         return out
 
     def settle(self):
@@ -382,8 +385,10 @@ class Gate:
             shown = landed.get("shown")
             if shown != target:
                 check(False, f"switch to {target} landed (shown {shown})", scenario)
+            reloads = {k: v for k, v in measured["sources"].items() if k.startswith("list_reloads@")}
             rows.append({"to": target, "latency_ms": round(latency, 1),
-                         **{k: v for k, v in measured.items() if k != "sources"}})
+                         **{k: v for k, v in measured.items() if k != "sources"},
+                         **({"list_reload_callers": reloads} if reloads else {})})
             patches += measured.get("selection_patches", 0)
             breaches = self.unknown(over(measured, BUDGET["switch"]), scenario)
             if breaches:

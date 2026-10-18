@@ -37,6 +37,10 @@ import PackageDescription
 // grid until the owner announces it (ghostty_surface_set_reflow_preview),
 // and reports the grid its last frame drew (ghostty_surface_drawn_grid;
 // PR 39).
+// Since e4831af81 cells keep the source of each color and a config color
+// change blends on the GPU with the surface's transition
+// (ghostty_surface_set_color_transition), and the renderer reports its
+// frame counters (ghostty_surface_render_counters; PR 40).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -61,8 +65,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c5926d664798b4ad09428b095a9baa3cbdc6a766-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "417f084918804fccfe5724e5052888f7c92aa6b2531a41dd2d184acacfc04714"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e4831af814a1a4232e852081d095e34999bcb07e-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "36d03842bbb7a8ccd33455790e0ff0c0ea5883b6d55d68bc2286a8d3dce92ac9"
         ),
     ]
 )

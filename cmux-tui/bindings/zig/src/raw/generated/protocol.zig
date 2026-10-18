@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0";
+pub const ir_sha256 = "0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -580,6 +580,8 @@ pub const ConversationTabSplit = struct {
     direction: []const u8,
     /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
     pane_id: wire.Field([]const u8) = .absent,
+    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
+    split_id: wire.Field([]const u8) = .absent,
 };
 
 pub const ConversationTextRun = struct {
@@ -1105,9 +1107,12 @@ pub const LayoutSplit = struct {
     ratio: f32,
     /// Stable for the lifetime of this split node.
     split: ?Id = null,
+    /// The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it.
+    split_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "split",
+        "split_id",
     };
 };
 
@@ -8758,6 +8763,7 @@ pub const SplitRequest = struct {
     pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    split_id: wire.Field([]const u8) = .absent,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -8784,6 +8790,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "split_id", .since = 12, .capability = "split-client-split-id-v1" },
                 .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },

@@ -29,6 +29,8 @@ public final class DaemonService {
     public let store = DaemonStore()
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
+    /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
+    public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
     public private(set) var windowState: WindowStateStore?
     /// The current (or last) daemon's identity. The store owns it and
@@ -75,13 +77,6 @@ public final class DaemonService {
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
         ) { _ in wake.fire() }
     }
-
-    public var isLocal: Bool { machineID == "local" }
-
-    /// Directory new terminals start in: the Mac's home for the local
-    /// daemon; nil (the machine's own default) on a Cloud machine, where a
-    /// Mac path does not exist.
-    public var defaultCwd: String? { isLocal ? NSHomeDirectory() : nil }
 
     /// How the first connection is going (window connecting state, control
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
@@ -134,6 +129,7 @@ public final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
+        recovery.attach(launcher, wake: retryWake)
         // Before the first connection the retry loop has no socket watch of its own (the connection installs one
         // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
         // that finishes a long restore or handoff wakes a loop past its timed budget (cx-4bd8m).
