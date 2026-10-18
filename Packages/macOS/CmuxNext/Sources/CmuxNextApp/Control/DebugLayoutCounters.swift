@@ -49,8 +49,8 @@ enum DebugLayoutCounters {
     }
     /// PROBE (side branch only): the latest snapshot run per pane (read where a change fires); an
     /// older run's probes stay silent, and one run counts each group once.
-    private static let probeRuns = Mutex<[ObjectIdentifier: Int]>([:])
-    private static let probeFired = Mutex<Set<String>>([])
+    nonisolated private static let probeRuns = Mutex<[ObjectIdentifier: Int]>([:])
+    nonisolated private static let probeFired = Mutex<Set<String>>([])
     /// Runs `read` under its own tracking (nested: the caller's tracking still sees each access) and
     /// counts "pane read <group> fired" in `sources` when what it read changes, for the latest run only.
     static func probe<T>(_ group: String, owner: ObjectIdentifier, run: Int, _ read: () -> T) -> T {
