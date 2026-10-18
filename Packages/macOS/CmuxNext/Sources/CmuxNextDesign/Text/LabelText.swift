@@ -76,6 +76,8 @@ enum LabelText {
             let style = (own ?? .default).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if own == nil || shape.alignment != .natural { style.alignment = shape.alignment }
             style.lineBreakMode = lineBreak
+            // A label's line breaking keeps a lone word off the last line (push out), as a field's.
+            if own == nil { style.lineBreakStrategy = .standard }
             style.allowsDefaultTighteningForTruncation = shape.tightens
             result.addAttribute(.paragraphStyle, value: style, range: range)
         }

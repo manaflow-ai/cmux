@@ -232,7 +232,7 @@ public struct LabelParityProbe {
     /// (drawn and measured) and a ChromeLabel, against the text's one-line width.
     private static func wrapEdges(in root: NSView) -> [String] {
         var lines: [String] = []
-        for text in ["line two is", "Run any cmux action by typing its", "Workspace", "line one\nline two is"] {
+        for text in ["line two is", "Run any cmux action by typing its", "Workspace", "line two is longer"] {
             let font = NSFont.systemFont(ofSize: 13)
             let stock = NSTextField(wrappingLabelWithString: text)
             stock.font = font
