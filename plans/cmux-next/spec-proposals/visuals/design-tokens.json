@@ -2406,19 +2406,19 @@
   "loops": {
    "spinner": {
     "value": 0.9,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:49 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:76 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "One spinner turn"
    },
    "pulse": {
     "value": 1.8,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:50 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:77 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Agent-waiting pulse cycle (easeInEaseOut)"
    },
    "flash": {
     "value": 1.0,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:51 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:78 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Pane attention flash, two blinks"
    }
@@ -2595,7 +2595,7 @@
     "showOnSidebar": true
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-35 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)",
-   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (0.6 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
+   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
   },
   "layout.paneBorder/paneBorderColor/paneBorderWidth/paneCornerRadius/panePadding": {
    "value": "pane chrome overrides",

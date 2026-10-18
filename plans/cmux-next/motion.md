@@ -210,7 +210,8 @@ The 2 Hz cap (cx-sya4n): nothing flashes faster than twice a second, in any
 mode. Every on-off-on cycle of an opacity loop lasts at least 0.5 s
 (`MotionLoop.shortestFlashCycle`), so the `pulse` period is at least 0.5 s and
 the `flash` period at least 1.0 s, Debug Settings overrides included
-(`MotionLoop.minimumPeriod`); `normal` speed only slows them.
+(`MotionLoop.minimumPeriod`). `normal` speed slows the flash and the
+attention blinks; the pulse keeps its period at every speed.
 `BlinkRateCapTests` checks every flash at the fastest settings.
 
 | Marquee (`MotionMarquee`) | Value | Used by |
