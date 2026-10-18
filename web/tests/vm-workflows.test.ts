@@ -6767,6 +6767,7 @@ describe("VM Effect workflows", () => {
       updated: 1,
       destroyed: 0,
       skipped: 0,
+      repaused: 0,
       skippedNoGetStatus: false,
     });
 
@@ -6775,6 +6776,32 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-reconcile-drift'
     `;
     expect(vm?.status).toBe("paused");
+  });
+
+  dbTest("claims a woken paused row for one re-pause per claim window", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim', 'snapshot-test', 'paused')
+      returning id
+    `;
+    const claim = (nowMs: number) => Effect.runPromise(vmRepositoryLiveShape.claimUnexpectedWakeRepause!({
+      id: vm.id,
+      providerVmId: "provider-vm-wake-claim",
+      nowMs,
+      ttlMs: 300_000,
+    }));
+    const nowMs = 1_800_000_000_000;
+    expect(await claim(nowMs)).toBe(true);
+    expect(await claim(nowMs + 1_000)).toBe(false);
+    expect(await claim(nowMs + 300_001)).toBe(true);
+    await sql`update cloud_vms set status = 'running' where id = ${vm.id}`;
+    expect(await claim(nowMs + 900_000)).toBe(false);
+    const [row] = await sql<{ status: string; claimedAt: string }[]>`
+      select status, provider_metadata->>'unexpectedWakeClaimAtMs' as "claimedAt" from cloud_vms where id = ${vm.id}
+    `;
+    expect(row).toEqual({ status: "running", claimedAt: String(nowMs + 300_001) });
   });
 
   dbTest("cron reconcile skips destroyed rows", async () => {
@@ -9392,7 +9419,7 @@ describe("team tunnel cron reconciliation", () => {
     ))));
     expect(events).toEqual(["status", "revoke-model-plane", "heal", "directory-first", "tun-first"]);
     expect(pages).toBe(1);
-    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, skippedNoGetStatus: false });
+    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, repaused: 0, skippedNoGetStatus: false });
   });
 
   test("directory timeout skips a team and pages continue after the last team and provider", async () => {
