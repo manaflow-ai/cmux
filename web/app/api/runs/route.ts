@@ -1,6 +1,3 @@
-import { POST as createVm } from "../vm/route";
-import { POST as execVmRoute } from "../vm/[id]/exec/route";
-import { DELETE as deleteVm } from "../vm/[id]/route";
 import {
   jsonResponse,
   vmErrorResponse,
@@ -20,6 +17,15 @@ type AttemptSuccess = {
 };
 
 type AttemptFailure = { readonly ok: false; readonly response: Response };
+
+
+function safeError(error: unknown): string {
+  const source = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const cause = source.cause && typeof source.cause === "object" ? source.cause as Record<string, unknown> : undefined;
+  const detail = typeof cause?.message === "string" ? cause.message : typeof source.message === "string" ? source.message : String(error);
+  const code = typeof cause?.code === "string" ? ` [${cause.code}]` : "";
+  return `${detail}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
+}
 
 function errorResponse(message: string, status = 400): Response {
   return vmErrorResponse({
@@ -119,7 +125,7 @@ async function provisionVm(request: Request, userId: string, spec: RunSpec, runI
       ...(spec.workspace.kind === "persistent" ? { persistentHome: true } : {}),
     }),
   });
-  const vmResponse = await createVm(vmRequest);
+  const vmResponse = await fetch(vmRequest);
   const vmBody = await responseBody(vmResponse);
   if (!vmResponse.ok) {
     const message = vmBody?.message;
@@ -144,7 +150,7 @@ async function provisionVm(request: Request, userId: string, spec: RunSpec, runI
 }
 
 async function destroyVmForAttempt(request: Request, providerVmId: string): Promise<Response> {
-  return deleteVm(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }), { params: Promise.resolve({ id: providerVmId }) });
+  return fetch(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }));
 }
 
 async function executeAttempt(request: Request, userId: string, runId: string, attemptId: string, providerVmId: string, result: Record<string, unknown>, spec: RunSpec): Promise<{ ok: true; result: Record<string, unknown> } | AttemptFailure> {
@@ -155,7 +161,7 @@ async function executeAttempt(request: Request, userId: string, runId: string, a
     headers: forwardedHeaders(request),
     body: JSON.stringify({ command, timeoutMs: 60_000 }),
   });
-  const execResponse = await execVmRoute(execRequest, { params: Promise.resolve({ id: providerVmId }) });
+  const execResponse = await fetch(execRequest);
   const execOutput = await responseBody(execResponse);
   if (!execResponse.ok || typeof execOutput?.stdout !== "string" || !execOutput.stdout.includes(marker)) {
     const message = typeof execOutput?.message === "string" ? execOutput.message : `Cloud Run command failed (${execResponse.status}).`;
@@ -200,10 +206,19 @@ export async function POST(request: Request): Promise<Response> {
     if (!key) return errorResponse("Idempotency-Key is required for a Run.");
     const spec = await parseSpec(request);
     if (spec instanceof Response) return spec;
-    const created = await createOrReuseRun(request, user, key, spec);
-    if (created instanceof Response) return created;
-    if (created.reused) return jsonResponse(receipt(created.snapshot), 200);
-    return executeNewRun(request, user, created, spec);
+    try {
+      const created = await createOrReuseRun(request, user, key, spec);
+      if (created instanceof Response) return created;
+      if (created.reused) return jsonResponse(receipt(created.snapshot), 200);
+      return await executeNewRun(request, user, created, spec);
+    } catch (error) {
+      return vmErrorResponse({
+        error: "run_execution_failed",
+        status: 502,
+        message: safeError(error),
+        action: "Retry the same Idempotency-Key to replay the durable Run receipt.",
+      });
+    }
   });
 }
 
