@@ -58,20 +58,31 @@ export interface VirtualRowMeasurementState {
   /** ResizeObserver callbacks reuse the latest viewport anchor instead of rescanning every row. */
   anchorIndex?: { current: number };
   anchorCount?: { current: number };
+  anchorGeneration?: { current: number };
+  measurementGeneration?: { current: number };
+  anchorInvalidated?: { current: boolean };
   scrollRef: { current: HTMLElement | null };
   bumpVersion: () => void;
 }
 
+/** Update one row and preserve the viewport anchor across measured height changes. */
 export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, state: VirtualRowMeasurementState): boolean {
   const next = node.getBoundingClientRect().height;
   const prev = state.heights.get(index);
   if (Math.abs((prev ?? state.estimate.current) - next) <= 1) return false;
 
-  const firstVisible = state.anchorIndex && state.anchorCount?.current === state.count
+  // Keep the cached anchor usable during one ResizeObserver batch. A layout
+  // effect refreshes it from the recomputed range after the batch; scanning
+  // here for every row would recreate the original O(count) hotspot.
+  const anchorIsUsable = state.anchorIndex
+    && state.anchorCount?.current === state.count
+    && (!state.measurementGeneration || state.measurementGeneration.current === state.anchorGeneration?.current);
+  const firstVisible = anchorIsUsable
     ? state.anchorIndex.current
     : virtualFirstVisibleIndex(state.count, state.heights, state.scrollRef.current?.scrollTop ?? 0, state.estimate.current);
   const delta = scrollCompensationDelta(index, firstVisible, prev, next, state.estimate.current);
   state.heights.set(index, next);
+  const previousEstimate = state.estimate.current;
   const measured = state.measured.current;
   if (prev == null) {
     measured.count += 1;
@@ -82,6 +93,13 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   if (measured.count) state.estimate.current = Math.max(80, measured.total / measured.count);
   const scroll = state.scrollRef.current;
   if (scroll && delta) scroll.scrollTop += delta;
+  if (state.measurementGeneration) state.measurementGeneration.current += 1;
+  if (state.anchorGeneration && state.measurementGeneration) {
+    state.anchorGeneration.current = state.measurementGeneration.current;
+  }
+  if (state.anchorInvalidated && (index === firstVisible || state.estimate.current !== previousEstimate)) {
+    state.anchorInvalidated.current = true;
+  }
   state.bumpVersion();
   return true;
 }
@@ -100,6 +118,9 @@ export function useVirtualTurns(count: number, enabled = true) {
   const measureCallbacks = useRef(new Map<number, (node: HTMLDivElement | null) => void>());
   const anchorIndex = useRef(0);
   const anchorCount = useRef(-1);
+  const anchorGeneration = useRef(0);
+  const measurementGeneration = useRef(0);
+  const anchorInvalidated = useRef(false);
   const measureCacheKey = useRef({ count, enabled });
   const countRef = useRef(count);
   countRef.current = count;
@@ -123,6 +144,8 @@ export function useVirtualTurns(count: number, enabled = true) {
     measured.current = { total: 0, count: 0 };
     anchorIndex.current = 0;
     anchorCount.current = -1;
+    anchorGeneration.current = measurementGeneration.current;
+    anchorInvalidated.current = false;
     setVersion((v) => v + 1);
   }, [count, enabled]);
   useLayoutEffect(() => {
@@ -132,8 +155,11 @@ export function useVirtualTurns(count: number, enabled = true) {
     if (!scroll) return;
     scrollRef.current = scroll;
     const update = () => {
-      anchorIndex.current = virtualFirstVisibleIndex(count, heights.current, scroll.scrollTop, estimate.current);
-      anchorCount.current = count;
+      const currentCount = countRef.current;
+      anchorIndex.current = virtualFirstVisibleIndex(currentCount, heights.current, scroll.scrollTop, estimate.current);
+      anchorCount.current = currentCount;
+      anchorGeneration.current = measurementGeneration.current;
+      anchorInvalidated.current = false;
       setViewport({ top: scroll.scrollTop, height: scroll.clientHeight || 900 });
     };
     update();
@@ -157,6 +183,13 @@ export function useVirtualTurns(count: number, enabled = true) {
     () => enabled ? virtualRange(count, heights.current, viewport.top, viewport.height, estimate.current) : { start: 0, end: count - 1, firstVisible: 0, top: 0, bottom: 0, total: 0 },
     [count, enabled, version, viewport.height, viewport.top],
   );
+  useLayoutEffect(() => {
+    if (!enabled || !scrollRef.current) return;
+    anchorIndex.current = range.firstVisible;
+    anchorCount.current = countRef.current;
+    anchorGeneration.current = measurementGeneration.current;
+    anchorInvalidated.current = false;
+  }, [count, enabled, range.firstVisible, version, viewport.height, viewport.top]);
   const measure = (index: number) => {
     const cached = measureCallbacks.current.get(index);
     if (cached) return cached;
@@ -173,6 +206,9 @@ export function useVirtualTurns(count: number, enabled = true) {
         estimate,
         anchorIndex,
         anchorCount,
+        anchorGeneration,
+        measurementGeneration,
+        anchorInvalidated,
         scrollRef,
         bumpVersion: () => setVersion((v) => v + 1),
       };
