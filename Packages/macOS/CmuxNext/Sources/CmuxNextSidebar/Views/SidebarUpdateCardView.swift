@@ -24,9 +24,9 @@ final class SidebarUpdateCardView: NSView {
     private(set) var card: SidebarUpdateCard?
     /// The composer's surface, under everything else.
     let surface = CardSurfaceView()
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
-    let detailLabel = NSTextField(labelWithString: "")
+    let detailLabel = ChromeLabel(labelWithString: "")
     let checkbox = SidebarUpdateCheckbox()
     let button = SidebarUpdateButton()
     /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).

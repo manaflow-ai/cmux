@@ -16,7 +16,7 @@ public final class BookmarksBarView: NSView {
     private var visibleCount = 0
     private let overflow = NSButton()
     private let otherButton = NSButton()
-    private let emptyLabel = NSTextField(labelWithString: "")
+    private let emptyLabel = ChromeLabel(labelWithString: "")
     private let dropIndicator = CALayer()
     private var menus: [BookmarkFolderMenu] = []
     private var isStale = true
