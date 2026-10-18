@@ -27,6 +27,16 @@ test("normal PR reports require exact base and head SHAs", () => {
   expect(requiredReportArgs(true)).toEqual(["out", "pr"]);
 });
 
+test("revision verification fails closed without an expected SHA", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gallery-pr-empty-sha-"));
+  try {
+    writeFileSync(join(dir, "results.json"), JSON.stringify([]));
+    expect(() => assertRunRevision(dir, "", "head")).toThrow(/exact head SHA is required/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("PR reports reject a matrix captured with different scenario controls", () => {
   const root = mkdtempSync(join(tmpdir(), "gallery-pr-scenario-"));
   const manifest = join(root, "manifest.json");

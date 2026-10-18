@@ -150,7 +150,7 @@ export function comparisonReceipt(
 
 /** Refuses to compare a matrix directory captured from a different checkout. */
 export function assertRunRevision(dir: string, expected: string, label: string, manifest?: string, captureManifest?: string): void {
-  if (!expected) return;
+  if (!expected) throw new Error(`${label} expected exact head SHA is required`);
   const results = matrixResults(dir);
   const mismatches = results.filter(
     (result) => result.revision?.sha !== expected || typeof result.revision.source !== "string" || !result.revision.source,
