@@ -99,7 +99,11 @@ export type LastTurn = {
   turnId?: (string | null);
 } & Record<string, unknown>;
 
-/** A durable lifecycle fact supplied by an explicit producer. */
+/**
+ * A durable lifecycle fact supplied by an explicit producer. This contract
+ * is intentionally optional and opaque to the session sidebar until a
+ * producer wires it to a real controller receipt.
+ */
 export type LifecycleReceipt = {
   id: string;
   sequence: number;
@@ -362,7 +366,11 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
-  /** An optional explicit lifecycle receipt; absent until a producer supplies validated evidence. */
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
   lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
