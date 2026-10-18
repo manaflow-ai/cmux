@@ -48,6 +48,18 @@ public struct AgentChatSessionRecord: Sendable {
     /// The agent process id, for liveness sweeps.
     public var pid: Int?
 
+    /// Claude's own conversation title (the transcript's `ai-title` line);
+    /// newest wins. Nil for agents that write no such line (Codex).
+    public var aiTitle: String?
+
+    /// The most recent prompt the user typed: the hook `UserPromptSubmit`
+    /// text, else the transcript's `last-prompt` line read from the tail.
+    public var lastPrompt: String?
+
+    /// When `lastPrompt` arrived through a hook. Nil when it came from a
+    /// transcript tail read, which carries no timestamp.
+    public var lastPromptAt: Date?
+
     /// Real hook-store key, when this record is surfaced under a pending alias.
     public var hookStoreSessionID: String?
 

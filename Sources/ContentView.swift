@@ -11445,6 +11445,13 @@ struct VerticalTabsSidebar: View, Equatable {
     // and the parked click would wait on unrelated invalidation
     // (issue #9690: taps only landed after an app focus cycle).
     @State private var appKitTableApplyRequestToken: UInt64 = 0
+    /// The pane of the session the user most recently typed into anywhere
+    /// (agent session rows show its last prompt and a marker).
+    @State private var lastTypedAgentPanelId: UUID?
+    /// Bumped once a minute so agent session ages re-render; the age lives in
+    /// a fixed-width column, so this never re-measures row heights.
+    @State private var sidebarAgentAgeTick: UInt64 = 0
+    @State private var sidebarAgentAgeTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
@@ -11769,6 +11776,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let lastTypedAgentPanelId: UUID?
+        /// The clock agent session ages are formatted against for this pass.
+        let agentSessionNow: Date
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11958,7 +11968,9 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            lastTypedAgentPanelId: lastTypedAgentPanelId,
+            agentSessionNow: Date()
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -12104,6 +12116,20 @@ struct VerticalTabsSidebar: View, Equatable {
             for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AgentSessionSidebarDidChangeEvent.notificationName)) { notification in
+            guard isPresented, let event = AgentSessionSidebarDidChangeEvent(notification) else { return }
+            for workspace in renderContext.tabs where event.affects(workspace) {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspace.id)
+            }
+            let next = AppDelegate.shared?.resolvedLastTypedAgentSession()?.panelId
+            if lastTypedAgentPanelId != next {
+                lastTypedAgentPanelId = next
+            }
+        }
+        .onReceive(sidebarAgentAgeTimer) { _ in
+            guard isPresented else { return }
+            sidebarAgentAgeTick &+= 1
         }
         .onAppear {
             if isPresented {
@@ -12346,6 +12372,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let _ = anchorCwdRevision
         let _ = appKitPostResizeRefreshToken
         let _ = appKitTableApplyRequestToken
+        let _ = sidebarAgentAgeTick
         let contentUpdate: SidebarWorkspaceTableView.ContentUpdate
         let isDividerDragActive = isPresented
             && TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: observedWindow)
@@ -12736,6 +12763,10 @@ struct VerticalTabsSidebar: View, Equatable {
                   let digit = input.workspaceShortcutDigit else { return nil }
             return "\(input.workspaceShortcutModifierSymbol)\(digit)"
         }()
+        let agentSessionPresenter = SidebarRowAgentSessionPresenter(
+            now: renderContext.agentSessionNow,
+            lastTypedPanelId: renderContext.lastTypedAgentPanelId
+        )
         let model = SidebarWorkspaceRowModel(
             workspaceId: input.workspaceId,
             index: input.index,
@@ -12767,7 +12798,9 @@ struct VerticalTabsSidebar: View, Equatable {
             todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id),
-            displayAccessibility: environment.displayAccessibility
+            displayAccessibility: environment.displayAccessibility,
+            agentSessionRows: agentSessionPresenter.rows(for: input.workspace.agentSessions, isActive: input.isActive),
+            newestAgentSessionAgeText: agentSessionPresenter.newestAgeText(for: input.workspace.agentSessions)
         )
         let commands = SidebarWorkspaceRowCommands(
             tab: tab,
@@ -12903,6 +12936,11 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             commitRename: { [weak tabManager, workspaceId = tab.id] text in
                 tabManager?.setCustomTitle(tabId: workspaceId, title: text)
+            },
+            focusAgentSurface: { [workspaceId = tab.id] panelId in
+                if AppDelegate.shared?.focusAgentSurface(panelId: panelId, preferredWorkspaceId: workspaceId) != true {
+                    NSSound.beep()
+                }
             }
         )
         return SidebarWorkspaceTableRowConfiguration(

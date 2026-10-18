@@ -47,6 +47,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
     static let showAgentUsageKey = sidebar.showAgentUsage.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
+    static let showAgentSessionsKey = sidebar.showAgentSessions.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
@@ -60,6 +61,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgress = sidebar.showProgress.defaultValue
     static let showAgentUsage = sidebar.showAgentUsage.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
+    static let showAgentSessions = sidebar.showAgentSessions.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
     static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
 }
@@ -435,6 +437,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showAgentActivity",
             defaultsKey: SidebarWorkspaceDetailDefaults.showAgentActivityKey
+        ),
+        .init(
+            jsonKey: "showAgentSessions",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentSessionsKey
         ),
         .init(
             jsonKey: "showCustomMetadata",

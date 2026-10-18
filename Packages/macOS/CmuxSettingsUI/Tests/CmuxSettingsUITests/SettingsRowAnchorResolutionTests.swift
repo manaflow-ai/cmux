@@ -135,6 +135,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.notificationMessageLineLimit",
         "sidebar.showAgentActivity",
         "sidebar.showAgentUsage",
+        "sidebar.showAgentSessions",
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
         "sidebar.showPorts",

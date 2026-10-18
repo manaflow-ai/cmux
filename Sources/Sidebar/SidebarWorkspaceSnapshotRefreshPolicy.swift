@@ -23,6 +23,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let compactStatusGlyph: SidebarCompactStatusGlyph?
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
         let hostTitleSuffix: String?
+        let agentSessions: [SidebarAgentSessionSnapshot]
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -47,7 +48,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             activeCodingAgentCount: activeCodingAgentCount,
             compactStatusGlyph: compactStatusGlyph,
             taskStatusInput: taskStatusInput,
-            hostTitleSuffix: hostTitleSuffix
+            hostTitleSuffix: hostTitleSuffix,
+            agentSessions: agentSessions
         )
     }
 
@@ -102,7 +104,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // updates with the spinner while the menu is open.
             compactStatusGlyph: snapshot.compactStatusGlyph,
             // The host after a colliding title is part of the title the row shows, so it updates with it.
-            hostTitleSuffix: snapshot.hostTitleSuffix
+            hostTitleSuffix: snapshot.hostTitleSuffix,
+            // Agent session rows are live status like the spinner: a session
+            // finishing or asking for input must show while the menu is open.
+            agentSessions: snapshot.agentSessions
         )
     }
 }

@@ -346,6 +346,14 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .sidebarAppearance,
+                id: "show-agent-sessions",
+                title: String(localized: "settings.app.showAgentSessions", defaultValue: "Show Agent Sessions"),
+                detailText: String(localized: "settings.app.showAgentSessions.subtitle", defaultValue: "List each workspace's live coding-agent sessions under its title: state, the agent's own title, age, and your last prompt."),
+                paths: ["sidebar.showAgentSessions"],
+                synonyms: "sidebar.showAgentSessions agent session rows claude codex title prompt age"
+            ),
+            .init(
+                section: .sidebarAppearance,
                 id: "loading-spinner-position",
                 title: String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
                 detailText: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row."),

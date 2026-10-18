@@ -209,10 +209,15 @@ Puts the workspace's own status on one line, like the Claude desktop session lis
 
 Lines you added yourself stay where they are: the workspace description, your own `cmux set-status` keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. So `cmux set-status` under your own key is still the way to keep a line of your own in compact mode.
 
+## `sidebar.showAgentSessions`
+
+Lists each workspace's live coding-agent sessions (Claude Code, Codex) under the workspace title, one row per session in tab order: a state dot (running, idle, needs input), the agent's own title (Claude's `ai-title`, else the tab title), and an age since the session last moved. The selected workspace, and the one session you most recently typed into anywhere (marked `◀`), also show your last prompt on a second line. Clicking a row focuses that session's pane; `⌘⇧B` (`jumpToLastPrompt`) jumps back to the last-typed session.
+
 ```json
 {
   "sidebar": {
-    "compactAgentStatus": true
+    "compactAgentStatus": true,
+    "showAgentSessions": true
   }
 }
 ```
@@ -261,6 +266,8 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
+
+- `showAgentSessions`: show the session rows. Default: `true`. Hidden together with everything else when `sidebar.hideAllDetails` is on. Toggle it from **Settings > Sidebar > Show Agent Sessions**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
