@@ -130,6 +130,13 @@ public struct LabelParityProbe {
         differ("insets.right", insets.0.right, insets.1.right)
         differ("insets.top", insets.0.top, insets.1.top)
         differ("insets.bottom", insets.0.bottom, insets.1.bottom)
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            let axis = orientation == .horizontal ? "h" : "v"
+            differ("hugging.\(axis)", CGFloat(stock.contentHuggingPriority(for: orientation).rawValue),
+                   CGFloat(label.contentHuggingPriority(for: orientation).rawValue))
+            differ("resistance.\(axis)", CGFloat(stock.contentCompressionResistancePriority(for: orientation).rawValue),
+                   CGFloat(label.contentCompressionResistancePriority(for: orientation).rawValue))
+        }
         let fitting = (stock.fittingSize, label.fittingSize)
         differ("fitting.w", fitting.0.width, fitting.1.width)
         differ("fitting.h", fitting.0.height, fitting.1.height)
@@ -221,6 +228,14 @@ public struct LabelParityProbe {
         row["ax.label"] = labelAX
         report.checked += 1
         if stockAX != labelAX { note("\(name) ax: stock \(stockAX) label \(labelAX)", into: &report) }
+        // A label hidden from accessibility stays hidden, as a field does.
+        stock.setAccessibilityElement(false)
+        label.setAccessibilityElement(false)
+        report.checked += 1
+        let hidden = (cell?.isAccessibilityElement() ?? stock.isAccessibilityElement(), label.isAccessibilityElement())
+        if hidden.0 != hidden.1 { note("\(name) ax hidden: stock element \(hidden.0) label element \(hidden.1)", into: &report) }
+        stock.setAccessibilityElement(true)
+        label.setAccessibilityElement(true)
         let frames = (cell?.accessibilityFrame() ?? .zero, label.accessibilityFrame())
         let screens = [stock, label].map { $0.window?.convertToScreen($0.convert($0.bounds, to: nil)) ?? .zero }
         differ("ax.frame.dx", frames.0.minX - screens[0].minX, frames.1.minX - screens[1].minX)

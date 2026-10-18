@@ -154,6 +154,12 @@ open class ChromeLabel: NSView {
         allowsDefaultTighteningForTruncation = defaults.allowsDefaultTightening
         lineBreakStrategy = defaults.lineBreakStrategy
         isSelectable = defaults.isSelectable
+        for (orientation, hugging, resistance) in defaults.priorities {
+            setContentHuggingPriority(hugging, for: orientation)
+            setContentCompressionResistancePriority(resistance, for: orientation)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
     }
 
     // MARK: Layout
@@ -343,8 +349,9 @@ open class ChromeLabel: NSView {
     private(set) var selection: LabelSelectionView?
 
     override open func mouseDown(with event: NSEvent) {
-        guard isSelectable, let window else { return super.mouseDown(with: event) }
-        let view = selection ?? beginSelection(in: window)
+        guard isSelectable, let window, let view = selection ?? beginSelection(in: window) else { return super.mouseDown(with: event) }
+        // A focus change in `beginSelection` can end the selection again (a resize, new text).
+        guard view.superview === self else { return }
         view.mouseDown(with: event)
     }
 
@@ -354,38 +361,47 @@ open class ChromeLabel: NSView {
         if isSelectable { addCursorRect(bounds, cursor: .iBeam) }
     }
 
-    private func beginSelection(in window: NSWindow) -> LabelSelectionView {
+    /// The selection's text view, first responder; nil when the window keeps its first responder.
+    private func beginSelection(in window: NSWindow) -> LabelSelectionView? {
         let view = LabelSelectionView(text: inkText(color: textColor ?? .labelColor), shape: shape, size: bounds.size)
         view.frame = bounds
         view.didResign = { [weak self] in self?.endSelection(resigned: true) }
         addSubview(view)
         selection = view
         needsDisplay = true
-        window.makeFirstResponder(view)
+        guard window.makeFirstResponder(view) else {
+            endSelection(resigned: true)
+            return nil
+        }
         return view
     }
 
-    /// `resigned`: the view is giving up first responder now (do not move it again).
+    /// `resigned`: the view is giving up first responder now (do not move it again; it leaves
+    /// the label after the window's responder change, not inside it).
     private func endSelection(resigned: Bool = false) {
         guard let view = selection else { return }
         selection = nil
         view.didResign = nil
-        if !resigned, window?.firstResponder === view { window?.makeFirstResponder(nil) }
-        view.removeFromSuperview()
         needsDisplay = true
+        guard resigned else {
+            if window?.firstResponder === view { window?.makeFirstResponder(nil) }
+            view.removeFromSuperview()
+            return
+        }
+        view.isHidden = true
+        Task { @MainActor in view.removeFromSuperview() }
     }
 
-    // MARK: Accessibility (a static text element, as a label field)
-
-    override open func isAccessibilityElement() -> Bool { true }
+    // MARK: Accessibility (a static text element, as a label field; `apply` sets the element
+    // and its role, so `setAccessibilityElement(false)` hides it as it hides a field)
 
     /// As a label field's cell reports it: 1 pt in from each side, 1 pt out at top and bottom.
     override open func accessibilityFrame() -> NSRect {
         guard let window else { return super.accessibilityFrame() }
         return window.convertToScreen(convert(bounds.insetBy(dx: 1, dy: -1), to: nil))
     }
-    override open func accessibilityRole() -> NSAccessibility.Role? { .staticText }
-    override open func accessibilityValue() -> Any? { stringValue }
+    /// The text, unless a value was set (`setAccessibilityValue`).
+    override open func accessibilityValue() -> Any? { super.accessibilityValue() ?? stringValue }
     override open func accessibilityNumberOfCharacters() -> Int { content.length }
     override open func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: content.length) }
 
@@ -422,6 +438,8 @@ private struct LabelDefaults {
     var allowsDefaultTightening: Bool
     var lineBreakStrategy: NSParagraphStyle.LineBreakStrategy
     var isSelectable: Bool
+    /// Content hugging and compression resistance per axis.
+    var priorities: [(NSLayoutConstraint.Orientation, NSLayoutConstraint.Priority, NSLayoutConstraint.Priority)]
 
     static let label = LabelDefaults(NSTextField(labelWithString: ""))
     static let wrapping = LabelDefaults(NSTextField(wrappingLabelWithString: ""))
@@ -437,5 +455,8 @@ private struct LabelDefaults {
         allowsDefaultTightening = field.allowsDefaultTighteningForTruncation
         lineBreakStrategy = field.lineBreakStrategy
         isSelectable = field.isSelectable
+        priorities = [NSLayoutConstraint.Orientation.horizontal, .vertical].map {
+            ($0, field.contentHuggingPriority(for: $0), field.contentCompressionResistancePriority(for: $0))
+        }
     }
 }
