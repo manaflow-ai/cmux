@@ -53,6 +53,8 @@ export type Enforcement = {
 
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
 
+export type InventoryRefreshParams = Record<string, never>;
+
 export interface InventoryWatchParams {
   enabled: boolean;
 }

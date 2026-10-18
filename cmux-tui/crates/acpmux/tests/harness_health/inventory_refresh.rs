@@ -65,6 +65,18 @@ impl Fixture {
     fn assert_no_program(&self) {
         assert!(!self.ran.exists(), "inventory refresh ran a CLI, auth check or updater");
     }
+
+    fn use_registry(&self, port: u16) {
+        self.hub.health.attach(Settings {
+            sources: Some(Sources {
+                npm: format!("http://127.0.0.1:{port}/npm"),
+                brew: format!("http://127.0.0.1:{port}/brew"),
+            }),
+            cache: Some(self.root.join("health.json")),
+            home: self.root.join("home"),
+            auto_update: Some(self.root.join("auto-update.json")),
+        });
+    }
 }
 
 impl Drop for Fixture {
@@ -116,6 +128,9 @@ async fn cmux_next_harness_inventory_refresh_rejects_controls_and_selectors() {
     let mut client = Client::open(&f.hub, Origin::Local);
     for params in [
         Value::Null,
+        json!([]),
+        json!(false),
+        json!(42),
         json!({"view":"inventory"}),
         json!({"checkLatest":true}),
         json!({"autoUpdate":{"id":"claude","on":false}}),
@@ -146,6 +161,15 @@ async fn cmux_next_harness_inventory_refresh_is_negotiated_before_use() {
     let f = Fixture::new("inventory-refresh-capability", true, true);
     let mut client = Client::open(&f.hub, Origin::Local);
     let initialized = client.call(method::INITIALIZE, json!({"protocolVersion":1})).await.unwrap();
+    assert!(
+        initialized
+            .pointer("/_meta/acpmux/extensions")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .contains(&json!(REFRESH)),
+        "{initialized}"
+    );
     assert!(
         initialized
             .pointer("/_meta/acpmux/features")
@@ -181,4 +205,79 @@ async fn cmux_next_harness_inventory_refresh_ordinary_cache_reads_still_do_no_wo
     assert_eq!(row(&cached, "claude")["checkedAt"], 1);
     assert!(f.asked.lock().unwrap().is_empty());
     f.assert_no_program();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_inventory_refresh_refuses_overlap_and_preserves_a_live_choice() {
+    let f = Fixture::new("inventory-refresh-overlap", true, true);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    f.use_registry(listener.local_addr().unwrap().port());
+    let (entered, waiting) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut line = String::new();
+        loop {
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            line.clear();
+        }
+        let _ = entered.send(());
+        if held.recv().is_err() {
+            return;
+        }
+        let body = r#"{"version":"2.0.9"}"#;
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    let mut first = Client::open(&f.hub, Origin::Local);
+    let pending = tokio::spawn(async move { first.call(REFRESH, json!({})).await });
+    tokio::time::timeout(Duration::from_secs(2), waiting).await.unwrap().unwrap();
+    // A preference has its own writer and may change while the network waits.
+    f.hub.health.set_auto_update("claude", false).unwrap();
+    let mut second = Client::open(&f.hub, Origin::Local);
+    let error = tokio::time::timeout(Duration::from_secs(2), second.call(REFRESH, json!({})))
+        .await
+        .expect("a concurrent refresh must refuse immediately, never queue")
+        .expect_err("only one registry refresh/check may run");
+    assert_eq!(error["data"]["reason"], "harness_inventory.busy", "{error}");
+    release.send(()).unwrap();
+    let refreshed = pending.await.unwrap().unwrap();
+    assert_eq!(row(&refreshed, "claude")["latest"], "2.0.9");
+    assert!(!f.hub.health.rows()[0].auto_update, "the old row clone overwrote the live choice");
+    f.assert_no_program();
+    server.join().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_inventory_refresh_invalid_versions_do_not_replace_known_evidence() {
+    for (index, invalid) in [
+        "not-a-version".to_owned(),
+        format!("1.2.3-{}", "a".repeat(65)),
+        "1.2.3-💥".to_owned(),
+        "18446744073709551616.0.0".to_owned(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let f = Fixture::new(&format!("inventory-refresh-invalid-{index}"), true, true);
+        let (port, asked) = latest_server(vec![(
+            "/npm/@anthropic-ai%2Fclaude-code/latest",
+            json!({"version":invalid}),
+        )]);
+        f.use_registry(port);
+        let mut client = Client::open(&f.hub, Origin::Local);
+        let refreshed = client.call(REFRESH, json!({})).await.unwrap();
+        assert_eq!(row(&refreshed, "claude")["latest"], "2.0.6");
+        assert_eq!(row(&refreshed, "claude")["latestCheckedAt"], 1);
+        assert_eq!(asked.lock().unwrap().len(), 1);
+        f.assert_no_program();
+    }
 }
