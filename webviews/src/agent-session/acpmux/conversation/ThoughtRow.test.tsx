@@ -14,6 +14,7 @@ import type { AcpmuxActivity } from "../model";
 import {
   THOUGHT_FOLD_MIN_PX,
   THOUGHT_FOLD_MS,
+  THOUGHT_LIVE_PX,
   ThoughtRow,
   thoughtDuration,
   thoughtLayout,
@@ -33,6 +34,9 @@ let viewport = 600;
 let enabled = true;
 let reduce = false;
 let header: ThoughtHeader = "duration";
+/// The live viewport's Debug toggle, and the text's whole height (0: only `height` counts).
+let live = true;
+let content = 0;
 type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
 let animations: Animated[] = [];
 
@@ -63,8 +67,12 @@ beforeEach(() => {
   enabled = true;
   reduce = false;
   header = "duration";
+  live = true;
+  content = 0;
   animations = [];
   thoughtLayout.header = () => header;
+  thoughtLayout.liveViewport = () => live;
+  thoughtLayout.contentHeight = () => content;
   thoughtLayout.height = () => height;
   thoughtLayout.viewport = () => viewport;
   thoughtLayout.enabled = () => enabled;
@@ -169,6 +177,7 @@ test("with the Debug choice preview, a folded thought reads Thought and its firs
 });
 
 test("a long thought shows in full while it streams and folds only when done, without animating", () => {
+  live = false;
   height = 900;
   render(thought(LONG.slice(0, 200)), true, "streaming:0");
   render(thought(), true, "streaming:0");
@@ -178,6 +187,49 @@ test("a long thought shows in full while it streams and folds only when done, wi
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
   // The automatic fold snaps, as Codex's does when the next output starts.
   expect(animations).toEqual([]);
+});
+
+const row = () => container.querySelector<HTMLElement>(".cv-thought");
+const label = () => container.querySelector(".cv-thought__label")?.textContent;
+
+test("a long thought streaming holds the live viewport and reads Thinking", () => {
+  height = THOUGHT_LIVE_PX + 1;
+  render(thought(), true, "live:0");
+  expect(row()?.classList.contains("is-live")).toBe(true);
+  expect(label()).toBe("Thinking");
+  expect(toggle()).toBeNull();
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
+});
+
+test("a thought no taller than the live viewport streams in full after Thought", () => {
+  height = THOUGHT_LIVE_PX;
+  render(thought(), true, "live-short:0");
+  expect(row()?.classList.contains("is-live")).toBe(false);
+  expect(label()).toBe("Thought");
+});
+
+test("with the live viewport's toggle off, or the fold's, a long thought streams in full", () => {
+  live = false;
+  height = 900;
+  render(thought(), true, "live-off:0");
+  expect(row()?.classList.contains("is-live")).toBe(false);
+  act(() => root!.unmount());
+  root = undefined;
+  live = true;
+  enabled = false;
+  render(thought(), true, "fold-off:0");
+  expect(row()?.classList.contains("is-live")).toBe(false);
+});
+
+test("a thought clipped by the live viewport still folds by its whole height once done", () => {
+  // Drawn, the clip is 140px; its text is 900px.
+  height = THOUGHT_LIVE_PX;
+  content = 900;
+  render(thought(), true, "clipped:0");
+  expect(row()?.classList.contains("is-live")).toBe(true);
+  render(thought(), false, "clipped:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(row()?.classList.contains("is-live")).toBe(false);
 });
 
 test("a thought the reader opened stays open as new content arrives and after it scrolls out", () => {

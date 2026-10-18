@@ -178,6 +178,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextKeepAwake",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -523,6 +524,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
             dependencies: ["CmuxNextWorkspaceNaming"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
+        // action and working local agents, released on battery unless the user
+        // chose Always. IOKit's power-source notification, no polling.
+        .target(
+            name: "CmuxNextKeepAwake",
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextKeepAwakeTests",
+            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the

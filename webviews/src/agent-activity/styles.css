@@ -420,6 +420,8 @@ section h3 {
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
+  /* The second line (current step or error) sits under its own title, not the page's button gap. */
+  row-gap: 1px;
   width: 100%;
   min-height: 26px;
   padding: 3px 6px;
@@ -481,6 +483,27 @@ section h3 {
   font-size: var(--text-caption);
   color: var(--activity-text-2);
   white-space: nowrap;
+}
+
+/* The second line: who runs it and what it is doing now (hq#2509), muted like the Claude and
+   Codex session rows. */
+.lane-detail {
+  grid-column: 2 / -1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-caption);
+  color: var(--activity-text-2);
+  white-space: nowrap;
+}
+
+.lane-harness {
+  flex: none;
+}
+
+.lane-step {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lane-error {

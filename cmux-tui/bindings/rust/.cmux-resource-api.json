@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0395c03c8663ba044cce912f406bc1feda8b678ad15d6266f32de0451f24ef30",
+  "catalog_sha256": "28e07ca23592d5220fec4a815f9f4f7891d72c45fc3696a6ddae35ca29470090",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -665,6 +665,21 @@
       "class": "mutation"
     },
     "sidebar_view.resize": {
+      "class": "mutation"
+    },
+    "stash.create": {
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "class": "mutation"
+    },
+    "stash.import": {
+      "class": "mutation"
+    },
+    "stash.list": {
+      "class": "read"
+    },
+    "stash.restore": {
       "class": "mutation"
     },
     "stream.cancel": {

@@ -1457,6 +1457,26 @@
       "scope": "slack:external",
       "class": "mutation"
     },
+    "stash.create": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.import": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.list": {
+      "scope": "stash:read",
+      "class": "read"
+    },
+    "stash.restore": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
     "tab_group.add_tabs": {
       "scope": "tab_group:write",
       "class": "mutation"
