@@ -39,9 +39,9 @@ extension DaemonConnection {
             identity.expectedGeneration = self.identity?.generation
             return identity
         }()
-        try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
-                                                 expectedNameRevision: expectedNameRevision, release: release,
-                                                 mutation: nameMutation))
+        return try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
+                                                        expectedNameRevision: expectedNameRevision, release: release,
+                                                        mutation: nameMutation))
     }
 
     @discardableResult
