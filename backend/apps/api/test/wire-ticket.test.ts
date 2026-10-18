@@ -117,7 +117,7 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<unknown> }
     const bSession: Principal = { kind: "session", identity: `session:${b.user}`, user: b.user, team: personalTeamIdFor(b.user), display_name: "B", email: "b@example.com", email_verified: true }
     await conv.submit(id, bSession, { t: "op", op: "conversation.create", params: { id, kind: "group", title: "B only", participants: [{ id: b.user, kind: "human", display_name: "B" }] }, idempotency_key: "c" })
-    const forA = await mint(a.token)
+    const forA = await mint(a.token, "conv")
     const refused = await upgrade(`/v1/wire/conv/${id}`, `cmux.wire.v1, ticket.${forA.body.ticket}`)
     expect(refused.status).toBe(403)
     await refused.arrayBuffer()
