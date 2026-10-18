@@ -119,7 +119,8 @@ public final class AgentInventoryProviderBridge {
                     guard carrier.sourceID == route.controlStamp?.sourceID, carrier.serial == route.controlStamp?.serial else { return }
                     slot.carrier = carrier
                     slot.token = route.events.subscribeEnvelopes { [weak self, weak slot] envelope in
-                        guard let self, let slot, current(slot), carrier.matches(envelope),
+                        // The cheap carrier match first: current(slot) rebuilds every registry route.
+                        guard carrier.matches(envelope), let self, let slot, current(slot),
                               let notice = AgentInventoryWatchEvent(envelope.event) else { return }
                         if slot.receipt == nil {
                             guard slot.early.count < 32 else { retire(slot); return }
