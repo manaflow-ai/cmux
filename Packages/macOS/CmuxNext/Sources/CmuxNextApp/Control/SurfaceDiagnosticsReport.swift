@@ -55,6 +55,8 @@ enum SurfaceDiagnosticsReport {
                     object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
                     object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
                     object["skipped_images"] = JSONValue(diagnostics.skippedImages)
+                    object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
+                    object["frame_held"] = .bool(diagnostics.holdingFrame)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
@@ -83,6 +85,7 @@ enum SurfaceDiagnosticsReport {
             "invariant_violations": JSONValue(services.surfaceInvariant.violations),
             "invariant_checks": JSONValue(services.surfaceInvariant.checks),
             "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
+            "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernation": hibernation(services),
         ]

@@ -39,6 +39,23 @@ describe("event-driven priority agent state", () => {
     expect(state.lanes[0]).toMatchObject({ id: "s1", workspaceId: "workspace-7", state: "working" });
   });
 
+  test("a lane carries its harness and its current step", () => {
+    const step = (session: object) =>
+      applyAgentStateEvent(initialPriorityState(), {
+        kind: "updated",
+        sessionId: "s1",
+        seq: 1,
+        session: { ...summary("s1", "working", 10), harness: "codex", ...session },
+      }).lanes[0];
+    // A running turn's step is its prompt, whitespace folded to one line.
+    expect(
+      step({ turn: { prompt: "Run the guard\n  tests", startedAt: 5 }, lastMessage: { role: "agent", text: "old" } }),
+    ).toMatchObject({ harness: "codex", step: "Run the guard tests" });
+    // Between turns it is the agent's last message; a person's own message says nothing new.
+    expect(step({ lastMessage: { role: "agent", text: "Opened #21700" } }).step).toBe("Opened #21700");
+    expect(step({ lastMessage: { role: "user", text: "go" } }).step).toBeNull();
+  });
+
   test("ignores duplicate and out-of-order hook events", () => {
     const initial = applyAgentStateEvent(initialPriorityState(), {
       kind: "updated",
