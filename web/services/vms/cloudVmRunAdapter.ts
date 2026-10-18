@@ -33,6 +33,50 @@ export type CloudVmRunAttemptSpec = {
   readonly lease?: CloudVmAttemptLease;
 };
 
+/**
+ * A durable, provider-managed workspace without a one-shot agent terminal.
+ *
+ * The correlation key is the durable runtime's creation key.  The daemon
+ * treats retries with the same key as a replay, which lets the control plane
+ * recover after a lost provider response without creating a second workspace.
+ */
+export type CloudVmWorkspaceSpec = {
+  readonly runtimeId: string;
+  readonly vmId: string;
+  readonly workspaceName: string;
+  readonly workspaceKey?: string;
+};
+
+export type CloudVmWorkspaceRef = {
+  readonly provider: "cloud-vm";
+  readonly runtimeId: string;
+  readonly vmId: string;
+  readonly workspaceId: string;
+  readonly workspaceKey: string;
+  readonly replayed: boolean;
+};
+
+export type CloudVmPersistentTerminalSpec = {
+  readonly runtimeId: string;
+  readonly vmId: string;
+  readonly workspaceId: string;
+  readonly terminalName?: string;
+  readonly terminalKey?: string;
+  readonly agent: CloudVmAgent;
+  readonly prompt: string;
+  readonly cwd?: string;
+};
+
+export type CloudVmPersistentTerminalRef = {
+  readonly provider: "cloud-vm";
+  readonly runtimeId: string;
+  readonly vmId: string;
+  readonly workspaceId: string;
+  readonly terminalId: string;
+  readonly terminalKey: string;
+  readonly replayed: boolean;
+};
+
 export type CloudVmPreparedAttempt = {
   readonly provider: "cloud-vm";
   readonly vmId: string;
@@ -219,6 +263,24 @@ function createWorkspaceCommand(prepared: CloudVmPreparedAttempt): string {
   ].join(" ");
 }
 
+export function prepareCloudVmWorkspace(spec: CloudVmWorkspaceSpec): CloudVmWorkspaceSpec & { readonly workspaceKey: string } {
+  safeId("runtimeId", spec.runtimeId);
+  safeId("vmId", spec.vmId);
+  const workspaceName = spec.workspaceName.trim();
+  if (!workspaceName) throw new CloudVmRunAdapterError("invalid_workspace_name", "workspaceName cannot be empty");
+  const workspaceKey = safeKey("workspace correlation key", spec.workspaceKey ?? `cmux-runtime:${spec.runtimeId}:workspace`);
+  safeKey("workspace name", workspaceName);
+  return { ...spec, workspaceName, workspaceKey };
+}
+
+function workspaceCommand(spec: CloudVmWorkspaceSpec & { readonly workspaceKey: string }): string {
+  return [
+    commandPrefix(), "workspace", "create", "--empty",
+    "--name", shellQuote(spec.workspaceName),
+    "--correlation-key", shellQuote(spec.workspaceKey),
+  ].join(" ");
+}
+
 function createTerminalCommand(prepared: CloudVmPreparedAttempt, workspaceId: string): string {
   const command = [
     commandPrefix(), "workspace", shellQuote(workspaceId), "run", "--on-exit", "keep",
@@ -228,6 +290,40 @@ function createTerminalCommand(prepared: CloudVmPreparedAttempt, workspaceId: st
   if (prepared.cwd) command.push("--cwd", shellQuote(prepared.cwd));
   command.push("--", shellQuote(CLOUD_VM_AGENT_BIN), "agent", shellQuote(prepared.agent), "--", shellQuote(prepared.prompt));
   return command.join(" ");
+}
+
+function persistentTerminalCommand(spec: CloudVmPersistentTerminalSpec & {
+  readonly terminalName: string;
+  readonly terminalKey: string;
+}): string {
+  const command = [
+    commandPrefix(), "workspace", shellQuote(spec.workspaceId), "run", "--on-exit", "keep",
+    "--correlation-key", shellQuote(spec.terminalKey),
+    "--name", shellQuote(spec.terminalName),
+  ];
+  if (spec.cwd) command.push("--cwd", shellQuote(spec.cwd));
+  command.push("--", shellQuote(CLOUD_VM_AGENT_BIN), "agent", shellQuote(spec.agent), "--", shellQuote(spec.prompt));
+  return command.join(" ");
+}
+
+function preparePersistentTerminal(spec: CloudVmPersistentTerminalSpec): CloudVmPersistentTerminalSpec & {
+  readonly terminalName: string;
+  readonly terminalKey: string;
+} {
+  safeId("runtimeId", spec.runtimeId);
+  safeId("vmId", spec.vmId);
+  safeId("workspaceId", spec.workspaceId);
+  if (!CLOUD_VM_AGENTS.includes(spec.agent)) {
+    throw new CloudVmRunAdapterError("unsupported_agent", `unsupported cloud agent ${JSON.stringify(spec.agent)}`);
+  }
+  if (!spec.prompt) throw new CloudVmRunAdapterError("invalid_prompt", "terminal prompt cannot be empty");
+  if (spec.cwd !== undefined && (!spec.cwd || /[\u0000]/.test(spec.cwd))) {
+    throw new CloudVmRunAdapterError("invalid_cwd", "terminal cwd must be a non-empty path");
+  }
+  const terminalName = spec.terminalName?.trim() || `runtime:${spec.runtimeId}`;
+  safeKey("terminal name", terminalName);
+  const terminalKey = safeKey("terminal correlation key", spec.terminalKey ?? `cmux-runtime:${spec.runtimeId}:terminal`);
+  return { ...spec, terminalName, terminalKey };
 }
 
 function terminalWaitCommand(terminalId: string, timeoutMs: number): string {
@@ -325,6 +421,43 @@ export class CloudVmRunAdapter {
   readonly provider = "cloud-vm" as const;
 
   constructor(private readonly transport: ExecTransport) {}
+
+  /**
+   * Create (or replay) a durable daemon workspace without starting a command.
+   *
+   * Persistent workspace lifecycle owns the VM separately from the terminal
+   * run adapter. Keeping this operation here reuses the same JSON receipt
+   * validation, shell quoting, and correlation-key replay guarantees as Run.
+   */
+  async createWorkspace(spec: CloudVmWorkspaceSpec): Promise<CloudVmWorkspaceRef> {
+    const prepared = prepareCloudVmWorkspace(spec);
+    const result = await this.transport.exec(prepared.vmId, workspaceCommand(prepared), this.execOptions());
+    const workspace = unwrap(commandResult(result, "workspace create"));
+    return {
+      provider: "cloud-vm",
+      runtimeId: prepared.runtimeId,
+      vmId: prepared.vmId,
+      workspaceId: workspaceIdFrom(workspace, "workspace create"),
+      workspaceKey: prepared.workspaceKey,
+      replayed: workspace.replayed === true,
+    };
+  }
+
+  /** Create (or replay) a kept terminal in an already-created durable workspace. */
+  async createTerminal(spec: CloudVmPersistentTerminalSpec): Promise<CloudVmPersistentTerminalRef> {
+    const prepared = preparePersistentTerminal(spec);
+    const result = await this.transport.exec(prepared.vmId, persistentTerminalCommand(prepared), this.execOptions());
+    const terminal = unwrap(commandResult(result, "workspace run"));
+    return {
+      provider: "cloud-vm",
+      runtimeId: prepared.runtimeId,
+      vmId: prepared.vmId,
+      workspaceId: prepared.workspaceId,
+      terminalId: terminalIdFrom(terminal, "workspace run"),
+      terminalKey: prepared.terminalKey,
+      replayed: terminal.replayed === true,
+    };
+  }
 
   async prepareAttempt(spec: CloudVmRunAttemptSpec): Promise<CloudVmPreparedAttempt> {
     return prepareCloudVmRunAttempt(spec);

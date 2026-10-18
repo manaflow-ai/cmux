@@ -54,6 +54,15 @@ export async function register() {
     // Axiom can report failure rate and latency per dependency and endpoint.
     spanProcessors: ["auto", new DependencySpanProcessor()],
   });
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Runtime/provider credentials are opt-in. Missing or malformed config
+    // leaves the route seams fail-closed instead of starting a partial graph.
+    const { configureRuntimeCompositionFromEnv } = await import("./services/runtimeComposition");
+    const composition = await configureRuntimeCompositionFromEnv();
+    if (!composition.configured && process.env.NODE_ENV !== "test") {
+      console.warn("[runtime-composition] disabled", composition.reason);
+    }
+  }
   prewarmDevCloudRoutes();
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.SENTRY_DSN) {
     const Sentry = await import("@sentry/nextjs");

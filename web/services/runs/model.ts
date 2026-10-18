@@ -79,6 +79,8 @@ export type RunAttemptView = {
   readonly id: string;
   readonly ordinal: number;
   readonly status: AttemptStatus;
+  /** Opaque durable runtime identity; provider handles remain private. */
+  readonly runtimeId: string | null;
   readonly placement: RunPlacementView;
   readonly attachable: boolean;
   readonly retainedUntil: string | null;
