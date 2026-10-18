@@ -189,6 +189,7 @@ class AppWindowCaptureTests(unittest.TestCase):
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
         self.assertEqual(manifest["capture_mode"], "app window (debug.window_snapshot)")
+        self.assertEqual(manifest["result"], "degraded")
         for step in manifest["steps"]:
             self.assertNotIn("shot", step)
             self.assertIn("no such window", step["shot_error"])

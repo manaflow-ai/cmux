@@ -677,6 +677,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if app.log_path.exists():
             shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
+        manifest["result"] = classify_result(manifest)
         (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -689,11 +690,14 @@ def passed(manifest: dict[str, Any]) -> bool:
     return "error" not in manifest and all(step["status"] != "failed" for step in manifest["steps"])
 
 
-def result(manifest: dict[str, Any]) -> str:
+def classify_result(manifest: dict[str, Any]) -> str:
     """Classify the evidence without treating optional gaps as full coverage."""
     if manifest.get("error") or any(step.get("status") == "failed" for step in manifest.get("steps", [])):
         return "failed"
-    if any(step.get("status") == "unavailable" for step in manifest.get("steps", [])):
+    if manifest.get("frames_error") or any(
+        step.get("status") == "unavailable" or step.get("shot_error")
+        for step in manifest.get("steps", [])
+    ):
         return "degraded"
     return "pass"
 
@@ -734,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGINT, signal.default_int_handler)
         signal.signal(signal.SIGTERM, terminated)
         manifest = run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)
-        manifest["result"] = result(manifest)
+        manifest["result"] = classify_result(manifest)
         (args.out / tour["name"] / "manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
