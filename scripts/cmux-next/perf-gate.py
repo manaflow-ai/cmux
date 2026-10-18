@@ -53,7 +53,9 @@ from tag_teardown import TagTeardown  # noqa: E402
 # Budgets: the measured values after the perf lanes (perf-speed-of-light.md Status). Tighten here.
 BUDGET = {
     # Per workspace switch (and per theme switch).
-    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0},
+    # The sidebar repaints the old and new selected row or tile only: no row configure, no band layout (cx-8w027.17).
+    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0, "row_configures": 0,
+               "band_updates": 0},
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
