@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
 import Observation
-extension SidebarViewComponents {
+extension SidebarView {
     // MARK: Observation
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.

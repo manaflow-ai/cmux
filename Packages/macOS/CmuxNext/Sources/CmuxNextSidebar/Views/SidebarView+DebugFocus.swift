@@ -12,7 +12,7 @@ public struct SidebarDebugHeaderFocus: Sendable {
     public var windowFrame: CGRect
 }
 
-extension SidebarViewComponents {
+extension SidebarView {
     /// The workspace list view: the view that takes the sidebar's keys
     /// (`debug.view_key` view `sidebar.list`).
     public var debugKeyView: NSView { list }

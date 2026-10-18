@@ -1,7 +1,7 @@
 import AppKit
 // Row view reuse through `rowPool`: views exist only for rows near the
 // viewport, and leaving rows return to the pool.
-extension SidebarListViewComponents {
+extension SidebarListView {
     /// `rebinding`: with no parked view of `key`, take another parked row's
     /// view of the same kind (scroll realization only: the view is placed,
     /// never animated, so nothing flies in from its old row, cx-ai79).

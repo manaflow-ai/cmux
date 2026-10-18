@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import CmuxNextResources
 // The list's targets for the app's hover cards (WorkspaceHoverCardController,
 // HoverCardCoordinator): workspace rows, hit-tested by position.
-extension SidebarListViewComponents {
+extension SidebarListView {
     /// The coordinator this list reports to (the App injects the app's one).
     public var hoverCards: HoverCardCoordinator {
         get { hoverCard.coordinator }
@@ -36,7 +36,7 @@ extension SidebarListViewComponents {
     }
 }
 
-extension SidebarViewComponents {
+extension SidebarView {
     /// CPU and memory for the workspace hover card. Sampled only while a
     /// card is pending or shown.
     public var resourceSource: (any ResourceSampleSource)? {

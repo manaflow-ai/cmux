@@ -100,7 +100,7 @@ public struct SidebarDropProbe: Sendable, Equatable {
     public var refusal: String? = nil
 }
 
-extension SidebarViewComponents {
+extension SidebarView {
     /// Every layout item of the shown sections and its view, client items at their places (debug).
     public func debugLayoutItems() -> [SidebarDebugItem] {
         let height = window?.contentView?.bounds.height ?? 0

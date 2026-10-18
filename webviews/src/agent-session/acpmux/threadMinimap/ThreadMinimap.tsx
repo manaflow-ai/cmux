@@ -146,34 +146,23 @@ export function ThreadMinimap({
     };
   }, [scroller]);
 
-  const indexAt = useCallback(
-    (clientY: number) => {
-      const box = root.current?.getBoundingClientRect();
-      if (!box || !turns.length) return undefined;
-      const index = Math.floor((clientY - box.top) / pitch);
-      return Math.max(0, Math.min(turns.length - 1, index));
-    },
-    [pitch, turns.length],
-  );
-  // Keep the tick callbacks stable while scrolling. The rail itself needs to rerender so the
-  // current marker follows the reader, but stable handlers let memoized Tick rows skip that work.
-  const jump = useCallback(
-    (index: number) => {
-      const node = scroller.current;
-      const target = turns[index];
-      if (!node || !target) return;
-      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
-    },
-    [layout.tops, scroller, turns],
-  );
-  const focusTick = useCallback(
-    (index: number) => {
-      const next = Math.max(0, Math.min(turns.length - 1, index));
-      root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
-    },
-    [turns.length],
-  );
+  const indexAt = (clientY: number) => {
+    const box = root.current?.getBoundingClientRect();
+    if (!box || !turns.length) return undefined;
+    const index = Math.floor((clientY - box.top) / pitch);
+    return Math.max(0, Math.min(turns.length - 1, index));
+  };
+  const jump = (index: number) => {
+    const node = scroller.current;
+    const target = turns[index];
+    if (!node || !target) return;
+    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
+  };
+  const focusTick = (index: number) => {
+    const next = Math.max(0, Math.min(turns.length - 1, index));
+    root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
+  };
 
   if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
   const center = first + active * pitch;

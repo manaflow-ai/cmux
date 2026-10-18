@@ -3,7 +3,7 @@ import CmuxNextDesign
 /// Sidebar scroll after a close, create or selection change
 /// (plans/cmux-next/close-focus.md): `ListViewport.settle` decides the
 /// offset; this file only reads geometry and applies it.
-extension SidebarListViewComponents {
+extension SidebarListView {
     /// Applies `layout` keeping what the user sees (the anchor stays put,
     /// rows and offset shift together so nothing jumps), then reveals the
     /// active workspace when it changed, or when the user's own move pushed it

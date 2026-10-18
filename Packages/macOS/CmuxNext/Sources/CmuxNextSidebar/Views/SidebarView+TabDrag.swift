@@ -17,7 +17,7 @@ public struct SidebarTabDropHit: Hashable, Sendable {
     public var highlightFrame: CGRect
 }
 
-extension SidebarViewComponents {
+extension SidebarView {
     // MARK: External tab drag (driven by the App's TabDragSession)
 
     /// Hover time before a tab drag over a workspace row selects it.
