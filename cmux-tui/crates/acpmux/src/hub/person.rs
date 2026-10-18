@@ -101,7 +101,9 @@
 //!   a caller the person moved back to asking inherits nothing. A peer or
 //!   Web connection never has a caller. The harness also gets
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
-//!   the token only to that socket ([`caller_env`], `client.rs`).
+//!   the token only to that socket ([`caller_env`], `client.rs`). A
+//!   profile's, preset's or request's env never sets either variable: the
+//!   spawn drops them from every env it layers after `caller_env`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
@@ -112,8 +114,8 @@
 //!   preset's contents (everything but its description and the approval
 //!   itself, `Preset::approval_digest`). The approval counts only while the
 //!   preset still hashes to it and only for that preset's own mode, with no
-//!   other harness, no adopted conversation and no model, effort, policy or
-//!   env of the request's own (a folder is fine). The contents are read
+//!   other harness, no adopted conversation and no model, effort, policy,
+//!   route or env of the request's own (a folder is fine). The contents are read
 //!   three times for one start (the request check, the resolve of model,
 //!   effort and env, the spawn of args, env and system prompt): each read
 //!   records the digest of what it used, and the start counts the approval
@@ -234,8 +236,9 @@
 use super::*;
 
 pub use super::start_gate::{
-    CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD, StartMode, caller_env,
-    caller_proves, caller_token, host_label, mode_person_required, take_caller,
+    CALLER_ENV_KEYS, CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD,
+    StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
+    take_caller,
 };
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
