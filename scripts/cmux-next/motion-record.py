@@ -191,6 +191,30 @@ def focus():
     record("focus", "down", lambda: action("focusDown"))
 
 
+def strip():
+    # Focus moves left and right across a scrolling strip of columns, each with two tabs: the camera
+    # scrolls and every column's tab bar moves with it (Lawrence 2026-10-18: "tabbar when i move
+    # around left/right in niri is bad").
+    action("workspace.newAtBottom")
+    time.sleep(1.0)  # test harness: the workspace settles
+    for _ in range(3):
+        action("newColumn")
+        time.sleep(0.8)  # test harness: one column at a time
+    for _ in range(4):
+        action("newSurface")
+        time.sleep(0.4)  # test harness: one tab at a time
+        action("focusLeft")
+        time.sleep(0.4)  # test harness: the focus settles
+    for _ in range(3):
+        action("focusRight")
+        time.sleep(0.6)  # test harness: the camera settles
+    save_layout("strip")
+    record("strip", "left-1", lambda: action("focusLeft"))
+    record("strip", "left-2", lambda: action("focusLeft"))
+    record("strip", "right-1", lambda: action("focusRight"))
+    record("strip", "right-2", lambda: action("focusRight"))
+
+
 def groups():
     # A tab group of two tabs collapses into its chip and expands again.
     action("workspace.newAtBottom")
@@ -489,7 +513,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
+SURFACES = {"strip": strip, "tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
 
 
 def main():
