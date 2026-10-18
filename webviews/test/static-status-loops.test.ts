@@ -1,6 +1,7 @@
-// Leo 2026-10-13 (cx-sya4n): Austin gets headaches from blinking and pulsing lights. The native
-// Static status indicators setting (or macOS Reduce Motion) reaches the agent pane as
-// `data-status-indicators="static"` on the root (applyAgentTheme), and under it, or under Reduce
+// Leo 2026-10-13 (cx-sya4n): blinking and pulsing lights give a teammate headaches. The native
+// Static status indicators setting (or macOS Reduce Motion) reaches every page as
+// `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
+// payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
 // Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
 // floating chat's breathing dot, the Thinking sweep, the reply caret's wait pulse, the Jump to
 // Latest dots and Home's "writing" pulse. The diff viewer does not get the pane's theme, so its
@@ -10,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("static-status-loops.test.ts", async () => {
@@ -36,6 +38,8 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     .join("\n");
   const home = css("pages/home-channels/styles.css");
   const diff = css("styles.css");
+  // The script the app installs at document start in every cmux web view (WebTheme.swift).
+  const bootstrap = readWebThemeBootstrap();
 
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
@@ -59,12 +63,24 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     style: string,
     body: string,
     reducedMotion: "reduce" | "no-preference",
-    look?: "static",
+    look?: "static" | "animated",
   ): Promise<Page> {
     const p = await browser!.newPage();
     await p.emulateMedia({ reducedMotion });
     await p.setContent(`<style>${style}</style>${body}`);
-    if (look) await p.evaluate((value) => (document.documentElement.dataset.statusIndicators = value), look);
+    if (look) {
+      // The app's path: the bootstrap, then a theme push carrying the look (WebTheme.payloadJSON).
+      await p.addScriptTag({ content: bootstrap });
+      await p.evaluate(
+        (value) =>
+          (window as unknown as { cmuxTheme: { apply(payload: object): void } }).cmuxTheme.apply({
+            variables: {},
+            colorScheme: "light",
+            statusIndicators: value,
+          }),
+        look,
+      );
+    }
     // Let a changed rule take effect before reading the running animations.
     await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     return p;
@@ -167,5 +183,27 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
     expect(new Set(shapes.lineage).size).toBe(5);
+  });
+
+  test("the theme push sets the attribute the stylesheets read", async () => {
+    const p = await page("", "", "no-preference", "static");
+    const look = await p.evaluate(() => document.documentElement.dataset.statusIndicators);
+    await p.close();
+    expect(look).toBe("static");
+  });
+
+  test("the static triangle keeps the dot's box: nothing beside it moves", async () => {
+    const body = `<div style="display:flex"><span class="acpmux-floating-status" data-status="attention"></span><b>chat</b></div>`;
+    const box = async (look: "static" | "animated") => {
+      const p = await page(`${desktop}${pane}`, body, "no-preference", look);
+      const rect = await p.$eval(".acpmux-floating-status", (node) => {
+        const r = node.getBoundingClientRect();
+        const next = (node.nextElementSibling as HTMLElement).getBoundingClientRect();
+        return [r.width, r.height, next.left];
+      });
+      await p.close();
+      return rect;
+    };
+    expect(await box("static")).toEqual(await box("animated"));
   });
 });
