@@ -82,6 +82,12 @@ open class ChromeLabel: NSView {
         didSet { if allowsDefaultTighteningForTruncation != oldValue { textDidChange() } }
     }
 
+    /// How lines break at the width (a wrapping label's factory default keeps a lone word off
+    /// the last line).
+    open var lineBreakStrategy: NSParagraphStyle.LineBreakStrategy = [] {
+        didSet { if lineBreakStrategy != oldValue { textDidChange() } }
+    }
+
     /// The width a wrapping label measures its height at; 0: its current width.
     open var preferredMaxLayoutWidth: CGFloat = 0 { didSet { if preferredMaxLayoutWidth != oldValue { textDidChange() } } }
 
@@ -146,6 +152,7 @@ open class ChromeLabel: NSView {
         maximumNumberOfLines = defaults.maximumNumberOfLines
         truncatesLastVisibleLine = defaults.truncatesLastVisibleLine
         allowsDefaultTighteningForTruncation = defaults.allowsDefaultTightening
+        lineBreakStrategy = defaults.lineBreakStrategy
         isSelectable = defaults.isSelectable
     }
 
@@ -156,7 +163,8 @@ open class ChromeLabel: NSView {
     /// The text's shape settings (not its color).
     var shape: LabelText.Shape {
         LabelText.Shape(lines: maximumNumberOfLines, wraps: wraps, lineBreak: lineBreakMode, alignment: alignment,
-                        tightens: allowsDefaultTighteningForTruncation, truncatesLastVisibleLine: truncatesLastVisibleLine)
+                        tightens: allowsDefaultTighteningForTruncation, truncatesLastVisibleLine: truncatesLastVisibleLine,
+                        strategy: lineBreakStrategy)
     }
 
     /// The text with the label's font, in `color` (all runs).
@@ -412,6 +420,7 @@ private struct LabelDefaults {
     var maximumNumberOfLines: Int
     var truncatesLastVisibleLine: Bool
     var allowsDefaultTightening: Bool
+    var lineBreakStrategy: NSParagraphStyle.LineBreakStrategy
     var isSelectable: Bool
 
     static let label = LabelDefaults(NSTextField(labelWithString: ""))
@@ -426,6 +435,7 @@ private struct LabelDefaults {
         maximumNumberOfLines = field.maximumNumberOfLines
         truncatesLastVisibleLine = field.cell?.truncatesLastVisibleLine ?? false
         allowsDefaultTightening = field.allowsDefaultTighteningForTruncation
+        lineBreakStrategy = field.lineBreakStrategy
         isSelectable = field.isSelectable
     }
 }

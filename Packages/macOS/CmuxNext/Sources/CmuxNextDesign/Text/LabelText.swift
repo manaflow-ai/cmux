@@ -20,6 +20,8 @@ enum LabelText {
         var alignment: NSTextAlignment
         var tightens: Bool
         var truncatesLastVisibleLine: Bool
+        /// A wrapping label's keeps a lone word off its last line (push out); a plain label's does not.
+        var strategy: NSParagraphStyle.LineBreakStrategy
 
         /// The lines break at the width: a wrapping label allowed more than one line.
         var isMultiline: Bool { wraps && lines != 1 }
@@ -76,8 +78,7 @@ enum LabelText {
             let style = (own ?? .default).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if own == nil || shape.alignment != .natural { style.alignment = shape.alignment }
             style.lineBreakMode = lineBreak
-            // A label's line breaking keeps a lone word off the last line (push out), as a field's.
-            if own == nil { style.lineBreakStrategy = .standard }
+            if own == nil { style.lineBreakStrategy = shape.strategy }
             style.allowsDefaultTighteningForTruncation = shape.tightens
             result.addAttribute(.paragraphStyle, value: style, range: range)
         }
@@ -177,7 +178,7 @@ enum LabelText {
     /// The shared stack's line delegate calls and one line's numbers (debug.label_parity).
     static func lineReport(_ font: NSFont) -> String {
         let range = lay(NSAttributedString(string: "Hi", attributes: [.font: font]), shape: Shape(lines: 0, wraps: false, lineBreak: .byClipping,
-                        alignment: .left, tightens: false, truncatesLastVisibleLine: false), width: nil, height: nil)
+                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil)
         let rect = range.length > 0 ? manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil) : .zero
         return "font \(font.pointSize) raw \(font.ascender - font.descender + font.leading) asc \(font.ascender) desc \(font.descender) "
             + "leading \(font.leading) default \(manager.defaultLineHeight(for: font)) line \(rect.height) used \(manager.usedRect(for: container).height) "
