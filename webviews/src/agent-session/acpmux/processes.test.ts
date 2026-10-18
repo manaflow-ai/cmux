@@ -43,6 +43,10 @@ test("background processes are listed, surfaced in snapshots, and expose tail/ki
       super(() => Promise.resolve());
       const answer = (this as any).answer.bind(this);
       (this as any).answer = async (method: string, params: Record<string, unknown>) => {
+        if (method === "initialize") {
+          const initialized = await answer(method, params);
+          return { ...initialized, _meta: { ...initialized._meta, acpmux: { ...initialized._meta.acpmux, operations: [...(initialized._meta.acpmux.operations ?? []), "_acpmux/process/list"] } } };
+        }
         if (method === "_acpmux/process/list") return { processes: [process(String(params.sessionId))] };
         if (method === "_acpmux/process/tail") return { data: "bG9nCg==", fromByte: 0, nextByte: 4, eof: false };
         if (method === "_acpmux/process/kill") return {};

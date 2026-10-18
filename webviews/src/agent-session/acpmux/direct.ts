@@ -892,6 +892,7 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const processRegistrySupported = servesOperation(initialized, "_acpmux/process/list");
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -1554,7 +1555,7 @@ export class AcpmuxDirectClient {
     // reject this optional extension.
     // This is an optional extension: an older daemon may not answer it. Do not hold chat attach
     // on the refresh; a response updates the process rows when it arrives.
-    void this.listProcesses(sessionId).catch(() => undefined);
+    if (processRegistrySupported) void this.listProcesses(sessionId).catch(() => undefined);
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
       try {

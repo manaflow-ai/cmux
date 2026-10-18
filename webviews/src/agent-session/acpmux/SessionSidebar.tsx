@@ -590,7 +590,7 @@ const SessionRow = memo(function SessionRow({
   if (actions?.onShare)
     menuItems.push({
       id: "share",
-      label: "Share",
+      label: t("chatMenu.copyLink"),
       icon: <Icon name="action.share" size={ROW_ICON} row />,
       separatorBefore: true,
       onSelect: () => actions.onShare?.(session),
@@ -599,7 +599,7 @@ const SessionRow = memo(function SessionRow({
   if (actions?.onCopyDeeplink)
     copyItems.push({
       id: "copy-deeplink",
-      label: "Copy deeplink",
+      label: t("chatMenu.copyLink"),
       onSelect: () => actions.onCopyDeeplink?.(session),
     });
   if (actions?.onCopyMarkdown)
@@ -611,7 +611,7 @@ const SessionRow = memo(function SessionRow({
   if (actions?.onCopyWorkingDirectory)
     copyItems.push({
       id: "copy-working-directory",
-      label: "Copy working directory",
+      label: t("chatMenu.copyLink"),
       onSelect: () => actions.onCopyWorkingDirectory?.(session),
     });
   if (copyItems.length > 0)
