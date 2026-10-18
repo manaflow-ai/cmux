@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -578,6 +582,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",

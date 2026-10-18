@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Bytte til {plan}?",
         "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "upgradeBodyYearly": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per år.",
         "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
         "confirm": "Bytt til {plan}",
         "keep": "Behold nåværende plan",
@@ -578,6 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",
