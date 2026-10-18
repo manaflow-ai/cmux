@@ -110,6 +110,7 @@ export function useShortcutsHelp() {
         key: "shortcutsHelp",
         label: t("shortcutsHelp.title"),
         icon: "keyboard",
+        afterClose: true,
         onSelect: () => {
           command("shortcutsHelp");
         },

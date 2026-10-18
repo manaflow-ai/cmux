@@ -141,6 +141,43 @@ public nonisolated struct AgentPaneTunables {
         help: "Plain: a muted Thought beside its text. Brain: one line with a brain that opens to the whole thought; notes between steps in an open Worked for draw the same way. New agent tabs.",
         default: .plain, code: "AgentPaneTunables.thoughtStyle")
 
+    /// Chat trials also set in layout.json (webviews acpmux/labs.ts). New tabs read these choices
+    /// at document start; an explicit layout value wins (Lucas 2026-10-18).
+    public static let liveRender = Tunable<Bool>.toggle(
+        "agentPane.labs.liveRender", PageTunables.section, "Live render cards in chat",
+        help: "Render cards draw inline as they are written and can talk back to the chat. New agent tabs.",
+        default: true, code: "AgentPaneTunables.liveRender")
+    public static let contextMeter = Tunable<Bool>.toggle(
+        "agentPane.labs.contextMeter", PageTunables.section, "Context ring beside the model",
+        help: "A ring beside the model shows context use and opens its token details. New agent tabs.",
+        default: false, code: "AgentPaneTunables.contextMeter")
+    public static let promptCollapse = Tunable<Bool>.toggle(
+        "agentPane.labs.promptCollapse", PageTunables.section, "Fold long prompts",
+        help: "Long prompts fold to eight lines and open for Find. New agent tabs.",
+        default: false, code: "AgentPaneTunables.promptCollapse")
+    public static let messageTimes = Tunable<Bool>.toggle(
+        "agentPane.labs.messageTimes", PageTunables.section, "Prompt send times on hover",
+        help: "Prompts show their send time on hover or focus. New agent tabs.",
+        default: false, code: "AgentPaneTunables.messageTimes")
+    public static let codeWrap = Tunable<Bool>.toggle(
+        "agentPane.labs.codeWrap", PageTunables.section, "One wrap choice for all code blocks",
+        help: "One remembered wrap choice applies to every code block in the pane. New agent tabs.",
+        default: false, code: "AgentPaneTunables.codeWrap")
+    public static let planProgress = Tunable<Bool>.toggle(
+        "agentPane.labs.planProgress", PageTunables.section, "Plan progress above the composer",
+        help: "The running plan's current step stays above the composer. New agent tabs.",
+        default: false, code: "AgentPaneTunables.planProgress")
+    public static let shortcutsHelp = Tunable<Bool>.toggle(
+        "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",
+        help: "The chat menu shows the keyboard shortcuts available in the pane. New agent tabs.",
+        default: false, code: "AgentPaneTunables.shortcutsHelp")
+
+    static let labTunables: [String: Tunable<Bool>] = [
+        "live-render": liveRender, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
+        "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
+        "shortcuts-help": shortcutsHelp
+    ]
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -179,16 +216,20 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(
             foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
-            thoughtStyle: thoughtStyle.value)
+            thoughtStyle: thoughtStyle.value, labs: labTunables.mapValues { $0.value })
     }
 
     static func attributes(
-        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle, thoughtStyle: AgentPaneThoughtStyle = .plain
+        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle, thoughtStyle: AgentPaneThoughtStyle = .plain,
+        labs: [String: Bool] = [:]
     ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
+        for (name, tunable) in labTunables {
+            attributes["lab-\(name)"] = (labs[name] ?? tunable.defaultValue) ? "on" : "off"
+        }
         return attributes
     }
 
@@ -211,5 +252,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

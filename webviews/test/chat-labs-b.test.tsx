@@ -300,9 +300,15 @@ test("the header overflow opens shortcuts help and Close dismisses it", async ()
   );
   expect(item).toBeDefined();
   await act(async () => item!.click());
+  // The item opens the dialog once the menu has closed (`afterClose`).
+  for (let frame = 0; frame < 20 && !dialog(); frame++)
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
   expect(dialog()).not.toBeNull();
   await act(async () => button("Close")!.click());
   expect(dialog()).toBeNull();
+  // The dialog hands focus back to the menu's button on a later frame.
+  for (let frame = 0; frame < 20 && dom.window.document.activeElement !== button("Chat actions"); frame++)
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
   expect(dom.window.document.activeElement === button("Chat actions")).toBe(true);
 });
 

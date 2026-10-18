@@ -60,6 +60,9 @@ export type ChatMenuItem =
       shortcutAction?: string;
       disabled?: boolean;
       onSelect?: () => void;
+      /// Run `onSelect` once the menu has closed and given focus back to its button, so a dialog it
+      /// opens returns focus there when it closes.
+      afterClose?: boolean;
       children?: ChatMenuChild[];
     };
 
@@ -736,10 +739,25 @@ function ChatMenu({
     opening.current++;
     setOpen(false);
   };
+  /// A row's action that waits for the menu to finish closing (`afterClose`).
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const trigger = useRef<HTMLButtonElement | null>(null);
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
-    <Menu open={open} onOpenChange={onOpenChange}>
+    <Menu
+      open={open}
+      onOpenChange={onOpenChange}
+      triggerRef={trigger}
+      onOpenChangeComplete={(next) => {
+        const run = afterClose.current;
+        afterClose.current = undefined;
+        if (next || !run) return;
+        // Focus is back on the menu's button before the action runs, so a dialog it opens returns there.
+        trigger.current?.focus();
+        run();
+      }}
+    >
       <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
         <Icon name={icon} size={15} />
       </MenuButton>
@@ -768,7 +786,7 @@ function ChatMenu({
                   ))}
                 </Submenu>
               ) : (
-                <ChatMenuRow key={row.key} item={row} />
+                <ChatMenuRow key={row.key} item={row} afterClose={afterClose} />
               ),
             )}
       </MenuPopup>
@@ -776,10 +794,17 @@ function ChatMenu({
   );
 }
 
-function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
+function ChatMenuRow({
+  item,
+  afterClose,
+}: {
+  item: Exclude<ChatMenuItem, "separator">;
+  afterClose: React.MutableRefObject<(() => void) | undefined>;
+}) {
   const shortcut = useShortcut(item.shortcutAction ?? "");
+  const onSelect = item.afterClose && item.onSelect ? () => void (afterClose.current = item.onSelect) : item.onSelect;
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
+    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={onSelect}>
       <Icon name={item.icon} size={15} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
