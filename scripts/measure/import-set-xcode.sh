@@ -124,7 +124,7 @@ at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
 trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$work/spm" "$work/list-dd"' EXIT
 
 # The package's scheme: the executable product's, else the whole package's.
-scheme="$(cd "$work/app-exe" && xcodebuild -list -json -derivedDataPath "$work/list-dd" -clonedSourcePackagesDirPath "$work/spm" 2>"$work/list.err" | python3 -I -c '
+scheme="$(cd "$work/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$work/spm" 2>"$work/list.err" | python3 -I -c '
 import json, sys
 s = (json.load(sys.stdin).get("workspace") or {}).get("schemes") or []
 print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxNextAppExecutable") if n in s), ""))
