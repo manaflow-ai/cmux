@@ -24,7 +24,8 @@ enum DebugCEF {
                 ["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)]
             }),
             "prefetch": services.cache.cef.frameworkPrefetch.map {
-                ["bytes": .number(Double($0.bytes)), "files": .number(Double($0.files)), "ms": .number($0.milliseconds)]
+                ["bytes": .number(Double($0.bytes)), "files": .number(Double($0.files)), "ms": .number($0.milliseconds),
+                 "services_ms": .number($0.servicesMilliseconds)]
             } ?? .null,
         ]
         if case let browserTabs = services.cache.browserTabs {

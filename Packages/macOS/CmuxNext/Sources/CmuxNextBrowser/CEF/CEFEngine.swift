@@ -133,8 +133,9 @@ public final class CEFEngine: BrowserEngine {
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
     /// bytes, files and milliseconds; nil before one ran.
-    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double)? {
-        CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, Double($0.duration.components.attoseconds) / 1e15 + Double($0.duration.components.seconds) * 1000) }
+    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+        let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
+        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
     }
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).

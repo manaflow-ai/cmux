@@ -1,6 +1,8 @@
 import CmuxNextCompat
+import CoreLocation
 import Darwin
 import Foundation
+import LocalAuthentication
 
 /// Reads the Chromium framework's code and resources into the file cache on
 /// the library-load thread, before `CefInitialize` runs on the main thread.
@@ -12,11 +14,18 @@ import Foundation
 /// 0.15 s each once the files were cached (os-smoke, 2026-10-18). After this
 /// read, those page faults are served from memory. A cached file costs one
 /// memory copy (about 40 ms for all files).
+///
+/// Two system services Chromium asks synchronously on the main thread are
+/// also asked here first, so their daemons and connections are up:
+/// CoreLocation (CefInitialize sets up geolocation) and LocalAuthentication
+/// (the first browser window creates an `LAContext`, a synchronous XPC that
+/// waited about 0.5 s in a macOS 26 VM). Neither call prompts.
 nonisolated struct CEFFrameworkPrefetch: Sendable {
     struct Report: Sendable {
         var bytes: Int = 0
         var files: Int = 0
         var duration: Duration = .zero
+        var services: Duration = .zero
     }
 
     /// The last read in this process (`debug.cef`).
@@ -56,6 +65,10 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
             }
         }
         report.duration = clock.now - started
+        let servicesStarted = clock.now
+        _ = CLLocationManager.locationServicesEnabled()
+        _ = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+        report.services = clock.now - servicesStarted
         lastReport.withLock { $0 = report }
         CEFRuntime.primeImageIO()
     }
