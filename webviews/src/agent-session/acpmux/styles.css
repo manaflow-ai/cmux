@@ -456,9 +456,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick[data-floating=compact]{justify-content:stretch}
 .acpmux-quick-compact-bar{flex:1;min-height:0;display:flex;align-items:center}
 /* Static status indicators (cx-sya4n): no breathing, and a shape per state, not color alone: a solid dot
-   while it works, a triangle when it needs you. */
+   while it works, a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
 :root[data-status-indicators=static] .acpmux-floating-status[data-status=streaming]{animation:none}
-:root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{width:8px;height:7px;border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
+:root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
 .acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-floating-bar-open:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
