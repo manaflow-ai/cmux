@@ -163,6 +163,11 @@ public struct LabelParityProbe {
                     }
                 }
             }
+            // The old ChromeLabel's ink: a copy of the field's cell drawn into the glyph mask.
+            let celled = Self.ink(cellOf: stock)
+            row["\(at).cell.stock"] = "\(celled)"
+            report.checked += 1
+            if !Self.placed(celled, inks.1) { note("\(name) \(at) cell ink: old label \(celled) label \(inks.1)", into: &report) }
             label.display()
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"
@@ -227,7 +232,7 @@ public struct LabelParityProbe {
     /// (drawn and measured) and a ChromeLabel, against the text's one-line width.
     private static func wrapEdges(in root: NSView) -> [String] {
         var lines: [String] = []
-        for text in ["line two is", "Run any cmux action by typing its", "Workspace"] {
+        for text in ["line two is", "Run any cmux action by typing its", "Workspace", "line one\nline two is"] {
             let font = NSFont.systemFont(ofSize: 13)
             let stock = NSTextField(wrappingLabelWithString: text)
             stock.font = font
@@ -256,9 +261,14 @@ public struct LabelParityProbe {
             let drawn = edge { oneLine(stock, $0) }
             let measured = edge { (stock.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: $0, height: 1000)).height ?? 99) < 20 }
             let drawnLabel = edge { oneLine(label, $0) }
+            let drawnCell = edge { width in
+                stock.frame = NSRect(x: 10, y: 10, width: width, height: 40)
+                let ink = Self.ink(cellOf: stock)
+                return ink.amount > 0 && ink.box.height < 26
+            }
             stock.removeFromSuperview()
             label.removeFromSuperview()
-            lines.append("wrap edge \"\(text)\": one-line width \(label.naturalSize.width) stock draw \(drawn) stock measure \(measured) label draw \(drawnLabel)")
+            lines.append("wrap edge \"\(text)\": one-line width \(label.naturalSize.width) stock draw \(drawn) stock measure \(measured) old label (cell) draw \(drawnCell) label draw \(drawnLabel)")
         }
         return lines
     }
@@ -291,6 +301,16 @@ public struct LabelParityProbe {
         if a.amount == 0 || b.amount == 0 { return a.amount == b.amount }
         let edges = [a.box.minX - b.box.minX, a.box.minY - b.box.minY, a.box.maxX - b.box.maxX, a.box.maxY - b.box.maxY]
         return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.03
+    }
+
+    private static func ink(cellOf field: NSTextField) -> Ink {
+        guard let cell = field.cell?.copy() as? NSTextFieldCell else { return Ink(box: .null, amount: 0) }
+        let size = field.bounds.size
+        let image = GlyphMask.image(size: size, scale: field.window?.backingScaleFactor ?? 2, ink: NSColor.black.cgColor) { _, _ in
+            cell.drawsBackground = false
+            cell.draw(withFrame: NSRect(origin: .zero, size: size), in: field)
+        }
+        return image.map { ink($0) } ?? Ink(box: .null, amount: 0)
     }
 
     private static func ink(cached view: NSView) -> Ink {
