@@ -96,7 +96,7 @@ fi
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$script_dir/swift-test-debug-info.sh" || exit 2
-# A reused .build drops its precompiled modules when a binary target's headers change.
+# A reused .build drops its build outputs when a binary target's headers change.
 # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
 source "$script_dir/swiftpm-binary-module-guard.sh" || exit 2
 debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})

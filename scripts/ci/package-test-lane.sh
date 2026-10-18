@@ -113,7 +113,7 @@ sanitize_link_flags=(-Xlinker -no_compact_unwind)
 # builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
-# A reused .build drops its precompiled modules when a binary target's headers
+# A reused .build drops its build outputs when a binary target's headers
 # change (CCmuxAppFFI or GhosttyNextKit pin): scripts/ci/swiftpm-binary-module-guard.sh.
 # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swiftpm-binary-module-guard.sh" || exit 2

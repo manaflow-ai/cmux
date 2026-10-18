@@ -21,14 +21,18 @@
 #   that the package's or a local dependency's manifest names.
 #   The digest (with the toolchain's version) is stored in
 #   SCRATCH/.cmux-binary-module-inputs. When it differs, or a kept SCRATCH has
-#   no digest yet, it removes the precompiled module caches in SCRATCH before the
-#   build; the build then compiles them again from the current headers, and
-#   the Swift modules that import them after it. Sources, dependency checkouts
-#   and downloaded artifacts stay.
+#   no digest yet, it removes every build output in SCRATCH before the build
+#   (swiftpm_purge_build_outputs), so the package builds cold once per header
+#   change. Dependency checkouts, downloaded artifacts and the resolution state
+#   stay. Removing only the module caches is not enough: swiftbuild's build
+#   database still lists the deleted dependency scans as done, and the next
+#   build fails with "Failed to query serialized dependencies at
+#   .../ExplicitPrecompiledModules/*.scan" (2026-10-18, aws-m4pro-2 slot-1,
+#   step ec537be95de8581e393962bd).
 #
 # swiftpm_purge_build_outputs SCRATCH
-#   The backstop: removes every build output in SCRATCH (keeps checkouts,
-#   repositories, artifacts and the resolution state).
+#   Removes every build output in SCRATCH (keeps checkouts, repositories,
+#   artifacts and the resolution state). Also the backstop of the suite build.
 #
 # swiftpm_stale_module_failure LOG
 #   Exit 0 when LOG has a stale explicit-module failure
@@ -104,26 +108,23 @@ swiftpm_binary_module_guard() {
   if [ -n "$digest" ] && [ "$digest" = "$previous" ]; then
     return 0
   fi
-  local removed=0 dir
-  while IFS= read -r -d '' dir; do
-    rm -rf -- "$dir"
-    removed=$((removed + 1))
-  done < <(find "$scratch" \( -path "$scratch/artifacts" -o -path "$scratch/checkouts" -o -path "$scratch/repositories" \) -prune -o \
-    -type d \( -name '*ExplicitPrecompiledModules' -o -name 'ModuleCache' -o -name 'ModuleCache.noindex' -o -name 'PrecompiledHeaders' \) \
-    -prune -print0 2>/dev/null)
-  # Written only after the caches are gone: a step stopped in between purges again.
+  # Written only after the outputs are gone: a step stopped in between purges again.
+  local had_outputs=0 entry
+  for entry in "$scratch"/out "$scratch"/*-apple-* "$scratch"/debug "$scratch"/release; do
+    [ ! -e "$entry" ] || had_outputs=1
+  done
+  swiftpm_purge_build_outputs "$scratch"
   mkdir -p "$scratch"
-  if [ -n "$digest" ]; then
-    printf '%s\n' "$digest" > "$stamp"
-  else
+  if [ -z "$digest" ]; then
     rm -f "$stamp"
-    echo "ci-phase swift package resolve failed in $pkgdir: removed $removed precompiled module cache folder(s) in $scratch"
+    echo "ci-phase swift package resolve failed in $pkgdir: removed the build outputs in $scratch"
     return 0
   fi
+  printf '%s\n' "$digest" > "$stamp"
   if [ -n "$previous" ]; then
-    echo "ci-phase binary-target headers changed in $pkgdir since its last build: removed $removed precompiled module cache folder(s) in $scratch"
-  elif [ "$removed" -gt 0 ]; then
-    echo "ci-phase $scratch had no binary-target header digest: removed $removed precompiled module cache folder(s)"
+    echo "ci-phase binary-target headers changed in $pkgdir since its last build: removed the build outputs in $scratch (a cold build of this package)"
+  elif [ "$had_outputs" -eq 1 ]; then
+    echo "ci-phase $scratch had build outputs but no binary-target header digest: removed them (a cold build of this package)"
   fi
 }
 
