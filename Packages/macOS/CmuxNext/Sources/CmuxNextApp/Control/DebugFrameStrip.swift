@@ -24,7 +24,11 @@ enum DebugFrameStrip {
         // The app's bench marks around the key come back with the frames (`spans`, ms from the key).
         BenchSpans.begin()
         let start = ContinuousClock.now
-        let recording = Task.detached { await WindowFrame.record(number, scale: scale, from: start, until: 120 + duration) }
+        // `crop: "strip"`: only the focused pane's tab strip is kept (full scale stays cheap); the report
+        // then measures the strip alone.
+        let cropsStrip = params["crop"]?.stringValue == "strip"
+        let crop = cropsStrip ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
+        let recording = Task.detached { await WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }
         // The key goes in once the recorder has frames from before it.
         let lead = DemandTimer(owner: "debug.frame_strip.lead")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -63,8 +67,8 @@ enum DebugFrameStrip {
         let spans = BenchSpans.end()
         let pane = controller.content?.focusedPane
         guard let report = await window.frameStripReport(frames, sentAt: sentAt, sentTime: sentTime,
-                                                         content: params["content"]?.stringValue == "none" ? nil : pane?.view.contentHost,
-                                                         strip: pane?.view.stripView, tolerance: tolerance, jump: params["jump"]?.doubleValue, dir: dir),
+                                                         content: params["content"]?.stringValue == "none" || crop != nil ? nil : pane?.view.contentHost,
+                                                         strip: crop != nil ? nil : pane?.view.stripView, tolerance: tolerance, jump: params["jump"]?.doubleValue, dir: dir),
               case .object(var fields)? = JSONValue(foundation: report)
         else { return .object(["error": .string("no frames"), "key": sent]) }
         fields["key"] = sent

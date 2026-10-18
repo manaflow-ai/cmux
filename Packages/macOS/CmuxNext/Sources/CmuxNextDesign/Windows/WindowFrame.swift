@@ -36,8 +36,9 @@ public nonisolated struct WindowFrame: Sendable {
         }
     }
 
-    /// Reads the window's composited image back to back until `until` ms after `start`.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, from start: ContinuousClock.Instant,
+    /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
+    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
+    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
                                          until: Double) async -> [WindowFrame] {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
@@ -48,7 +49,11 @@ public nonisolated struct WindowFrame: Sendable {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
             guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
             let at = elapsed(since: start)
-            if let frame = WindowFrame(image, scale: scale, at: at) { frames.append(frame) }
+            let kept = crop.flatMap { unit in
+                image.cropping(to: CGRect(x: unit.minX * Double(image.width), y: unit.minY * Double(image.height),
+                                          width: unit.width * Double(image.width), height: unit.height * Double(image.height)).integral)
+            } ?? image
+            if let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
     }

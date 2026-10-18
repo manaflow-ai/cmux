@@ -55,6 +55,8 @@ parser.add_argument("--crowded", type=int, default=0)
 # selection burst in the crowded strip (several Next Tab keys inside one recording).
 parser.add_argument("--strip-scale", type=float, default=0.25)
 parser.add_argument("--burst", type=int, default=4)
+# Record only the focused pane's tab strip (full-scale strips of the tabs' own motion stay cheap).
+parser.add_argument("--crop-strip", action="store_true")
 opts = parser.parse_args()
 WIDTH, HEIGHT = (int(v) for v in opts.size.split("x"))
 BINARY = os.path.join(opts.app, "Contents/MacOS",
@@ -172,6 +174,8 @@ def strip(name, folder, key_name, modifiers, content="focused", gesture=None, re
               "duration_ms": opts.duration_ms, "content": "none" if content == "panes" else content, "tolerance": 0.0005}
     if repeat > 1:
         params.update({"repeat": repeat, "repeat_interval_ms": 40})
+    if opts.crop_strip:
+        params["crop"] = "strip"
     if gesture:
         params["gesture"] = gesture
     reply = rpc("debug.new_tab", params) or {}
