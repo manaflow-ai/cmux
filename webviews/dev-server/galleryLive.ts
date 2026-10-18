@@ -156,6 +156,12 @@ export function galleryLive({ webviewsRoot, repoRoot }: { webviewsRoot: string; 
         execFile("git", ["-C", repoRoot, "rev-parse", "HEAD"], (error, stdout) => {
           if (error || stdout.trim() === revision.sha) return;
           revision = readRevision(repoRoot);
+          // The revision virtual module is cached independently of the status endpoint. Invalidate
+          // it before the reload so an already-open stage cannot report the previous head after a
+          // live checkout fast-forward.
+          const revisionModule = client.moduleGraph.getModuleById("\0virtual:cmux-gallery/revision");
+          if (revisionModule) client.moduleGraph.invalidateModule(revisionModule);
+          server.ws.send({ type: "full-reload" });
           broadcast();
         });
       }, 3000);
