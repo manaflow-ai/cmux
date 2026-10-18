@@ -13,6 +13,7 @@ class GalleryAdvisoryWorkflowContract(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(".results.status == \"complete\"", text)
         self.assertIn(".quality == \"pass\"", text)
+        self.assertIn('--capture-manifest "$RUNNER_TEMP/cases.json"', text)
         self.assertIn('--live-head-sha \"$HEAD_SHA\"', text)
 
 
