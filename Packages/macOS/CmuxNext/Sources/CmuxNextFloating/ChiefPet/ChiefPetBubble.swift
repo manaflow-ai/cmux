@@ -32,6 +32,8 @@ final class ChiefPetBubblePanel: NSPanel {
         isFloatingPanel = true
         level = .floating
         hidesOnDeactivate = false
+        // Agent output and replies stay out of screen shares and recordings.
+        sharingType = .none
         becomesKeyOnlyIfNeeded = true
         isReleasedWhenClosed = false
         animationBehavior = .none

@@ -46,14 +46,31 @@ extension NotificationCenterService {
     }
 
     /// The pet's typed reply to `notice`, only while it is still its tab's unread notification, as a
-    /// `notify --reply` banner's is: a notice read meanwhile must not type into whatever runs there now.
-    func typeChiefPetReply(_ text: String, to notice: ChiefPetNotice) -> Bool {
-        guard let services, let surface = notice.surface, let located = locate(surface: SurfaceID(rawValue: surface), in: services.daemon.store),
+    /// `notify --reply` banner's is (a notice read meanwhile must not type into whatever runs there
+    /// now), and only while a program still runs in the foreground there: with the agent gone and its
+    /// shell back, the text and Return would run as a command. The check and the paste go over one
+    /// connection, back to back.
+    func typeChiefPetReply(_ text: String, to notice: ChiefPetNotice) async -> Bool {
+        guard let services, !text.isEmpty, let surface = notice.surface,
+              let located = locate(surface: SurfaceID(rawValue: surface), in: services.daemon.store), located.tab.kind == .pty,
               let marker = located.tab.notification, marker.unread, marker.notification.rawValue == notice.id else {
             note("pet reply refused: notice \(notice.id) is not its tab's unread notification")
             return false
         }
-        return type(text, into: located)
+        let target = located.tab.surface
+        let failed = await services.daemon(for: located.pane).failure("chief-pet-reply") { connection in
+            let process = try await connection.request(TerminalProcessInfoRequest(surface: target), timeout: .seconds(1))
+            guard process.runningProgram != nil else { throw ChiefPetReplyRefusal() }
+            try await connection.send(target, text: text, paste: true)
+            try await connection.send(target, text: "\r")
+        }
+        guard failed == nil else {
+            note("pet reply refused: only a shell runs in \(located.tab.id), or the daemon refused")
+            return false
+        }
+        note("pet reply \(located.tab.id)")
+        acknowledge(located.tab)
+        return true
     }
 
     /// Pastes `text` into `located`'s terminal, then Return as its own key, on the tab's own machine (a
@@ -71,3 +88,6 @@ extension NotificationCenterService {
         return true
     }
 }
+
+/// The pet's reply found only the terminal's shell in the foreground: the agent that asked is gone.
+private struct ChiefPetReplyRefusal: Error {}

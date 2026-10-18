@@ -86,9 +86,10 @@ import Testing
     }
 
     @Test func heightsMatchTheReferenceDeck() {
-        #expect(ChiefPetBubblePanel.height(count: 1, expanded: false) == 56)
-        #expect(ChiefPetBubblePanel.height(count: 3, expanded: false) == 56 + 2 * 8)
-        #expect(ChiefPetBubblePanel.height(count: 5, expanded: true) == 3 * 56 + 2 * 8, "three at most")
+        let one: CGFloat = 56, deck: CGFloat = 72, column: CGFloat = 184
+        #expect(ChiefPetBubblePanel.height(count: 1, expanded: false) == one)
+        #expect(ChiefPetBubblePanel.height(count: 3, expanded: false) == deck, "56 + 2 x 8")
+        #expect(ChiefPetBubblePanel.height(count: 5, expanded: true) == column, "three at most: 3 x 56 + 2 x 8")
     }
 
     @Test func bubbleSitsAboveThePetOrBelowNearTheTop() {

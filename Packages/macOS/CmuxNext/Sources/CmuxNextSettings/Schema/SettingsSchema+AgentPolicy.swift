@@ -177,7 +177,7 @@ extension SettingsSchema {
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet (looks only).
-        "home.chiefPetEnabled",
+        // The floating Chief pet's character (looks only); turning the pet on is the person's.
         "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
@@ -240,6 +240,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
+        // The Chief pet puts agent output over every app and a reply box that types into terminals.
+        "home.chiefPetEnabled": .userOnly,
         "computerUse.driver": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,

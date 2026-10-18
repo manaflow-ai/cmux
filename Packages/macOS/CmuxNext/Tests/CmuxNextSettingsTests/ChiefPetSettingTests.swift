@@ -27,9 +27,14 @@ struct ChiefPetSettingTests {
         #expect(snapshot.diagnostics.contains { $0.path == "home.chiefPetEnabled" })
     }
 
-    @Test func agentsMaySetIt() throws {
-        let row = try #require(SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath))
-        #expect(SettingsSchema.agentSettable(row) == true)
+    /// Turning the pet on puts agent output over every app and a reply box that types into
+    /// terminals: the person's call. Its character is looks only.
+    @Test func onlyThePersonTurnsItOnAgentsMayPickTheCharacter() throws {
+        let enabled = try #require(SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath))
+        #expect(SettingsSchema.agentSettable(enabled) == false)
+        #expect(SettingsSchema.agentRefusedKeys["home.chiefPetEnabled"] == .userOnly)
+        let mascot = try #require(SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath))
+        #expect(SettingsSchema.agentSettable(mascot) == true)
     }
 
     @Test func characterIsOneOfTheDockMascotsOrbByDefault() {

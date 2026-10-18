@@ -32,6 +32,6 @@ struct ChiefPetRoutes {
             guard let chief = TopHomePageView.chief(services.home) else { return false }
             return (try? await services.home.homeStore.send(conversation: ConversationID(chief), text: text, attachments: [])) != nil
         }
-        return services.notifications.typeChiefPetReply(text, to: notice)
+        return await services.notifications.typeChiefPetReply(text, to: notice)
     }
 }

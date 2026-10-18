@@ -1,6 +1,7 @@
 /// `home.chiefPetEnabled` in cmux.json: the Chief pet, a small Chief that floats over every app,
 /// pops up agent events and takes a quick reply (CmuxNextFloating's `ChiefPetController`). Off by
-/// default; Settings > Home, the palette's settings rows and `cmux settings set` turn it on.
+/// default; the person turns it on (Settings > Agents > Chief Pet, the palette's settings rows);
+/// agents may not (it puts their output over every app).
 /// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots.
 public nonisolated struct HomeChiefPetSetting {
     public nonisolated init() {}
