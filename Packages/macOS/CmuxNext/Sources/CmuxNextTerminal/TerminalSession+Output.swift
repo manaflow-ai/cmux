@@ -7,6 +7,7 @@ extension TerminalSession {
         if model.lastCommand != nil { return true }
         // No surface to read (released): what it showed when it had one stands.
         guard let text = surfaceView.viewportText() else { return true }
+        // main-actor-ok: one viewport of text (a screen of rows); moved from CmuxNextApp/TerminalOutput.swift
         let lines = text.split(whereSeparator: \.isNewline).filter { !$0.allSatisfy(\.isWhitespace) }
         return lines.drop { $0.hasPrefix("Last login:") }.count > 1
     }
