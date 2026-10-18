@@ -56,8 +56,8 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     return {
       id: SnapshotId.make(resource.cmuxId),
       sourceVmId: info?.sourceVmId ?? null,
-      displayName: info?.displayName ?? null,
-      labels: info?.labels ?? {},
+      displayName: resource.displayName,
+      labels: resource.labels,
       createdAt: resource.createdAt,
     };
   };
