@@ -31,6 +31,7 @@ fi
 
 bun test --isolate --timeout="$db_test_timeout_ms" --max-concurrency=1 \
   tests/agent-broker-db-behavior.test.ts \
+  tests/huge-blue-attach-db.test.ts \
   tests/remote-runtime-db-behavior.test.ts \
   tests/db-effect-runtime.test.ts \
   tests/hive-runtime-db-behavior.test.ts

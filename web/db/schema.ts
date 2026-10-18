@@ -281,7 +281,7 @@ export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
   uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
   index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
   check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
-  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle')`),
+  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle', 'huge-blue')`),
 ]);
 
 /** A durable fan-out run. Source and recipe are immutable after creation. */
@@ -3122,3 +3122,16 @@ export const catalogVersions = pgTable(
   },
   (table) => [index("catalog_versions_published_at_idx").on(table.publishedAt.desc())],
 );
+
+/** Opaque, rotating internal Huge Blue attach capabilities. Raw tokens never persist. */
+export const hugeBlueAttachTokens = pgTable("huge_blue_attach_tokens", {
+  tokenHash: text("token_hash").primaryKey(),
+  runtimeId: uuid("runtime_id").notNull().references(() => cloudRuntimeWorkspaces.runtimeId, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  hostId: text("host_id").notNull(),
+  session: text("session").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("huge_blue_attach_tokens_runtime_idx").on(table.runtimeId)]);

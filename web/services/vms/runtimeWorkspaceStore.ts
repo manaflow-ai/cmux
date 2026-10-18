@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { cloudRuntimeWorkspaces, cloudRuntimes } from "../../db/schema";
+import { cloudRuntimeWorkspaces, cloudRuntimes, hugeBlueAttachTokens } from "../../db/schema";
 import { createRuntime, getRuntime, updateRuntime } from "./runtimeRepository";
 import type { PersistentWorkspaceRecord, PersistentWorkspaceStore } from "./persistentWorkspace";
 
@@ -17,7 +17,7 @@ function toRecord(row: typeof cloudRuntimeWorkspaces.$inferSelect): PersistentWo
     workspaceId: row.workspaceId,
     tenantId: row.ownerTeamId,
     ownerId: row.ownerId,
-    provider: "freestyle",
+    provider: row.provider as PersistentWorkspaceRecord["provider"],
     lifecycle: lifecycleState(row.lifecycle),
     providerVmId: row.providerVmId,
     providerWorkspaceId: row.providerWorkspaceId,
@@ -55,6 +55,7 @@ export function persistentWorkspaceStoreFromRuntime(): PersistentWorkspaceStore 
         workspaceName: record.workspaceName,
         lifecycle: record.lifecycle,
         ownerId: record.ownerId,
+        provider: record.provider,
         idempotencyKey: record.idempotencyKey,
         requestDigest: record.requestDigest,
         version: 1,
@@ -77,6 +78,9 @@ export function persistentWorkspaceStoreFromRuntime(): PersistentWorkspaceStore 
           .where(and(eq(cloudRuntimeWorkspaces.runtimeId, runtimeId), ...(expectedVersion === undefined ? [] : [eq(cloudRuntimeWorkspaces.version, expectedVersion)])))
           .for("update").limit(1);
         if (!current) throw new Error("workspace version is stale or missing");
+        if (patch.lifecycle && patch.lifecycle !== "running") {
+          await tx.update(hugeBlueAttachTokens).set({ revokedAt: new Date() }).where(eq(hugeBlueAttachTokens.runtimeId, runtimeId));
+        }
         const nextLifecycle = patch.lifecycle ? lifecycleState(patch.lifecycle) : lifecycleState(current.lifecycle);
         const [updated] = await tx.update(cloudRuntimeWorkspaces).set({
           ...patch,

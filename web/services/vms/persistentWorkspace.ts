@@ -15,7 +15,7 @@ export const PERSISTENT_WORKSPACE_LIFECYCLES = [
 ] as const;
 export type PersistentWorkspaceLifecycle = (typeof PERSISTENT_WORKSPACE_LIFECYCLES)[number];
 
-export type PersistentWorkspaceProviderId = "freestyle";
+export type PersistentWorkspaceProviderId = "freestyle" | "huge-blue";
 
 /** Provider handles are opaque ids, never bearer tokens or endpoint URLs. */
 export type PersistentWorkspaceProviderHandles = {
@@ -119,6 +119,8 @@ export type PersistentWorkspaceProviderAdoptInput = PersistentWorkspaceProviderL
 };
 
 export type PersistentWorkspaceProvider = {
+  /** Issue credentials only on the authenticated attach mutation, never list/create. */
+  readonly scopedAttach?: boolean;
   readonly create: (input: PersistentWorkspaceProviderCreateInput) => Promise<PersistentWorkspaceProviderHandles>;
   readonly resume: (input: PersistentWorkspaceProviderLifecycleInput) => Promise<void>;
   readonly suspend: (input: PersistentWorkspaceProviderLifecycleInput) => Promise<void>;
@@ -147,7 +149,7 @@ export type PersistentWorkspaceView = {
 
 /** Safe attach material. Values matching credentials are replaced recursively. */
 export type PersistentWorkspaceAttachTarget = {
-  readonly redacted: true;
+  readonly redacted: boolean;
   readonly provider: PersistentWorkspaceProviderId;
   readonly runtimeId: string;
   readonly workspaceId: string;
@@ -350,6 +352,7 @@ export function createPersistentWorkspaceService(input: {
   readonly store: PersistentWorkspaceStore;
   readonly provider: PersistentWorkspaceProvider;
   readonly now?: () => Date;
+  readonly providerId?: PersistentWorkspaceProviderId;
 }): {
   readonly create: (request: PersistentWorkspaceCreateInput) => Promise<PersistentWorkspaceView>;
   readonly get: (request: PersistentWorkspaceLookupInput) => Promise<PersistentWorkspaceView>;
@@ -384,7 +387,7 @@ export function createPersistentWorkspaceService(input: {
       workspaceId: record.providerWorkspaceId,
       terminalId: record.providerTerminalId,
     };
-    const raw = input.provider.attach ? await input.provider.attach({ record }) : fallback;
+    const raw = input.provider.attach && !input.provider.scopedAttach ? await input.provider.attach({ record }) : fallback;
     return redactedAttachTarget(record, raw ?? fallback);
   }
 
@@ -408,7 +411,7 @@ export function createPersistentWorkspaceService(input: {
       workspaceId,
       tenantId,
       ownerId,
-      provider: "freestyle",
+      provider: input.providerId ?? "freestyle",
       lifecycle: "provisioning",
       providerVmId: null,
       providerWorkspaceId: null,
@@ -498,7 +501,7 @@ export function createPersistentWorkspaceService(input: {
       workspaceId: newIdentity("workspace"),
       tenantId,
       ownerId,
-      provider: "freestyle",
+      provider: input.providerId ?? "freestyle",
       lifecycle: "provisioning",
       providerVmId,
       providerWorkspaceId,
@@ -648,8 +651,14 @@ export function createPersistentWorkspaceService(input: {
       throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "attach");
     }
     try {
+      if (input.provider.scopedAttach) {
+        if (record.lifecycle !== "running") throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "attach");
+        const target = await input.provider.attach!({ record });
+        return { redacted: false, provider: record.provider, runtimeId: record.runtimeId, workspaceId: record.workspaceId, target: target as Record<string, unknown> };
+      }
       return await attachTarget(record);
     } catch (cause) {
+      if (cause instanceof PersistentWorkspaceError) throw cause;
       throw new PersistentWorkspaceProviderError("attach", cause);
     }
   }
@@ -676,6 +685,7 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
   /** Host class selected by the configured provider adapter (for example freestyle). */
   readonly hostLeaseProvider: VmHostLeaseProvider;
   readonly hostLeaseTtlMs?: number;
+  readonly scopedAttach?: boolean;
   readonly attach?: (record: PersistentWorkspaceRecord) => Promise<unknown>;
 }): PersistentWorkspaceProvider {
   function assertHostAdapterConfigured(): void {
@@ -744,6 +754,7 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
   }
 
   return {
+    scopedAttach: input.scopedAttach,
     async create(request) {
       assertHostAdapterConfigured();
       const result = await input.effectBroker.execute({

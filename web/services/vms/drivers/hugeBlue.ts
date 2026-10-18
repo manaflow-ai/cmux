@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { issueHugeBlueAttachToken } from "../hugeBlueAttachTokens";
 import {
   ProviderError,
   type CmuxRemoteEndpoint,
@@ -109,8 +110,6 @@ export class HugeBlueProvider implements VMProvider {
       identityFile,
       proxyCommand,
       vmId: bounded(this.env.HUGE_BLUE_VM_ID, "HUGE_BLUE_VM_ID") ?? `huge-blue:${host}`,
-      route: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_URL, "HUGE_BLUE_CMUX_REMOTE_URL", 1024),
-      token: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_TOKEN, "HUGE_BLUE_CMUX_REMOTE_TOKEN", 1024),
       session: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_SESSION, "HUGE_BLUE_CMUX_REMOTE_SESSION") ?? "cloud",
       cmuxTuiBin: bounded(this.env.HUGE_BLUE_CMUX_TUI_BIN, "HUGE_BLUE_CMUX_TUI_BIN") ?? "/home/leo/.local/bin/cmux-tui",
       cmuxAgentBin: bounded(this.env.HUGE_BLUE_CMUX_AGENT_BIN, "HUGE_BLUE_CMUX_AGENT_BIN") ?? "/home/leo/.local/bin/cmux",
@@ -130,7 +129,7 @@ export class HugeBlueProvider implements VMProvider {
       providerMetadata: {
         transport: "ssh",
         host: config.host,
-        ...(config.route ? { cmuxRemoteRoute: config.route } : {}),
+
       },
     };
   }
@@ -157,11 +156,14 @@ export class HugeBlueProvider implements VMProvider {
     if (!vmId || !command || /[\u0000]/.test(command)) throw new ProviderError("huge-blue", "exec requires a VM id and command");
     const config = this.config();
     try {
-      const commandForHost = command
-        .replaceAll("/usr/local/bin/cmux-tui", `${config.cmuxTuiBin} --socket '${config.cmuxSocket}'`)
-        .replaceAll("/usr/local/bin/cmux", config.cmuxAgentBin)
-        .replaceAll("--session 'cloud'", `--session '${config.session}'`)
-        .replaceAll("--session cloud", `--session ${config.session}`);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const prefix = "/usr/local/bin/cmux-tui --session 'cloud'";
+      // Rewrite only the structured CloudVmRunAdapter command prefix. Prompt
+      // literals may themselves contain command paths and must stay byte-exact.
+      const commandForHost = command.startsWith(prefix)
+        ? `${quote(config.cmuxTuiBin)} --socket ${quote(config.cmuxSocket)} --session ${quote(config.session)}${command.slice(prefix.length)}`
+          .replace(" -- '/usr/local/bin/cmux' agent ", ` -- ${quote(config.cmuxAgentBin)} agent `)
+        : command;
       return await this.runCommand({
         host: config.host,
         command: commandForHost,
@@ -181,16 +183,7 @@ export class HugeBlueProvider implements VMProvider {
   }
 
   async openCmuxRemote(_vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
-    const config = this.config();
-    const route = bounded(options?.providerMetadata?.cmuxRemoteRoute as string | undefined, "cmux remote route", 1024) ?? config.route;
-    if (!route || !config.token) throw new ProviderError("huge-blue", "HUGE_BLUE_CMUX_REMOTE_URL and HUGE_BLUE_CMUX_REMOTE_TOKEN are required for attach");
-    return {
-      transport: "cmux-remote",
-      route,
-      token: config.token,
-      expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
-      session: config.session,
-      trustedCarrier: true,
-    };
+    if (!options?.workspaceScope) throw new ProviderError("huge-blue", "owned workspace scope is required for attach");
+    return issueHugeBlueAttachToken(options.workspaceScope, this.env);
   }
 }

@@ -115,7 +115,9 @@ export function createAgentBrokerLifecycleEffectBroker(
     async execute(input): Promise<LifecycleEffectReceipt> {
       const tenantId = safeText(input.tenantId, "tenantId");
       const ownerId = safeText(input.ownerId, "ownerId");
-      const hostClass = safeText(input.hostClass, "hostClass");
+      // Synchronous runtime effects must never be stolen by the independently
+      // polling host-lease worker, whose adapter accepts only lease operations.
+      const hostClass = safeText(`workspace:${input.hostClass}`, "hostClass");
       const effectKey = safeText(input.effectKey, "effectKey");
       const payload = safeResult(input.payload);
       const envelope: AgentBrokerEnvelope = {

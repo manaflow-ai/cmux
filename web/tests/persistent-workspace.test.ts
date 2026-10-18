@@ -153,3 +153,25 @@ describe("persistent workspace lifecycle", () => {
   });
 });
 
+
+test("scoped attach credentials are issued only explicitly, never by view/replay", async () => {
+  const fake = providerFixture();
+  let issued = 0;
+  const provider = { ...fake.provider, scopedAttach: true, attach: async () => { issued++; return { route: "wss://relay.example/v1/link?token=issued", token: "issued" }; } };
+  const service = createPersistentWorkspaceService({ store: storeFixture(), provider, providerId: "huge-blue" });
+  const created = await service.create(request);
+  const lookup = { ownerId: request.ownerId, tenantId: request.tenantId, runtimeId: created.runtimeId };
+  expect(created.provider).toBe("huge-blue");
+  await service.create(request);
+  await service.get(lookup);
+  expect(issued).toBe(0);
+  const endpoint = await service.attach(lookup);
+  expect(endpoint.redacted).toBe(false);
+  expect(endpoint.target.token).toBe("issued");
+  expect(issued).toBe(1);
+  await expect(service.attach({ ...lookup, ownerId: "foreign" })).rejects.toBeInstanceOf(PersistentWorkspaceOwnershipError);
+  expect(issued).toBe(1);
+  await service.suspend(lookup);
+  await expect(service.attach(lookup)).rejects.toMatchObject({ code: "workspace_invalid_state" });
+  expect(issued).toBe(1);
+});

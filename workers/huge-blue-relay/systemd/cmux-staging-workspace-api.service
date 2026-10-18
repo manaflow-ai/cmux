@@ -1,0 +1,14 @@
+[Unit]
+Description=Isolated Huge Blue workspace staging API
+After=network-online.target
+[Service]
+User=leo
+Environment=SKIP_ENV_VALIDATION=1
+EnvironmentFile=/etc/cmux/workspace-api-staging.env
+WorkingDirectory=/home/leo/Projects/cmux-agent-broker-staging
+ExecStart=/home/leo/.bun/bin/bun workers/huge-blue-relay/staging-api.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target

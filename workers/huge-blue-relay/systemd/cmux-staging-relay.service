@@ -1,0 +1,10 @@
+[Unit]
+Description=Huge Blue isolated staging cmux daemon
+After=default.target
+[Service]
+ExecStart=%h/.local/bin/cmux-tui --session huge-blue-staging --state %h/.acpmux-supervised/huge-blue/relay-state --headless --remote --remote-ws 127.0.0.1:1337 --remote-ws-trusted-carrier --remote-state-dir %h/.acpmux-supervised/huge-blue/relay-state/remote
+Restart=on-failure
+RestartSec=3
+KillMode=process
+[Install]
+WantedBy=default.target

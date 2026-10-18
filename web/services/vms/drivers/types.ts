@@ -292,6 +292,8 @@ export type CmuxRemoteEndpoint = {
 };
 
 export type CmuxRemoteAttachOptions = {
+  /** Server-owned runtime identity for scoped Huge Blue attach issuance. */
+  workspaceScope?: { runtimeId: string; ownerId: string; tenantId: string };
   /** Authoritative display name and revision, refreshed before returning the terminal. */
   promptIdentity?: GuestPromptIdentity;
   /**

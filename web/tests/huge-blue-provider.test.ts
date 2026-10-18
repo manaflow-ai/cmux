@@ -36,13 +36,18 @@ describe("Huge Blue provider", () => {
     await expect(provider.snapshot("huge-blue-staging")).rejects.toThrow("not supported");
   });
 
-  test("returns configured trusted cmux remote endpoint", async () => {
+  test("refuses attach without a server-owned workspace scope", async () => {
     const provider = new HugeBlueProvider({ env });
-    await expect(provider.openCmuxRemote("huge-blue-staging")).resolves.toMatchObject({
-      transport: "cmux-remote",
-      route: "wss://huge-blue.example/v1/link",
-      token: "staging-token",
-      trustedCarrier: true,
-    });
+    await expect(provider.openCmuxRemote("huge-blue-staging")).rejects.toThrow("owned workspace scope");
   });
+});
+
+test("Huge Blue rewrites the command prefix without changing literal prompt paths", async () => {
+  let command = "";
+  const provider = new HugeBlueProvider({ env, run: async (input) => { command = input.command; return { exitCode: 0, stdout: "{}", stderr: "" }; } });
+  const prompt = "mention /usr/local/bin/cmux-tui and --session cloud";
+  await provider.exec("huge-blue-staging", "/usr/local/bin/cmux-tui --session 'cloud' --json workspace 'ws1' run -- '/usr/local/bin/cmux' agent 'codex' -- '" + prompt + "'");
+  expect(command).toContain("--socket '/run/user/1001/cmux-tui-1001/huge-blue.sock'");
+  expect(command).toContain("-- '/home/leo/.local/bin/cmux' agent");
+  expect(command).toEndWith("'" + prompt + "'");
 });

@@ -11,20 +11,21 @@ import {
   persistentWorkspaceService,
   persistentWorkspaceProviderFromCloudVm,
   type PersistentWorkspaceService,
+  PersistentWorkspaceNotFoundError,
+  PersistentWorkspaceOwnershipError,
 } from "./persistentWorkspace";
 import { persistentWorkspaceStoreFromRuntime } from "./runtimeWorkspaceStore";
-import { defaultProviderId, getProvider, type ProviderId } from "./drivers";
+import { defaultProviderId, getProvider, HugeBlueProvider, type ProviderId } from "./drivers";
 import { resolveVmImage } from "./images/resolver";
-import { createVm, runVmWorkflow } from "./workflows";
 import type { VmEntitlements } from "./entitlements";
 import type { AuthedUser } from "./auth";
-import { vmModelPlaneGatewayFor } from "./modelPlaneGateway";
 
 export type PersistentWorkspaceCompositionInput = {
   readonly user: AuthedUser;
   readonly entitlements: VmEntitlements;
   readonly provider?: ProviderId;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly runtimeId?: string;
 };
 
 /**
@@ -37,8 +38,12 @@ export function createConfiguredPersistentWorkspaceService(
   input: PersistentWorkspaceCompositionInput,
 ): PersistentWorkspaceService {
   const providerId = input.provider ?? defaultProviderId();
-  const provider = getProvider(providerId);
   const env = input.env ?? process.env;
+  const provider = providerId === "huge-blue" ? new HugeBlueProvider({ env }) : getProvider(providerId);
+  if (providerId === "huge-blue" && (env.CMUX_VM_HUGE_BLUE_ENABLED !== "1"
+    || !(env.HUGE_BLUE_ALLOWED_OWNER_IDS ?? "").split(",").map((id) => id.trim()).includes(input.user.id))) {
+    throw new Error("Huge Blue shared-host workspaces require explicit internal-owner admission");
+  }
   const hostAdapters = createConfiguredHostLeaseAdaptersFromEnv(env);
   const hostLeaseProvider = providerId as VmHostLeaseProvider;
   if (!hostAdapters.has(hostLeaseProvider)) {
@@ -47,18 +52,20 @@ export function createConfiguredPersistentWorkspaceService(
   const hostLeaseTransport = new VmHostLeaseTransport(new DrizzleVmHostLeaseStore(), hostAdapters);
   const effectBroker = createAgentBrokerLifecycleEffectBroker({
     workerId: env.CMUX_BROKER_WORKER_ID?.trim() || `web-lifecycle:${input.user.id}`,
-    sourceSha: env.VERCEL_GIT_COMMIT_SHA?.trim() || "web-runtime",
+    sourceSha: env.CMUX_SOURCE_SHA?.trim() || env.VERCEL_GIT_COMMIT_SHA?.trim() || "web-runtime",
     scopeRevision: () => env.VERCEL_GIT_COMMIT_SHA?.trim() || "runtime",
     leaseTtlMs: Number(env.CMUX_BROKER_LEASE_TTL_MS) || undefined,
   });
-  // Huge Blue runs the shared cmux host image and does not own a separate
-  // provider image manifest. Reuse the validated cmux base image metadata for
-  // admission while the Huge Blue driver keeps the actual host lifecycle.
-  const image = resolveVmImage(providerId === "huge-blue" ? "freestyle" : providerId, undefined, env, { kind: "base" });
+  // Shared-host placement has no image allocation; Freestyle keeps normal VM admission.
+  const image = providerId === "huge-blue" ? null : resolveVmImage(providerId, undefined, env, { kind: "base" });
   const runAdapter = new CloudVmRunAdapter(provider);
 
   const workspaceProvider = persistentWorkspaceProviderFromCloudVm({
     provisionVm: async (request) => {
+      // Internal shared-host placement allocates a daemon workspace, not a paid VM.
+      if (providerId === "huge-blue") return provider.create({ image: "shared-host" });
+      const { createVm, runVmWorkflow } = await import("./workflows");
+      const { vmModelPlaneGatewayFor } = await import("./modelPlaneGateway");
       const vm = await runVmWorkflow(createVm({
         userId: input.user.id,
         billingCustomerType: input.entitlements.billingCustomerType,
@@ -66,9 +73,9 @@ export function createConfiguredPersistentWorkspaceService(
         billingPlanId: input.entitlements.planId,
         maxActiveVms: input.entitlements.maxActiveVms,
         provider: providerId,
-        image: image.image,
-        imageVersion: image.imageVersion,
-        imageSize: image.size ?? undefined,
+        image: image!.image,
+        imageVersion: image!.imageVersion,
+        imageSize: image!.size ?? undefined,
         displayName: request.workspaceName,
         perMachineHome: true,
         idempotencyKey: request.effectKey,
@@ -89,21 +96,34 @@ export function createConfiguredPersistentWorkspaceService(
     effectBroker,
     hostLeaseProvider,
     hostLeaseTtlMs: Number(env.CMUX_BROKER_LEASE_TTL_MS) || undefined,
+    scopedAttach: providerId === "huge-blue",
     attach: async (record) => {
       if (!provider.openCmuxRemote) throw new Error(`${providerId} does not support cmux remote attach`);
-      return provider.openCmuxRemote(record.providerVmId!);
+      const endpoint = await provider.openCmuxRemote(record.providerVmId!, { workspaceScope: { runtimeId: record.runtimeId, ownerId: record.ownerId, tenantId: record.tenantId } });
+      return { ...endpoint, providerWorkspaceId: record.providerWorkspaceId };
     },
   });
 
   return createPersistentWorkspaceService({
+    providerId,
     store: persistentWorkspaceStoreFromRuntime(),
     provider: workspaceProvider,
   });
 }
 
 /** Use an explicitly installed test/host override, otherwise compose the live service. */
-export function persistentWorkspaceServiceForRequest(
+export async function persistentWorkspaceServiceForRequest(
   input: PersistentWorkspaceCompositionInput,
-): PersistentWorkspaceService {
-  return persistentWorkspaceService() ?? createConfiguredPersistentWorkspaceService(input);
+): Promise<PersistentWorkspaceService> {
+  const configured = persistentWorkspaceService();
+  if (configured) return configured;
+  if (input.runtimeId) {
+    const record = await persistentWorkspaceStoreFromRuntime().getRuntime({ runtimeId: input.runtimeId });
+    if (!record) throw new PersistentWorkspaceNotFoundError(input.runtimeId);
+    if (record.ownerId !== input.user.id || record.tenantId !== input.entitlements.billingTeamId) {
+      throw new PersistentWorkspaceOwnershipError();
+    }
+    return createConfiguredPersistentWorkspaceService({ ...input, provider: record.provider });
+  }
+  return createConfiguredPersistentWorkspaceService(input);
 }

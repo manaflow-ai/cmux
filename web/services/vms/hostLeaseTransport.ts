@@ -1,3 +1,4 @@
+import { createSshHostLeaseClient } from "./sshHostLeaseClient";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -441,6 +442,13 @@ export function createConfiguredHostLeaseAdaptersFromEnv(
     adapters.set("freestyle", createFreestyleHostLeaseAdapter(createFreestyleHostLeaseHttpClient({
       baseUrl: freestyleUrl,
       token: () => freestyleToken,
+    })));
+  }
+  if (!adapters.has("huge-blue") && env.HUGE_BLUE_SSH_HOST) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createSshHostLeaseClient(env.HUGE_BLUE_SSH_HOST, {
+      user: env.HUGE_BLUE_SSH_USER,
+      identityFile: env.HUGE_BLUE_SSH_KEY,
+      proxyCommand: env.HUGE_BLUE_SSH_PROXY_COMMAND,
     })));
   }
   return adapters;
