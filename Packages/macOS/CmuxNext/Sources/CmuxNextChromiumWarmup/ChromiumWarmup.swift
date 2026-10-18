@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 public import CmuxNextBrowser
 import CmuxNextWakeups
 public import Foundation
