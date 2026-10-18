@@ -29,6 +29,8 @@ mod state;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
+mod owner_admission_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
