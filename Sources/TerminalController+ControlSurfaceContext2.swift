@@ -217,7 +217,8 @@ extension TerminalController {
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -507,7 +508,8 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id
@@ -579,6 +581,9 @@ extension TerminalController {
             surfaceID: surfaceId
         ) else {
             return .surfaceNotFound(surfaceId)
+        }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

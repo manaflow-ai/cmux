@@ -139,8 +139,7 @@ extension KeyboardShortcutSettings.Action {
              .toggleRightSidebar,
              .focusPaneByNumber,
              .findInDirectory,
-             .openDiffViewer,
-             .previousAgentTurn, .nextAgentTurn:
+             .openDiffViewer:
             .mainContainer
         }
     }
