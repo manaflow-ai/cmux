@@ -203,8 +203,7 @@ extension ChiefConversationOwner {
         // The rule is the one the card offered (its options carry it), never re-derived from the prompt.
         if answer.selections[Self.approvalAlwaysItem] != nil, ChiefToolPolicy.isAllow(choice),
            let rule = ChiefAllowRules.rule(inOptions: ref.options) {
-            ChiefAllowRules.shared.load(home)
-            _ = try? ChiefAllowRules.shared.add(rule: rule)
+            _ = try? ChiefAllowRules.shared.add(rule: rule, in: home)
         }
         let brain = self.brain
         // task-owner: one answer to the brain; ends when the brain took it
