@@ -78,3 +78,13 @@ fn a_huge_prompt_is_cut_before_it_is_scanned_and_its_step_still_masks_the_head()
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
     assert!(step.starts_with("deploy [github token] x"), "{step}");
 }
+
+#[test]
+fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
+    // The step folds whitespace, so the scan must cut the folded text: cutting the raw text
+    // inside the token would leave its head unmasked once the blank run folds away.
+    let token = github_token();
+    let prompt = format!("{}{token} tail", " ".repeat(4_090));
+    let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(step, "[github token] tail");
+}
