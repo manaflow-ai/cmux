@@ -654,7 +654,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<i64>,
+        pub exit_code: ::std::option::Option<Int>,
         #[serde(rename = "sessionId")]
         pub session_id: Int,
     }
@@ -2701,7 +2701,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<i64>,
+        pub exit_code: ::std::option::Option<Int>,
         pub stderr: ::std::string::String,
         pub stdout: ::std::string::String,
     }
@@ -7062,7 +7062,7 @@ pub mod types {
             rename = "exitCode",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        pub exit_code: ::std::option::Option<i64>,
+        pub exit_code: ::std::option::Option<Int>,
         #[serde(deserialize_with = "::std::option::Option::deserialize")]
         pub name: ::std::option::Option<::std::string::String>,
         pub rows: Int,
