@@ -45,3 +45,14 @@ test("a device chat child is rendered once when its parent key names both card i
   );
   expect(cards[0]?.children?.map((child) => child.chatKey)).toEqual(["codex:child"]);
 });
+
+// Leo 2026-10-18: picking a model on a New Tab starts its chat's session at once (deferred), and
+// the New Tab's Chats list gained an empty "New chat" row on top, pushing every chat down. A chat
+// nothing was sent in yet (acpmux: no last prompt, no turn) is not a recent chat.
+test("a chat nothing was sent in yet stays off the recent chats", () => {
+  const sent = { sessionId: "sent", name: "Fix the build", lastPrompt: "fix the build", turnCount: 1, updatedAt: 1 };
+  const running = { sessionId: "running", name: "first turn", lastPrompt: "hello", turnCount: 0, updatedAt: 2 };
+  const unsent = { sessionId: "unsent", lastPrompt: null, turnCount: 0, updatedAt: 3 };
+  expect(recentSessions([sent, running, unsent]).map((session) => session.sessionId)).toEqual(["running", "sent"]);
+  expect(recentChatCards([sent, running, unsent], 0).map((card) => card.sessionId)).toEqual(["running", "sent"]);
+});
