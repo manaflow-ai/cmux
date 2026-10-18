@@ -15,6 +15,7 @@ import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgr
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
@@ -57,6 +58,7 @@ import {
   type VMStatus,
   type ProviderReadOptions,
   type VmPauseState,
+  type VmHealthInventory,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -1048,6 +1050,7 @@ export class FreestyleProvider implements VMProvider {
 
   readonly privateNetworking: VMPrivateNetworking;
   private readonly resourceStats: FreestyleResourceStatsReader;
+  readonly healthInventory: VmHealthInventory;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -1056,6 +1059,7 @@ export class FreestyleProvider implements VMProvider {
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
     this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
+    this.healthInventory = freestyleHealthInventory(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1120,9 +1124,13 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            ...(options.runtimeBudgetSeconds !== undefined ? {
-              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
-            } : {}),
+            // Be explicit even for normal machines: images created under an
+            // account default with automatic restart disabled must not remain
+            // unrecoverable after a provider/VMM failure.
+            automaticRestart: options.runtimeBudgetSeconds === undefined,
+            ...(options.runtimeBudgetSeconds !== undefined
+              ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
+              : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1303,6 +1311,11 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  // Hard restart is deliberately unavailable. The documented provider API
+  // can pause/start, which resumes the same memory and cannot recover a frozen
+  // guest. Do not advertise restart or call an undocumented endpoint until a
+  // memory-discarding operation with completion/retry semantics is available.
+
   async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
     const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
     if (remainingSeconds === null) {
@@ -1385,7 +1398,13 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
+          // Public `vm exec` commands belong to the same account as Cloud
+          // terminals and coding agents. Leaving `linuxUser` unset asks the
+          // provider for its uid-1000 account (`cmux` on current images), while
+          // preserving the provider's legacy fallback to root on older images.
+          // Driver maintenance stays explicitly root below, as does cmux's own
+          // guest maintenance that asks for it.
+          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
@@ -1595,6 +1614,7 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
+            automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },

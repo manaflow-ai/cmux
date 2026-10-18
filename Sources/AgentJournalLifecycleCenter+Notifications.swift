@@ -20,6 +20,20 @@ extension AgentJournalLifecycleCenter {
         }
     }
 
+    /// An idle reminder repeats its turn's completion. Once the notification
+    /// store recorded that completion and the user read or dismissed it, the
+    /// turn is acknowledged and the reminder must not come back as a new unread
+    /// notification. The durable receipt is not evidence here: it is claimed
+    /// before mute and policy gates, so a completion that was never recorded, or
+    /// is still unread, keeps its reminder.
+    @MainActor
+    static func reminderRepeatsAcknowledgedCompletion(
+        _ completion: AgentNotificationDecision.RemindedCompletion
+    ) -> Bool {
+        let state = TerminalNotificationStore.shared.agentNotificationState(correlationKey: completion.correlationKey)
+        return completion.isAcknowledged(completionWasRecorded: state.recorded, completionIsUnread: state.unread)
+    }
+
     static func clearInvalidatedNotifications(_ event: AgentJournalEvent, decision: AgentNotificationDecision) {
         guard let workspaceID = event.draft.workspaceId.flatMap(UUID.init(uuidString:)),
               let surfaceID = event.draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
