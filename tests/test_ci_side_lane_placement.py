@@ -90,6 +90,15 @@ class Decide(unittest.TestCase):
     def test_route_keeps_side_label_when_any_online_runner_carries_it(self):
         self.assertEqual(placement.route_label(SIDE, [runner("mini-a-glaeda")]), SIDE)
 
+    def test_gui_route_requires_an_online_runner_with_the_gui_label(self):
+        self.assertEqual(placement.gui_route_label(SIDE, []), "")
+        self.assertEqual(placement.gui_route_label(SIDE, None), "")
+        self.assertEqual(placement.gui_route_label(SIDE, [runner("mini-a-glaeda")]), "")
+        self.assertEqual(
+            placement.gui_route_label(SIDE, [runner("mini-a-glaeda", labels=(STD, SIDE, GUI))]),
+            GUI,
+        )
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
@@ -124,6 +133,7 @@ class Decide(unittest.TestCase):
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
             self.assertEqual(lines["fallback_jobs"], "")
             self.assertEqual(lines["runner"], SIDE)
+            self.assertEqual(lines["gui_runner"], "")
             self.assertEqual(lines["watch"], "true")
             # Every job on the fallback: no owned job for the rescue to watch.
             output.write_text("")
@@ -206,6 +216,13 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
+
+    def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
+        jobs = self.workflow()["jobs"]
+        context = self.context(runner=STD)
+        context["needs"][self.PLACEMENT]["outputs"]["gui_runner"] = ""
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
 
     def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
         # A rescue attempt 3 must drop the stale placement output and use the
