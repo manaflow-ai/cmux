@@ -83,7 +83,8 @@ public struct WindowActivation {
     /// already places it there. False (nothing ordered) when no other window of `order` shows.
     public static func restack(_ window: NSWindow, in order: [NSWindow?]) -> Bool {
         guard let index = order.firstIndex(where: { $0 === window }) else { return false }
-        let shown = { (other: NSWindow?) in other.flatMap { $0.isVisible ? $0 : nil } }
+        // A full-screen window is on its own Space: ordering against it could move the window there.
+        let shown = { (other: NSWindow?) in other.flatMap { $0.isVisible && !$0.styleMask.contains(.fullScreen) ? $0 : nil } }
         if let front = order[..<index].reversed().lazy.compactMap(shown).first {
             window.order(.below, relativeTo: front.windowNumber)
         } else if let back = order[(index + 1)...].lazy.compactMap(shown).first {

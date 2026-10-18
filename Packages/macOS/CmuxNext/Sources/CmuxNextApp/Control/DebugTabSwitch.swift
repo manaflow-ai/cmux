@@ -24,8 +24,8 @@ enum DebugTabSwitch {
     private static var samples: [[String: JSONValue]] = []
     private static let capacity = 1_024
     private static let client = FrameClient(owner: "debug.tab_switch", isAnimation: false, on: .app) { tick in
-        // `tick.timestamp` is a vsync: each instant maps to the first vsync at or after it.
-        let refresh = tick.refreshInterval ?? 1.0 / 60.0
+        // `tick.timestamp` is a vsync (not on a synthesized, stalled tick): each instant maps to the first vsync at or after it.
+        guard let refresh = tick.refreshInterval else { return true }
         func vsync(after time: CFTimeInterval) -> CFTimeInterval {
             tick.timestamp + ((time - tick.timestamp) / refresh).rounded(.up) * refresh
         }

@@ -44,8 +44,8 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
-    /// Restored windows, all but the front one, not presented yet: each goes to its saved place in the stack.
-    private var restacking: Set<String> = []
+    /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
+    private var restacking: Set<String> = [], keepsOrder = false
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -103,10 +103,9 @@ final class WindowManager {
         WindowActivation.didOrder = { [weak self] window, inFront in self?.windowDidOrder(window, inFront: inFront) }
     }
 
-    /// `WindowActivation` ordered `window` in front or behind: the registry's recency (the app's
-    /// window order, saved as `WindowRecord.order`) follows it, as it follows key changes (`didActivate`).
+    /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
     private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
-        guard let id = controllers.first(where: { $0.window === window })?.state.id else { return }
+        guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { registry in
             if inFront { registry.activate(id) } else { registry.moveToBack(id) }
             return WindowRegistry.Changes()
@@ -131,6 +130,7 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        if keepsOrder { return }
         registry.apply { registry in
             registry.activate(controller.state.id)
             return WindowRegistry.Changes()
@@ -222,8 +222,7 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-        // Every restored window but the front one comes back at its saved place in the stack, whatever
-        // order the content arrives in (`present`): never key, the recency unchanged.
+        // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
@@ -335,7 +334,10 @@ final class WindowManager {
         let restacks = restacking.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window,
            !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
+            // A restored window shown alone keeps its saved place in the order (also when it takes key).
+            keepsOrder = restacks
             WindowActivation.show(window, behind ? .presentBehind : .present)
+            keepsOrder = false
         }
         onPresent?(controller)
         enterRestoredFullScreens()

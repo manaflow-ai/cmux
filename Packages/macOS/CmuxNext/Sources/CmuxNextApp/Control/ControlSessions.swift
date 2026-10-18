@@ -74,10 +74,8 @@ enum ControlSessions {
     /// or an SSH label (`host/session`) stays whole.
     /// UTF-8 scans: it runs in every control snapshot publish (per tab switch).
     static func shortHost(_ name: String) -> String {
-        let bytes = name.utf8
-        if bytes.contains(UInt8(ascii: "/")) || bytes.allSatisfy({ (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: ":") }) {
-            return name
-        }
+        let bytes = name.utf8, digits = UInt8(ascii: "0")...UInt8(ascii: "9")
+        if bytes.contains(UInt8(ascii: "/")) || bytes.allSatisfy({ digits.contains($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: ":") }) { return name }
         // The first non-empty label, as `split(separator: ".").first`.
         guard let start = bytes.firstIndex(where: { $0 != UInt8(ascii: ".") }) else { return name }
         let end = bytes[start...].firstIndex(of: UInt8(ascii: ".")) ?? bytes.endIndex

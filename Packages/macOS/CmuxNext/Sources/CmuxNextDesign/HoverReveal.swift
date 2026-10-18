@@ -297,6 +297,12 @@ private final class HoverRevealFocusRouter {
         }
     }
 
+    /// The reveal `key`'s window closed (its focus ends; it stays a member for a window shown again).
+    static func forgetFocus(_ key: ObjectIdentifier, window: NSWindow) {
+        guard let router = routers[ObjectIdentifier(window)], router.window === window else { return }
+        router.focused[key] = nil
+    }
+
     private func responderDidChange(_ responder: NSResponder?) {
         var now: [ObjectIdentifier: HoverReveal] = [:]
         var view = responder as? NSView
@@ -319,7 +325,7 @@ private final class HoverRevealFocusRouter {
 /// clicks and draws nothing.
 private final class HoverRevealProbe: NSView {
     weak var owner: HoverReveal? {
-        didSet { ownerKey = owner.map(ObjectIdentifier.init) }
+        didSet { ownerKey = owner.map { ObjectIdentifier($0) } }
     }
     /// The owner's identity, for leaving the focus router after the owner went away.
     private var ownerKey: ObjectIdentifier?
@@ -408,6 +414,7 @@ private final class HoverRevealProbe: NSView {
         closeObserver = Task { @MainActor [weak self, weak window] in
             guard let window else { return }
             for await _ in NotificationCenter.default.notifications(named: NSWindow.willCloseNotification, object: window) {
+                if let key = self?.ownerKey { HoverRevealFocusRouter.forgetFocus(key, window: window) }
                 self?.owner?.windowWillChange()
             }
         }

@@ -12,11 +12,15 @@ public struct StandardWindowButtons {
 
     public init() {}
 
-    /// The cached `type` button of `window`, else `lookup()` (AppKit's search), kept while it is in `window`.
-    public mutating func button(_ type: NSWindow.ButtonType, in window: NSWindow, lookup: () -> NSButton?) -> NSButton? {
-        if let button = buttons[type], button.window === window, button.superview != nil { return button }
-        let button = lookup()
-        buttons[type] = button?.window === window ? button : nil
+    /// The cached `type` button of `window`, while it is still in `window`.
+    public func cached(_ type: NSWindow.ButtonType, in window: NSWindow) -> NSButton? {
+        guard let button = buttons[type], button.window === window, button.superview != nil else { return nil }
         return button
+    }
+
+    /// Keeps `button`, AppKit's answer for `type` (looked up outside any access to this value:
+    /// AppKit may ask the window again while it searches).
+    public mutating func store(_ button: NSButton?, for type: NSWindow.ButtonType, in window: NSWindow) {
+        buttons[type] = button?.window === window ? button : nil
     }
 }

@@ -8,7 +8,7 @@ public import QuartzCore
 /// once per frame from its own run loop source, not at the run loop's idle (cx-8w027.25).
 @MainActor
 public final class CommitProbe {
-    private final class Layer: CALayer {
+    private nonisolated final class Layer: CALayer {
         var onCommit: (@MainActor (CFTimeInterval) -> Void)?
 
         override func display() {
