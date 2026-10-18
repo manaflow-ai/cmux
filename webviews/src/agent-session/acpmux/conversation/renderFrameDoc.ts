@@ -17,7 +17,7 @@ export function reactRenderPage(code: string): string {
   return `<!doctype html><html><head></head><body><div id="root"></div><script>
   (function () {
     var root = document.getElementById('root');
-    function fail(error) { root.style.color = 'var(--cmux-muted)'; root.textContent = String(error.message || error); }
+    function fail(error) { if (window.__cmuxRenderKit) parent.postMessage({type:'cmux-render-error',error:String(error.message || error).slice(0,500)},'*'); root.style.color = 'var(--cmux-muted)'; root.textContent = String(error.message || error); }
     addEventListener('error', function (event) { fail(event.error || event.message); });
     ${reactDependenciesSource()}
     prepareReact(${literal(translate("render.loadFailed"))})

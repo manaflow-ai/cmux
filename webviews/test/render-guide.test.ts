@@ -30,20 +30,27 @@ async function chat(workspaceContext = false, fresh = false, origin: string | un
   let refuse: boolean | string = false;
   let editOK = true;
   let seq = 0;
-  const event = (kind: string, promptId: string) => socket.onmessage?.({
-    data: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "_acpmux/event",
-      params: { sessionId: "chat-1", seq: ++seq, at: 1, dir: "mux", kind, msg: { promptId, text: "Queued" } },
-    }),
-  });
+  const event = (kind: string, promptId: string) =>
+    socket.onmessage?.({
+      data: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: "chat-1", seq: ++seq, at: 1, dir: "mux", kind, msg: { promptId, text: "Queued" } },
+      }),
+    });
   const reply = (id: number) =>
     socket.onmessage?.({
       data: JSON.stringify({
         jsonrpc: "2.0",
         id,
         ...(refuse
-          ? { error: { code: -32602, message: "refused", data: { reason: typeof refuse === "string" ? refuse : undefined } } }
+          ? {
+              error: {
+                code: -32602,
+                message: "refused",
+                data: { reason: typeof refuse === "string" ? refuse : undefined },
+              },
+            }
           : { result: null }),
       }),
     });
@@ -128,7 +135,7 @@ test("the first prompt teaches rendering, without changing the person's text", a
   await client.send("Explain a feedback loop");
   expect(context(prompts[0])).toContain(TAG);
   expect(prompts[0].prompt).toEqual([{ type: "text", text: "Explain a feedback loop" }]);
-  expect(context(prompts[0])!.length).toBeLessThan(1200);
+  expect(context(prompts[0])!.length).toBeLessThan(2000);
 });
 
 test("the first prompt of a new session carries the guide after session creation", async () => {
@@ -292,4 +299,29 @@ test("another client's queue edit also releases the guide mark", async () => {
   daemon.finish();
   await Promise.all([pending, next]);
   expect(nextContext).toContain(TAG);
+});
+
+test("the guide advertises kit APIs only while available and keeps its compact contract", async () => {
+  const { RENDER_GUIDE } = await import("../src/agent-session/acpmux/conversation/renderGuide");
+  expect(RENDER_GUIDE.length).toBeLessThan(2000);
+  const daemon = await chat();
+  await daemon.client.send("Explain");
+  expect(context(daemon.prompts[0])).toContain("cmux.chart(element");
+  expect(context(daemon.prompts[0])).toContain("data-cmux-prompt");
+  configureLabs({ labs: { renderKit: false } });
+  await daemon.client.select("chat-2");
+  await daemon.client.send("Explain again");
+  expect(context(daemon.prompts[1])).not.toContain("cmux.chart");
+  expect(context(daemon.prompts[1])).not.toContain("data-cmux-prompt");
+  expect(context(daemon.prompts[1])).toContain("prefill(text)");
+  for (const token of ["--cmux-text", "--cmux-muted", "--cmux-card", "--cmux-border", "--cmux-accent", "--cmux-font"])
+    expect(context(daemon.prompts[1])).toContain(token);
+});
+
+test("both guides teach that declined bridge calls reject", async () => {
+  const { renderGuide } = await import("../src/agent-session/acpmux/conversation/renderGuide");
+  for (const renderKit of [true, false]) {
+    configureLabs({ labs: { renderKit } });
+    expect(renderGuide()).toContain("reject when declined");
+  }
 });

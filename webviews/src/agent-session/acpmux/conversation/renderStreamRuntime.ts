@@ -42,6 +42,10 @@ export function renderStreamScript(): string {
         if (target.getAttribute(attr.name) !== attr.value) target.setAttribute(attr.name, attr.value);
       });
     }
+    function enter(node) {
+      if (!window.__cmuxRenderKit || !node.animate || !window.matchMedia || window.matchMedia('(prefers-reduced-motion: reduce)').matches || /^(SCRIPT|STYLE|LINK|META)$/.test(node.tagName)) return;
+      node.animate([{ opacity: 0, transform: 'translateY(3px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 150, easing: 'ease-out' });
+    }
     function sync(target, source) {
       var next = Array.from(source.childNodes);
       next.forEach(function (node, index) {
@@ -54,7 +58,7 @@ export function renderStreamScript(): string {
           sync(current, node);
         } else {
           var added = document.importNode(node, true);
-          if (current) current.replaceWith(added); else target.append(added);
+          if (current) current.replaceWith(added); else { target.append(added); enter(added); }
         }
       });
       while (target.childNodes.length > next.length) target.lastChild.remove();
@@ -98,7 +102,7 @@ export function renderStreamScript(): string {
       });
       if (append) {
         var body = document.body;
-        Array.from(page.body.childNodes).forEach(function (node) { body.append(document.importNode(node, true)); });
+        Array.from(page.body.childNodes).forEach(function (node) { var added = document.importNode(node, true); body.append(added); enter(added); });
         return;
       }
       var styles = Array.from(page.head.querySelectorAll('style, link[rel="stylesheet"]'));
@@ -114,6 +118,8 @@ export function renderStreamScript(): string {
       attributes(document.body, page.body);
       sync(document.body, page.body);
       if (!done) return;
+      window.__cmuxScriptsRun = true;
+      if (window.__cmuxRenderKit && window.__cmuxCharts) window.__cmuxCharts();
       for (var index = 0; index < originals.length; index++) {
         var original = originals[index];
         var placeholder = document.body.querySelector('script[data-cmux-stream-script="' + index + '"]');

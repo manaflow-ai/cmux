@@ -152,6 +152,11 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.renderGuide", PageTunables.section, "Teach agents to draw in chat",
         help: "Send inline render guidance with the first prompt of each agent session while live render is on. New agent tabs.",
         default: true, code: "AgentPaneTunables.renderGuide")
+    /// Native defaults stay scoped to live render frames (Lucas 2026-10-19).
+    public static let renderKit = Tunable<Bool>.toggle(
+        "agentPane.labs.renderKit", PageTunables.section, "Native styles for chat renders",
+        help: "Native controls, charts and follow-ups in live chat renders. New agent tabs.",
+        default: true, code: "AgentPaneTunables.renderKit")
     public static let contextMeter = Tunable<Bool>.toggle(
         "agentPane.labs.contextMeter", PageTunables.section, "Context ring beside the model",
         help: "A ring beside the model shows context use and opens its token details. New agent tabs.",
@@ -178,7 +183,7 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.shortcutsHelp")
 
     static let labTunables: [String: Tunable<Bool>] = [
-        "live-render": liveRender, "render-guide": renderGuide, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
+        "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
         "shortcuts-help": shortcutsHelp
     ]
@@ -257,5 +262,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

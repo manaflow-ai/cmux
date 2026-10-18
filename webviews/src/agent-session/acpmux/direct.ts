@@ -41,7 +41,7 @@ import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { labOn } from "./labs";
-import { RENDER_GUIDE } from "./conversation/renderGuide";
+import { renderGuide } from "./conversation/renderGuide";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 
@@ -2158,7 +2158,7 @@ export class AcpmuxDirectClient {
       previousGuide.harness ??= harness;
       previousGuide.agentSessionId ??= agentSessionId;
     }
-    const context = [workspaceContext, guide ? RENDER_GUIDE : undefined].filter(Boolean).join("") || undefined;
+    const context = [workspaceContext, guide ? renderGuide() : undefined].filter(Boolean).join("") || undefined;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;

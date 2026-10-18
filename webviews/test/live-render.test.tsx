@@ -922,3 +922,78 @@ test.each(["body{min-height:100vh}", "html,body{height:100%}", "canvas{position:
     }
   },
 );
+
+test("kit configuration reaches the frame before the first streamed chunk, and follows its lab", async () => {
+  for (const kit of [true, false]) {
+    document.documentElement.setAttribute("data-lab-render-kit", kit ? "on" : "off");
+    const card = await draw();
+    act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", { source: card.target, data: { type: "cmux-render-stream-ready" } }),
+      ),
+    );
+    const config = card.replies.findIndex((m) => m.type === "cmux-render-kit");
+    const chunk = card.replies.findIndex((m) => m.type === "cmux-render-stream");
+    expect(config).toBeGreaterThanOrEqual(0);
+    expect(chunk).toBeGreaterThan(config);
+    expect(card.replies[config]!.enabled).toBe(kit);
+  }
+  document.documentElement.setAttribute("data-lab-render-kit", "on");
+});
+
+test("render repair uses only the first normalized bounded error and names the render", async () => {
+  const card = await draw();
+  const report = (source: unknown, error: unknown) =>
+    act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: source as Window,
+          data: { type: "cmux-render-error", error },
+        }),
+      ),
+    );
+  report(dom.window, "Forged");
+  report(card.target, "   ");
+  expect(host.querySelector('[role="status"]')).toBeNull();
+  const error = "Chart failed " + "x".repeat(187);
+  report(card.target, "  Chart\n failed\t " + "x".repeat(1000));
+  report(card.target, "Replacement injection");
+  const note = host.querySelector('[role="status"] span')!;
+  expect(note.textContent).toBe("Render error: " + error);
+  expect(note.hasAttribute("title")).toBe(false);
+  expect((note as HTMLElement).style.webkitLineClamp).toBe("2");
+  click("Ask to fix");
+  expect(prefilled).toEqual([`Please fix the chat render "Interactive page". Render error: ${error}`]);
+  expect(sent).toEqual([]);
+});
+
+test("kit toggles and frame remounts reset the first-error limit and note", async () => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const render = (key: string) => act(() => root!.render(<RenderCard key={key} call={{ html: PAGE }} />));
+  const report = (error: string) =>
+    act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: host.querySelector("iframe")!.contentWindow,
+          data: { type: "cmux-render-error", error },
+        }),
+      ),
+    );
+  render("first");
+  report("First failure");
+  expect(host.textContent).toContain("First failure");
+  const old = host.querySelector("iframe");
+  document.documentElement.setAttribute("data-lab-render-kit", "off");
+  render("first");
+  document.documentElement.setAttribute("data-lab-render-kit", "on");
+  render("first");
+  expect(host.querySelector("iframe") === old).toBe(false);
+  expect(host.querySelector('[role="status"]')).toBeNull();
+  report("Second failure");
+  expect(host.textContent).toContain("Second failure");
+  render("second");
+  expect(host.querySelector('[role="status"]')).toBeNull();
+  report("Third failure");
+  expect(host.textContent).toContain("Third failure");
+});

@@ -2,15 +2,16 @@
 // first in the page's head). It gives the page the pane's theme as `--cmux-*` variables and a base
 // stylesheet, so a page with no CSS of its own already reads as part of the chat: the pane's font,
 // type scale, links, headings, tables, buttons, inputs and code, in the pane's light or dark, on a
-// transparent background so the card's surface shows. Every base rule sits in `:where()` (no
-// specificity), the variables included, and comes before the page's own styles, so any rule the
-// page writes wins.
+// transparent background so the card's surface shows. Rules and variables sit in the first
+// cascade layer, with zero specificity, so the page's own styles win.
 // The `render` tool's description (cmux-tui/.../mcp/render_tool.rs) lists the same variables.
 
 /// The variables a page can use, each read from the pane's theme (or the pane's fixed scale) with
 /// a fallback for a pane that has not themed yet.
 export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string | null, fallback: string]> = [
   ["--cmux-text", "--agent-text", "CanvasText"],
+  ["--cmux-on-accent", "--agent-on-accent", "light-dark(#fff,#111)"],
+  ["--cmux-canvas", "--agent-accent-text", "light-dark(#fff,#111)"],
   ["--cmux-muted", "--agent-muted", "GrayText"],
   ["--cmux-bg", "--agent-page-bg", "transparent"],
   ["--cmux-card", "--agent-surface", "color-mix(in srgb, CanvasText 5%, transparent)"],
@@ -20,6 +21,8 @@ export const RENDER_TOKENS: ReadonlyArray<readonly [name: string, source: string
   ["--cmux-control-hover", "--agent-control-hover", "color-mix(in srgb, CanvasText 11%, transparent)"],
   ["--cmux-font", "--cv-font", "-apple-system, system-ui, sans-serif"],
   ["--cmux-mono", "--font-mono", "ui-monospace, monospace"],
+  ["--cmux-chat-size", "--cv-font-size", "14px"],
+  ["--cmux-line-height", "--cv-line-height", "22.75px"],
   ["--cmux-size-caption", "--text-caption", "11px"],
   ["--cmux-size-detail", "--text-detail", "12px"],
   ["--cmux-size-body", "--text-body", "13px"],
@@ -37,8 +40,10 @@ export function renderFrameCSS(): string {
   const style = getComputedStyle(document.body);
   const read = (name: string | null, fallback: string) => (name && style.getPropertyValue(name).trim()) || fallback;
   const scheme = style.colorScheme.includes("dark") ? "dark" : "light";
+  // Swift's accentText is the opaque page color, even in transparent windows (Lucas 2026-10-19).
   const tokens = RENDER_TOKENS.map(([name, source, fallback]) => `${name}:${read(source, fallback)}`);
-  return `:where(:root){color-scheme:${scheme};${tokens.join(";")}}${BASE}`;
+  // l10n-allow: frame stylesheet, not pane copy
+  return `@layer cmux{:where(:root){color-scheme:${scheme};${tokens.join(";")}}${BASE}}`;
 }
 
 // The base sets colors, fonts and sizes only where the page leaves them to the browser, and

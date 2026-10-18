@@ -9,6 +9,7 @@ import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFrameDoc";
 import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
+import { RenderBridgeContext } from "./RenderBridgeContext";
 import { useRenderRequests } from "./useRenderRequests";
 import { ChatSessionContext, TranscriptRowContext } from "./viewIdentity";
 import { renderStreamScript } from "./renderStreamRuntime";
@@ -33,7 +34,8 @@ const devServer = () => import.meta.env?.DEV === true && /^https?:$/.test(locati
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
 /// The theme for a page embedded in the chat: no side inset, so it lines up with the reply's text
 /// (Lucas 2026-10-18); a page's own `body` margin still wins.
-const embeddedFrameCSS = () => `${renderFrameCSS()}:where(body){margin:4px 0}`;
+// l10n-allow: frame stylesheet, not pane copy
+const embeddedFrameCSS = () => `${renderFrameCSS()}@layer cmux{:where(body){margin:4px 0}}`;
 
 export function useRenderFrame(
   html: string,
@@ -41,17 +43,21 @@ export function useRenderFrame(
   request?: (data: Record<string, unknown>, target: Window) => void,
   streaming = false,
   frozen = false,
+  kit = false,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
   const latest = useRef({ html, streaming, request, frozen });
   latest.current = { html, streaming, request, frozen };
+  const [error, setError] = useState<string>();
   const measured = useRef(height);
   useEffect(() => {
     if (!frozen) setHeight(measured.current);
   }, [frozen]);
   const schedule = useRef<() => void>(() => {});
   useLayoutEffect(() => {
+    setError(undefined);
+    let reportedError = false;
     let booted = false,
       ready = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -95,7 +101,7 @@ export function useRenderFrame(
       if (!target || event.source !== target) return;
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
-      const message = data as { type?: unknown; height?: unknown };
+      const message = data as { type?: unknown; height?: unknown; error?: unknown };
       if (message.type === "cmux-render-ready" && !booted && !ready) {
         booted = true;
         const css = live ? embeddedFrameCSS() : renderFrameCSS();
@@ -116,8 +122,15 @@ export function useRenderFrame(
       } else if (live && message.type === "cmux-render-stream-ready") {
         if (ready) return;
         ready = true;
+        target.postMessage({ type: "cmux-render-kit", enabled: kit }, "*");
         theme();
         schedule.current();
+      } else if (live && kit && message.type === "cmux-render-error" && typeof message.error === "string") {
+        const text = message.error.replace(/\s+/g, " ").trim().slice(0, 200);
+        if (text && !reportedError) {
+          reportedError = true;
+          setError(text);
+        }
       } else if (live && message.type === "cmux-render-request")
         latest.current.request?.(data as Record<string, unknown>, target);
       else if (
@@ -161,9 +174,9 @@ export function useRenderFrame(
       observer?.disconnect();
       scheme?.removeEventListener("change", theme);
     };
-  }, [live]);
+  }, [live, kit]);
   useEffect(() => schedule.current(), [html, streaming]);
-  return { frame, height };
+  return { frame, height, error };
 }
 
 export function RenderCard({
@@ -177,13 +190,22 @@ export function RenderCard({
 }) {
   const t = useT();
   const live = useLab("liveRender");
+  const kit = useLab("renderKit") && live;
+  const bridge = useContext(RenderBridgeContext);
   const open = useContext(ArtifactContext);
   const sessionId = useContext(ChatSessionContext);
   const rowId = useContext(TranscriptRowContext);
   const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
   const key = JSON.stringify([sessionId, identity]);
   const requests = useRenderRequests(key);
-  const { frame, height } = useRenderFrame(call.html, live, requests.request, streaming, live && !!requests.pending);
+  const { frame, height, error } = useRenderFrame(
+    call.html,
+    live,
+    requests.request,
+    streaming,
+    live && !!requests.pending,
+    kit,
+  );
   const [expanded, setExpanded] = useState(false);
   const [ran, setRan] = useState(() => ranRenders.has(call.html));
   const running = live || ran;
@@ -192,6 +214,7 @@ export function RenderCard({
     setRan(true);
   };
   const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
+  const repairName = (call.title || renderTitle(call.html)).replace(/\s+/g, " ").trim().slice(0, 100);
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
     <div
@@ -237,7 +260,7 @@ export function RenderCard({
       )}
       {running && (
         <iframe
-          key={String(live)}
+          key={`${live}:${kit}`}
           ref={frame}
           className={panel ? "acpmux-artifact-frame" : "acpmux-render-card-frame"}
           src={live && !canRender() ? (devServer() ? devRenderFrameURL(location.href) : undefined) : RENDER_FRAME_URL}
@@ -249,6 +272,28 @@ export function RenderCard({
             panel && !live ? undefined : { height: live || expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }
           }
         />
+      )}
+      {kit && error && (
+        <div className="acpmux-render-note" role="status" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            {t("render.error")} {error}
+          </span>
+          {bridge && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              style={{ flexShrink: 0 }}
+              // l10n-allow: repair context sent to the agent
+              onClick={() =>
+                bridge.prefill(
+                  `Please fix ${repairName ? `the chat render ${JSON.stringify(repairName)}` : "this chat render"}. Render error: ${error}`,
+                )
+              }
+            >
+              {t("render.askToFix")}
+            </button>
+          )}
+        </div>
       )}
       {live && running && requests.pending && <RenderConfirm requests={requests} />}
       {live && requests.copied && <output className="acpmux-render-note">{t("turn.copied")}</output>}

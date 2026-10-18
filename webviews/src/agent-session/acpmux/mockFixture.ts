@@ -868,3 +868,36 @@ export function sessionHistory(session: MockSession): SeedStep[] {
   else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
 }
+
+/// A realistic kit page streams mostly markup, with charts activated on close (Lucas 2026-10-19).
+export function liveRenderShowcaseHTML(): string {
+  // l10n-allow: agent-authored mock render content, not pane UI
+  return `<style>.trend{color:var(--cmux-success)}.forecast{justify-content:space-between}.charts{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}</style>
+<main class="stack">
+<section><h2>Build performance</h2><p class="muted">The cache rollout cut build time this week. Here is the last seven days.</p></section>
+<div class="grid">
+<div class="panel stat"><small>Median build</small><strong>42.8 s</strong><small class="trend">18% faster this week</small></div>
+<div class="panel stat"><small>Cache hit rate</small><strong>94.2%</strong><small>Across 1,248 builds</small></div>
+<div class="panel stat"><small>Time saved</small><strong>6.4 h</strong><small>Compared with last week</small></div>
+</div>
+<div class="grid charts">
+<section><h3>Build duration</h3><div id="duration"></div><small>Median seconds per day</small></section>
+<section><h3>Builds by target</h3><div id="targets"></div><small>Successful and retried builds</small></section>
+</div>
+<section><h3>Cache coverage</h3><div id="coverage"></div></section>
+<section><h3>Slowest targets</h3><table><thead><tr><th>Target</th><th data-numeric>Median</th><th data-numeric>Cache hits</th><th>Status</th></tr></thead><tbody>
+<tr><td>macOS app</td><td data-numeric>48.1 s</td><td data-numeric>92.4%</td><td><span class="badge">Improving</span></td></tr>
+<tr><td>Webviews</td><td data-numeric>32.6 s</td><td data-numeric>97.1%</td><td><span class="badge">Stable</span></td></tr>
+<tr><td>Agent host</td><td data-numeric>24.9 s</td><td data-numeric>95.3%</td><td><span class="badge">Stable</span></td></tr>
+</tbody></table></section>
+<section class="panel stack"><div class="row forecast"><h3>Estimate the next rollout</h3><fieldset class="segmented" aria-label="Build environment"><label><input type="radio" name="env" value="local" checked>Local</label><label><input type="radio" name="env" value="ci">CI</label></fieldset></div>
+<label class="row">Daily builds <input id="volume" type="range" min="50" max="500" step="25" value="200" style="flex:1"><output id="estimate">200 builds / 1.0 h saved</output></label></section>
+<div class="row"><button data-variant="primary" data-cmux-prompt="Investigate the slowest macOS build steps and suggest a focused improvement.">Investigate slow builds</button><button data-cmux-prefill="Draft a cache rollout plan for the remaining build targets.">Draft rollout plan</button></div>
+</main><script>
+cmux.chart('#duration',{type:'line',height:200,labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],series:[{name:'This week',values:[58,56,51,49,46,44,42.8]},{name:'Last week',values:[65,63,61,60,57,55,52]}]});
+cmux.chart('#targets',{type:'bar',height:200,labels:['macOS','Webviews','Host'],series:[{name:'Passed',values:[420,510,318]},{name:'Retried',values:[24,12,18]}]});
+cmux.chart('#coverage',{type:'donut',height:180,labels:['Cache hits','Cache misses'],series:[{name:'Builds',values:[1176,72]}]});
+function update(){const n=Number(document.querySelector('#volume').value);const ci=document.querySelector('[name=env]:checked').value==='ci';document.querySelector('#estimate').textContent=n+' builds / '+(n*(ci?24:18)/3600).toFixed(1)+' h saved';}
+document.querySelector('#volume').addEventListener('input',update);document.querySelectorAll('[name=env]').forEach(el=>el.addEventListener('change',update));
+</script>`;
+}

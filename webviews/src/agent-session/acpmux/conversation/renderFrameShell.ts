@@ -1,3 +1,5 @@
+import { RENDER_KIT_CSS } from "./renderKit";
+import { renderChartSource } from "./renderChart";
 import { renderStreamScript } from "./renderStreamRuntime";
 
 // The render frame's document and policy outside the bundled pane (Lucas 2026-10-18): the dev
@@ -68,6 +70,8 @@ export const RENDER_FRAME_DOC = `<!doctype html><html><head>${POLICY_META}<meta 
 export function renderBridgeScript(theme: string, css: string): string {
   // l10n-allow: executable frame bridge, with no user-facing copy
   return `<script>(function () {
+    ${renderChartSource()}
+    var kitStyle, chartsInstalled = false;
     var pending = new Map(), callbacks = new Set(), next = 0;
     var theme = { mode: ${literal(theme)} };
     var style = document.createElement('style');
@@ -94,6 +98,21 @@ export function renderBridgeScript(theme: string, css: string): string {
         set: function (value) { return request('state.set', { value: value }); }
       }
     };
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest && event.target.closest('button[data-cmux-prompt],button[data-cmux-prefill]');
+      if (!window.__cmuxRenderKit || !button || button.disabled) return;
+      event.preventDefault();
+      var prompt = button.getAttribute('data-cmux-prompt');
+      (prompt !== null ? window.cmux.sendPrompt(prompt) : window.cmux.prefill(button.getAttribute('data-cmux-prefill'))).catch(function () {});
+    });
+    function report(error) {
+      if (!window.__cmuxScriptsRun || !window.__cmuxRenderKit || error && error.cmuxBridgeRejection) return;
+      var message = String(error && error.message || error || '').trim();
+      if (!message || /^ResizeObserver loop\\b/.test(message) || message === 'Script error.') return;
+      parent.postMessage({ type: 'cmux-render-error', error: message.slice(0, 500) }, '*');
+    }
+    addEventListener('error', function (event) { report(event.error || event.message); });
+    addEventListener('unhandledrejection', function (event) { report(event.reason); });
     // Viewport-sized bodies cannot measure their own frame. Follow their in-flow children.
     var lastHeight, sizing = false, resize, watched = new Set();
     function size() {
@@ -156,11 +175,19 @@ export function renderBridgeScript(theme: string, css: string): string {
     addEventListener('message', function (event) {
       var data = event.data;
       if (event.source !== parent || !data) return;
-      if (data.type === 'cmux-render-reply') {
+      if (data.type === 'cmux-render-kit') {
+        window.__cmuxRenderKit = data.enabled === true;
+        if (window.__cmuxRenderKit && !kitStyle) {
+          kitStyle = document.createElement('style'); kitStyle.textContent = ${literal(RENDER_KIT_CSS)};
+          style.after(kitStyle);
+          if (!chartsInstalled) { installCharts(); chartsInstalled = true; }
+        } else if (!window.__cmuxRenderKit && kitStyle) { kitStyle.remove(); kitStyle = null; delete window.cmux.chart; chartsInstalled = false; }
+      } else if (data.type === 'cmux-render-reply') {
         var call = pending.get(data.id);
         if (!call) return;
         pending.delete(data.id);
-        if (data.ok) call.resolve(data.value); else call.reject(new Error(data.error));
+        if (data.ok) call.resolve(data.value);
+        else { var error = new Error(data.error); error.cmuxBridgeRejection = true; call.reject(error); }
       } else if (data.type === 'cmux-render-theme' && (data.theme === 'light' || data.theme === 'dark') && typeof data.css === 'string') {
         theme.mode = data.theme;
         style.textContent = data.css;
