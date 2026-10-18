@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A permission dictation needs and the user denied.
 public enum DictationPermission: String, Equatable, Sendable {

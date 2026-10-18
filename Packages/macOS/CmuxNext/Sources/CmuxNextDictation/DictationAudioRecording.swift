@@ -50,7 +50,8 @@ public final class DictationAudioRecording: Sendable {
     /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
     public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
         let limit = Int(Self.sampleRate * Self.maximumDuration)
-        state.withLock { state in
+        // The closure runs before withLockUnchecked returns, so the buffer is still valid in it.
+        state.withLockUnchecked { state in
             guard !state.discarded else { return }
             guard sampleRate >= Self.sampleRate else { return state.discard() }
             // Input samples per output sample.
