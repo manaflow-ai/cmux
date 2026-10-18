@@ -154,6 +154,12 @@ test("scenario fingerprints ignore manifest and parameter key order", () => {
   expect(scenarioFingerprint(first)).toBe(scenarioFingerprint(second));
 });
 
+test("scenario fingerprints use deterministic code-point ordering", () => {
+  const upper = parseManifest([{ id: "Z", path_or_url: "frame.html", params: { b: 1, A: 2 } }]);
+  const reordered = parseManifest([{ id: "Z", path_or_url: "frame.html", params: { A: 2, b: 1 } }]);
+  expect(scenarioFingerprint(upper)).toBe(scenarioFingerprint(reordered));
+});
+
 test("capture receipts bind a run to its scenario and observed revisions", () => {
   const cases = parseManifest([{ id: "a", path_or_url: "frame.html", params: { entry: "a", width: 760 } }]);
   const results = [{ id: "a", engine: "chromium", ready: "1", revision: { sha: "head-a", source: "src/a.gallery.tsx" } }];
