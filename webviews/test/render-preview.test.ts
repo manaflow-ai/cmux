@@ -2,10 +2,7 @@
 import { expect, test } from "bun:test";
 import { chromium, webkit } from "playwright";
 import { previewDocument } from "../src/agent-session/acpmux/conversation/renderPreview";
-import {
-  RENDER_FRAME_DOC,
-  RENDER_POLICY,
-} from "../src/agent-session/acpmux/conversation/renderFrameShell";
+import { RENDER_FRAME_DOC, RENDER_POLICY } from "../src/agent-session/acpmux/conversation/renderFrameShell";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("render-preview.test.ts", () => {
@@ -57,18 +54,14 @@ await requireBrowserLane("render-preview.test.ts", () => {
         expect(result.consoleMessages).toContainEqual({ level: "warn", message: "sample warning" });
         expect(result.consoleMessages).toContainEqual({ level: "error", message: "sample error" });
         expect(
-          result.consoleMessages.some(
-            (m: any) => m.level === "exception" && m.message.includes("sample exception"),
-          ),
+          result.consoleMessages.some((m: any) => m.level === "exception" && m.message.includes("sample exception")),
         ).toBe(true);
-        expect(
-          result.consoleMessages.some((m: any) =>
-            m.message.includes("App actions are unavailable"),
-          ),
-        ).toBe(true);
+        expect(result.consoleMessages.some((m: any) => m.message.includes("App actions are unavailable"))).toBe(true);
         expect(result.consoleMessages).toContainEqual({ level: "warn", message: "preview state true" });
         expect(result.missingImages).toEqual(["https://blocked.test/image.png"]);
-        expect(result.consoleMessages.some((m: any) => m.level === "exception" && m.message === "Resource failed to load")).toBe(false);
+        expect(
+          result.consoleMessages.some((m: any) => m.level === "exception" && m.message === "Resource failed to load"),
+        ).toBe(false);
         expect(requests.filter((url) => url.startsWith("https://blocked.test"))).toEqual([]);
         const frame = page.frames()[1]!;
         expect(await frame.locator("h2").textContent()).toBe("Scripts finished");
@@ -93,28 +86,43 @@ await requireBrowserLane("render-preview.test.ts", () => {
       const browser = await engine.launch(engine === chromium ? { channel: "chrome" } : {});
       try {
         const page = await browser.newPage({ viewport: { width: 580, height: 1600 } });
-        await page.route("https://render.test/frame", (route) => route.fulfill({
-          body: RENDER_FRAME_DOC, contentType: "text/html", headers: { "Content-Security-Policy": RENDER_POLICY },
-        }));
-        await page.setContent(previewDocument(
-          '<!-- cmux-react -->function App(){return <div style={{height:360,padding:24}}><h1>React page</h1><button>Complete button</button></div>}',
-          "", "light", true, "https://render.test/frame",
-        ));
+        await page.route("https://render.test/frame", (route) =>
+          route.fulfill({
+            body: RENDER_FRAME_DOC,
+            contentType: "text/html",
+            headers: { "Content-Security-Policy": RENDER_POLICY },
+          }),
+        );
+        await page.setContent(
+          previewDocument(
+            "<!-- cmux-react -->function App(){return <div style={{height:360,padding:24}}><h1>React page</h1><button>Complete button</button></div>}",
+            "",
+            "light",
+            true,
+            "https://render.test/frame",
+          ),
+        );
         const result = await page.evaluate(() => (window as any).cmuxPreviewResult);
         expect(result.contentHeight).toBeGreaterThanOrEqual(360);
         expect(result.capturedHeight).toBe(result.contentHeight);
         expect(await page.frames()[1]!.locator("button").textContent()).toBe("Complete button");
-      } finally { await browser.close(); }
+      } finally {
+        await browser.close();
+      }
     }, 20000);
 
     test(`${engine.name()} measures viewport and exactly 120px pages without false overflow`, async () => {
       const browser = await engine.launch(engine === chromium ? { channel: "chrome" } : {});
       try {
         const page = await browser.newPage({ viewport: { width: 390, height: 1600 } });
-        await page.route("https://render.test/frame", (route) => route.fulfill({
-          body: RENDER_FRAME_DOC, contentType: "text/html", headers: { "Content-Security-Policy": RENDER_POLICY },
-        }));
-        for (const size of ["100vh", "120px", "100%"] ) {
+        await page.route("https://render.test/frame", (route) =>
+          route.fulfill({
+            body: RENDER_FRAME_DOC,
+            contentType: "text/html",
+            headers: { "Content-Security-Policy": RENDER_POLICY },
+          }),
+        );
+        for (const size of ["100vh", "120px", "100%"]) {
           const html = `<style>html,body{height:100%;margin:0}.box{height:${size};overflow:auto}.wide{width:900px}</style><div class="box"><div class="wide">Contained content</div></div>`;
           await page.setContent(previewDocument(html, "", "light", false, "https://render.test/frame"));
           const result = await page.evaluate(() => (window as any).cmuxPreviewResult);
@@ -123,7 +131,9 @@ await requireBrowserLane("render-preview.test.ts", () => {
           expect(result.warnings).not.toContain("1 elements wider than column");
           expect(result.warnings).not.toContain("Horizontal overflow");
         }
-      } finally { await browser.close(); }
+      } finally {
+        await browser.close();
+      }
     }, 20000);
 
     test(`${engine.name()} reports empty content and caps diagnostics`, async () => {

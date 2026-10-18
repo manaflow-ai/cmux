@@ -687,7 +687,13 @@ export class MockAcpmuxSocket {
     const showcase = /render a showcase/i.test(prompt);
     const reactDemo = /render a react demo/i.test(prompt);
     const demo = !this.script && labOn("liveRender") && (showcase || reactDemo || /render a demo/i.test(prompt));
-    const html = demo ? (showcase ? liveRenderShowcaseHTML() : reactDemo ? liveReactDemoSource() : liveRenderDemoHTML()) : "";
+    const html = demo
+      ? showcase
+        ? liveRenderShowcaseHTML()
+        : reactDemo
+          ? liveReactDemoSource()
+          : liveRenderDemoHTML()
+      : "";
     const fence = (reactDemo ? "```cmux-react\n" : "```cmux-render\n") + html + "\n```";
     const steps: MockScript["steps"] =
       this.script?.steps ??

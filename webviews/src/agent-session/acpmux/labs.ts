@@ -37,7 +37,12 @@ export const LABS = [
 ] as const;
 export type Lab = (typeof LABS)[number];
 const defaults: Partial<Record<Lab, boolean>> = {
-  liveRender: true, renderGuide: true, renderKit: true, renderPreview: true, renderExpand: true, tableScroll: true,
+  liveRender: true,
+  renderGuide: true,
+  renderKit: true,
+  renderPreview: true,
+  renderExpand: true,
+  tableScroll: true,
 };
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;

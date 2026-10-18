@@ -68,7 +68,11 @@ test("the summary card opens after being hidden without breaking the pane", asyn
   });
   const draw = (shown: boolean) => (
     <UiProvider container={rootElement}>
-      <SummaryCard card={card(shown)} rows={[]} subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen() {} }} />
+      <SummaryCard
+        card={card(shown)}
+        rows={[]}
+        subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen() {} }}
+      />
     </UiProvider>
   );
   const onError = (error: unknown) => errors.push(error);

@@ -76,7 +76,14 @@ test("without app values, dev URLs beat defaults and layout beats dev URLs", asy
 
 test("with nothing set liveRender and renderGuide default on, even after layout removal", async () => {
   const { LABS, configureLabs, labOn } = await load();
-  const defaultsOn = new Set(["liveRender", "renderGuide", "renderKit", "renderPreview", "renderExpand", "tableScroll"]);
+  const defaultsOn = new Set([
+    "liveRender",
+    "renderGuide",
+    "renderKit",
+    "renderPreview",
+    "renderExpand",
+    "tableScroll",
+  ]);
   for (const lab of LABS) expect(labOn(lab)).toBe(defaultsOn.has(lab));
   configureLabs({ labs: Object.fromEntries(LABS.map((lab) => [lab, !defaultsOn.has(lab)])) });
   configureLabs({});

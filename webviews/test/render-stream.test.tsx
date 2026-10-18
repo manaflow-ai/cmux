@@ -55,7 +55,8 @@ afterAll(() => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { Markdown, mergeRenderBlocks, parseMarkdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { Markdown, mergeRenderBlocks, parseMarkdown } =
+  await import("../src/agent-session/acpmux/conversation/Markdown");
 
 beforeEach(() => {
   act(() => root?.unmount());
@@ -106,8 +107,7 @@ test("one frame posts growing HTML, coalesces tokens, and finalizes once without
   draw("<p>First second third</p>", { closed: true });
   await wait(65);
   expect(host.querySelector("iframe")).toBe(frame);
-  expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second third</p>", done: true,
-  });
+  expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second third</p>", done: true });
   const count = posted.filter((msg) => msg.type !== "cmux-render-theme").length;
   receive("cmux-render-ready");
   draw("<p>First second third</p>", { closed: true });
@@ -177,8 +177,17 @@ test("stopping an open React fence removes its prepared frame", () => {
 
 test.each([
   (page: string) => page,
-  (page: string) => page.split("\n").map((line) => `> ${line}`).join("\n"),
-  (page: string) => "- Page\n" + page.split("\n").map((line) => `  ${line}`).join("\n"),
+  (page: string) =>
+    page
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n"),
+  (page: string) =>
+    "- Page\n" +
+    page
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n"),
 ])("a stopped React fence stays unmounted while its prose reveal catches up: %#", async (nested) => {
   const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
   const saved = { ...revealFrames };
@@ -204,9 +213,14 @@ test("a completed React fence does not send an eager prepare request", () => {
 
 test("received renders wait for every preceding block and keep their frame at their turn", () => {
   const received = "First.\n\nSecond.\n\n```cmux-render\n<p>Page</p>\n```";
-  const show = (text: string) => act(() =>
-    root!.render(<Markdown streaming receivedText={received}>{text}</Markdown>),
-  );
+  const show = (text: string) =>
+    act(() =>
+      root!.render(
+        <Markdown streaming receivedText={received}>
+          {text}
+        </Markdown>,
+      ),
+    );
   show("First.");
   expect(host.querySelector("iframe") === null).toBe(true);
   show("First.\n\nSecond");
@@ -220,21 +234,27 @@ test("received renders wait for every preceding block and keep their frame at th
 test("an appended received render leaves the last revealed ordinary fence open", () => {
   const shown = "```js\nconst value = 1";
   const received = shown + "\n```\n\n```cmux-render\n<p>Page</p>";
-  act(() => root!.render(<Markdown streaming receivedText={received}>{shown}</Markdown>));
+  act(() =>
+    root!.render(
+      <Markdown streaming receivedText={received}>
+        {shown}
+      </Markdown>,
+    ),
+  );
   expect(host.querySelector("iframe")).not.toBeNull();
   expect(host.querySelector(".cv-code-handoff") === null).toBe(true);
   expect(host.querySelector("pre")?.textContent).toContain("const value = 1");
 });
 
-test.each([
-  "> ```cmux-render\n> <p>Page</p>\n> ```",
-  "- Page\n  ```cmux-render\n  <p>Page</p>\n  ```",
-])("unchanged nested render merges preserve block and array identity: %s", (text) => {
-  const shown = parseMarkdown(text);
-  const merged = mergeRenderBlocks(shown, parseMarkdown(text));
-  expect(merged).toBe(shown);
-  expect(merged[0]).toBe(shown[0]);
-});
+test.each(["> ```cmux-render\n> <p>Page</p>\n> ```", "- Page\n  ```cmux-render\n  <p>Page</p>\n  ```"])(
+  "unchanged nested render merges preserve block and array identity: %s",
+  (text) => {
+    const shown = parseMarkdown(text);
+    const merged = mergeRenderBlocks(shown, parseMarkdown(text));
+    expect(merged).toBe(shown);
+    expect(merged[0]).toBe(shown[0]);
+  },
+);
 
 test.each([
   ["> Intro", "> Intro\n>\n> Earlier.\n>\n> ```cmux-render\n> <p>Page</p>"],
@@ -245,7 +265,13 @@ test.each([
   const children = block.type === "blockquote" ? block.children : block.type === "list" ? block.items[0]!.children : [];
   expect(children.length).toBe(Object.keys(children).length);
   expect(children.some((child) => child.type === "code")).toBe(false);
-  act(() => root!.render(<Markdown streaming receivedText={received}>{shown}</Markdown>));
+  act(() =>
+    root!.render(
+      <Markdown streaming receivedText={received}>
+        {shown}
+      </Markdown>,
+    ),
+  );
   expect(host.querySelector("iframe") === null).toBe(true);
 });
 
@@ -276,8 +302,7 @@ test("the transport ending before reveal catches up retains the streaming frame"
       expect(host.querySelector("iframe")).toBe(frame);
     }
     await wait(65);
-    expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second</p>", done: true,
-    });
+    expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second</p>", done: true });
   } finally {
     Object.assign(revealFrames, saved);
   }

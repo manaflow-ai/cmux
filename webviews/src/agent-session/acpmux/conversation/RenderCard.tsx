@@ -36,7 +36,6 @@ const devServer = () => import.meta.env?.DEV === true && /^https?:$/.test(locati
 /// The theme for a page embedded in the chat: no side inset, so it lines up with the reply's text
 /// (Lucas 2026-10-18); a page's own `body` margin still wins.
 
-
 export function useRenderFrame(
   html: string,
   live = false,

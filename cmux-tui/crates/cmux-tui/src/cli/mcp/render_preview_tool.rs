@@ -22,7 +22,10 @@ pub(super) fn descriptor() -> Value {
 }
 
 /// The target comes only from the MCP process's session, never model arguments.
-pub(super) fn params(arguments: &Map<String, Value>, session: Option<&str>) -> Result<Value, String> {
+pub(super) fn params(
+    arguments: &Map<String, Value>,
+    session: Option<&str>,
+) -> Result<Value, String> {
     let session = session
         .filter(|s| !s.trim().is_empty())
         .ok_or("render_preview requires an agent chat MCP session")?;
@@ -70,7 +73,11 @@ pub(super) fn result(mut report: Value) -> Value {
         .and_then(|v| v.as_str().map(str::to_owned))
         .filter(|s| s.starts_with("iVBORw0KGgo") && s.len() <= 4_194_304)
     else {
-        return tool_error(envelope(v2_tools::invalid("preview returned no bounded PNG"), "not_run", None));
+        return tool_error(envelope(
+            v2_tools::invalid("preview returned no bounded PNG"),
+            "not_run",
+            None,
+        ));
     };
     // Keep the image even if a page floods diagnostics. Only known bounded fields cross MCP.
     let mut bounded = Map::new();
@@ -80,10 +87,18 @@ pub(super) fn result(mut report: Value) -> Value {
         }
     }
     for (key, count, length) in [("warnings", 20, 200), ("missingImages", 20, 200)] {
-        let values = report.get(key).and_then(Value::as_array).map(|items| {
-            items.iter().take(count).filter_map(Value::as_str)
-                .map(|s| Value::String(s.chars().take(length).collect())).collect::<Vec<_>>()
-        }).unwrap_or_default();
+        let values = report
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .take(count)
+                    .filter_map(Value::as_str)
+                    .map(|s| Value::String(s.chars().take(length).collect()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         bounded.insert(key.into(), Value::Array(values));
     }
     let messages = report.get("consoleMessages").and_then(Value::as_array).map(|items| {
@@ -98,7 +113,9 @@ pub(super) fn result(mut report: Value) -> Value {
     for key in ["consoleMessages", "warnings", "missingImages"] {
         while serde_json::to_vec(&report).map_or(true, |bytes| bytes.len() > 64 << 10) {
             let removed = report.get_mut(key).and_then(Value::as_array_mut).and_then(Vec::pop);
-            if removed.is_none() { break; }
+            if removed.is_none() {
+                break;
+            }
         }
     }
     json!({"content":[{"type":"image","mimeType":"image/png","data":png},

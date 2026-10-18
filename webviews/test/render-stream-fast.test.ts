@@ -222,59 +222,62 @@ test("sizing keeps its observer, coalesces mutations, and suppresses unchanged h
   }
 });
 
-test.each(["cssom", "class", "details"])("fixed-height bodies resize through ResizeObserver after %s changes", async (change) => {
-  const dom = new JSDOM(LIVE_RENDER_FRAME_DOC, { runScripts: "outside-only" });
-  const win = dom.window;
-  const frames: FrameRequestCallback[] = [];
-  const targets = new Set<unknown>();
-  const messages: { type: string; height?: number }[] = [];
-  let resized = () => {};
-  Object.defineProperty(win, "parent", {
-    value: { postMessage: (data: { type: string; height?: number }) => messages.push(data) },
-  });
-  win.requestAnimationFrame = (callback) => {
-    frames.push(callback);
-    return frames.length;
-  };
-  Object.assign(win, {
-    ResizeObserver: class {
-      constructor(callback: () => void) {
-        resized = callback;
-      }
-      observe(node: unknown) {
-        targets.add(node);
-      }
-      unobserve(node: unknown) {
-        targets.delete(node);
-      }
-    },
-  });
-  try {
-    win.document.body.style.height = "150px";
-    win.document.body.innerHTML = "<details><summary>Page</summary><p>More</p></details>";
-    const child = win.document.querySelector("details")!;
-    let height = 120;
-    child.getBoundingClientRect = () => ({ top: 0, bottom: height, height }) as DOMRect;
-    for (const script of win.document.querySelectorAll("script")) win.eval(script.textContent!);
-    await new Promise((resolve) => win.addEventListener("load", resolve, { once: true }));
-    const flush = () => frames.splice(0).forEach((callback) => callback(0));
-    flush();
-    const sizes = () => messages.filter((message) => message.type === "cmux-render-content-size");
-    expect(sizes()).toHaveLength(1);
-    // Attribute churn does not measure; layout growth comes from ResizeObserver.
-    child.className = "animated";
-    await Promise.resolve();
-    expect(frames).toHaveLength(0);
-    if (change === "class") child.className = "taller";
-    if (change === "details") child.open = true;
-    await Promise.resolve();
-    expect(frames).toHaveLength(0);
-    height = 400;
-    if (targets.has(child)) resized();
-    flush();
-    expect(sizes()).toHaveLength(2);
-    expect(sizes()[1]!.height! - sizes()[0]!.height!).toBe(280);
-  } finally {
-    win.close();
-  }
-});
+test.each(["cssom", "class", "details"])(
+  "fixed-height bodies resize through ResizeObserver after %s changes",
+  async (change) => {
+    const dom = new JSDOM(LIVE_RENDER_FRAME_DOC, { runScripts: "outside-only" });
+    const win = dom.window;
+    const frames: FrameRequestCallback[] = [];
+    const targets = new Set<unknown>();
+    const messages: { type: string; height?: number }[] = [];
+    let resized = () => {};
+    Object.defineProperty(win, "parent", {
+      value: { postMessage: (data: { type: string; height?: number }) => messages.push(data) },
+    });
+    win.requestAnimationFrame = (callback) => {
+      frames.push(callback);
+      return frames.length;
+    };
+    Object.assign(win, {
+      ResizeObserver: class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe(node: unknown) {
+          targets.add(node);
+        }
+        unobserve(node: unknown) {
+          targets.delete(node);
+        }
+      },
+    });
+    try {
+      win.document.body.style.height = "150px";
+      win.document.body.innerHTML = "<details><summary>Page</summary><p>More</p></details>";
+      const child = win.document.querySelector("details")!;
+      let height = 120;
+      child.getBoundingClientRect = () => ({ top: 0, bottom: height, height }) as DOMRect;
+      for (const script of win.document.querySelectorAll("script")) win.eval(script.textContent!);
+      await new Promise((resolve) => win.addEventListener("load", resolve, { once: true }));
+      const flush = () => frames.splice(0).forEach((callback) => callback(0));
+      flush();
+      const sizes = () => messages.filter((message) => message.type === "cmux-render-content-size");
+      expect(sizes()).toHaveLength(1);
+      // Attribute churn does not measure; layout growth comes from ResizeObserver.
+      child.className = "animated";
+      await Promise.resolve();
+      expect(frames).toHaveLength(0);
+      if (change === "class") child.className = "taller";
+      if (change === "details") child.open = true;
+      await Promise.resolve();
+      expect(frames).toHaveLength(0);
+      height = 400;
+      if (targets.has(child)) resized();
+      flush();
+      expect(sizes()).toHaveLength(2);
+      expect(sizes()[1]!.height! - sizes()[0]!.height!).toBe(280);
+    } finally {
+      win.close();
+    }
+  },
+);

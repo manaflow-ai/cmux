@@ -5541,9 +5541,7 @@ function AcpmuxPane() {
             folder={localCwd}
             {...(machineName ? { machine: machineName } : {})}
             openIn={(app) =>
-              callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then(
-                (reply) => reply?.apps ?? [],
-              )
+              callNative<{ apps?: OpenInApp[] }>("folder.openIn", app ? { app } : {}).then((reply) => reply?.apps ?? [])
             }
           />
         )

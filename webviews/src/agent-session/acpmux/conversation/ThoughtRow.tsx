@@ -75,15 +75,7 @@ export function ThoughtRow(props: { item: AcpmuxActivity; id?: string; streaming
   return <PlainThoughtRow {...props} />;
 }
 
-function PlainThoughtRow({
-  item,
-  id,
-  streaming = false,
-}: {
-  item: AcpmuxActivity;
-  id?: string;
-  streaming?: boolean;
-}) {
+function PlainThoughtRow({ item, id, streaming = false }: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
   const t = useT();
   const text = item.text.trim();
   const enabled = thoughtLayout.enabled();

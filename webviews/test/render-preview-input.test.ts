@@ -2,10 +2,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { configureChatWidth } from "../src/agent-session/acpmux/chatWidth";
-import {
-  prepareRenderPreview,
-  previewDocument,
-} from "../src/agent-session/acpmux/conversation/renderPreview";
+import { prepareRenderPreview, previewDocument } from "../src/agent-session/acpmux/conversation/renderPreview";
 
 test("preview uses the reply column and rejects disabled labs and unbounded input", () => {
   const dom = new JSDOM(
@@ -24,10 +21,8 @@ test("preview uses the reply column and rejects disabled labs and unbounded inpu
   try {
     expect(prepareRenderPreview("<p>Hi</p>").width).toBe(734);
     expect(prepareRenderPreview("<p>Hi</p>", 390).width).toBe(390);
-    for (const width of [0, 319, 390.5, 1441, NaN])
-      expect(() => prepareRenderPreview("x", width)).toThrow();
-    for (const html of ["", " ", "é".repeat((1 << 19) + 1)])
-      expect(() => prepareRenderPreview(html)).toThrow();
+    for (const width of [0, 319, 390.5, 1441, NaN]) expect(() => prepareRenderPreview("x", width)).toThrow();
+    for (const html of ["", " ", "é".repeat((1 << 19) + 1)]) expect(() => prepareRenderPreview(html)).toThrow();
     column.getBoundingClientRect = () => ({ width: 0 }) as DOMRect;
     expect(prepareRenderPreview("<p>Empty chat</p>").width).toBe(720);
     Object.defineProperty(dom.window, "innerWidth", { value: 1600 });
@@ -55,9 +50,7 @@ test("HTML cannot break out of the trusted host's script literal", () => {
   const html = "</script><script>parent.compromised=true</script>";
   const dom = new JSDOM(previewDocument(html, "", "light", true));
   expect(dom.window.document.querySelectorAll("body > script")).toHaveLength(1);
-  expect(dom.window.document.querySelector("iframe")!.getAttribute("sandbox")).toBe(
-    "allow-scripts",
-  );
+  expect(dom.window.document.querySelector("iframe")!.getAttribute("sandbox")).toBe("allow-scripts");
   expect((dom.window as any).compromised).toBeUndefined();
   dom.window.close();
 });

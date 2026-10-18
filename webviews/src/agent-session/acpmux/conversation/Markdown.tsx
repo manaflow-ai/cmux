@@ -626,25 +626,27 @@ function Block({
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
         >
-          {block.items.map((it, i) => it.renderPlaceholder ? null : (
-            <li key={i} className={it.task ? "cv-task" : undefined}>
-              {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
-              {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
-              {it.task && <TaskCheckbox checked={Boolean(it.checked)} className="cv-checkbox" />}
-              <span className="cv-li__text">
-                {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
-              </span>
-              {it.children.length > 0 && (
-                <Blocks
-                  blocks={it.children}
-                  opts={opts}
-                  depth={depth + 1}
-                  renderId={`${renderId}/item/${i}`}
-                  turnStreaming={turnStreaming}
-                />
-              )}
-            </li>
-          ))}
+          {block.items.map((it, i) =>
+            it.renderPlaceholder ? null : (
+              <li key={i} className={it.task ? "cv-task" : undefined}>
+                {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
+                {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
+                {it.task && <TaskCheckbox checked={Boolean(it.checked)} className="cv-checkbox" />}
+                <span className="cv-li__text">
+                  {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
+                </span>
+                {it.children.length > 0 && (
+                  <Blocks
+                    blocks={it.children}
+                    opts={opts}
+                    depth={depth + 1}
+                    renderId={`${renderId}/item/${i}`}
+                    turnStreaming={turnStreaming}
+                  />
+                )}
+              </li>
+            ),
+          )}
         </L>
       );
     }
@@ -818,14 +820,14 @@ export function mergeRenderBlocks(shown: MdBlock[], received: MdBlock[]): MdBloc
       blocks[index] =
         before?.type === "code" && before.code === code && before.lang === block.lang && before.open === block.open
           ? before
-          : code === block.code ? block : { ...block, code };
+          : code === block.code
+            ? block
+            : { ...block, code };
     } else if (block.type === "blockquote") {
       const children = before?.type === "blockquote" ? before.children : [];
       const merged = mergeRenderBlocks(children, block.children);
       blocks[index] =
-        before?.type === "blockquote" && merged === before.children
-          ? before
-          : { ...block, children: merged };
+        before?.type === "blockquote" && merged === before.children ? before : { ...block, children: merged };
     } else if (block.type === "list") {
       const items = before?.type === "list" ? before.items : [];
       const merged = block.items.map((item, at) => {
@@ -835,14 +837,22 @@ export function mergeRenderBlocks(shown: MdBlock[], received: MdBlock[]): MdBloc
         const text = old?.text ?? "";
         const children = mergeRenderBlocks(old?.children ?? [], item.children);
         if (
-          old && !old.renderPlaceholder && old.text === text && old.children === children &&
-          old.task === item.task && old.checked === item.checked
-        ) return old;
+          old &&
+          !old.renderPlaceholder &&
+          old.text === text &&
+          old.children === children &&
+          old.task === item.task &&
+          old.checked === item.checked
+        )
+          return old;
         return { ...item, text, children };
       });
       blocks[index] =
-        before?.type === "list" && before.ordered === block.ordered && before.start === block.start &&
-        merged.length === items.length && merged.every((item, at) => item === items[at])
+        before?.type === "list" &&
+        before.ordered === block.ordered &&
+        before.start === block.start &&
+        merged.length === items.length &&
+        merged.every((item, at) => item === items[at])
           ? before
           : { ...block, items: merged };
     }
@@ -882,9 +892,10 @@ export function Markdown({
     /(?:^|\n)[ \t]*```[ \t]*$/.test(children) &&
     /^[ \t]*```(?:cmux-render|cmux-react)\b/i.test(children.match(/^[ \t]*```[^\n]*$/gm)?.at(-2) ?? "");
   const revealedBlocks = useMemo(
-    () => acpmuxPerf.timed("markdown.parse", () =>
-      parser.current!.update(children, { streaming: streaming && !closedRender }),
-    ),
+    () =>
+      acpmuxPerf.timed("markdown.parse", () =>
+        parser.current!.update(children, { streaming: streaming && !closedRender }),
+      ),
     [children, streaming, closedRender],
   );
   // Both parsers key by block index, so reveal catching up never remounts a running page.

@@ -36,7 +36,10 @@ function installDiagnostics() {
     openLink: unavailable,
     state: {
       get: () => Promise.resolve(previewState),
-      set: (value: unknown) => { previewState = value; return Promise.resolve(null); },
+      set: (value: unknown) => {
+        previewState = value;
+        return Promise.resolve(null);
+      },
     },
   });
   for (const level of ["warn", "error"] as const) {
@@ -54,22 +57,23 @@ function installDiagnostics() {
     },
     true,
   );
-  document.addEventListener("securitypolicyviolation", (event) =>
-    record("warn", "CSP blocked " + event.blockedURI),
-  );
-  window.addEventListener("unhandledrejection", (event) =>
-    record("exception", event.reason?.message || event.reason),
-  );
+  document.addEventListener("securitypolicyviolation", (event) => record("warn", "CSP blocked " + event.blockedURI));
+  window.addEventListener("unhandledrejection", (event) => record("exception", event.reason?.message || event.reason));
   document.addEventListener(
     "cmux-render-settled",
     async () => {
       await document.fonts?.ready;
-    // Capture the kit's final appearance, rather than the middle of its entrance fade.
-    const animations = document.getAnimations?.() ?? [];
-    await Promise.all(animations.filter((animation) => {
-      const end = animation.effect?.getComputedTiming().endTime;
-      return typeof end === "number" && Number.isFinite(end) && end <= 1000;
-    }).slice(0, 100).map((animation) => animation.finished.catch(() => {})));
+      // Capture the kit's final appearance, rather than the middle of its entrance fade.
+      const animations = document.getAnimations?.() ?? [];
+      await Promise.all(
+        animations
+          .filter((animation) => {
+            const end = animation.effect?.getComputedTiming().endTime;
+            return typeof end === "number" && Number.isFinite(end) && end <= 1000;
+          })
+          .slice(0, 100)
+          .map((animation) => animation.finished.catch(() => {})),
+      );
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       // A React commit can land after the last ResizeObserver callback.
@@ -94,9 +98,7 @@ function installDiagnostics() {
         }
         if (!contained && rect.width > width + 1) oversized++;
         if (
-          Array.from(element.childNodes).some(
-            (node) => node.nodeType === 3 && node.textContent?.trim(),
-          ) &&
+          Array.from(element.childNodes).some((node) => node.nodeType === 3 && node.textContent?.trim()) &&
           parseFloat(getComputedStyle(element).fontSize) < 10
         )
           tiny++;
@@ -119,7 +121,15 @@ function installDiagnostics() {
         .slice(0, 20)
         .map((img) => (img.getAttribute("src") || "(no src)").slice(0, 200));
       parent.postMessage(
-        { type: "cmux-render-preview-result", height: (window as unknown as { __cmuxRenderContentHeight?: number }).__cmuxRenderContentHeight ?? Math.ceil(body.getBoundingClientRect().height), consoleMessages: messages, warnings, missingImages },
+        {
+          type: "cmux-render-preview-result",
+          height:
+            (window as unknown as { __cmuxRenderContentHeight?: number }).__cmuxRenderContentHeight ??
+            Math.ceil(body.getBoundingClientRect().height),
+          consoleMessages: messages,
+          warnings,
+          missingImages,
+        },
         "*",
       );
     },

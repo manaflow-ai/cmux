@@ -18,8 +18,8 @@ mod browser_tools;
 mod config;
 mod keybinding_tools;
 mod messages;
-mod render_tool;
 mod render_preview_tool;
+mod render_tool;
 mod schema;
 #[cfg(test)]
 mod tests;
