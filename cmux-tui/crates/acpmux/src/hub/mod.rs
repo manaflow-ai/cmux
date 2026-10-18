@@ -6,6 +6,7 @@
 
 mod adoption;
 mod aside;
+pub(crate) mod auto_resume;
 mod btw;
 pub(crate) use btw::SIDE_TAG;
 mod bookmarks;

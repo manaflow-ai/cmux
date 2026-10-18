@@ -434,6 +434,17 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        if let Err(e) = &result {
+            let cut = super::auto_resume::CutTurn {
+                prompt_id: &prompt_id,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: &e.message,
+            };
+            self.schedule_auto_resume(session, cut).await;
+        }
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why.
