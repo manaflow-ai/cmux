@@ -101001,6 +101001,78 @@
       "comment": "Settings > Appearance > Loading Indicator (cx-sya4n): help under the Status Indicators row.",
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statično prikazuje mirni, poseban oblik za svako stanje. Smanjenje pokreta uvijek koristi Statično."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statisk viser en stillestående, tydelig form for hver tilstand. Reducer bevægelse bruger altid Statisk."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statico mostra una forma ferma e distinta per ogni stato. Riduci movimento usa sempre Statico."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឋិតិវន្តបង្ហាញរូបរាងនៅស្ងៀម និងខុសគ្នាសម្រាប់ស្ថានភាពនីមួយៗ។ កាត់បន្ថយចលនាតែងតែប្រើឋិតិវន្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statisk viser en stillestående, tydelig form for hver tilstand. Reduser bevegelse bruker alltid Statisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statyczne pokazuje nieruchomy, odrębny kształt dla każdego stanu. Ograniczanie ruchu zawsze używa trybu Statyczne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estático mostra uma forma parada e distinta para cada estado. Reduzir movimento sempre usa Estático."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичный режим показывает неподвижную отдельную форму для каждого состояния. При уменьшении движения всегда используется статичный режим."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบคงที่จะแสดงรูปทรงที่นิ่งและแตกต่างกันสำหรับแต่ละสถานะ ลดการเคลื่อนไหวจะใช้แบบคงที่เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabit, her durum için hareketsiz ve ayrı bir şekil gösterir. Hareketi Azalt her zaman Sabit kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичний режим показує нерухому окрему форму для кожного стану. Зменшення руху завжди використовує статичний режим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tĩnh hiển thị một hình dạng đứng yên, riêng biệt cho mỗi trạng thái. Giảm chuyển động luôn dùng Tĩnh."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
