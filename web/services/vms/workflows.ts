@@ -3706,12 +3706,43 @@ function resumeAfterLostRace(
 ): Effect.Effect<void, never> {
   const resume = providers.resume;
   if (!resume) return Effect.void;
-  return resume(vm.provider, providerVmId).pipe(
-    Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-    Effect.tapError(() => Effect.logWarning("Could not resume a machine a re-pause raced", { vmId: vm.id, providerVmId })),
-    Effect.catchAll(() => Effect.void),
-    Effect.asVoid,
-  );
+  return Effect.gen(function* () {
+    // The re-pause zeroed a Go machine's runtime budget; give it back first.
+    if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
+    yield* resume(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError(() => Effect.logWarning("Could not resume a machine a re-pause raced", { vmId: vm.id, providerVmId })),
+      Effect.catchAll(() => Effect.void),
+    );
+  });
+}
+
+/** False when the Go allowance is used up, so the machine stays paused. */
+function restoreGoRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
+    if (usage._tag === "Left") {
+      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", { vmId: vm.id, providerVmId });
+      return true;
+    }
+    if (usage.right && usage.right.remainingSeconds <= 0) {
+      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", { vmId: vm.id, providerVmId });
+      return false;
+    }
+    const remainingSeconds = usage.right?.remainingSeconds ?? null;
+    yield* Effect.gen(function* () {
+      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
+    }).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError(() => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", { vmId: vm.id, providerVmId })),
+      Effect.catchAll(() => Effect.void),
+    );
+    return true;
+  });
 }
 
 function boundedVmStatusReconcileLimit(limit: number | undefined): number {
