@@ -10,8 +10,8 @@ it("binds a public VM allocation only after its actual signed instance is verifi
   const stub = ns.get(ns.idFromName("team_00000000000000811000"))
   await inDO(stub, async (owner) => {
     const binds = new TeamVmBinds(owner.sqlStore), now = Date.now()
-    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
-    const key = await crypto.subtle.exportKey("jwk", pair.publicKey)
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
+    const key = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
     const vm = "vm_0123456789abcdefghjkmnpqrs", instance = "vm-native-111", team = "team_t", epoch = 1
     const nonce = binds.mint(epoch, vm, now)
     const proof: BindProof = { instance_id: instance, public_jwk: { kty: "EC", crv: "P-256", x: key.x!, y: key.y! }, signature: b64u(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(bindMessage(team, epoch, instance, nonce)))) }
