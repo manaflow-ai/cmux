@@ -94,7 +94,8 @@ jobs:
           bun scripts/db-migrate.mjs
           mkdir -p "$RUNNER_TEMP/dogfood"
           bun scripts/cloud-vm/run-admission-probe.ts > "$RUNNER_TEMP/dogfood/run-admission.json"
-          cd "$GITHUB_WORKSPACE"
+          # Keep the Vercel project binding and Next.js package root in scope.
+          cd "$GITHUB_WORKSPACE/web"
           bunx vercel@56.3.1 deploy . --prod --yes --debug --archive=tgz --env DATABASE_URL="$DATABASE_URL" --env DIRECT_DATABASE_URL="$DIRECT_DATABASE_URL" --env NEXT_PUBLIC_STACK_PROJECT_ID="$NEXT_PUBLIC_STACK_PROJECT_ID" --env NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY" --env STACK_SECRET_SERVER_KEY="$STACK_SECRET_SERVER_KEY" --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard
         env:
