@@ -733,6 +733,7 @@ class Gate:
         if not getattr(self, "grid", None):
             self.build_grid()
         grid, workspace = self.grid, self.grid_workspace
+        app.quiet_counters()  # the grid's last tabs are in the daemon before the quit
         pages = self.page_tabs()
         app.relaunch()
         app.counters()  # reset: the window below is the restore, from the relaunched app's first answer
