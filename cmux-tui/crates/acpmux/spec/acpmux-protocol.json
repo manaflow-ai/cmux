@@ -1211,7 +1211,7 @@
       "type": "object"
     },
     "LifecycleReceipt": {
-      "description": "A durable lifecycle fact supplied by an explicit producer.",
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
       "properties": {
         "id": {
           "type": "string"
@@ -2111,7 +2111,7 @@
               "type": "null"
             }
           ],
-          "description": "An optional explicit lifecycle receipt; absent until a producer supplies validated evidence."
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
