@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 // Closing and reorder motion: what a tab shows while it leaves or while
