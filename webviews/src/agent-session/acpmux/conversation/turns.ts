@@ -322,7 +322,7 @@ function shapeTurn(
     if (open)
       shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
-  shaped.push(...groups, ...renderRows(body, version));
+  shaped.push(...groups.map(endedPlan), ...renderRows(body, version));
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
   const preview = turnPreviewUrl(user, turn);
@@ -392,6 +392,11 @@ const staysOut = (row: AcpmuxRow) =>
   // A session offer waits for the person's Start or Dismiss.
   row.kind === "sessionOffer";
 
+/// A finished turn's todo list: a step the agent left in progress no longer spins. The version
+/// moves off the live one (v to 2v + 1), so the memoized row draws again when the turn ends.
+const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
+  row.kind === "plan" && row.plan ? { ...row, turnEnded: true, version: row.version * 2 + 1 } : row;
+
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
 /// reloaded turn without timing, and its answer and edits draw after it.
@@ -409,7 +414,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
-    ...before.filter(staysOut),
+    ...before.filter(staysOut).map(endedPlan),
     ...(final >= 0 ? rows.slice(final) : []),
     ...editsCard(edits),
   ];

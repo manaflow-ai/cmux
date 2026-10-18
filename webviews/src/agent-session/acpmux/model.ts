@@ -77,6 +77,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
+  turnEnded?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
@@ -462,8 +464,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
-  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
+  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 16 + 16 + row.plan.length * 24;
   if (
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
