@@ -6,9 +6,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-// Server-issued handles add bounded history and rollback-safe storage (388.2 KiB measured).
-// No dependency was added; allow 2 KiB over the previous 388 KiB gate.
-const BUDGET_GZIP_BYTES = 390 * 1024; // 298 KiB at S1
+// Durable snapshot capture recovery and operator controls add no dependencies (393.2 KiB measured).
+const BUDGET_GZIP_BYTES = 395 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

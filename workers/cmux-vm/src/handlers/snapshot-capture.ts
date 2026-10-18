@@ -4,7 +4,7 @@ import { Clock, Effect, Option } from "effect";
 import { CreateSnapshotRequest, Snapshot, SnapshotCreationList, SnapshotCreationStatus, SnapshotSummary } from "../api/snapshots.ts";
 import { SnapshotStore } from "../db/snapshots.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
-import { Conflict, Forbidden, PaymentRequired, QuotaExceeded, ServiceUnavailable, snapshotNotFound, unavailable, vmNotFound } from "../errors.ts";
+import { Conflict, Forbidden, PaymentRequired, QuotaExceeded, NotFound, ServiceUnavailable, snapshotNotFound, unavailable, vmNotFound } from "../errors.ts";
 import { newSnapshotId, parseSnapshotId, parseVmId, type SnapshotId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { SnapshotCapture } from "../limits/snapshot-capture.ts";
@@ -72,7 +72,7 @@ const runCapture = <C, V, S>(caller: Named<C, Principal>, vm: Named<V, VmId>, sn
   if (owns === null) return yield* Effect.fail(vmNotFound());
   const mayCreate = yield* slot(caller, snapshot.value);
   const created = yield* upstream.capture(vm, snapshot, { owns, scope, mayCreate, capture }, caller.value.tenantId).pipe(Effect.mapError((error) =>
-    error.status === 404 ? vmNotFound() : error.status === 409 ? new Conflict({ message: "The VM must be running or paused to snapshot it", pendingSnapshotId: snapshot.value }) : retained(snapshot.value)));
+    error.status === 404 ? new NotFound({ message: "VM not found", pendingSnapshotId: snapshot.value }) : error.status === 409 ? new Conflict({ message: "The VM must be running or paused to snapshot it", pendingSnapshotId: snapshot.value }) : retained(snapshot.value)));
   return yield* commit(caller, snapshot, capture, created);
 });
 

@@ -17,6 +17,7 @@ import {
   ReserveDecision,
   TenantLedger,
   type IdempotencyProgress,
+  type LedgerStorage,
   type RateClass,
   type RateRule,
 } from "./ledger.ts";
@@ -150,14 +151,14 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
   );
 
 /** In process: the same ledger over memory, one per tenant. */
-export const memoryLimitsLayer = (): Layer.Layer<TenantLimits> => {
+export const memoryLimitsLayer = (storageFor: (tenantId: TenantId) => LedgerStorage = () => memoryLedgerStorage()): Layer.Layer<TenantLimits> => {
   const ledgers = new Map<string, TenantLedger>();
   return Layer.succeed(
     TenantLimits,
     makeService((tenantId) => {
       const existing = ledgers.get(tenantId);
       if (existing !== undefined) return existing;
-      const ledger = new TenantLedger(memoryLedgerStorage());
+      const ledger = new TenantLedger(storageFor(tenantId));
       ledgers.set(tenantId, ledger);
       return ledger;
     }),

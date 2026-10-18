@@ -89,12 +89,16 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
 
 /** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
 export const SNAPSHOT_ENDPOINTS = [
+  { name: "getSnapshotCreation", method: "GET", template: "/v1/snapshot-creations/{snapshotId}", scope: "snapshot:read" },
+  { name: "reconcileSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/reconcile", scope: "snapshot:write" },
+  { name: "cancelSnapshotCreation", method: "POST", template: "/v1/snapshot-creations/{snapshotId}/cancel", scope: "snapshot:write" },
   { name: "getSnapshot", method: "GET", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:read" },
   { name: "deleteSnapshot", method: "DELETE", template: "/v1/snapshots/{snapshotId}", scope: "snapshot:write" },
 ] as const;
 
 /** Endpoints that act on the tenant rather than one VM. */
 export const TENANT_ENDPOINTS = [
+  { name: "listSnapshotCreations", method: "GET", template: "/v1/snapshot-creations", scope: "snapshot:read" },
   { name: "listVmCreations", method: "GET", template: "/v1/vm-creations", scope: "vm:read" },
   { name: "cancelVmCreation", method: "POST", template: "/v1/vm-creations/by-key/cancel", scope: "vm:write" },
   { name: "getVmCreation", method: "GET", template: "/v1/vm-creations/by-key", scope: "vm:read" },

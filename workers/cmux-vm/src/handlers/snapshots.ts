@@ -7,14 +7,14 @@
  */
 import { createSnapshotCapture, inspectSnapshotCapture, listSnapshotCaptures, reconcileSnapshotCapture, cancelSnapshotCapture } from "./snapshot-capture.ts";
 import { HttpApiBuilder } from "@effect/platform";
-import { name } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
 import { InvalidRequest } from "../api/common.ts";
 import { LABEL_KEY, LabelValue, MAX_LABELS, Snapshot, SnapshotList, SnapshotSummary } from "../api/snapshots.ts";
 import { SnapshotStore, type SnapshotRow } from "../db/snapshots.ts";
-import { unavailable } from "../errors.ts";
-import { SnapshotId } from "../lib/ids.ts";
+import { actorRef } from "../domain/principal.ts";
+import { Conflict, unavailable } from "../errors.ts";
+import { SnapshotId, VmId } from "../lib/ids.ts";
 import { UpstreamSnapshots, type UpstreamSnapshot } from "../upstream/snapshots.ts";
 import { audited, withCaller } from "./common.ts";
 import { snapshotNotFound, withOwnedSnapshot } from "./owned.ts";
@@ -41,8 +41,6 @@ const toSummary = (row: SnapshotRow): SnapshotSummary =>
     labels: row.labels,
     createdAt: row.createdAt.toISOString(),
   });
-
-const parseSnapshotId = Schema.decodeUnknownOption(SnapshotId);
 
 /** Opaque page cursor: base64url of `[createdAt, id]` of the last row returned. */
 const Cursor = Schema.parseJson(Schema.Tuple(Schema.Date, SnapshotId));

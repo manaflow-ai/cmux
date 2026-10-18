@@ -4,6 +4,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, allScopesExcept, SNAPSHOT_ENDPOINTS } from "../support/endpoints.ts";
+import { memoryLedgerStorage, type LedgerStorage } from "../../src/limits/ledger.ts";
+import { memoryLimitsLayer } from "../../src/limits/service.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -312,6 +314,35 @@ describe("capture recovery", () => {
     expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(1);
   });
 
+  it("reports failed durable completion after SQL commits, then repairs the same capture", async () => {
+    let failWrites = false;
+    const wrap = (storage: LedgerStorage): LedgerStorage => ({ ...storage,
+      transaction: (run) => storage.transaction((tx) => run(wrap(tx))),
+      put: async (key, value) => { if (failWrites && key.startsWith("idem:")) throw new Error("completion receipt unavailable"); await storage.put(key, value); },
+    });
+    const limited = await makeHarness({ limits: memoryLimitsLayer(() => wrap(memoryLedgerStorage())) });
+    try {
+      const { vmId } = limited.addVm(TENANT_A);
+      const token = await limited.addKey(TENANT_A, ["snapshot:write"]);
+      const original = limited.upstream.fetch;
+      limited.upstream.fetch = async (request) => {
+        const response = await original(request);
+        if (request.method === "POST" && new URL(request.url).pathname.endsWith("/snapshot")) failWrites = true;
+        return response;
+      };
+      const headers = { ...bearer(token), "idempotency-key": "completion-failure" };
+      const capture = () => limited.request(`/v1/vms/${vmId}/snapshots`, headers, { method: "POST", body: {} });
+      const first = await capture();
+      expect(first.status).toBe(503);
+      expect(limited.s3a.snapshotRows(TENANT_A)).toHaveLength(1);
+      failWrites = false;
+      const retry = await capture();
+      expect(retry.status).toBe(201);
+      expect(limited.s3a.snapshotRows(TENANT_A)).toHaveLength(1);
+      expect(limited.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+    } finally { failWrites = false; await limited.dispose(); }
+  });
+
   it("replays the committed snapshot after the source VM has been deleted", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const key = await h.addKey(TENANT_A, ["snapshot:write", "vm:write"]);
@@ -381,6 +412,35 @@ describe("capture controls", () => {
     expect((await create(vmId, headers)).status).toBe(409);
     expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   });
+  it("fences a late successful capture response after cancellation has deleted it", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const token = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"]);
+    const headers = { ...bearer(token), "idempotency-key": "late-capture" };
+    let ready: () => void = () => undefined, release: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => { ready = resolve; });
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const original = h.upstream.fetch;
+    h.upstream.fetch = async (request) => {
+      const response = await original(request);
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/snapshot")) { ready(); await resume; }
+      return response;
+    };
+    const running = create(vmId, headers);
+    try {
+      await reached;
+      const page = await (await h.request("/v1/snapshot-creations", bearer(token))).json<{ items: Array<{ id: string }> }>();
+      const id = page.items[0]?.id;
+      expect(id).toMatch(SNAPSHOT_ID);
+      const cancelled = await h.request(`/v1/snapshot-creations/${id}/cancel`, bearer(token), { method: "POST" });
+      expect(await cancelled.json()).toMatchObject({ cancellation: "completed", state: "deleted" });
+      release();
+      expect((await running).status).toBe(503);
+      expect(h.upstream.snapshots.size).toBe(0);
+      expect((await create(vmId, headers)).status).toBe(409);
+      expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+    } finally { release(); await running; }
+  });
+
   it("keeps cancellation pending when the unknown capture is absent", async () => {
     const { vmId, headers, id } = await pending("cancel-absent");
     h.upstream.snapshots.clear();
@@ -530,7 +590,7 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     const { snapshotId, upstreamId } = h.s3a.addSnapshot(TENANT_A);
     const keyB = await h.addKey(TENANT_B, ALL_SCOPES);
 
-    const response = await h.request(`/v1/snapshots/${snapshotId}`, bearer(keyB), { method: endpoint.method });
+    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(keyB), { method: endpoint.method });
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ _tag: "NotFound", message: "Snapshot not found" });
@@ -543,7 +603,7 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     h.addMember(TENANT_B, "user_bob");
     const token = await h.sessionToken("user_bob");
 
-    const response = await h.request(`/v1/snapshots/${snapshotId}`, { ...bearer(token), "x-cmux-team-id": TENANT_B }, { method: endpoint.method });
+    const response = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), { ...bearer(token), "x-cmux-team-id": TENANT_B }, { method: endpoint.method });
 
     expect(response.status).toBe(404);
     expect(h.upstreamRequests).toHaveLength(0);
@@ -553,8 +613,8 @@ describe.each(SNAPSHOT_ENDPOINTS)("$name isolation", (endpoint) => {
     const { snapshotId } = h.s3a.addSnapshot(TENANT_A);
     const key = await h.addKey(TENANT_A, allScopesExcept(endpoint.scope));
 
-    const own = await h.request(`/v1/snapshots/${snapshotId}`, bearer(key), { method: endpoint.method });
-    const missing = await h.request("/v1/snapshots/snap_00000000000000000000000000", bearer(key), { method: endpoint.method });
+    const own = await h.request(endpoint.template.replace("{snapshotId}", snapshotId), bearer(key), { method: endpoint.method });
+    const missing = await h.request(endpoint.template.replace("{snapshotId}", "snap_00000000000000000000000000"), bearer(key), { method: endpoint.method });
 
     expect(own.status).toBe(403);
     expect(await own.json()).toMatchObject({ missingScope: endpoint.scope });

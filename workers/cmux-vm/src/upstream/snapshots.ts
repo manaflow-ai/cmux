@@ -25,18 +25,10 @@ export const UpstreamSnapshot = Schema.Struct({
 });
 export type UpstreamSnapshot = typeof UpstreamSnapshot.Type;
 
-/** A snapshot the provider just created. Only `createSnapshot` makes one. */
+/** A snapshot returned by a verified durable capture or its recovery. */
 export interface CreatedSnapshot {
   readonly upstreamId: UpstreamId;
   readonly snapshot: UpstreamSnapshot;
-}
-
-export interface CreateSnapshotOptions {
-  /** Written into the provider's display name so a leaked provider id is still attributable. */
-  readonly tenantId: TenantId;
-  readonly snapshotId: SnapshotId;
-  readonly ttlSeconds?: number | undefined;
-  readonly autoDeleteSeconds?: number | undefined;
 }
 
 export interface UpstreamSnapshotsService {
@@ -44,16 +36,7 @@ export interface UpstreamSnapshotsService {
   readonly capture: <C, V, S>(vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, "snapshot:write">; readonly mayCreate: TenantMayCreate<C, "snapshot">; readonly capture: AuthorizedSnapshotCapture<C, S> }, tenantId: TenantId) => Effect.Effect<CreatedSnapshot, UpstreamError, TenantLimits>;
   readonly recoverCapture: <C, S>(snapshot: Named<S, SnapshotId>, proofs: { readonly capture: AuthorizedSnapshotCapture<C, S>; readonly scope: KeyHasScope<C, "snapshot:read"> | KeyHasScope<C, "snapshot:write"> }) => Effect.Effect<CreatedSnapshot | null, UpstreamError>;
 
-  readonly createSnapshot: <C, V>(
-    vm: Named<V, VmId>,
-    proofs: {
-      readonly owns: TenantOwnsResource<C, V>;
-      readonly scope: KeyHasScope<C, "snapshot:write">;
-      readonly mayCreate: TenantMayCreate<C, "snapshot">;
-    },
-    options: CreateSnapshotOptions,
-  ) => Effect.Effect<CreatedSnapshot, UpstreamError>;
-  /** Undoes a create whose ownership row could not be written. Accepts only a value `createSnapshot` returned. */
+  /** Undoes a create whose ownership row could not be written. Accepts only a value the verified capture client returned. */
   readonly discardCreatedSnapshot: (created: CreatedSnapshot) => Effect.Effect<void, UpstreamError>;
   /** Reading needs snapshot:read; a create replaying its own result reads with the snapshot:write it was proven. */
   readonly getSnapshot: <C, S>(

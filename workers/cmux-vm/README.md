@@ -102,6 +102,24 @@ and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).
+Snapshot captures have the same durable send boundary, with separate quota and
+public snapshot IDs. A key permanently identifies one capture: use a new key
+for a new point in time. Omitted-key requests are separate captures, and retained
+failures return `pendingSnapshotId`. `GET /v1/snapshot-creations` lists capture
+receipts newest first, including pending unkeyed requests; it never contacts the
+provider or returns caller keys. `GET /v1/snapshot-creations/ID` is read only.
+`POST /v1/snapshot-creations/ID/reconcile` records an exactly verified capture,
+even after its source is deleted; it never captures again. `POST .../cancel`
+fences future sends before deleting a verified capture. An unknown capture stays
+pending and consumes quota even if its provider lookup currently returns 404.
+Completed or cancelled keys never create another snapshot. Delete a committed
+snapshot through the ordinary snapshot endpoint. Source-allowlisted credentials
+can control only their original derived capture; general snapshot access stays
+subject to its own allowlist. Service labels and the original service actor apply
+to capture controls. Legacy uncertain snapshot requests fail closed; their old
+records contain no reliable capture identity. VM fork's separate snapshot stage
+still needs this recovery protocol.
+
 Rate limits, quota reservations and idempotency keys live in one Durable
 Object per tenant (`src/limits/`). Every mutation (create, start, stop,
 pause, resume, fork, delete, exec, file write) writes an audit row: tenant,

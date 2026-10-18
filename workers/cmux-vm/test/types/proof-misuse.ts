@@ -5,11 +5,11 @@ import { pendingVmCreation, cancellingVmCreation } from "../../src/proofs/vm-cre
  * starts compiling, `tsc` fails with "Unused '@ts-expect-error' directive".
  * Never executed.
  */
-import { name } from "@gdp-ts/core";
+import { name, type Named } from "@gdp-ts/core";
 import { Effect, Redacted } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
-import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
+import { keyHasScope, type KeyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantMayGrow } from "../../src/proofs/tenant-may-grow.ts";
 import { tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
 import { vmImageAllowed } from "../../src/proofs/vm-image.ts";
@@ -219,3 +219,19 @@ export const cancellationMisuse = (principal: Principal, vmA: VmId, vmB: VmId) =
     yield* upstream.deleteCancellingCreation(caller, a, { owns, scope });
   }));
 });
+
+
+// Snapshot capture recovery requires the exact current caller, snapshot, and trusted journal proof.
+import type { AuthorizedSnapshotCapture } from "../../src/proofs/snapshot-capture.ts";
+import type { UpstreamSnapshotsService } from "../../src/upstream/snapshots.ts";
+import type { SnapshotId as CaptureSnapshotId } from "../../src/lib/ids.ts";
+declare const captures: UpstreamSnapshotsService;
+declare const captured: Named<"captured", CaptureSnapshotId>;
+declare const captureProof: AuthorizedSnapshotCapture<"capture-caller", "captured">;
+declare const wrongCapture: AuthorizedSnapshotCapture<"capture-caller", "other-snapshot">;
+declare const captureScope: KeyHasScope<"capture-caller", "snapshot:write">;
+// @ts-expect-error recovery cannot run without durable capture authority
+captures.recoverCapture(captured, { scope: captureScope });
+// @ts-expect-error capture authority for another snapshot cannot authorize this lookup
+captures.recoverCapture(captured, { scope: captureScope, capture: wrongCapture });
+captures.recoverCapture(captured, { scope: captureScope, capture: captureProof });
