@@ -5,9 +5,9 @@
 import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
-export type ProviderId = "freestyle";
+export type ProviderId = "freestyle" | "huge-blue";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
+const PROVIDER_IDS: readonly ProviderId[] = ["freestyle", "huge-blue"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);

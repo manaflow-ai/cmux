@@ -51,7 +51,10 @@ export function createConfiguredPersistentWorkspaceService(
     scopeRevision: () => env.VERCEL_GIT_COMMIT_SHA?.trim() || "runtime",
     leaseTtlMs: Number(env.CMUX_BROKER_LEASE_TTL_MS) || undefined,
   });
-  const image = resolveVmImage(providerId, undefined, env, { kind: "base" });
+  // Huge Blue runs the shared cmux host image and does not own a separate
+  // provider image manifest. Reuse the validated cmux base image metadata for
+  // admission while the Huge Blue driver keeps the actual host lifecycle.
+  const image = resolveVmImage(providerId === "huge-blue" ? "freestyle" : providerId, undefined, env, { kind: "base" });
   const runAdapter = new CloudVmRunAdapter(provider);
 
   const workspaceProvider = persistentWorkspaceProviderFromCloudVm({
