@@ -184,9 +184,22 @@ where
 {
     let owner = owner.ok_or(InboundRefused::Owner(OwnerRefused::NotConfigured))?;
     owner.authorize(peer).map_err(InboundRefused::Owner)?;
+    // The transport snapshot may predate the watch subscription. Its initial
+    // value is authority too; waiting for changed() alone can miss a revoke.
+    let still_owner = |pairings: &Pairings| {
+        pairings
+            .by_key(&peer_key)
+            .is_some_and(|record| record.peer() == *peer && owner.authorize(&record.peer()).is_ok())
+    };
+    if revocations.as_ref().is_some_and(|current| !still_owner(&current.view.borrow())) {
+        return Err(InboundRefused::Owner(OwnerRefused::NotOwner));
+    }
     let uid = cmux_tui_core::platform::effective_uid();
     let socket = owner.check_socket(uid).map_err(InboundRefused::Owner)?;
     let mut probe = connect_same_uid(&socket, uid).await?;
+    if revocations.as_ref().is_some_and(|current| !still_owner(&current.view.borrow())) {
+        return Err(InboundRefused::Owner(OwnerRefused::NotOwner));
+    }
     probe
         .write_all(IDENTIFY_REQUEST.as_bytes())
         .await
@@ -198,35 +211,35 @@ where
         return Err(InboundRefused::Owner(OwnerRefused::NotABrain));
     }
     drop(probe);
+    if revocations.as_ref().is_some_and(|current| !still_owner(&current.view.borrow())) {
+        return Err(InboundRefused::Owner(OwnerRefused::NotOwner));
+    }
     let mut daemon = connect_same_uid(&socket, uid).await?;
+    if revocations.as_ref().is_some_and(|current| !still_owner(&current.view.borrow())) {
+        return Err(InboundRefused::Owner(OwnerRefused::NotOwner));
+    }
     let Some(Revocations { view: mut revocations, open }) = revocations else {
         let _ = tokio::io::copy_bidirectional(&mut stream, &mut daemon).await;
         return Ok(());
     };
     let _open = open.enter(peer_key);
-    // The owner stays the owner only while the current pairing view still
-    // maps this key to the same peer and that peer is still authorized.
-    let still_owner = |pairings: &Pairings| {
-        pairings
-            .by_key(&peer_key)
-            .is_some_and(|record| record.peer() == *peer && owner.authorize(&record.peer()).is_ok())
-    };
     let revoked = {
         let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
         let watch = async {
             loop {
+                if !still_owner(&revocations.borrow_and_update()) {
+                    return;
+                }
                 if revocations.changed().await.is_err() {
                     // The link is shutting down its pairing view: keep serving.
                     std::future::pending::<()>().await;
                 }
-                if !still_owner(&revocations.borrow_and_update()) {
-                    return;
-                }
             }
         };
         tokio::select! {
-            _ = splice => false,
+            biased;
             () = watch => true,
+            _ = splice => false,
         }
     };
     if !revoked {
