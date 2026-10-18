@@ -22,6 +22,15 @@ test("raw session summaries still normalize", () => {
   expect(normalizedSessionEntry(raw).displayTitle).toBe("raw-name");
 });
 
+test("folded recent sessions reuse urgency order while keeping the count cut", () => {
+  const sessions = [
+    { ...entry("parent", 1), spawnedBy: undefined },
+    { ...entry("child", 4), spawnedBy: "parent" },
+    { ...entry("waiting", 2), state: "input" as const },
+  ];
+  expect(recentSessions(sessions, 2, true).map((session) => session.sessionId)).toEqual(["waiting", "parent"]);
+});
+
 test("a device chat child is rendered once when its parent key names both card ids", () => {
   const cards = recentChatCards(
     [],
