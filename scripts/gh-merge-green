@@ -167,7 +167,7 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>/dev/null); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository 2>/dev/null); then
   refuse \
     "not green: cannot read $ref" \
     'check the repository, pull request number, GitHub login, and network access'
@@ -714,9 +714,16 @@ merged_head_checks() {
   grep -q '^webviews/' <<<"$changed" && web_changed=1
   [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
   if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1; then
-    refuse \
-      "not merged: $ref is from a fork, and its merged-head checks would run its code here" \
-      'send the PR to the coordinator, who merges it after reviewing the god-file and vp check results'
+    # Leo's owned cmux fork is trusted for this local merged-head review. Keep
+    # the allowlist exact: every other fork still routes through the
+    # coordinator, and exact-head checks plus the merged-head god-file/VP
+    # checks remain mandatory for the trusted fork.
+    head_repo=$(jq -r 'if .headRepositoryOwner.login and .headRepository.name then (.headRepositoryOwner.login + "/" + .headRepository.name) else "" end' <<<"$pr_json")
+    if [ "$head_repo" != "teamleaderleo/cmux" ]; then
+      refuse \
+        "not merged: $ref is from an untrusted fork ($head_repo), and its merged-head checks would run its code here" \
+        'send the PR to the coordinator, who merges it after reviewing the god-file and vp check results'
+    fi
   fi
   repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
   if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \

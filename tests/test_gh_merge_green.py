@@ -314,7 +314,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, cross_repository=False, head_repo="teamleaderleo/cmux"):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -336,7 +336,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"isCrossRepository\":" + ("true" if cross_repository else "false") + ",\"headRepositoryOwner\":{\"login\":\"" + head_repo.split("/", 1)[0] + "\"},\"headRepository\":{\"name\":\"" + head_repo.split("/", 1)[1] + "\"},\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
@@ -366,6 +366,34 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_trusted_team_fork_reaches_merged_head_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                cross_repository=True,
+                changed_files=("Packages/macOS/CmuxNext/Sources/Trusted.swift",),
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertNotIn("untrusted fork", result.stderr)
+            self.assertIn("cannot fetch", result.stderr)
+
+    def test_unknown_fork_still_routes_to_coordinator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                cross_repository=True,
+                head_repo="someone-else/cmux",
+                changed_files=("Packages/macOS/CmuxNext/Sources/Untrusted.swift",),
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("untrusted fork (someone-else/cmux)", result.stderr)
 
     def test_exploration_label_refuses_main_fix_before_validator(self):
         with tempfile.TemporaryDirectory() as directory:
