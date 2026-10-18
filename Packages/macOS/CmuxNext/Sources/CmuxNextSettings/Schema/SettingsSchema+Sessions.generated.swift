@@ -77,7 +77,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.allowConnections", "Let Your Phone Use This Mac"),
-                help: SettingsText.keyed("settings.phone.allowConnections.help", "cmux registers this Mac's name, device ID, platform, app bundle ID and version, and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."),
+                help: SettingsText.keyed("settings.phone.allowConnections.help", "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."),
                 kind: .toggle,
                 default: .bool(SessionSettings.allowConnectionsDefault),
                 keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
