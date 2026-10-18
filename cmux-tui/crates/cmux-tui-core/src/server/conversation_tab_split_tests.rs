@@ -6,6 +6,7 @@
 //! tests drive the raw command and read every event the daemon emits.
 
 use super::super::*;
+use crate::TreeDelta;
 
 fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let command: Command = serde_json::from_value(request)?;
