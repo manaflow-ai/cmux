@@ -168,12 +168,6 @@ measurements.
   receipt and remains a candidate for the async perf workflow.
 - **Follow-up head:** `7d3d5a07117e83349b2a9b83c8ec6a584d16920c` defers omnibar row derivation from the
   input lane and tightens the 420px container spacing. Focused field-editing tests pass (3/3).
-- **Post-fix visual rerun:** **BLOCKED / NOT CLAIMED** — a fresh exact-head gallery server was started
-  from `7d3d5a`, but the canonical frame stayed blank while Vite transformed the full lazy entry
-  registry; the bounded rerun never reached `galleryReady`. The prior four PNG receipts remain valid
-  for `ef820daa817cf909008e6174a4c7f4cd96133534`, but are not relabeled as post-fix evidence.
-  Next action is to run the same four plays on the managed gallery runner or after the registry
-  optimizer completes, then replace this blocker with new hashes.
 - **Native boundary:** this packet verifies the gallery journey and browser feel. Native workspace
   switch timing remains warning-only and is tracked by the existing async receipt workflow.
 
