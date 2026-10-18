@@ -132,10 +132,7 @@ final class AgentTabStore {
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
-        didSet {
-            let ids = Set(newTabPages.keys)
-            if pageTabs.ids != ids { pageTabs.ids = ids }
-        }
+        didSet { pageTabs.set(Set(newTabPages.keys)) }
     }
     /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
     let pageTabs = NewTabPageIDs()
