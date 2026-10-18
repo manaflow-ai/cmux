@@ -338,7 +338,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr view' ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
-            "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
+            "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
@@ -354,7 +354,7 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         return subprocess.run(
             [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
             capture_output=True,
             text=True,
         )
@@ -1137,6 +1137,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
     def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
+        Path(directory, "pr-head").write_text(head)
         log = Path(directory) / "checks.log"
         log.touch()
         saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG")
@@ -1173,6 +1174,9 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertIn("--only swift --base", log)
             events = (Path(directory) / "events").read_text().splitlines()
             self.assertLess(events.index("comment"), events.index("merge"))
+            merge_args = (Path(directory) / "merge-args").read_text()
+            expected_head = (Path(directory) / "pr-head").read_text()
+            self.assertIn(f"--match-head-commit {expected_head}", merge_args)
 
     def test_reviewed_fork_cannot_replace_base_guard(self):
         with tempfile.TemporaryDirectory() as directory:
