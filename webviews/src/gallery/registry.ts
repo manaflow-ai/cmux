@@ -25,13 +25,13 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
 /** The shell's store: every entry loads on its own. Created only when the shell mounts. */
 let shellStore: EntryStore | undefined;
 export function getEntryStore(): EntryStore {
-  return (shellStore ??= createEntryStore(entrySources));
+  return (shellStore ??= createEntryStore(entrySources, { concurrency: 6 }));
 }
 
 /** A frame store loads only the source named by the shell; stale source links fail explicitly. */
 export function createFrameEntryStore(sourcePath?: string): EntryStore {
   const sources = sourcePath ? entrySources.filter((source) => source.path === sourcePath) : entrySources;
-  return createEntryStore(sources);
+  return createEntryStore(sources, { concurrency: 1 });
 }
 
 // The live dev server (dev-server/galleryLive.ts) names the entry files a save changed; each loads

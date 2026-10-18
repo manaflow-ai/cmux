@@ -71,9 +71,12 @@ function track<T>(promise: Promise<T>): TrackedPromise<T> {
 
 export type EntryStore = ReturnType<typeof createEntryStore>;
 
-export function createEntryStore(sources: readonly EntrySource[]) {
+export function createEntryStore(sources: readonly EntrySource[], options: { concurrency?: number } = {}) {
   const listeners = new Set<() => void>();
   const states = new Map<string, EntryState>();
+  const concurrency = Math.max(1, Math.floor(options.concurrency ?? (sources.length || 1)));
+  let active = 0;
+  const waiters: (() => void)[] = [];
   let snapshot: readonly EntryState[] = [];
   const publish = () => {
     snapshot = sources.map((source) => states.get(source.path)!);
@@ -85,7 +88,16 @@ export function createEntryStore(sources: readonly EntrySource[]) {
     const version = (previous?.version ?? 0) + 1;
     const promise = track(
       Promise.resolve()
-        .then(() => source.load(bust))
+        .then(async () => {
+          if (active >= concurrency) await new Promise<void>((resolve) => waiters.push(resolve));
+          active++;
+          try {
+            return await source.load(bust);
+          } finally {
+            active--;
+            waiters.shift()?.();
+          }
+        })
         .then((value) => checkEntry(source.path, value)),
     );
     // Swallowed here; the state carries the error, and `use` rethrows it into the entry's boundary.
