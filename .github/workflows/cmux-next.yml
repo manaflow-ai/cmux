@@ -1642,7 +1642,8 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        run: git submodule update --init --depth 1 --filter=blob:none ghostty-next
+        # Bound stalled GitHub connections before they consume the fast-tier budget.
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
