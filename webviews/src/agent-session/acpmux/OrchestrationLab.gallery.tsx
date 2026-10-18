@@ -64,7 +64,7 @@ const strategies: Strategy[] = [
 ];
 
 const selectHugeBlue: Play = async (ctx) => {
-  await ctx.click({ role: "radio", name: /Huge Blue lease/ });
+  await ctx.click({ role: "button", name: /Huge Blue lease/ });
   await ctx.waitFor(() => ctx.find({ role: "heading", name: "Huge Blue lease" }));
 };
 
@@ -95,7 +95,11 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           </div>
           <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
         </div>
-        <div className="orchestration-gallery-routes" role="radiogroup" aria-label="Select a route">
+        <fieldset
+          className="orchestration-gallery-routes"
+          style={{ border: 0, minInlineSize: 0, margin: 0, padding: 0 }}
+          aria-label="Select a route"
+        >
           {strategies.map((strategy) => {
             const selectedRoute = strategy.id === selected.id;
             return (
@@ -103,9 +107,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 key={strategy.id}
                 className={`orchestration-gallery-route${selectedRoute ? " is-selected" : ""}`}
                 type="button"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- buttons provide the keyboard interaction for this radio group.
-                role="radio"
-                aria-checked={selectedRoute}
+                aria-pressed={selectedRoute}
                 onClick={() => setSelectedId(strategy.id)}
               >
                 <span>
@@ -117,7 +119,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
               </button>
             );
           })}
-        </div>
+        </fieldset>
       </section>
 
       <section
