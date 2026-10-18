@@ -189,11 +189,11 @@ graphql_quota_error() {
 rest_pull_request_metadata() {
   local raw
   raw=$(gh api "repos/$repo/pulls/$num") || return 1
-  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // "")))}' <<<"$raw"
+  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // "")}' <<<"$raw"
 }
 
 graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>"$graphql_error_file"); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
     if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
       rm -f "$graphql_error_file"
@@ -215,6 +215,22 @@ if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_jso
     'retry after GitHub returns headRefOid and baseRefName'
 fi
 IFS=$'\t' read -r sha base <<<"$fields"
+
+# Owner-controlled cmux forks are trusted for the local merged-head checks.
+# Keep this allowlist narrow and repository-specific: arbitrary forks remain
+# fail-closed unless an operator supplies --trust-fork-head for the exact SHA.
+trusted_fork_owner='teamleaderleo'
+trusted_fork_repo='teamleaderleo/cmux'
+fork_trusted=0
+if jq -e --arg owner "$trusted_fork_owner" --arg repo "$trusted_fork_repo" \
+    '.isCrossRepository == true and
+     ((.headRepositoryOwnerLogin // .headRepositoryOwner.login // "") | ascii_downcase == ($owner | ascii_downcase)) and
+     ((.headRepositoryNameWithOwner // .headRepository.nameWithOwner // "") | ascii_downcase == ($repo | ascii_downcase))' \
+    <<<"$pr_json" >/dev/null 2>&1; then
+  fork_trusted=1
+  printf 'note: trusting owner-controlled fork %s for %s; exact-head and merged-tree checks still run\n' \
+    "$trusted_fork_repo" "$ref" >&2
+fi
 if [ -n "$trust_fork_head" ] && [ "$trust_fork_head" != "$sha" ]; then
   refuse \
     "not merged: reviewed fork head $trust_fork_head does not match current head $sha" \
@@ -884,10 +900,11 @@ merged_head_checks() {
   [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
   # Trust concerns the reviewed source, not whether its branch is in our repo.
   # Pin explicit trust to this exact head; CI and all merged-tree checks still run.
-  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 && [ -z "$trust_fork_head" ]; then
+  if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
+     [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
     refuse \
-      "not merged: $ref is from a fork, and its merged-head checks would run its code here" \
-      "review that code, then rerun with --trust-fork-head $sha; no coordinator handoff is required"
+      "not merged: $ref is from an untrusted fork, and its merged-head checks would run its code here" \
+      "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
   fi
   repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}"
   if [ -z "$repo_dir" ] || ! git -C "$repo_dir" fetch --quiet origin \
