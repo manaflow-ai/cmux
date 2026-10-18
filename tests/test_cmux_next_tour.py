@@ -196,6 +196,45 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(manifest["frames"], [])
         self.assertIn("no such window", manifest["frames_error"])
 
+    def test_matching_rendered_state_postcondition_passes(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "ok")
+        self.assertEqual(step["postcondition"]["status"], "passed")
+        self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
+
+    def test_required_rendered_state_mismatch_fails(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [1, 2, 3, 4]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(manifest["result"], "failed")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "failed")
+        self.assertEqual(step["postcondition"]["status"], "failed")
+        self.assertIn("expected [1, 2, 3, 4]", step["postcondition"]["detail"])
+
+    def test_optional_rendered_state_mismatch_degrades(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Optional layout", "wait": 0, "optional": "layout is not ported",
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [1, 2, 3, 4]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "degraded")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "unavailable")
+        self.assertEqual(step["postcondition"]["status"], "unavailable")
+        self.assertIn("layout is not ported", step["detail"])
+
     def test_optional_failure_is_degraded_but_required_failure_is_failed(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Launch", "wait": 0},
