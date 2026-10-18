@@ -16,6 +16,24 @@ test("ordinary matrix cards include settled interaction latency", () => {
   expect(html).toContain("playCells(r)");
 });
 
+test("matrix index exposes receipt metadata and triage state filtering", () => {
+  const html = renderIndex(
+    [{ id: "broken", engine: "chromium", screenshot: "broken.png", ready: "error" }],
+    {
+      schemaVersion: 1,
+      captureId: "capture-a",
+      capturedAt: "2026-10-18T00:00:00.000Z",
+      scenario: { count: 1, fingerprint: "0123456789012345678901234567890123456789012345678901234567890123" },
+      results: { count: 1, expected: 1, status: "complete" },
+      quality: "fail",
+      revisions: { shas: ["head-a"], sources: ["src/a.gallery.tsx"] },
+    },
+  );
+  expect(html).toContain('data-capture-id="capture-a"');
+  expect(html).toContain('data-filter="state"');
+  expect(html).toContain("play-failed");
+});
+
 test("motion review cards include an opt-in video", () => {
   const html = renderIndex([{ id: "motion", engine: "webkit", screenshot: "motion.png", video: "motion.webm" }]);
   expect(html).toContain("r.video");
