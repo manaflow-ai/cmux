@@ -2,18 +2,12 @@ name: high-signal review link
 
 # Keep PRs navigable without publishing internal gallery payloads. The detailed
 # visual evidence stays in the private HQ feed and Actions artifacts; the PR gets
-# one stable link to those surfaces.
+# one stable link to those surfaces. It runs on every push (no paths filter) so
+# the receipt always names the PR's current head.
 on:
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened]
-    paths:
-      - "webviews/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "bun.lock"
-      - ".github/workflows/gallery-advisory.yml"
-      - ".github/workflows/gallery-link.yml"
 
 permissions:
   contents: read
@@ -45,11 +39,15 @@ jobs:
           # would read an Actions run link here as the PR's build.
           repo_url="$SERVER/$REPOSITORY"
           ref_query=$(jq -rn --arg q "branch:$HEAD_REF" '$q|@uri')
+          # The branch keeps reload-build's cache warm; a name that is not
+          # shell-safe to paste falls back to the exact SHA.
+          build_ref=$HEAD_SHA
+          if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then build_ref=$HEAD_REF; fi
           body="<!-- cmux-gallery-link -->
           **Receipt for [\`${HEAD_SHA:0:7}\`]($repo_url/commit/$HEAD_SHA)** (this PR's head; a new push replaces it)
           - Visual review: [HQ feed card](${FEED_URL}?pr=${PR}&view=all) · [gallery before/after runs]($repo_url/actions/workflows/gallery-advisory.yml?query=$ref_query)
           - Checks: [this head]($repo_url/pull/$PR/checks?sha=$HEAD_SHA)
-          - App of this head (app.zip, kept 1 day): \`gh workflow run reload-build.yml -R $REPOSITORY --ref feat-cmux-next -f tag=pr$PR -f ref=$HEAD_REF -f platform=macos -f backend_mode=local\`"
+          - App of this head (app.zip, kept 1 day): \`gh workflow run reload-build.yml -R $REPOSITORY --ref feat-cmux-next -f tag=pr$PR -f ref=$build_ref -f platform=macos -f backend_mode=local\`"
           existing=$(gh api --paginate "repos/$REPOSITORY/issues/$PR/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- cmux-gallery-link -->"))) | .id' | head -1)
           if [ -n "$existing" ]; then
