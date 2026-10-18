@@ -142,6 +142,7 @@ describe("persistent workspace broker and host lease wiring", () => {
     expect(fixture.providerCalls).toEqual(["workspace:create", "terminal:create"]);
     expect(fixture.leaseCalls.map((call) => call.operation)).toEqual(["acquire", "release"]);
     const lifecycle = fixture.broker.requests[0];
+    expect(lifecycle.hostClass).toBe("workspace:freestyle");
     expect(lifecycle.payload).not.toHaveProperty("providerVmId");
     expect(lifecycle.payload).not.toHaveProperty("providerWorkspaceId");
     expect(JSON.stringify(lifecycle.payload)).not.toContain("hello");

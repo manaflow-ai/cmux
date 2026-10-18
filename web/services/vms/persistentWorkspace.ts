@@ -761,6 +761,12 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
     return { operation, ...values };
   }
 
+  // Lifecycle effects are executed by the request-scoped broker. Keep their
+  // durable queue lane distinct from the standalone host-lease worker lane;
+  // otherwise a lease adapter can claim an outer workspace:create job and
+  // reject it as an invalid lease operation.
+  const lifecycleHostClass = `workspace:${input.hostLeaseProvider}`;
+
   async function withHostLease<T extends Record<string, unknown>>(request: {
     readonly tenantId: string;
     readonly ownerId: string;
@@ -780,7 +786,7 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
     const result = await input.effectBroker.execute({
       tenantId: request.tenantId,
       ownerId: request.ownerId,
-      hostClass: input.hostLeaseProvider,
+      hostClass: lifecycleHostClass,
       effectKey: request.effectKey,
       payload: request.payload,
       run: async () => {
@@ -827,7 +833,7 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
       const result = await input.effectBroker.execute({
         tenantId: request.tenantId,
         ownerId: request.ownerId,
-        hostClass: input.hostLeaseProvider,
+        hostClass: lifecycleHostClass,
         effectKey: request.effectKey,
         payload: lifecyclePayload("create", {
           runtimeId: request.runtimeId,
