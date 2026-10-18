@@ -51,6 +51,8 @@ public final class TerminalHostView: NSView {
     }
 
     private var configObserver: (any NSObjectProtocol)?
+    /// Held here: scopes keep their responders weakly.
+    private let aroundListener = TerminalHostThemeListener()
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -230,6 +232,15 @@ public final class TerminalHostView: NSView {
         paintBackground()
     }
 
+    /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
+    /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        aroundListener.host = self
+        superview?.themeScope.addResponder(aroundListener)
+        paintBackground()
+    }
+
     /// An opaque window paints the terminal's theme background, like
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
@@ -239,14 +250,16 @@ public final class TerminalHostView: NSView {
     /// legible (`WindowBackdrop.legibleTintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
-    private func paintBackground() {
+    fileprivate func paintBackground() {
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        let tokens = themeTokens
-        let backdrop = performWithTheme { WindowBackdrop.current(tokens) }
+        let (scope, tokens) = (themeScope, themeTokens)
+        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
+        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         guard !backdrop.panesPaintBackground else {
             guard let rgb = theme?.colors?.background else {
                 layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
@@ -259,4 +272,12 @@ public final class TerminalHostView: NSView {
         let own = tokens.surfaceBackground.withAlpha(1)
         layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
+}
+
+/// Repaints a host when the scope around it changes its colors or its art.
+@MainActor
+private final class TerminalHostThemeListener: ThemeResponsive {
+    weak var host: TerminalHostView?
+
+    func themeDidChange() { host?.paintBackground() }
 }
