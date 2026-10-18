@@ -959,12 +959,14 @@ export function Composer({
   // becomes the top strip.
   const locationVisible = showsLocationRow(snapshot);
   const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const freshChatHasPrompt = snapshot.rows.some((row) => row.kind === "user" && !row.failed);
+  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
+  // Do not let that transient visible strip reserve space for a different, already-started chat.
+  // A slot is meaningful only after the visible strip was observed for a known session identity.
   const locationWasVisible =
     locationSlotWasShown.current &&
-    (locationSlotSession.current === locationKey ||
-      (locationSlotSession.current === undefined && locationKey !== undefined && freshChatHasPrompt));
-  if (locationVisible) {
+    locationKey !== undefined &&
+    locationSlotSession.current === locationKey;
+  if (locationVisible && locationKey !== undefined) {
     locationSlotSession.current = locationKey;
     locationSlotWasShown.current = true;
   } else if (!locationWasVisible) {
