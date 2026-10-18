@@ -13,11 +13,15 @@
 ///
 /// A key renders while its owner is visible. A key whose owner is in the
 /// keep-alive band (an off-screen strip column within one viewport width,
-/// architecture.md 4) is paused but pinned: never evicted, so scrolling back
-/// shows it at once. Other keys that stop rendering enter the
-/// ``SurfaceRetention`` LRU; an evicted key is destroyed, and if a pane still
-/// presents it off screen, that pane is told so it re-presents (and the App
-/// re-attaches with a daemon replay) when it comes near the viewport again.
+/// architecture.md 4) is pinned: never evicted, and a terminal there keeps
+/// drawing, so a column the strip camera scrolls in shows its current frame
+/// from its first pixel (a paused Ghostty surface frees its swap chain and
+/// shows nothing for several frames after it resumes). A browser page
+/// there (`setRetained(false)`: hibernation owns it) stays paused. Other
+/// keys that stop rendering enter the ``SurfaceRetention`` LRU; an evicted
+/// key is destroyed, and if a pane still presents it off screen, that pane is
+/// told so it re-presents (and the App re-attaches with a daemon replay) when
+/// it comes near the viewport again.
 public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable>: Sendable {
     /// What the caller must do after a ledger change, in order.
     public struct Effects: Equatable, Sendable {
@@ -162,7 +166,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     private mutating func update(_ key: Key, into effects: inout Effects) {
         let presence = presence(of: key)
-        let render = presence == .visible
+        let render = presence == .visible || (presence == .keepAlive && !unretained.contains(key))
         if render != rendering.contains(key) {
             if render { rendering.insert(key) } else { rendering.remove(key) }
             effects.rendering[key] = render
@@ -202,7 +206,8 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 public enum SurfacePresence: Hashable, Sendable {
     /// On screen: render.
     case visible
-    /// Off screen within the keep-alive band: keep the surface, paused.
+    /// Off screen within the keep-alive band: keep the surface; a terminal
+    /// keeps drawing, a browser page pauses.
     case keepAlive
     /// Away: pause; the surface may be evicted by the LRU.
     case hidden
