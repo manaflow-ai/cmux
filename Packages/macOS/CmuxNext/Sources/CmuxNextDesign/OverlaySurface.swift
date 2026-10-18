@@ -8,10 +8,10 @@ public import AppKit
 /// Content goes in `contentView`, above the material, and may size the
 /// surface through constraints. Every floating panel that carries text
 /// (palette, dialogs, hover cards, find and prompt bars, page info,
-/// popovers) is one of these, made with `Glass.makeOverlayPanel`, which pins
-/// it to the solid popup surface (`Palette.popupSurface`); glass would let
-/// the text under it show through. Overlays without text (the drop overlay,
-/// dock backdrop) follow this Mac's material.
+/// popovers) is one of these, made with `Glass.makeOverlayPanel`, and
+/// follows this Mac's material like the overlays without text (the drop
+/// overlay, dock backdrop): themed Liquid Glass, whose tint
+/// (`glassOverlayTintStrength`) keeps its text over busy content.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
