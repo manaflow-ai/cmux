@@ -1,9 +1,9 @@
 import CmuxNextTerminal
 
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past `capacity`.
-/// The bound is the warm set's terminal capacity: one frame costs about a sixth of a hidden
-/// terminal (one of its three drawables, no grid or atlas), so the frames add at most a sixth of
-/// the warm set's memory budget, and memory pressure lowers both together (critical keeps none).
+/// The bound is the warm set's terminal capacity. Each frame is one full-resolution drawable
+/// (about 20 MB for a full-screen Retina pane), volatile while it waits, so memory pressure
+/// takes its pages first; a lower budget under pressure also drops the frames (critical: none).
 @MainActor
 struct TerminalLastFrames {
     private var frames: [String: TerminalLastFrame] = [:]

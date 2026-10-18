@@ -400,8 +400,27 @@ public final class TerminalSurfaceView: NSView {
             volatileFrame?.makeVolatile()
         } else if let frame = volatileFrame {
             volatileFrame = nil
-            if !frame.reclaim(), presentedFrame === frame { layer?.contents = nil }
+            // A frame in flight at the pause may have replaced it: that one is not volatile.
+            guard presentedFrame === frame else { return }
+            if !frame.reclaim() { layer?.contents = nil }
         }
+    }
+
+    /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is
+    /// made non-volatile for the read (nil when purged); ``endFrameRead(_:)`` makes it volatile again.
+    func beginFrameRead() -> IOSurface? {
+        guard let frame = presentedFrame else { return nil }
+        guard frame === volatileFrame else { return frame }
+        guard frame.reclaim() else {
+            volatileFrame = nil
+            layer?.contents = nil
+            return nil
+        }
+        return frame
+    }
+
+    func endFrameRead(_ frame: IOSurface) {
+        if frame === volatileFrame { frame.makeVolatile() }
     }
 
     // MARK: Focus

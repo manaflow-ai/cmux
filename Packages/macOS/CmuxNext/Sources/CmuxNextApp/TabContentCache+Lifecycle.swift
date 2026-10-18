@@ -94,6 +94,7 @@ extension TabContentCache {
         lastFrames.remove(key)
         if evictsAtOnce { lastFrames.note("evicted_at_once") }
         else if !entry.session.showsOutput { lastFrames.note("evicted_no_output") }
+        else if warmBudget.terminalCapacity == 0 { lastFrames.note("evicted_no_room") }
         else if let frame = TerminalLastFrame(of: entry.session) {
             lastFrames.note("kept")
             retire(lastFrames.insert(frame, for: key, capacity: warmBudget.terminalCapacity))
