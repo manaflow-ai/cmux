@@ -9,7 +9,7 @@ import { readyEntries, type EntryState } from "../entryStore";
 import { LOCALES, PSEUDO_LOCALES, type GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { ageText, liveStatus, type LiveStatus } from "../liveStatus";
-import { entryStore } from "../registry";
+import { getEntryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
 import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
@@ -37,7 +37,7 @@ const VIEW_LABELS: Record<View, string> = {
 
 export const { router } = createGalleryRouter(Layout);
 
-type Address = { entry: string; variant: string; search: ShellSearch };
+type Address = { entry: string; variant: string; search: ShellSearch; sourcePath?: string };
 
 function href({ entry, variant, search }: Address): string {
   const location = router.buildLocation({
@@ -87,7 +87,8 @@ function GalleryLinks({ address }: { address: Address }) {
 
 /** Every entry file's load, re-rendered when one changes (entryStore.ts). */
 function useEntryStates(): readonly EntryState[] {
-  return useSyncExternalStore(entryStore.subscribe, entryStore.getSnapshot);
+  const store = getEntryStore();
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
 /** The entry a state stands for: the loaded one, else the last one that file loaded. */
@@ -110,7 +111,7 @@ function useAddress(states: readonly EntryState[]): Address & { state: EntryStat
     const variants = entry ? Object.keys(entry.variants) : [];
     const variant = variants.includes(variantId) ? variantId : (variants[0] ?? variantId);
     const search = validateShellSearch(location.search as Record<string, unknown>);
-    return { entry: entry?.id ?? entryId, variant, search, state };
+    return { entry: entry?.id ?? entryId, variant, search, state, sourcePath: state?.path };
   }, [location, states]);
 }
 
@@ -372,7 +373,7 @@ function Layout() {
               key={state.path}
               state={state}
               loading={<p className="gallery-empty">Loading {state.path}</p>}
-              render={(entry) => <EntryView entry={entry} address={address} />}
+              render={(entry) => <EntryView entry={entry} address={address} status={status} />}
             />
           ) : states.length === 0 ? (
             <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
@@ -443,13 +444,14 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         hrefFor={(target, targetVariant) =>
           href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
         }
+        sourceFor={(target) => states.find((state) => state.entry?.id === target.id)?.path}
       />
     </>
   );
 }
 
 /** One entry's header and stages. */
-function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
+function EntryView({ entry, address, status }: { entry: GalleryEntry; address: Address; status: LiveStatus }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
@@ -540,6 +542,8 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             variant={variant}
             env={env}
             tune={search.tune}
+            sourcePath={address.sourcePath}
+            revisionSha={status.sha}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
@@ -554,6 +558,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
                 state={name}
                 env={env}
                 tune={search.tune}
+                sourcePath={address.sourcePath}
                 available={{ width: 420, height: room.height }}
                 thumbnail
               />
@@ -567,6 +572,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               state={stage.variant}
               env={stage.env}
               tune={search.tune}
+              sourcePath={address.sourcePath}
               label={stage.label}
               available={{
                 width: Math.max(320, room.width - 4),

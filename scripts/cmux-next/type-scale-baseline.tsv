@@ -21,7 +21,6 @@ webviews/src/gallery/env.ts	size	1
 webviews/src/gallery/fixtures/VisualMediaBoard.css	size	9
 webviews/src/gallery/fixtures/renders.ts	size	3
 webviews/src/gallery/frame/liveErrors.ts	size	1
-webviews/src/gallery/frame/main.ts	size	2
 webviews/src/gallery/shell/shell.css	size	36
 webviews/src/icon-picker/styles.css	size	13
 webviews/src/optchat-inspector/styles.css	size	12
