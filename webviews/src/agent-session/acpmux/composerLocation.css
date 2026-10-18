@@ -242,10 +242,9 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  /* The model and effort buttons need a 7 px layout gap to draw the same 19 px optical gap as
-     the trailing controls (their 6 px text insets account for the difference). Actions keep the
-     4 px box gap because their icon bearings already add those 3 px visually. */
-  --acpmux-row-gap: 7px;
+  /* One 4 px layout gap keeps the drawn space inside every control group equal: each chip and
+     action contributes the same 6 px edge inset. */
+  --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
@@ -481,6 +480,11 @@
 .acpmux-composer-bar .acpmux-steer:active,
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
+}
+/* Opening a picker moves focus into its popup before the browser paints the held frame, which
+   clears :active. Keep that first frame at the same tone as the open chip. */
+.acpmux-composer-bar .acpmux-picker-button[data-press-active] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
 }
 .acpmux-composer-bar
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)

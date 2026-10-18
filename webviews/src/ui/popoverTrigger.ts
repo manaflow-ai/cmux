@@ -16,6 +16,11 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       openAtPress.current = open;
       if (!isMousePress(event)) return;
+      // Keep the pressed tone stable while opening a menu moves focus and React removes the
+      // browser's transient :active state. The composer uses this marker to keep the first frame
+      // of a click identical to the open chip state.
+      const target = event.currentTarget as HTMLElement;
+      target.dataset.pressActive = "true";
       pressed.current = true;
       press.current?.();
       if (open) setOpen(false);
@@ -25,6 +30,7 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
         close: open ? undefined : () => setOpen(false),
         end: (onTrigger) => {
           press.current = null;
+          delete target.dataset.pressActive;
           // No click follows a release off the trigger.
           if (!onTrigger) pressed.current = false;
         },
