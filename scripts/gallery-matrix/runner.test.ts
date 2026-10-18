@@ -152,6 +152,13 @@ test("capture receipts bind a run to its scenario and observed revisions", () =>
   expect(receipt.revisions).toEqual({ shas: ["head-a"], sources: ["src/a.gallery.tsx"] });
 });
 
+test("capture receipts fail quality when a result lacks revision provenance", () => {
+  const cases = parseManifest([{ id: "a", path_or_url: "frame.html" }]);
+  const receipt = captureReceipt(cases, [{ id: "a", engine: "chromium", ready: "1" }], "missing-revision");
+  expect(receipt.results.status).toBe("complete");
+  expect(receipt.quality).toBe("fail");
+});
+
 test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);

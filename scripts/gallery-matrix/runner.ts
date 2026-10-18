@@ -46,7 +46,11 @@ export function captureReceipt(
   const expected = expectedResults ?? cases.length * new Set(results.map((result) => result.engine).filter(Boolean)).size;
   const identities = new Set(results.map((result) => `${String(result.id ?? "")}:${String(result.engine ?? "")}`));
   const complete = results.length === expected && identities.size === expected && expected > 0;
-  const quality = !complete || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
+  const provenanceComplete = results.every((result) => {
+    const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
+    return typeof revision?.sha === "string" && revision.sha.length > 0 && typeof revision.source === "string" && revision.source.length > 0;
+  });
+  const quality = !complete || !provenanceComplete || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
     ? "fail"
     : "pass";
   return {
