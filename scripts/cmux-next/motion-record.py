@@ -70,15 +70,26 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-def record(surface, name, trigger, seconds=None):
+def record(surface, name, trigger, seconds=None, layout=False):
     if opts.only and name not in opts.only:
         return
     directory = os.path.join(opts.out, surface, name)
     os.makedirs(directory, exist_ok=True)
     seconds = seconds or opts.seconds
+    if layout:  # the scenario's own start layout (strip-scroll-check.py places columns from it)
+        with open(os.path.join(directory, "layout.json"), "w") as handle:
+            json.dump({"pane_chrome": rpc("debug.pane_chrome")}, handle)
+    t0 = time.monotonic()
     started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
+    t_started = time.monotonic() - t0
     time.sleep(0.15)  # test harness: a few still frames before the change
+    t_sent = time.monotonic() - t0
     reply = trigger()
+    t_replied = time.monotonic() - t0
+    # Host seconds since the record request: the first frame lands between record_reply and one
+    # frame later; the change ran between trigger_sent and trigger_reply.
+    with open(os.path.join(directory, "timing.json"), "w") as handle:
+        json.dump({"record_reply": t_started, "trigger_sent": t_sent, "trigger_reply": t_replied}, handle)
     time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{surface}/{name}: {frames} frames; record={json.dumps(started)[:100]} reply={json.dumps(reply)[:160]}", flush=True)
@@ -209,10 +220,10 @@ def strip():
         action("focusRight")
         time.sleep(0.6)  # test harness: the camera settles
     save_layout("strip")
-    record("strip", "left-1", lambda: action("focusLeft"))
-    record("strip", "left-2", lambda: action("focusLeft"))
-    record("strip", "right-1", lambda: action("focusRight"))
-    record("strip", "right-2", lambda: action("focusRight"))
+    record("strip", "left-1", lambda: action("focusLeft"), layout=True)
+    record("strip", "left-2", lambda: action("focusLeft"), layout=True)
+    record("strip", "right-1", lambda: action("focusRight"), layout=True)
+    record("strip", "right-2", lambda: action("focusRight"), layout=True)
 
 
 def groups():
