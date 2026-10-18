@@ -367,12 +367,18 @@ struct SidebarAppKitRowCellTests {
             CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
         )
 
+        // Press the way an AX client does (AXUIElementPerformAction reaches
+        // SwiftUI's `.default` action through the legacy action API); SwiftUI
+        // nodes can claim the modern press without running the action.
         let legacy = NSSelectorFromString("accessibilityPerformAction:")
-        if let accessibilityElement = element as? NSAccessibilityProtocol {
-            #expect(accessibilityElement.accessibilityPerformPress())
-        } else {
-            try #require(element.responds(to: legacy), "Workspace row must expose AXPress")
+        if element.responds(to: legacy) {
             _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
+        } else {
+            let accessibilityElement = try #require(
+                element as? NSAccessibilityProtocol,
+                "Workspace row must expose AXPress"
+            )
+            #expect(accessibilityElement.accessibilityPerformPress())
         }
 
         let selected = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
