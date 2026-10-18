@@ -118,10 +118,19 @@ cmux_claude_wrapper_args_have_managed_settings() {
 cmux_claude_wrapper_path_without_shims() {
     local current_path="${PATH:-}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local preserved_shim_dir=""
     local old_ifs="$IFS"
     local entry
     local result=""
     local globbing_was_disabled=0
+
+    # A claude-teams launch puts its tmux shim beside the per-surface Claude
+    # shim. Custom Claude launchers need a cleaned PATH to avoid re-entering
+    # cmux, but the Teams shim must remain available for Claude's tmux calls.
+    if [[ "${cmux_claude_teams_wrapper_launch:-0}" == "1" &&
+          "${CMUX_CLAUDE_TEAMS_TMUX_SHIM:-}" == */* ]]; then
+        preserved_shim_dir="${CMUX_CLAUDE_TEAMS_TMUX_SHIM%/*}"
+    fi
 
     case "$-" in
         *f*) globbing_was_disabled=1 ;;
@@ -132,7 +141,9 @@ cmux_claude_wrapper_path_without_shims() {
         if [[ "$entry" == "$shim_root" ||
               "$entry" == */cmux-cli-shims/* ||
               "$entry" == */cmux-cli-shims ]]; then
-            continue
+            if [[ -z "$preserved_shim_dir" || "$entry" != "$preserved_shim_dir" ]]; then
+                continue
+            fi
         fi
         if [[ -z "$result" ]]; then
             result="$entry"
@@ -1290,7 +1301,7 @@ cmux_claude_wrapper_create_durable_settings_file() {
     printf '%s' "$durable_path"
 }
 
-# cmux computer use: attach the bundled cmux-cua MCP server so any Claude
+# cmux computer use: attach the installed cmux-cua MCP server so any Claude
 # session cmux launches can drive the local Mac through cmux's TCC identity.
 # Sets CMUX_COMPUTER_USE_CONFIG, or returns nonzero to skip injection so
 # sessions never see always-failing tools.
@@ -1315,19 +1326,22 @@ cmux_claude_load_skill_link_policy() {
     . "$policy"
 }
 
-cmux_computer_use_resolve_client() {
-    local self_dir app_contents bundled_client
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
-    bundled_client="$app_contents/Resources/bin/cmux-cua"
-    if [[ -x "$bundled_client" ]]; then
-        printf '%s' "$bundled_client"
-        return 0
-    fi
-    # cmux-cua is a closed host-owned contract. Never fall back to an ambient
-    # executable: that would create a second TCC identity and reintroduce the
-    # dependency this wrapper is responsible for eliminating.
-    return 1
+# The client is the cmux Computer Use helper the app installs, selected and
+# trust-checked by the policy shared with the Codex wrapper. cmux-cua is a
+# closed host-owned contract: never fall back to an ambient executable, which
+# would create a second TCC identity. Cleared at startup so the environment
+# cannot pre-answer it.
+cmux_claude_client_policy_loaded=""
+cmux_claude_load_client_policy() {
+    [[ "$cmux_claude_client_policy_loaded" == "1" ]] && return 0
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/client-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # shellcheck source=/dev/null
+    . "$policy" || return 1
+    cmux_claude_client_policy_loaded=1
 }
 
 # Claude Code managed policy (v2.1.193+) supports disableSideloadFlags, which
@@ -1402,39 +1416,16 @@ cmux_claude_sideload_flags_disabled_uncached() {
     fi
 
     # MDM preferences domain: disableSideloadFlags reading as 1, or any
-    # configured policyHelper, disqualifies. This used to be two per-key
-    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
-    # Both forms read the same preferences source. The dump prints every
-    # top-level key on its own line indented by exactly four spaces (nested
-    # entries use eight; a newline inside a string prints as `\\n`), so the
-    # anchored matches below see only top-level keys.
+    # configured policyHelper, disqualifies. Keep the per-key reads here:
+    # `defaults read <domain>` is a human-readable plist dump whose escaping
+    # varies for strings containing newlines and backslashes, while the
+    # per-key command has the exact truth semantics this policy needs.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local domain_dump flag_value
-        local newline=$'\n'
-        local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
-        if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
-            domain_dump="$newline$domain_dump$newline"
-            [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
-            flag_value="${domain_dump#*"$flag_prefix"}"
-            if [[ "$flag_value" != "$domain_dump" ]]; then
-                flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
-                [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
-                    flag_value="${flag_value#"$quoted_one"}"
-                    flag_value="${flag_value%"$quoted_end"}"
-                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
-                        flag_value="${flag_value#"$escaped_newline"}"
-                    done
-                    [[ -z "$flag_value" ]] && return 0
-                fi
-            fi
-        fi
+        local flag_value
+        flag_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)"
+        [[ "$flag_value" == "1" ]] && return 0
+        "$defaults_bin" read "$plist_domain" policyHelper >/dev/null 2>&1 && return 0
     fi
 
     return 1
@@ -1478,6 +1469,8 @@ cmux_claude_computer_use_enabled_for_invocation() {
 cmux_computer_use_config() {
     cmux_claude_computer_use_enabled_for_invocation "$@" || return 1
     local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
+    # Load the policy in this shell: a command substitution would lose it.
+    cmux_claude_load_client_policy || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
@@ -2053,7 +2046,7 @@ cmux_claude_build_standard_hook_settings() {
     # JSON-escaped body of AgentHookSpoolProducer(agent: "claude").command(...)
     # wrapping CMUXCLI.queuedAgentHookShellCommand(agent: "claude") as its fallback.
     IFS= read -r queued <<'CMUX_CLAUDE_QUEUED_HOOK_COMMAND'
-if [ -n \"${CMUX_CLAUDE_HOOK_SPOOL_DIR:-}\" ] && [ -x /bin/zsh ]; then exec /bin/zsh -fc 'LC_ALL=C\nexport CMUX_CLAUDE_PID=${CMUX_CLAUDE_PID:-$PPID}\ncmux_fallback() { { print -rn -- \"$cmux_p\"; /bin/cat; } | /bin/sh -c \"$1\" >&3; exit $?; }\nzmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c \"$1\" >&3\ncmux_p= cmux_c= cmux_e=0\nwhile (( ${#cmux_p} < 262144 )); do sysread -i 0 -s 65536 cmux_c || { cmux_e=$?; break; }; cmux_p+=$cmux_c; done\n[[ -n ${CMUX_SURFACE_ID:-} && ${CMUX_CLAUDE_HOOKS_DISABLED:-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '\\''{}'\\'' >&3; exit 0; }\ncmux_d=$CMUX_CLAUDE_HOOK_SPOOL_DIR\n(( cmux_e == 5 )) && [[ -f $cmux_d/keys ]] || cmux_fallback \"$1\"\ncmux_r=\"cmux-agent-hook-v1\"$'\\''\\n'\\''\"claude\"$'\\''\\n'\\''\"$2\"$'\\''\\n'\\''\nfor cmux_k in ${(f)\"$(<$cmux_d/keys)\"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+=\"$cmux_k=${(P)cmux_k}\"$'\\''\\0'\\''; done\ncmux_r+=$'\\''\\0'\\''\"$cmux_p\"\n(( ${#cmux_r} <= 524288 )) || cmux_fallback \"$1\"\numask 077\ncmux_n=$cmux_d/$epochtime[1].$epochtime[2]-$$\n{ print -rn -- \"$cmux_r\" >| $cmux_n.tmp && mv -f -- $cmux_n.tmp $cmux_n.rec; } 2>/dev/null || { rm -f -- $cmux_n.tmp 2>/dev/null; cmux_fallback \"$1\"; }\nif zsystem flock -t 0 -r -f cmux_l $cmux_d/forwarder.lock 2>/dev/null; then\n  zsystem flock -u $cmux_l\n  rm -- $cmux_n.rec 2>/dev/null && cmux_fallback \"$1\"\nfi\nprint -r -- '\\''{}'\\'' >&3' cmux-hook 'cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; fi; else cat >/dev/null; echo '\\''{}'\\''; fi' @SUBCOMMAND@ 3>&1 1>&2; else cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi; fi
+if [ -n \"${CMUX_CLAUDE_HOOK_SPOOL_DIR:-}\" ] && [ -x /bin/zsh ]; then exec /bin/zsh -fc 'LC_ALL=C\nexport CMUX_CLAUDE_PID=${CMUX_CLAUDE_PID:-$PPID}\nexport CMUX_AGENT_HOOK_INVOKER_PID=$PPID\ncmux_fallback() { { print -rn -- \"$cmux_p\"; /bin/cat; } | /bin/sh -c \"$1\" >&3; exit $?; }\nzmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c \"$1\" >&3\ncmux_p= cmux_c= cmux_e=0\nwhile (( ${#cmux_p} < 262144 )); do sysread -i 0 -s 65536 cmux_c || { cmux_e=$?; break; }; cmux_p+=$cmux_c; done\n[[ -n ${CMUX_SURFACE_ID:-} && ${CMUX_CLAUDE_HOOKS_DISABLED:-} != 1 ]] || { (( cmux_e == 5 )) || /bin/cat >/dev/null; print -r -- '\\''{}'\\'' >&3; exit 0; }\ncmux_d=$CMUX_CLAUDE_HOOK_SPOOL_DIR\n(( cmux_e == 5 )) && [[ -f $cmux_d/keys ]] || cmux_fallback \"$1\"\ncmux_r=\"cmux-agent-hook-v1\"$'\\''\\n'\\''\"claude\"$'\\''\\n'\\''\"$2\"$'\\''\\n'\\''\nfor cmux_k in ${(f)\"$(<$cmux_d/keys)\"}; do (( ${+parameters[$cmux_k]} )) && cmux_r+=\"$cmux_k=${(P)cmux_k}\"$'\\''\\0'\\''; done\ncmux_r+=$'\\''\\0'\\''\"$cmux_p\"\n(( ${#cmux_r} <= 524288 )) || cmux_fallback \"$1\"\numask 077\ncmux_n=$cmux_d/$epochtime[1].$epochtime[2]-$$\n{ print -rn -- \"$cmux_r\" >| $cmux_n.tmp && mv -f -- $cmux_n.tmp $cmux_n.rec; } 2>/dev/null || { rm -f -- $cmux_n.tmp 2>/dev/null; cmux_fallback \"$1\"; }\nif zsystem flock -t 0 -r -f cmux_l $cmux_d/forwarder.lock 2>/dev/null; then\n  zsystem flock -u $cmux_l\n  rm -- $cmux_n.rec 2>/dev/null && cmux_fallback \"$1\"\nfi\nprint -r -- '\\''{}'\\'' >&3' cmux-hook 'cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '\\''{}'\\''; }; fi; else cat >/dev/null; echo '\\''{}'\\''; fi' @SUBCOMMAND@ 3>&1 1>&2; else cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi; fi
 CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     direct_cli='\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\"'
 

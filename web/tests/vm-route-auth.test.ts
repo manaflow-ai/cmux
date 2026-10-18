@@ -493,6 +493,7 @@ describe("VM REST auth", () => {
       addressIpv4: "10.16.0.9",
       addressIpv6: null,
       cmuxTuiContract: "snapshot-v2",
+      resourceReservation: { vcpus: 4, memoryMb: 8192 },
     });
 
     const response = await POST(
@@ -514,6 +515,7 @@ describe("VM REST auth", () => {
         snapshot: true,
         restore: true,
         fork: false,
+        restart: false,
         exec: true,
         stats: true,
         ports: true,
@@ -531,6 +533,8 @@ describe("VM REST auth", () => {
       // re-reading the fleet and calling POST /attach-endpoint.
       address: { ipv4: "10.16.0.9", ipv6: null },
       cmuxTuiContract: "snapshot-v2",
+      resources: { vcpus: 4, memoryMb: 8192 },
+      resourceReservation: { vcpus: 4, memoryMb: 8192 },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -993,6 +997,28 @@ describe("VM REST auth", () => {
         method: "POST",
         headers: { origin: "https://cmux.test" },
         body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 20480 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
+  });
+
+  test("an idempotency key only defers locked-size rejection, not off-ladder coercion", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-idempotent-size",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-off-ladder", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 1000 }),
       }),
     );
 
@@ -2440,7 +2466,7 @@ describe("VM REST auth", () => {
       mockImplementation(next: () => Promise<never>): void;
     }).mockImplementation(async () => {
       throw new VmPublicationProviderError({
-        operation: "deleteTlsRulesForHostname",
+        operation: "deletePublicationTlsRules",
         cause: new Error("provider unavailable"),
       });
     });

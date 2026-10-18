@@ -67,6 +67,7 @@ extension CmuxSettingsFileStore {
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": SettingCatalog().app.newWorkspacePlacement.defaultValue.rawValue,
+                    "goToWorkspaceOrder": SettingCatalog().app.goToWorkspaceOrder.defaultValue.rawValue,
                     "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                     "minimalMode": false,
@@ -167,6 +168,7 @@ extension CmuxSettingsFileStore {
                     "showNotificationMessage": SettingCatalog().sidebar.showNotificationMessage.defaultValue,
                     "notificationMessageLineLimit": SettingCatalog().sidebar.notificationMessageLineLimit.defaultValue,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
+                    "showCloudDeviceIcons": SidebarWorkspaceDetailDefaults.showCloudDeviceIcons,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
                     "watchGitStatus": SidebarWorkspaceDetailDefaults.watchGitStatus,
                     "makePullRequestsClickable": SettingCatalog().sidebar.makePullRequestsClickable.defaultValue,
@@ -189,6 +191,7 @@ extension CmuxSettingsFileStore {
                     "selectionColor": NSNull(),
                     "subtleSelection": SettingCatalog().workspaceColors.subtleSelection.defaultValue,
                     "brightenInDarkMode": SettingCatalog().workspaceColors.brightenInDarkMode.defaultValue,
+                    "unselectedFillOpacity": SettingCatalog().workspaceColors.unselectedFillOpacity.defaultValue,
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }

@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudResizeCore
+import CmuxProductAnalytics
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
@@ -314,7 +315,7 @@ final class NewMachineModel {
     }
 
     func applyPage(_ page: VMListPage) {
-        applyPlan(activeCount: page.vms.count, limits: page.limits)
+        applyPlan(activeCount: page.activeMachineCount, limits: page.limits)
     }
 
     /// Replaces the plan in place (a background refresh of the cached plan).
@@ -673,6 +674,9 @@ final class NewMachineModel {
             return
         }
         if supportsAgentUpdates { defaults.set(keepsAgentsUpdated, forKey: Self.keepsAgentsUpdatedDefaultsKey) }
+        // Base and forks send no size (the backend or the source decides it).
+        let sentSize = mode == .newMachine && !isFork && supportsSize
+        ProductAnalytics.app.track(.cloudMachineCreateStarted(memoryGB: sentSize ? memoryMb / 1_024 : nil))
         finish(.submitted)
     }
 

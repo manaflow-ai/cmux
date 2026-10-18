@@ -210,6 +210,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .coderouterGuide:
+            return SurfaceKind.coderouterGuide.rawValue
         case .notifications:
             return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
@@ -265,6 +267,27 @@ extension Workspace {
             forward: forward
         ) else { return false }
 
+        focusSplitPane(targetPaneId)
+        return true
+    }
+
+    /// Focuses split pane `number` (1…9) in the tree order `cycleFocus`
+    /// walks; 9 picks the last pane, as Cmd+9 does for workspaces.
+    @discardableResult
+    func focusPane(number: Int) -> Bool {
+        guard layoutMode != .canvas else { return false }
+        var livePanes: [UUID: PaneID] = [:]
+        for paneId in bonsplitController.allPaneIds { livePanes[paneId.id] = paneId }
+        let orderedPanes = spatiallyOrderedPaneIds.compactMap { livePanes[$0] }
+        let index = number == 9 ? orderedPanes.count - 1 : number - 1
+        guard orderedPanes.indices.contains(index) else { return false }
+        if orderedPanes[index] != bonsplitController.focusedPaneId {
+            focusSplitPane(orderedPanes[index])
+        }
+        return true
+    }
+
+    private func focusSplitPane(_ targetPaneId: PaneID) {
         if let previousPanelId = focusedPanelId,
            let previousPanel = panels[previousPanelId] {
             previousPanel.unfocus()
@@ -276,7 +299,6 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
-        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane

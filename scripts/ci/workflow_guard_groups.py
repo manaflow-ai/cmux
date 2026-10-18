@@ -71,6 +71,8 @@ PATH_OWNERS = {
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
+    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
+    "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
     ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
     "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
@@ -130,6 +132,11 @@ PATH_OWNERS = {
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    # test_nightly_sign_admit.py runs the admit tool; the shadow test reads
+    # the workflow and nightly.yml's producer step. test_ci_workflow_run_sources.py
+    # (ci) reads every workflow_run trigger and the tool's job-name match.
+    ".github/workflows/nightly-sign.yml": frozenset(("ci", "release-notary")),
+    "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
@@ -153,6 +160,8 @@ PATH_OWNERS = {
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it.
+    "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),

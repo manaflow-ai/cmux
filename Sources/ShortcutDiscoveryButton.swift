@@ -39,7 +39,7 @@ struct ShortcutDiscoveryButton: View {
         })
         .accessibilityElement(children: .ignore)
         .safeHelp(helpText)
-        .accessibilityLabel(helpText)
+        .hintableAccessibilityLabel(helpText)
         .accessibilityIdentifier("SidebarShortcutDiscoveryButton")
     }
 }

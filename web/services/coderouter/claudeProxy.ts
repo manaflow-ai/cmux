@@ -1,4 +1,5 @@
 import { accountAccessForIdentity } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -524,7 +525,7 @@ async function routeRounds(
         response: anthropicError(
           403,
           "permission_error",
-          "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
+          noAccountConfiguredMessage("claude", identity),
         ),
       };
     }
@@ -728,7 +729,7 @@ async function probeClaudeStreamFailure(response: Response, signal: AbortSignal)
     await reader.cancel().catch(() => undefined);
     throw error;
   }
-  let buffered = chunks.slice();
+  const buffered = chunks.slice();
   let upstreamDone = false;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -864,7 +865,7 @@ function classifyAttempt(attempt: Attempt): Verdict {
       stage: "upstream_response",
     };
   }
-  if (status === 500 || status === 502 || status === 503 || status === 529) {
+  if (status === 408 || status === 409 || status === 500 || status === 502 || status === 503 || status === 529) {
     return {
       kind: "failover",
       cooldownMs: UPSTREAM_UNAVAILABLE_COOLDOWN_MS,
