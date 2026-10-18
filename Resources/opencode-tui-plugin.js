@@ -194,10 +194,9 @@ export function dispatchSessionHook(eventName, payload, spawnImpl = spawn, baseE
   const environment = launchEnvironment(payload.cwd, baseEnvironment);
   // A child (sub-agent) session runs in the same OpenCode process as its parent
   // and shares the parent's surface, so cmux's process-ancestry check cannot
-  // detect it. Tag it explicitly: cmux then treats the event as a nested
-  // subagent, so its completions are filtered by
-  // `automation.suppressSubagentNotifications` and it never mutates the parent's
-  // visible lifecycle.
+  // detect it. Tag it explicitly so cmux treats the event as a nested subagent:
+  // with `automation.suppressSubagentNotifications` on, the child's completion
+  // is dropped instead of alerting as a top-level finish.
   if (payload.subagent === true) environment.CMUX_AGENT_MANAGED_SUBAGENT = "1";
   try {
     const child = spawnImpl(cmux, ["hooks", "enqueue", "opencode", eventName], {

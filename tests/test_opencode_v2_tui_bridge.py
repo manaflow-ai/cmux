@@ -337,6 +337,8 @@ if (!(await captureLine("child-a")).includes("managed=1")) throw new Error("chil
 liveCapture.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "root-a" } } });
 if ((await captureLine("root-a")).includes("managed=1")) throw new Error("top-level session dispatch was tagged as a subagent");
 cleanupCapture();
+try { await fs.unlink(captureFile); } catch (_) {}
+try { await fs.unlink(captureBin); } catch (_) {}
 
 // A bridge that never owns a queued session must release its expiry timer on
 // disposal, rather than retaining the entire TUI context until the TTL elapses.
@@ -371,6 +373,11 @@ printf 'session=%s managed=%s\n' "$p" "$managed" >> "$CMUX_TEST_CAPTURE_FILE"
         (package_dir / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         (package_dir / "harness.mjs").write_text(source)
         env = os.environ.copy()
+        # The harness asserts on spawned hook environments, so it must not
+        # inherit these from the caller: a stray tag breaks the root assertion
+        # and a stray disable makes dispatch time out.
+        for key in ("CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_OPENCODE_HOOKS_DISABLED"):
+            env.pop(key, None)
         env["CMUX_OPENCODE_V2_HARNESS"] = json.dumps({"packageDir": str(package_dir), "fixture": fixture})
         result = subprocess.run([node, "--conditions=browser", str(package_dir / "harness.mjs")], cwd=ROOT, env=env, text=True, capture_output=True, check=False, timeout=20)
     if result.returncode:
