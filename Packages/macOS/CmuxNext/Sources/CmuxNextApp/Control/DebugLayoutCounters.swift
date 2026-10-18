@@ -9,6 +9,8 @@ import CmuxNextSettings
 /// - `pane_snapshots`: PaneController.snapshot runs (tab strip rebuilds).
 /// - `workspace_applies`: WorkspaceContentController.apply runs (tree maps).
 /// - `topology_sends`: focus topology rebuilds (O(N) each).
+/// - `workspace_window_entries`: workspace content views entering a window (a mount; a switch to a
+///   parked workspace unhides it in place and adds none).
 /// - `pane_count_changes`: each workspace view's shown pane count, appended when an apply changes
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
@@ -17,6 +19,7 @@ enum DebugLayoutCounters {
     static var paneSnapshots: UInt64 = 0
     static var workspaceApplies: UInt64 = 0
     static var topologySends: UInt64 = 0
+    static var workspaceWindowEntries: UInt64 = 0
     static var paneCountChanges: [Int] = []
     /// Each counted call by kind and call site (`sources`), so a budget breach names its caller.
     static var sources: [String: Int] = [:]
@@ -36,6 +39,7 @@ enum DebugLayoutCounters {
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
             "topology_sends": JSONValue(Int(truncatingIfNeeded: topologySends)),
+            "workspace_window_entries": JSONValue(Int(truncatingIfNeeded: workspaceWindowEntries)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
@@ -43,6 +47,7 @@ enum DebugLayoutCounters {
             paneSnapshots = 0
             workspaceApplies = 0
             topologySends = 0
+            workspaceWindowEntries = 0
             paneCountChanges.removeAll()
             sources.removeAll()
         }
