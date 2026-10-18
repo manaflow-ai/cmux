@@ -119,6 +119,85 @@ struct AgentCLIJobCarrierTests {
         }
     }
 
+    @Test func pendingAndUnknownOutcomesDoNotInventSuccess() throws {
+        let pending = #"{"state":"pending","lifecycle":"running","terminal_id":"term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","revision":"18446744073709551615"}"#
+        let waiting = try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(pending.utf8))
+        #expect(waiting.state == .pending && waiting.outcome == nil && waiting.exitedAt == nil)
+        #expect(waiting.revision == UInt64.max)
+        let unknown = #"{"state":"exited","lifecycle":"exited","terminal_id":"term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","revision":"7","exited_at":"18446744073709551615","outcome":{"kind":"unknown","reason":"private diagnostic text"}}"#
+        let ended = try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(unknown.utf8))
+        #expect(ended.state == .exited && ended.outcome == .some(.unknown))
+        #expect(ended.exitedAt == UInt64.max && ended.revision == 7)
+        for bad in [
+            pending.replacingOccurrences(of: #""revision":"18446744073709551615""#, with: #""revision":"18446744073709551616""#),
+            pending.replacingOccurrences(of: #""state":"pending""#, with: #""state":"succeeded""#),
+            pending.replacingOccurrences(of: #""lifecycle":"running""#, with: #""lifecycle":"exited""#),
+            unknown.replacingOccurrences(of: "18446744073709551615", with: "18446744073709551616"),
+        ] {
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(bad.utf8))
+            }
+        }
+    }
+
+    @Test(arguments: ["pending", "exited", "signal", "unknown", "foreign-terminal", "bad-observation", "contradictory-pending"])
+    func observeReadsOnlyTheOriginalTerminalOnItsMachineAndSession(mode: String) async throws {
+        try await withConnection(mode) { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            let receipt = try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(good.utf8))
+            do {
+                let status = try await carrier.observe(receipt)
+                #expect(status.terminalID == receipt.path.terminalID && status.revision == 7)
+                switch mode {
+                case "pending": #expect(status.state == .pending && status.outcome == nil)
+                case "exited": #expect(status.state == .exited && status.outcome == .some(.exit(code: 23)))
+                case "signal": #expect(status.state == .exited && status.outcome == .some(.signal(number: 9)))
+                case "unknown": #expect(status.state == .exited && status.outcome == .some(.unknown))
+                default: Issue.record("invalid terminal observation was admitted")
+                }
+            } catch DaemonError.malformedResponse {
+                #expect(["foreign-terminal", "bad-observation", "contradictory-pending"].contains(mode))
+            }
+            let calls = try #require(try await connection.request(Calls()).arrayValue)
+            #expect(calls.count == 1)
+            let call = try #require(calls.first)
+            #expect(call["protocol"] == .string("cmux.protocol/2"))
+            #expect(call["operation"] == .string("terminal.wait_exit"))
+            #expect(call["params"] == .object(["machine": .string(machine.rawValue), "session": .string(session.rawValue),
+                "terminal": .string(receipt.path.terminalID.rawValue), "timeout_ms": .string("5000")]))
+            #expect(call["cmd"] == nil && call["idempotency_key"] == nil)
+        }
+    }
+
+    @Test(arguments: ["machine", "session"])
+    func anObservationCannotSelectAnotherReceiptsOwner(field: String) async throws {
+        try await withConnection("good") { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            let old = field == "machine" ? machine.rawValue : session.rawValue
+            let other = (field == "machine" ? "machine_" : "session_") + String(repeating: "b", count: 32)
+            let receipt = try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(good.replacingOccurrences(of: old, with: other).utf8))
+            do {
+                _ = try await carrier.observe(receipt)
+                Issue.record("foreign job receipt selected an observation route")
+            } catch DaemonError.malformedResponse { }
+            #expect(try await connection.request(Calls()).arrayValue?.isEmpty == true)
+        }
+    }
+
+    @Test func retiredObservationTransportCannotReattach() async throws {
+        try await withConnection("good") { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            let receipt = try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(good.utf8))
+            await connection.close()
+            do {
+                _ = try await carrier.observe(receipt)
+                Issue.record("retired observation reattached")
+            } catch let error as DaemonError {
+                #expect(error.isLostConnection)
+            }
+        }
+    }
+
     private func withConnection(_ mode: String, _ body: (DaemonConnection) async throws -> Void) async throws {
         let script = #"""
         import json, sys
@@ -145,6 +224,19 @@ struct AgentCLIJobCarrierTests {
                 if mode == 'foreign-cli': result['cli'] = 'codex'
                 if mode == 'bad-path': result['path']['terminal_id'] = 'private-host-id'
                 if mode == 'bad-revision': result['revision'] = '18446744073709551616'
+            elif frame.get('operation') == 'terminal.wait_exit':
+                calls.append(frame)
+                result = {'state':'exited','lifecycle':'exited','terminal_id':'term_'+'a'*32,
+                    'revision':'7','exited_at':'1','outcome':{'kind':'exit','code':23}}
+                if mode in ('pending', 'contradictory-pending'):
+                    result = {'state':'pending','lifecycle':'running','terminal_id':'term_'+'a'*32,'revision':'7'}
+                    if mode == 'contradictory-pending': result['outcome'] = {'kind':'exit','code':0}
+                if mode == 'signal': result['outcome'] = {'kind':'signal','signal':9}
+                if mode == 'unknown': result['outcome'] = {'kind':'unknown','reason':'private diagnostic text'}
+                if mode == 'foreign-terminal': result['terminal_id'] = 'term_'+'b'*32
+                if mode == 'bad-observation': result['revision'] = '18446744073709551616'
+                print(json.dumps({'protocol':'cmux.protocol/2','type':'response','id':frame.get('id'),'ok':True,'result':result}), flush=True)
+                continue
             elif cmd == 'test-job-calls': result = calls
             print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
         """#
