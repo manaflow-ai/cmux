@@ -96,6 +96,11 @@ def main():
             print(json.dumps({str(k): v[-4:] for k, v in screens(app).items()})[:1500], flush=True)
             return 0
         pid = app.process.pid
+        # Cmd+D from a terminal splits a terminal (from a page it opens the New Tab page): a new workspace.
+        app.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True, "wait": True})
+        if not perf_gate.wait(lambda: screens(app) and any(panes(app).values()), 30):
+            raise SystemExit("the new workspace's terminal never showed")
+        baseline = len(panes(app))
         windows = cua("list_windows", {"pid": pid}).get("windows") or []
         area = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
         if not windows:
@@ -134,7 +139,7 @@ def main():
             print(json.dumps(row), flush=True)
             rows.append(row)
             if n % 2 == 0:  # back to one pane (an action, not input), so panes stay wide enough for a line
-                while len(panes(app)) > 1:
+                while len(panes(app)) > baseline:
                     count = len(panes(app))
                     app.action("closePane", {})
                     if not perf_gate.wait(lambda: len(panes(app)) < count, 15):
