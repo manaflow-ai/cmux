@@ -63,7 +63,7 @@ extension ControlCommandCoordinator {
         case "debug.browser.favicon":
             return debugBrowserFavicon(request.params)
         case "debug.browser.crashes", "debug.browser.page_status", "debug.browser.extension_prompts",
-             "debug.browser.chromium_extension_ui":
+             "debug.browser.chromium_extension_ui", "debug.browser.simulate_click":
             return debugContext?.controlDebugBrowserSafety(method: request.method, params: request.params)
                 ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
         case "debug.right_sidebar.focus":

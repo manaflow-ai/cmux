@@ -29,6 +29,7 @@ extension TerminalController {
         "debug.browser.page_status",
         "debug.browser.extension_prompts",
         "debug.browser.chromium_extension_ui",
+        "debug.browser.simulate_click",
         "debug.right_sidebar.focus",
         "debug.sidebar.visible",
         "debug.terminal.is_focused",

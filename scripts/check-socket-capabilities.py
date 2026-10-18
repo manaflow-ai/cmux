@@ -28,6 +28,7 @@ debug.browser.crashes
 debug.browser.extension_prompts
 debug.browser.favicon
 debug.browser.page_status
+debug.browser.simulate_click
 debug.canvas.command_scroll_hint
 debug.cloudtree.gallery
 debug.cloudtree.rows

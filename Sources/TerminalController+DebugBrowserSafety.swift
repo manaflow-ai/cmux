@@ -22,6 +22,8 @@ extension TerminalController {
             return .ok(Self.debugExtensionPrompts(params: params, dialogs: .app))
         case "debug.browser.chromium_extension_ui":
             return debugChromiumExtensionUI(params: params)
+        case "debug.browser.simulate_click":
+            return debugBrowserSimulateClick(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown method", data: nil)
         }
@@ -162,6 +164,62 @@ extension TerminalController {
     /// panel's omnibox keywords. `side_panel_press` runs a header control;
     /// `omnibox_text` with `omnibox_action` (`update`, `suggest`, `enter`)
     /// drives the address bar's keyword session as typing would.
+    /// `debug.browser.simulate_click`: `{surface_id?, x, y}` posts a left
+    /// click at `x, y` (points from the top left of the panel's page) to the
+    /// app's own window on top there, through the event queue as a real
+    /// click arrives, so local event monitors and a Chromium page window see
+    /// it. Reports the window it went to; dogfood scripts check the effect.
+    private func debugBrowserSimulateClick(params: [String: JSONValue]) -> ControlCallResult {
+        func number(_ key: String) -> Double? {
+            switch params[key] {
+            case .int(let value)?: return Double(value)
+            case .double(let value)?: return value
+            default: return nil
+            }
+        }
+        guard let x = number("x"), let y = number("y") else {
+            return .err(code: "invalid_params", message: "x and y are required", data: nil)
+        }
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { _, _, panel in
+            let pageView: NSView = panel.enginePage?.contentView ?? panel.webView
+            guard let hostWindow = pageView.window else {
+                return .err(code: "invalid_state", message: "The page is not in a window", data: nil)
+            }
+            let local = NSPoint(x: x, y: pageView.isFlipped ? y : pageView.bounds.height - y)
+            let screenPoint = hostWindow.convertPoint(toScreen: pageView.convert(local, to: nil))
+            // The app's window on top at the point: what a real click there hits.
+            let topNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+            let target = NSApp.window(withWindowNumber: topNumber)
+                ?? NSApp.windows
+                    .filter { $0.isVisible && $0.frame.contains(screenPoint) }
+                    .min { $0.orderedIndex < $1.orderedIndex }
+            guard let target else {
+                return .err(code: "not_found", message: "No cmux window at the point", data: nil)
+            }
+            let location = target.convertPoint(fromScreen: screenPoint)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(
+                    with: type, location: location, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: target.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+                ) else { continue }
+                NSApp.postEvent(event, atStart: false)
+            }
+            return .ok([
+                "window_number": target.windowNumber,
+                "window_class": String(describing: type(of: target)),
+                "chromium_page_window": target.isChromiumPageWindow,
+                "screen_point": ["x": screenPoint.x, "y": screenPoint.y],
+            ] as [String: Any])
+        }
+        switch result {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
+        }
+    }
+
     private func debugChromiumExtensionUI(params: [String: JSONValue]) -> ControlCallResult {
         func string(_ key: String) -> String? {
             if case .string(let text)? = params[key] { return text }
