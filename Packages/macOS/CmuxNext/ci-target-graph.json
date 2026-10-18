@@ -666,6 +666,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
+        "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextSidebar",

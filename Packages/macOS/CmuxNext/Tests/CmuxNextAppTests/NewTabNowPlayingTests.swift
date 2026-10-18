@@ -1,5 +1,5 @@
 @testable import CmuxNextAgentPane
-@testable import CmuxNextApp
+@testable import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
