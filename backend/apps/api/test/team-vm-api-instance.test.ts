@@ -10,6 +10,7 @@ import { FakeDriver } from "../src/team-vm-driver.ts"
 import { parseEnrollArgs } from "../src/team-vm-bind.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
 import type { Env } from "../src/env.ts"
+import type { SqlStore } from "@cmux/ownership"
 
 const ns = (env as unknown as { TEAM_VM_DO: DurableObjectNamespace }).TEAM_VM_DO
 const b64u = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
@@ -89,18 +90,20 @@ it.each([false, true])("runs the real bind owner with an API identity receipt; r
   const { id: user, personal_team: team } = ensured.body.value as { id: string; personal_team: string }
   const principal = { identity: `user:${user}`, kind: "session" as const, user, team }
   const stub = ns.get(ns.idFromName(team))
-  await inDO(stub, async (_instance, storage) => {
+  await inDO(stub, async (instance) => {
     // The real owner/reducer/UserDO remain; only its external VM driver is injected into the bind runner.
-    const owner = new TeamVmDO(storage, { ...(env as Env), TEAM_VM_BIND_ENABLED: "0" })
+    const owner = instance as TeamVmDO
+    const sql = Reflect.get(owner, "sqlStore") as SqlStore
     const internal = Reflect.get(owner, "submitSystem").bind(owner) as (op: string, p: unknown, key: string) => import("../src/owner-do.ts").SubmitResult
     const current = () => Reflect.get(owner, "boundEngine")?.currentState
+    await owner.readOp(team, principal, "team_vm.status", {})
     await owner.submit(team, principal, { t: "op", op: "team_vm.ensure_awake", params: { reason: "ssh" }, idempotency_key: crypto.randomUUID(), origin: "user" })
     internal("team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: VM, slug: "cmuxnp-dev-tvm-instance", observed: "running" }, "created")
     const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
     const key = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
     const jwk = { kty: "EC", crv: "P-256", x: key.x!, y: key.y! }
     let commits = 0, checks = 0
-    const driver = Object.assign(new FakeDriver(owner.sqlStore), {
+    const driver = Object.assign(new FakeDriver(sql), {
       instanceMatches: vmApiInstanceMatches(SETTINGS, "stack-team", async () => {
         checks++
         if (rebuild) internal("team_vm.rebuild_requested", { epoch: 1, by: user }, "rebuild")
@@ -114,7 +117,7 @@ it.each([false, true])("runs the real bind owner with an API identity receipt; r
         return { code: 0, stdout: JSON.stringify({ instance_id: "vm-native-111", public_jwk: jwk, signature }) }
       }
     })
-    const runner = new BindRunner(owner.sqlStore, { env: { ...(env as Env), TEAM_VM_BIND_ENABLED: "1", CLOUD_API_ORIGIN: "https://api.test" }, driver: () => driver, state: current, submitSystem: internal, now: () => Date.now() }, () => {})
+    const runner = new BindRunner(sql, { env: { ...(env as Env), TEAM_VM_BIND_ENABLED: "1", CLOUD_API_ORIGIN: "https://api.test" }, driver: () => driver, state: current, submitSystem: internal, now: () => Date.now() }, () => {})
     const result = await runner.pass() as { bound?: string; error?: string }
     expect(checks).toBe(1)
     if (rebuild) {
@@ -127,7 +130,8 @@ it.each([false, true])("runs the real bind owner with an API identity receipt; r
       expect(runner.binds.installFor(1)).toMatchObject({ owner: user, committed: true })
       expect(commits).toBe(1)
       const challenge = await post("/v1/auth/challenge", undefined, { user, install: result.bound })
-      const signature = b64u(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(challenge.body.nonce)))
+      expect(challenge.status).toBe(200)
+      const signature = b64u(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${challenge.body.message_prefix}${challenge.body.nonce}`)))
       const token = await post("/v1/auth/token", undefined, { user, install: result.bound, nonce: challenge.body.nonce, signature })
       expect(token.status).toBe(200)
       expect((await post("/v1/read", token.body.access_token, { op: "team_vm.ssh_ca", params: {} })).status).toBe(200)
