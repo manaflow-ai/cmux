@@ -49,6 +49,10 @@ function reportToDevServer(error: unknown, componentStack: string | undefined) {
 
 // A failed module load or an unhandled error outside React reaches the same log on the dev server.
 if (typeof window !== "undefined" && import.meta.env?.DEV === true) {
-  window.addEventListener("error", (event) => reportToDevServer(event.error ?? event.message, `at ${event.filename}:${event.lineno}`));
+  window.addEventListener("error", (event) => {
+    // The browser's benign ResizeObserver loop notice is no failure.
+    if (/ResizeObserver loop/.test(event.message)) return;
+    reportToDevServer(event.error ?? event.message, `at ${event.filename}:${event.lineno}`);
+  });
   window.addEventListener("unhandledrejection", (event) => reportToDevServer(event.reason, "unhandled rejection"));
 }
