@@ -32,8 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ghosttyKeybinds: GhosttyKeybindSync?
     /// Watches the exact Ghostty files libghostty loaded and reloads them live.
     private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
-    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`,
-    /// which owns their broker).
+    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`, which owns their broker).
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
@@ -208,8 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux-next.json settings (density, shortcut overrides) and the tagged
-    /// control socket (`action.list/describe/run`) over the same registry.
+    /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
@@ -238,6 +236,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        KeepAwakeService.shared.start(settings: settings, daemon: services.daemon)
+        services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
