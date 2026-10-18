@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "3913267407001",
+  "notes": "notes/3913267407001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21630,
+      "title": "cmux NEXT: a thought dates its first and latest chunk",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21629,
+      "title": "plan(next): workspace auto-naming that keeps up (hq#1957)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21626,
+      "title": "CmuxNext: a tab dropped on a strip lands by the pointer (cx-6ggef)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21636,
+      "title": "ci(gallery-link): post one PR receipt with commit, checks and app",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
