@@ -119,6 +119,25 @@ test("PR reports reject shared IDs whose controls differ between sides", () => {
   }
 });
 
+test("PR reports reject shared IDs whose manifest routes differ", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-route-parity-"));
+  const left = join(root, "left");
+  const right = join(root, "right");
+  const leftManifest = join(root, "left.json");
+  const rightManifest = join(root, "right.json");
+  try {
+    mkdirSync(left);
+    mkdirSync(right);
+    writeFileSync(join(left, "results.json"), JSON.stringify([{ id: "same", params: { entry: "same" } }]));
+    writeFileSync(join(right, "results.json"), JSON.stringify([{ id: "same", params: { entry: "same" } }]));
+    writeFileSync(leftManifest, JSON.stringify([{ id: "same", path_or_url: "frame.html", params: { entry: "same" } }]));
+    writeFileSync(rightManifest, JSON.stringify([{ id: "same", path_or_url: "other-frame.html", params: { entry: "same" } }]));
+    expect(() => assertScenarioParity(left, right, "base/head", leftManifest, rightManifest)).toThrow(/manifest mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a comparison records candidate evidence without claiming current or superseding its baseline", () => {
   const receipt = comparisonReceipt(
     { captureId: "base-capture", scenarioFingerprint: "scenario-a" },

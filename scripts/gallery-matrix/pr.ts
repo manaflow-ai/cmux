@@ -51,6 +51,12 @@ const manifestCases = (file: string | undefined): Map<string, string> => {
   return new Map(cases.map((item) => [item.id, canonical(item.params ?? {})]));
 };
 
+const manifestDefinitions = (file: string | undefined): Map<string, string> => {
+  if (!file || !existsSync(file)) return new Map();
+  const cases = JSON.parse(readFileSync(file, "utf8")) as ManifestCase[];
+  return new Map(cases.map((item) => [item.id, canonical({ path_or_url: item.path_or_url, params: item.params ?? {} })]));
+};
+
 const caseIds = (file: string | undefined) => new Set(manifestCases(file).keys());
 
 const matrixResults = (dir: string): MatrixResult[] => {
@@ -180,13 +186,21 @@ export function assertRunScenario(dir: string, manifest: string, label: string):
 }
 
 /** Shared IDs must carry the same controls in both sides of a comparison. */
-export function assertScenarioParity(leftDir: string, rightDir: string, label = "comparison"): void {
+export function assertScenarioParity(leftDir: string, rightDir: string, label = "comparison", leftManifest?: string, rightManifest?: string): void {
   const left = new Map(matrixResults(leftDir).map((result) => [result.id ?? "unknown", canonical(result.params ?? {})]));
   const right = new Map(matrixResults(rightDir).map((result) => [result.id ?? "unknown", canonical(result.params ?? {})]));
   const mismatches = [...left.keys()]
     .filter((id) => right.has(id) && left.get(id) !== right.get(id))
     .slice(0, 5);
   if (mismatches.length) throw new Error(`${label} scenario mismatch: ${mismatches.map((id) => `${id}:params`).join(", ")}`);
+  if (leftManifest && rightManifest) {
+    const leftManifestCases = manifestDefinitions(leftManifest);
+    const rightManifestCases = manifestDefinitions(rightManifest);
+    const manifestMismatches = [...leftManifestCases.keys()]
+      .filter((id) => rightManifestCases.has(id) && leftManifestCases.get(id) !== rightManifestCases.get(id))
+      .slice(0, 5);
+    if (manifestMismatches.length) throw new Error(`${label} scenario manifest mismatch: ${manifestMismatches.map((id) => `${id}:path-or-params`).join(", ")}`);
+  }
 }
 
 if (import.meta.main) {
@@ -222,10 +236,10 @@ if (import.meta.main) {
   if (!values.outcomes) {
     assertRunRevision(values.base!, values["base-sha"]!, "base", values["base-manifest"]!, values["capture-manifest"]!);
     assertRunRevision(values.head!, values["head-sha"]!, "head", values["head-manifest"]!, values["capture-manifest"]!);
-    assertScenarioParity(values.base!, values.head!, "base/head");
+    assertScenarioParity(values.base!, values.head!, "base/head", values["base-manifest"], values["head-manifest"]);
     if (values.repeat) {
       assertRunRevision(values.repeat, values["head-sha"]!, "repeat", values["head-manifest"]!, values["capture-manifest"]!);
-      assertScenarioParity(values.head!, values.repeat, "head/repeat");
+      assertScenarioParity(values.head!, values.repeat, "head/repeat", values["head-manifest"], values["head-manifest"]);
     }
   }
   const outcomes: Outcome[] = values.outcomes
