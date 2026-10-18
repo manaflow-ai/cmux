@@ -38,7 +38,7 @@ import Testing
                     : #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"exit","code":23}}"#
                 var value = try JSONValue.parse(Data(result.utf8)).objectValue ?? [:]
                 value["terminal_id"] = .string(receipt.path.terminalID.rawValue)
-                return try JSONDecoder().decode(AgentCLIJobStatus.self, from: JSONEncoder().encode(JSONValue.object(value)))
+                return try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(JSONValue.object(value).compactText.utf8))
             })
         }
 
@@ -48,7 +48,7 @@ import Testing
                 "cli": .string(cli.rawValue), "revision": "1", "replayed": false,
                 "path": ["kind": "terminal", "workspace_id": .string("ws_" + suffix), "screen_id": .string("screen_" + suffix),
                     "pane_id": .string("pane_" + suffix), "tab_id": .string("tab_" + suffix), "terminal_id": .string("term_" + suffix)]]
-            return try JSONDecoder().decode(AgentCLIJobReceipt.self, from: JSONEncoder().encode(value))
+            return try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(value.compactText.utf8))
         }
     }
 
