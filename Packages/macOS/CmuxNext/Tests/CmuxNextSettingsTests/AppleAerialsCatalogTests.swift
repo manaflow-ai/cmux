@@ -9,7 +9,7 @@ import Testing
 /// opens System Settings > Wallpaper, where macOS downloads it; then it is a real choice.
 struct AppleAerialsCatalogTests {
     @Test func everyListedAerialIsAChoiceAndTheMissingOnesArePending() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-aerials-\(UUID().uuidString)", isDirectory: true)
+        let root = try Self.realFolder("cmux-aerials-\(UUID().uuidString)")
         let pictures = root.appendingPathComponent("Desktop Pictures", isDirectory: true)
         let aerials = root.appendingPathComponent("Customer", isDirectory: true)
         let movies = aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
@@ -54,5 +54,15 @@ struct AppleAerialsCatalogTests {
             return
         }
         #expect(path.hasPrefix(aerials.path + "/"), "an aerial path left the Customer folder: \(path)")
+    }
+
+    /// A new folder under the temporary directory, by its real path: the listing reads
+    /// /private/var/folders, which a path built on temporaryDirectory (/var/folders) never equals.
+    private static func realFolder(_ name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        guard let real = realpath(url.path, nil) else { return url }
+        defer { free(real) }
+        return URL(fileURLWithPath: String(cString: real), isDirectory: true)
     }
 }
