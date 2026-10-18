@@ -31,4 +31,3 @@ export const toVm = (
     createdAt: upstream.createdAt,
     updatedAt: upstream.updatedAt,
   });
-
