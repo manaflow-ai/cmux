@@ -113,6 +113,7 @@ extension TextBoxInputContainer {
             guard insertCloudComposerImages(fileURLs, into: textView) else {
                 refuseCloudComposerImage()
                 GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return true
             }
             return true
         case .reject:
