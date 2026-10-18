@@ -71,13 +71,16 @@ extension Motion {
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let firstWindow = view?.window else { return true }
         var window = firstWindow
-        while true {
+        // AppKit windows have a short, finite child-parent chain. Keep this traversal bounded so
+        // malformed test doubles cannot turn a hot-path motion decision into an unbounded loop.
+        for _ in 0..<8 {
             if let screen = window.screen {
                 return !DisplaySleep.shared.isAsleep(screen)
             }
             guard let parent = window.parent else { return false }
             window = parent
         }
+        return false
     }
 
     /// The proxy to set a constraint through inside a Motion animation of
