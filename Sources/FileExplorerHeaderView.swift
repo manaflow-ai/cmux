@@ -82,8 +82,12 @@ final class FileExplorerHeaderView: NSView {
     func update(displayPath: String, retry: (() -> Void)? = nil) {
         self.retry = retry
         retryButton.isHidden = retry == nil
-        pathTrailingToRetryConstraint?.isActive = retry != nil
-        pathTrailingToEdgeConstraint?.isActive = retry == nil
+        // Deactivate first so the two required trailing constraints are never active together.
+        let showsRetry = retry != nil
+        let inactive = showsRetry ? pathTrailingToEdgeConstraint : pathTrailingToRetryConstraint
+        let active = showsRetry ? pathTrailingToRetryConstraint : pathTrailingToEdgeConstraint
+        inactive?.isActive = false
+        active?.isActive = true
         guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
