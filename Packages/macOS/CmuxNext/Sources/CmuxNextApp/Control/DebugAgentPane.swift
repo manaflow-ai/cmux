@@ -30,8 +30,7 @@ import WebKit
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
-/// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`:
-/// what moved after the page first showed its content, layoutWatch.ts),
+/// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
@@ -285,22 +284,15 @@ enum DebugAgentPane {
             return [options]
         case "load_seed":
             return [params["turns"]?.intValue ?? 5000]
-        case "load_run":
-            // The chat under load (loadDebug.ts): a full-speed stream while the transcript scrolls.
+        case "load_run", "layout_watch":
+            // The chat under load (loadDebug.ts), or what moved after the page's first paint (layoutWatch.ts).
             var options: [String: Any] = [:]
-            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth"] {
+            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth", "ms", "tolerance"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
-        case "layout_watch":
-            // What moved after the page first showed its content (layoutWatch.ts), watched for `ms`.
-            var options: [String: Any] = [:]
-            for key in ["ms", "tolerance"] {
-                if let value = params[key]?.doubleValue { options[key] = value }
-            }
-            return [options]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         case "send_prompt":
