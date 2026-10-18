@@ -666,11 +666,16 @@ try {
   const relaunched = await timed("relaunchReconnect", async () => {
     return startLink("remote connect (relaunch)");
   });
+  let restoredTerminal = terminal;
   await timed("restoredTerminal", async () => {
     const anchor = skipSleep ? `${marker}-2` : `${marker}-6`;
-    await waitForScreen(relaunched.local_socket, terminal, anchor, 30_000);
+    // A relaunch gets a fresh local socket and can remap the remote terminal
+    // id while restoring the same session. Resolve the restored terminal from
+    // the new socket before waiting, rather than reusing the dead local id.
+    restoredTerminal = await ensureTerminal(relaunched.local_socket);
+    await waitForScreen(relaunched.local_socket, restoredTerminal, anchor, 30_000);
   });
-  await saveScreen(relaunched.local_socket, terminal, "03-after-relaunch");
+  await saveScreen(relaunched.local_socket, restoredTerminal, "03-after-relaunch");
 
   await link.stop();
   await hub.stop();
