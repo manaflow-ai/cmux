@@ -169,6 +169,7 @@ class RenderTests(unittest.TestCase):
         report = risk.render(risk.classify([name]), [], False)
         self.assertFalse(any(line.startswith("::") for line in report.splitlines()))
         self.assertIn("docs/a?::add-mask::x?b.md", report)
+        self.assertEqual(risk.printable("a\u0085b\u2028c\u2029d"), "a?b?c?d")
 
 
 class EvidenceTests(unittest.TestCase):

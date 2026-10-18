@@ -414,7 +414,7 @@ def waived_by(repo: str, number: str) -> str | None:
 def printable(path: str) -> str:
     """A changed path as it may appear in a log or summary: no control characters (a newline in a
     file name could start a `::` workflow command), no backticks to break the code span."""
-    return re.sub(r"[\x00-\x1f\x7f`]", "?", path)
+    return re.sub(r"[\x00-\x1f\x7f-\x9f\u2028\u2029`]", "?", path)
 
 
 def render(grade: Grade, missing: list[str], waived: bool, waiver: str | None = None) -> str:
