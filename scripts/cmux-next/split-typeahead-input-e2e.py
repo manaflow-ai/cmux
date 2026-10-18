@@ -70,10 +70,11 @@ def daemon(app, request):
 
 
 def screens(app):
-    """{surface: lines of its daemon screen} of every terminal tab: what the shells really got."""
-    tabs = [tab for entry in daemon(app, {"cmd": "list-workspaces"}).get("workspaces") or []
-            for screen in entry.get("screens") or [] for pane in screen.get("panes") or [] for tab in pane.get("tabs") or []]
-    surfaces = [tab["surface"] for tab in tabs if tab.get("kind") not in ("browser", "conversation") and tab.get("surface") is not None]
+    """{surface: lines of its daemon screen} of every confirmed terminal tab the app shows: what the shells got."""
+    tabs = [tab for w in app.topology().get("workspaces") or [] for sc in w.get("screens") or []
+            for pane in sc.get("panes") or [] for tab in pane.get("tabs") or [] if tab.get("kind") == "terminal"]
+    # A provisional split's surface (>= 2^62) is the app's own until the daemon confirms the pane.
+    surfaces = [int(t["surface"]) for t in tabs if str(t.get("surface", "")).isdigit() and int(t["surface"]) < 1 << 62]
     return {s: [line.strip() for line in (daemon(app, {"cmd": "read-screen", "surface": s}).get("text") or "").splitlines()]
             for s in surfaces}
 
@@ -108,7 +109,7 @@ def main():
                     break
                 time.sleep(0.2)  # test script: polls the daemon's screens
             if not text:
-                print(f"no terminal tabs on the daemon: {json.dumps(daemon(app, {'cmd': 'list-workspaces'}))[:600]}", flush=True)
+                print(f"no terminal tabs: {json.dumps(app.topology())[:600]}", flush=True)
             row.update(new=new, terminal=made, focused=[p for p, f in now.items() if f],
                        elsewhere=sorted(t for t, lines in text.items() if t not in made and any(marker in l for l in lines)))
             row["ok"] = (len(new) == 1 and len(made) == 1 and text[made[0]].count(marker) == 1
