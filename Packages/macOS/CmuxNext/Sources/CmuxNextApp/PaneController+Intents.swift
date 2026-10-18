@@ -57,26 +57,19 @@ extension PaneController {
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
-        if source.isUserIntent, stripModel.selectedID != id {
-            services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
-        }
+        if source.isUserIntent, stripModel.selectedID != id { services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface) }
         // Arm before the focus reducer runs. A cold terminal clears the pane and creates its
         // surface on a later frame; keys can arrive between this selection intent and the
         // presentation effect. The presenter also arms this hold for model-driven selections,
         // but doing it here closes the user-input race at the action boundary.
         armColdSelectionInputHold(id, source: source)
-        guard let workspace else {
-            guard ActionRunScope.viewChangeAllowed() else { return }
-            return applySelection(id)
-        }
+        guard let workspace else { guard ActionRunScope.viewChangeAllowed() else { return }; return applySelection(id) }
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
     private func armColdSelectionInputHold(_ id: StripTabID, source: FocusEvent.Source) {
-        guard source.isUserIntent, isFocusedInWorkspace, let window = view.window,
-              let target = tab(id), target.kind == .pty, !target.dead,
-              !services.cache.hasContent(for: id.rawValue) else { return }
-        services.keyRouter.creationInputCoordinator.holdUntilShown(in: window)
+        guard source.isUserIntent, isFocusedInWorkspace, let window = view.window, let target = tab(id),
+              target.kind == .pty, !target.dead, !services.cache.hasContent(for: id.rawValue) else { return }; services.keyRouter.creationInputCoordinator.holdUntilShown(in: window)
     }
 
     /// Selects `id` and shows it; called by the focus applier, never moves focus.
