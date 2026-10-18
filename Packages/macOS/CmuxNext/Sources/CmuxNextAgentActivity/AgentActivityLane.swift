@@ -25,6 +25,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let title: String
     /// The acpmux peer that owns it; nil on this Mac.
     public let peer: String?
+    /// The existing cmux workspace binding for this agent session, when the
+    /// ACPmux summary carries one.
+    public let workspaceID: String?
     /// Its `mux.parent` tag: the coordinator that started it.
     public let parent: String?
     public let state: State
@@ -33,11 +36,12 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The last turn's error text when `failed` or `lost`.
     public let error: String?
 
-    public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?) {
+    public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?, workspaceID: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
         self.peer = peer
+        self.workspaceID = workspaceID
         self.parent = parent
         self.state = state
         self.since = since
@@ -62,7 +66,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let since = (lane["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         let error = (lane["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
-                                 state: state, since: since, error: error)
+                                 state: state, since: since, error: error, workspaceID: workspaceID)
     }
 }

@@ -21,11 +21,12 @@ import Testing
 struct AgentLanesTests {
     /// One session summary as acpmux sends it, with its lane.
     static func summary(_ id: String, _ state: String, since: Double = 1_760_000_000_000, error: String? = nil,
-                        parent: String? = nil, peer: String? = nil) -> [String: Any] {
+                        parent: String? = nil, peer: String? = nil, workspaceID: String? = nil) -> [String: Any] {
         var summary: [String: Any] = ["sessionId": id, "name": id, "status": "idle",
                                       "lane": ["state": state, "since": since, "error": error as Any]]
         if let parent { summary["tags"] = [AgentActivityLane.parentTag: parent] }
         if let peer { summary["peer"] = peer; summary["name"] = "\(peer)/\(id)" }
+        if let workspaceID { summary["workspaceId"] = workspaceID }
         return summary
     }
 
@@ -75,6 +76,12 @@ struct AgentLanesTests {
         try await until { lanes.lanes["op-busy"] == nil }
         #expect(lanes.lanes["op-busy"] == nil)
         withExtendedLifetime((acpmux, feed)) {}
+    }
+
+    @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
+        let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
+        let lane = AgentActivityLane.of(summary: summary)
+        #expect(lane?.workspaceID == "workspace-7")
     }
 
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
