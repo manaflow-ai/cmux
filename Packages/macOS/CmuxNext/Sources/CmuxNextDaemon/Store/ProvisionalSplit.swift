@@ -58,8 +58,8 @@ import Foundation
         screen.layout = layout
         if columns != screen.columns { screen.columns = columns }
         guard daemon == nil else { return undo }
-        let tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
-                              terminalID: TerminalID(rawValue: provisional.terminalID))
+        let tab = provisional.tab ?? TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
+                                                 terminalID: TerminalID(rawValue: provisional.terminalID))
         let pane = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
                                           tabs: [tab]))
         let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1

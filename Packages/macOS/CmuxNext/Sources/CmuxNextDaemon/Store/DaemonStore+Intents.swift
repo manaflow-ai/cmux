@@ -74,7 +74,10 @@ extension DaemonStore {
     /// snapshot covering `resyncSequence` is applied, so the tab never
     /// shows back at its old place in between.
     func settleIntentOnEcho(_ transaction: ClientTransactionID, needsResync: Bool, sequence: UInt64?) {
-        guard intentLog.contains(transaction) else { return }
+        guard let entry = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
+        // A split's `pane-added` echo comes before the `layout-changed` that places the pane:
+        // it stays until the records place it (cx-ry0y), as when its reply settles it.
+        if awaitsRecords(entry) { return intentLog.awaitRecords(transaction) }
         if needsResync {
             if let sequence { intentLog.settle(transaction, at: sequence) }
             return
