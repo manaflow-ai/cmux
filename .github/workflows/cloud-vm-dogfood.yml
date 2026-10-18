@@ -82,8 +82,10 @@ jobs:
           test -n "$VERCEL_TOKEN" || { echo "::error::staging deploy requires the existing VERCEL_TOKEN secret"; exit 1; }
           mkdir -p .vercel
           printf '{"orgId":"team_KndpHsJ15gO2OoAP2SO0thYn","projectId":"%s"}\n' "$VERCEL_PROJECT_ID" > .vercel/project.json
+          cd "$GITHUB_WORKSPACE/web"
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
+          cd "$GITHUB_WORKSPACE"
           bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard
         env:
