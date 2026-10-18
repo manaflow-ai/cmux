@@ -14,13 +14,11 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, CopyTurn, Retry, TurnFork } from "./icons";
+import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
-import { useLab } from "../labs";
-import { CopyButton } from "./CopyButton";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
@@ -105,7 +103,6 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 /// count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const copyTurn = useLab("copyTurn");
   const [copied, setCopied] = useState(false);
   const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
     useContext(TurnActionsContext);
@@ -130,14 +127,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {clock.format(row.at)}
         </time>
         <span className="cv-turn-action-group">
-          {copyTurn && text && row.turnPrompt !== undefined && (
-            <CopyButton
-              text={`**${t("transcript.you")}:** ${row.turnPrompt}\n\n${text}`}
-              label={t("turn.copyTurn")}
-              className="cv-iconbtn cv-iconbtn--compact cv-copy-turn"
-              icon={<CopyTurn size={14} />}
-            />
-          )}
           {text && (
             <button
               type="button"

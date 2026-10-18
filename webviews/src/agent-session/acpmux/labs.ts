@@ -7,7 +7,6 @@ import { useSyncExternalStore } from "react";
 ///   (conversation/RenderCard.tsx, conversation/RenderPreview.tsx).
 /// - `contextMeter`: show the context ring beside the model, with its token details.
 /// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
-/// - `copyTurn`: copy a prompt and its final answer together as Markdown.
 /// - `messageTimes`: show a prompt's send time on hover or focus.
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
 /// - `planProgress`: keep the running plan's current step above the composer.
@@ -20,7 +19,6 @@ export const LABS = [
   "liveRender",
   "contextMeter",
   "promptCollapse",
-  "copyTurn",
   "messageTimes",
   "codeWrap",
   "planProgress",

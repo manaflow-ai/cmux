@@ -2761,7 +2761,6 @@ function AcpmuxPane() {
   );
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
-  const copyTurn = useLab("copyTurn");
   const { command: shortcutsCommand, menu: shortcutsMenu, dialog: shortcutsDialog } = useShortcutsHelp();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
@@ -2774,7 +2773,7 @@ function AcpmuxPane() {
         rows,
         expanded,
         { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
-        last?.turns.copyTurn === copyTurn ? last.turns : undefined,
+        last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
@@ -2788,7 +2787,6 @@ function AcpmuxPane() {
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
-    copyTurn,
     chatShellRuns,
     panelAsks,
   ]);

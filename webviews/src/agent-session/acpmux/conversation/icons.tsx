@@ -92,14 +92,6 @@ export const Copy = (p: CvIconProps) => (
   </Svg>
 );
 
-/// A pair of messages for copying the whole turn (Lucas 2026-10-18).
-export const CopyTurn = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M10.5 6V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V8l2-1.5h2" />
-    <path d="M7.5 6h5A1.5 1.5 0 0 1 14 7.5V14l-2.5-2h-4A1.5 1.5 0 0 1 6 10.5v-3A1.5 1.5 0 0 1 7.5 6Z" />
-  </Svg>
-);
-
 /** An arrow into a tray (Save a document to a file). */
 export const SaveTray = (p: CvIconProps) => (
   <Svg {...p}>

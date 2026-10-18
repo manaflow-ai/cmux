@@ -57,8 +57,6 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { FindReveal, findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { ChatSessionContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
 const { layoutConversation } = await import("../src/agent-session/acpmux/model");
-const { turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
-const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { PlainCode } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
 const { CodeBlock } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
 const { HighlightedCode } = await import("../src/agent-session/acpmux/conversation/HighlightedCode");
@@ -97,7 +95,7 @@ const prompt = (id: string, text = "Hello", at = Date.now()): AcpmuxRow => ({
   version: 1,
 });
 
-test("all five labs default off and keep the prompt and plain code markup", async () => {
+test("labs default off and keep the prompt and plain code markup", async () => {
   await draw(<UserBubble row={prompt("off")} text="Hello" />);
   expect(host.innerHTML).toBe('<div class="cv-user__bubble selectable">Hello</div>');
   await draw(<PlainCode code="line" lang="text" />);
@@ -143,63 +141,6 @@ test("short prompts have no collapse action, and Find with the lab off leaves th
     </FindReveal.Provider>,
   );
   expect(host.innerHTML).toBe('<div class="cv-user__bubble selectable">Hello</div>');
-});
-
-test("copyTurn copies an older prompt and its final Markdown answer with copy feedback", async () => {
-  const rows: AcpmuxRow[] = [
-    prompt("p1", "First question"),
-    { ...prompt("a1", "Interim"), kind: "assistant" },
-    { ...prompt("a2", "**Final** answer\n\n- one"), kind: "assistant" },
-    { ...prompt("s1", ""), kind: "turnSummary", status: "completed" },
-    prompt("p2", "Second question"),
-    { ...prompt("a3", "Second answer"), kind: "assistant" },
-    { ...prompt("s2", ""), kind: "turnSummary", status: "completed" },
-  ];
-  const expanded = new Set<string>();
-  const off = turnViewFrom(rows, expanded);
-  await draw(<TurnFooter row={off.rows.find((row) => row.id === "s1")!} />);
-  expect(button("Copy turn")).toBeUndefined();
-  act(() => configureLabs({ labs: { copyTurn: true } }));
-  const on = turnViewFrom(rows, expanded, {}, off);
-  const footer = on.rows.find((row) => row.id === "s1")!;
-  expect(footer.prompt).toBeUndefined();
-  const copied: string[] = [];
-  Object.defineProperty(dom.window.navigator, "clipboard", {
-    configurable: true,
-    value: {
-      writeText: async (text: string) => {
-        copied.push(text);
-      },
-    },
-  });
-  await draw(<TurnFooter row={footer} />);
-  await act(async () => button("Copy turn")!.click());
-  expect(copied).toEqual(["**You:** First question\n\n**Final** answer\n\n- one"]);
-  expect(button("Copied")).toBeDefined();
-  await draw(null);
-  Object.defineProperty(dom.window.navigator, "clipboard", {
-    configurable: true,
-    value: {
-      writeText: async () => {
-        throw new Error("blocked");
-      },
-    },
-  });
-  await draw(<TurnFooter row={footer} />);
-  await act(async () => button("Copy turn")!.click());
-  expect(button("Copy turn")).toBeDefined();
-  expect(button("Copied")).toBeUndefined();
-  act(() => configureLabs(undefined));
-  expect(button("Copy turn")).toBeUndefined();
-  expect(turnViewFrom(rows, expanded, {}, on).rows.find((row) => row.id === "s1")?.turnPrompt).toBeUndefined();
-});
-
-test("copyTurn stays absent when a turn has no final answer", async () => {
-  act(() => configureLabs({ labs: { copyTurn: true } }));
-  const rows = [prompt("no-answer"), { ...prompt("empty-summary", ""), kind: "turnSummary" }];
-  const shaped = turnViewFrom(rows, new Set()).rows;
-  await draw(<TurnFooter row={shaped.find((row) => row.id === "empty-summary")!} />);
-  expect(button("Copy turn")).toBeUndefined();
 });
 
 test("messageTimes uses the prompt time, adds a date on older messages, and is focusable only with the lab on", async () => {

@@ -78,8 +78,6 @@ export type AcpmuxRow = {
   queued?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
-  /// Copy turn's prompt, independent of the last turn's Retry (Lucas 2026-10-18).
-  turnPrompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
