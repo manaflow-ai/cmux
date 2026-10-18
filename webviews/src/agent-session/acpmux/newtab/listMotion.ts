@@ -5,8 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useRef } from "react";
-import { isAgentMotionOff } from "../../shared/motion";
+import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -26,24 +25,6 @@ function drawnShift(element: HTMLElement): { x: number; y: number } {
 }
 
 /// Where each row's box is laid out, relative to `root`: drawn places less their running slides.
-function cancelRunning(running: { current: Animation[] }): void {
-  // Clear the live set before cancelling: oncancel removes its own animation,
-  // and mutating the array while iterating would skip every other animation.
-  const animations = running.current;
-  running.current = [];
-  for (const animation of animations) animation.cancel();
-}
-
-function trackAnimation(running: { current: Animation[] }, animation: Animation): void {
-  const remove = () => {
-    const index = running.current.indexOf(animation);
-    if (index >= 0) running.current.splice(index, 1);
-  };
-  animation.onfinish = remove;
-  animation.oncancel = remove;
-  running.current.push(animation);
-}
-
 function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
   const origin = root.getBoundingClientRect();
   return new Map(
@@ -65,27 +46,21 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-  const keysRef = useRef(keys);
-  keysRef.current = keys;
-  const signature = JSON.stringify(keys);
-  const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
+  const signature = keys.join("\n");
+  const keyList = useMemo(() => (signature === "" ? [] : signature.split("\n")), [signature]);
+  const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
+  const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
   useLayoutEffect(
     () => () => {
       observed.current?.observer.disconnect();
       observed.current = null;
-      cancelRunning(running);
+      sampled.current = null;
     },
     [],
   );
-  // The key signature is the invalidation boundary for list motion. The callers derive `keys`
-  // from their snapshots and may allocate a fresh array on every render; depending on that array
-  // would put the measurement work back on every render. ResizeObserver remains responsible for
-  // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
-    const currentKeys = keysRef.current;
     const root = list.current;
-    if (observed.current?.root !== root) {
-      if (observed.current?.root) cancelRunning(running);
+    if (observed.current?.root !== root || observed.current?.rows !== rows) {
       observed.current?.observer.disconnect();
       observed.current = null;
       if (root && typeof ResizeObserver !== "undefined") {
@@ -95,59 +70,52 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
             places.current = measure(root, elements, shownKeys.current);
         });
         observer.observe(root);
-        observed.current = { root, observer };
+        observed.current = { root, rows, observer };
       }
     }
+    // A ref object stays the same when React replaces its DOM node. Check its current root on
+    // every commit, but leave geometry alone until the root, selector or row keys change.
+    if (sampled.current?.root === root && sampled.current.rows === rows && sampled.current.signature === signature)
+      return;
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== currentKeys.length) {
-      cancelRunning(running);
+    if (!root || elements.length !== keyList.length) {
       places.current = new Map();
       shown.current = "";
-      shownKeys.current = [];
-      return;
-    }
-    if (isAgentMotionOff()) {
-      cancelRunning(running);
-      places.current = measure(root, elements, currentKeys);
-      shown.current = signature;
-      shownKeys.current = currentKeys;
+      sampled.current = null;
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
-    if (changed) cancelRunning(running);
-    const after = measure(root, elements, currentKeys);
+    const drawn = new Map(elements.map((element, index) => [keyList[index], drawnShift(element)] as const));
+    if (changed) for (const animation of running.current) animation.cancel();
+    if (changed) running.current = [];
+    const after = measure(root, elements, keyList);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = currentKeys;
+    shownKeys.current = keyList;
+    sampled.current = { root, rows, signature };
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const move = reduced ? 0 : seconds(style.getPropertyValue("--agent-motion-move")) * 1000;
     const appear = seconds(style.getPropertyValue("--agent-motion-in")) * 1000;
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
-    // CSS cannot cancel Web Animations API instances. The explicit host policy is still honored
-    // here when a list update races the theme's zero-motion transition.
-    const motionOff = root.ownerDocument.documentElement.dataset.agentMotion === "off";
-    if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = currentKeys[index];
+      const key = keyList[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
         if (appear > 0)
-          trackAnimation(running, element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
+          running.current.push(element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
         continue;
       }
       const shift = drawn.get(key) ?? { x: 0, y: 0 };
       const x = was.x + shift.x - is.x;
       const y = was.y + shift.y - is.y;
       if (move > 0 && (Math.abs(x) > 0.5 || Math.abs(y) > 0.5)) {
-        trackAnimation(
-          running,
+        running.current.push(
           element.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }], {
             duration: move,
             easing,
@@ -155,6 +123,5 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `keys` is represented by its value signature.
-  }, [list, rows, signature]);
+  });
 }
