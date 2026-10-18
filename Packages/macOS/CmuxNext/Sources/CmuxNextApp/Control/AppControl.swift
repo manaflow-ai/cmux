@@ -77,8 +77,6 @@ final class AppControl {
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
-            // Chrome text weight vs a stock label (text-weight-e2e.py).
-            .async("debug.text_weight") { call in .object(await TextWeightProbe(dark: call.params["dark"]?.boolValue ?? true).measure().mapValues { .number($0) }) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
             .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
