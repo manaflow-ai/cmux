@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
 import CmuxNextSettings
+public import CmuxNextSettingsWindow
 import Observation
 
 /// Who may use this Mac from a phone (`phone.newDevices`): a phone on the
@@ -9,7 +10,7 @@ import Observation
 /// or, set to Any Phone on My Account, gets in on the account check alone
 /// (and is listed, so it can be removed once the setting asks again).
 @Observable
-final class PhoneAdmission {
+public final class PhoneAdmission {
     @ObservationIgnored let store: PhoneDeviceStore
     @ObservationIgnored var mode: PhoneNewDevicesSetting = SessionSettings.newDevicesDefault
     /// The allowed phones, for the Settings page's list (observed; the store is not).
@@ -28,8 +29,17 @@ final class PhoneAdmission {
         devices = store.all
     }
 
+    /// The Settings page's Allowed Phones rows: the most recently seen first, each with when it
+    /// last connected (observed through `devices`).
+    public var rows: [SettingsListRow] {
+        devices.sorted { ($0.lastSeenAt ?? $0.approvedAt) > ($1.lastSeenAt ?? $1.approvedAt) }.map { device in
+            SettingsListRow(id: device.id, title: device.name,
+                            subtitle: (device.lastSeenAt ?? device.approvedAt).formatted(.relative(presentation: .named)), symbol: "iphone")
+        }
+    }
+
     /// Removes `id` from the allowed list; its next connection asks again.
-    func remove(_ id: String) {
+    public func remove(_ id: String) {
         store.remove(id)
         denied[id] = nil
         devices = store.all

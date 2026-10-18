@@ -39,10 +39,11 @@ public final class PhoneDeviceStore: Sendable {
     /// Adds `device`, or renames it and keeps its approval when it is already allowed.
     public func allow(_ device: PhoneDevice) {
         change { list in
-            if let index = list.firstIndex(where: { $0.id == device.id }) {
-                list[index].name = device.name
-            } else {
-                list.append(device)
+            guard list.contains(where: { $0.id == device.id }) else { return list.append(device) }
+            list = list.map { known in
+                var renamed = known
+                if known.id == device.id { renamed.name = device.name }
+                return renamed
             }
         }
     }
@@ -54,7 +55,11 @@ public final class PhoneDeviceStore: Sendable {
     /// Notes that `id` connected now.
     public func touch(_ id: String, at date: Date = Date()) {
         change { list in
-            if let index = list.firstIndex(where: { $0.id == id }) { list[index].lastSeenAt = date }
+            list = list.map { known in
+                var seen = known
+                if known.id == id { seen.lastSeenAt = date }
+                return seen
+            }
         }
     }
 

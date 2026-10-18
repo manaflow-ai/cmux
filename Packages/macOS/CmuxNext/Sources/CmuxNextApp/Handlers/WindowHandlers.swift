@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextKeepAwake
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow

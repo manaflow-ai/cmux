@@ -53,7 +53,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
-                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them."),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."),
                 kind: .toggle,
                 default: .bool(SessionSettings.allowFullAccessDefault),
                 keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
@@ -80,7 +80,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.allowConnections", "Let Your Phone Use This Mac"),
-                help: SettingsText.keyed("settings.phone.allowConnections.help", "cmux registers this Mac's name with your cmux account so your phone can find it. Workspace names, folders and terminal output go only over the encrypted link to your phone. Branch names and repo URLs are never uploaded."),
+                help: SettingsText.keyed("settings.phone.allowConnections.help", "cmux registers this Mac's name, platform, app version and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."),
                 kind: .toggle,
                 default: .bool(SessionSettings.allowConnectionsDefault),
                 keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
