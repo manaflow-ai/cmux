@@ -114,6 +114,16 @@
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Quota di calcolo {plan} esaurita",
+      "computeMessage": "Il tuo piano {plan} ha usato le sue {included} ore di calcolo per questo periodo di fatturazione. Un'ora di calcolo corrisponde a 1 vCPU con 2 GB di memoria per un'ora. Le tue macchine potranno ripartire il {resetDate}.",
+      "computeAction": "Le macchine in pausa conservano i loro file. Contatta il supporto se ti serve più calcolo prima del {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota disco {plan} esaurita",
+      "storageMessage": "Il tuo piano {plan} include {included} GB di disco per tutte le macchine salvate. Le macchine salvate usano {used} GB e questa richiesta ne richiede {requested}.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Risorse Cloud VM insufficienti",
       "memoryMessage": "Le tue VM usano già {used} di {pool} GB di RAM. Questa VM ha bisogno di {requested} GB.",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Riprendi il piano per modificarlo.",
           "granted": "Concesso da cmux. Non c'è nulla da modificare.",
+          "grantedNoCancel": "Concesso da cmux, quindi non c'è nulla da annullare.",
+          "paymentFailed": "Aggiorna il metodo di pagamento prima di cambiare piano.",
+          "foundersLifetime": "Founder's Edition include Pro a vita.",
           "adminOnly": "Solo gli amministratori del team possono modificare il piano."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Passare a {plan}?",
         "upgradeBody": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} al mese.",
+        "upgradeBodyYearly": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} all'anno.",
         "downgradeBody": "{plan} inizia ora. La parte non utilizzata del piano attuale, {credit}, viene accreditata sulle prossime fatture. La prossima fattura, il {date}, è di {amount}.",
         "confirm": "Passa a {plan}",
         "keep": "Mantieni il piano attuale",
@@ -568,6 +582,8 @@
         "title": "Annullare {plan}?",
         "body": "Mantieni {plan} fino al {date}. Dopo perderai:",
         "bodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo perderai:",
+        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo avrai Pro, che Founder's Edition include a vita.",
+        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo avrai Pro, che Founder's Edition include a vita.",
         "reasonLabel": "Perché annulli? (facoltativo)",
         "otherPlaceholder": "Raccontaci di più (facoltativo)",
         "confirm": "Annulla piano",

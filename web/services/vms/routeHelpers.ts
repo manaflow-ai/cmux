@@ -79,6 +79,7 @@ import {
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmPlanBudgetCopy,
   vmActiveLimitCountedCopy,
   vmResourcePoolCopy,
   vmUnsupportedCopy,
@@ -1187,6 +1188,30 @@ export const vmWorkflowErrorResponders = {
   VmResourcePoolExceededError: (error, context) => vmResourcePoolExceededResponse(error, context.locale),
   VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
   VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
+  VmPlanBudgetExceededError: async (error, context) => {
+    const copy = await vmPlanBudgetCopy(context.locale, error);
+    const upgrade = error.planId === "pro"
+      ? { upgradeRequired: true, upgradePlanId: "max", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max" }
+      : { upgradeRequired: false };
+    return vmErrorResponse({
+      error: error.resource === "compute" ? "vm_compute_budget_reached" : "vm_storage_budget_reached",
+      status: 402,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "billing",
+      retryable: false,
+      extra: {
+        ...upgrade,
+        planId: error.planId,
+        budgetResource: error.resource,
+        budgetIncluded: error.included,
+        budgetUsed: error.used,
+        budgetRequested: error.requested,
+        budgetResetsAt: error.resetsAt.toISOString(),
+      },
+    });
+  },
   VmGoShapeError: async (_error, context) => {
     const copy = await vmGoLimitCopy("shape", context.locale);
     return vmErrorResponse({
