@@ -10,6 +10,7 @@
 # records the -derivedDataPath it gets.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+REAL_HOME=${HOME:?}
 # Under /tmp: clear-stale-scheme-build-state.sh accepts only /tmp paths and the
 # glaeda cache, so the kept-path retry case needs one.
 TMP=$(mktemp -d /tmp/cmux-scheme-dd-test.XXXXXX); trap 'rm -rf "$TMP"' EXIT
@@ -92,18 +93,49 @@ SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
 #    like the glaeda cache. A path with outputs outside every accepted root is
 #    still refused.
 reset
-runner_temp="$ROOT/.scheme-rt-test.$$"
+# Outside /tmp wherever the checkout is: under /tmp the old guard accepted these
+# paths by its /tmp arm, and this case would pass without the RUNNER_TEMP arm.
+runner_temp=$(mktemp -d "$REAL_HOME/.scheme-rt-test.XXXXXX")
 trap 'rm -rf "$TMP" "$outside" "$runner_temp"' EXIT
+case "$(cd -P "$runner_temp" && pwd -P)" in
+  /tmp/*|/private/tmp/*) fail "HOME ($REAL_HOME) is under /tmp: case 5 needs a RUNNER_TEMP outside it" ;;
+esac
 mkdir -p "$runner_temp/cmux-scheme-compile/Build/Products"
 SC_ARG="$runner_temp/cmux-scheme-compile" run RUNNER_TEMP="$runner_temp" STUB_STALE_ONCE=1 \
   || fail "a RUNNER_TEMP kept path with outputs exited $?"
 [[ $(wc -l < "$TMP/paths") -eq 2 ]] || fail "RUNNER_TEMP kept path built $(wc -l < "$TMP/paths") times (want 2: build + retry)"
 [[ ! -e "$runner_temp/cmux-scheme-compile/Build/Products" ]] || fail "the earlier outputs under RUNNER_TEMP were not cleared"
 reset
+outside="$runner_temp-sibling"
 mkdir -p "$outside/Build/Products"
-rm -f "$outside/.cmux-binary-module-inputs"
 status=0; SC_ARG="$outside" run RUNNER_TEMP="$runner_temp" || status=$?
 [[ $status -ne 0 ]] || fail "a kept path with outputs outside RUNNER_TEMP was cleared"
 grep -q "refusing unexpected DerivedData path" "$TMP/out" || fail "the outside path was not refused"
+
+[[ -d "$outside/Build/Products" ]] || fail "the refused sibling path was cleared"
+
+# 6. The guard gates an rm -rf: a path that names its way out of an accepted
+#    root, or a RUNNER_TEMP that accepts everything, is refused and kept.
+clear_state() {
+  env -i PATH=/usr/bin:/bin "$@" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$path" >"$TMP/out" 2>&1
+}
+victim="$runner_temp-victim"; mkdir -p "$victim/Build"
+trap 'rm -rf "$TMP" "$outside" "$runner_temp" "$victim"' EXIT
+mkdir -p "$runner_temp/a/b" "$TMP/a"
+for spec in \
+  "RUNNER_TEMP=$runner_temp|$runner_temp/a/../../${victim##*/}" \
+  "RUNNER_TEMP=$runner_temp|$runner_temp/a/b/../../../${victim##*/}" \
+  "RUNNER_TEMP=/|$victim" \
+  "RUNNER_TEMP=|$victim" \
+  "RUNNER_TEMP=$runner_temp|$TMP/a/../../../${victim#/}"; do
+  env_arg=${spec%%|*}; path=${spec#*|}
+  status=0; clear_state "$env_arg" || status=$?
+  [[ $status -eq 2 ]] || fail "$env_arg accepted $path (exit $status)"
+  [[ -d "$victim/Build" ]] || fail "$env_arg cleared $victim through $path"
+done
+# A link under RUNNER_TEMP to a path outside it is judged where it points.
+ln -s "$victim" "$runner_temp/link"
+path="$runner_temp/link"; status=0; clear_state RUNNER_TEMP="$runner_temp" || status=$?
+[[ $status -eq 2 && -d "$victim/Build" ]] || fail "a link under RUNNER_TEMP cleared $victim"
 
 printf 'scheme compile DerivedData tests: ok\n'
