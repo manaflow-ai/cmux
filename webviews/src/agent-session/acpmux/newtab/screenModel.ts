@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { folded, listed, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { folded, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -324,7 +324,7 @@ export function recentChatCards(
   // Every session's, an archived one's too: its transcript must not come back as a device chat.
   const agents = new Set(
     sessions.flatMap((session) => {
-      const id = sessionEntry(session as Parameters<typeof sessionEntry>[0]).agentSessionId;
+      const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
       return id ? [id] : [];
     }),
   );
@@ -377,7 +377,7 @@ function withChildren(
 ): ChatCard {
   const parents = new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)));
   const own = sessions
-    .map((session) => sessionEntry(session as Parameters<typeof sessionEntry>[0]))
+    .map((session) => normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]))
     .filter((session) => listed(session) && folded(session, parents))
     .map((session) => ({ at: session.updatedAt ?? 0, card: sessionCard(session, now, t) }));
   const indexed = device

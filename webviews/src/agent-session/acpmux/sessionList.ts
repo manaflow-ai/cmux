@@ -158,6 +158,11 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+/** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
+export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
+  return typeof session.displayTitle === "string" ? (session as AcpmuxSessionEntry) : sessionEntry(session);
+}
+
 function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const raw = value as Record<string, unknown>;

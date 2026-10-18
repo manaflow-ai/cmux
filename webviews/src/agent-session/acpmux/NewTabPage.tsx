@@ -21,7 +21,7 @@ import {
   homePath,
   listed,
   projectLabel,
-  sessionEntry,
+  normalizedSessionEntry,
   sessionMark,
   type AcpmuxSessionEntry,
 } from "./sessionList";
@@ -175,11 +175,7 @@ export function recentSessions(
   // New Tab render does not allocate and normalize every recent chat again. Gallery and older
   // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
-    .map((session) =>
-      typeof (session as AcpmuxSessionEntry).displayTitle === "string"
-        ? session
-        : sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>),
-    )
+    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
     .filter(listed);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   const order = (entries: AcpmuxSessionEntry[]) =>
