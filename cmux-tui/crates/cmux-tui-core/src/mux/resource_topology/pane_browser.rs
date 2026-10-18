@@ -90,7 +90,14 @@ impl Mux {
             SplitDir::Down => "down",
         };
         let fields = Map::from_iter([(PANE_BROWSER_URL_FIELD.into(), Value::String(url))]);
-        self.split_browser_pane_with_fields_as(actor, target, direction, viewport_width, fields, size)
+        self.split_browser_pane_with_fields_as(
+            actor,
+            target,
+            direction,
+            viewport_width,
+            fields,
+            size,
+        )
     }
 
     /// [`Self::split_browser_pane_as`] toward `direction` (`right`, `down`,

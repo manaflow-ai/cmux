@@ -109,8 +109,9 @@ impl ConversationTabSplitParams {
             ),
         };
         if let Some(pane_id) = &self.pane_id {
-            crate::resource::PanePublicId::parse(pane_id.clone())
-                .map_err(|_| anyhow::anyhow!("bad request: pane_id {pane_id:?} is not a pane id"))?;
+            crate::resource::PanePublicId::parse(pane_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: pane_id {pane_id:?} is not a pane id")
+            })?;
         }
         Ok(ConversationTabTarget::Split { pane, direction, pane_id: self.pane_id })
     }

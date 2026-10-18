@@ -65,7 +65,11 @@ fn new_conversation_tab_split_is_one_pane_added_delta() {
     assert_eq!(deltas.len(), 1, "exactly one tree delta: {deltas:?}");
     let added = &deltas[0];
     assert_eq!(added.kind, TreeDeltaKind::PaneAdded, "{added:?}");
-    assert_eq!(added.transaction.as_deref(), Some("txn-split-1"), "the delta echoes the transaction");
+    assert_eq!(
+        added.transaction.as_deref(),
+        Some("txn-split-1"),
+        "the delta echoes the transaction"
+    );
     let new_pane = added.pane.unwrap();
     assert_ne!(new_pane, source);
     assert_eq!(added.entity["resource_id"], pane_id, "the caller-minted pane id: {}", added.entity);
@@ -77,9 +81,12 @@ fn new_conversation_tab_split_is_one_pane_added_delta() {
     // The source pane never listed the tab.
     assert_eq!(pane_tabs(&mux, source), vec![terminal]);
     assert_eq!(pane_tabs(&mux, new_pane), vec![surface]);
-    assert!(mux.with_state(|state| state.surfaces.get(&surface).cloned())
-        .and_then(|tab| mux.conversation_tab_of(&tab))
-        .is_some(), "the tab keeps its conversation record");
+    assert!(
+        mux.with_state(|state| state.surfaces.get(&surface).cloned())
+            .and_then(|tab| mux.conversation_tab_of(&tab))
+            .is_some(),
+        "the tab keeps its conversation record"
+    );
     let (layout, screen_panes) = mux.with_state(|state| {
         let (workspace, screen) = state.screen_of(source).unwrap();
         let screen = &state.workspaces[workspace].screens[screen];
@@ -115,7 +122,8 @@ fn new_conversation_tab_split_is_one_pane_added_delta() {
 #[test]
 fn new_conversation_tab_split_left_and_up_put_the_pane_first() {
     for direction in ["left", "up"] {
-        let mux = Mux::new_for_test("conversation-tab-split-before", crate::SurfaceOptions::default());
+        let mux =
+            Mux::new_for_test("conversation-tab-split-before", crate::SurfaceOptions::default());
         let terminal = mux.new_workspace(None, None).unwrap().id;
         let source = mux.with_state(|state| state.pane_of(terminal)).unwrap();
         let events = mux.subscribe();

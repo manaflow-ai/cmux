@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4. */
+/* cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -336,6 +336,13 @@ export type ConversationTabRecord = {
   "page"?: string;
   /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
   "route"?: string;
+};
+
+export type ConversationTabSplit = {
+  /** The side of pane the new pane takes: right, down, left or up. */
+  "direction": string;
+  /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
+  "pane_id"?: (string) | null;
 };
 
 export type ConversationTextRun = {

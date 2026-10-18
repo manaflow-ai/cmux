@@ -47,7 +47,11 @@ pub(crate) enum ConversationTabTarget {
     /// A new pane on the `direction` side of `pane` (`right`, `down`, `left`
     /// or `up`) that holds only the tab: one `pane.split` commit and one
     /// `pane-added` delta, under the caller-minted `pane_id` when given.
-    Split { pane: PaneId, direction: &'static str, pane_id: Option<String> },
+    Split {
+        pane: PaneId,
+        direction: &'static str,
+        pane_id: Option<String>,
+    },
 }
 
 /// A created or replayed conversation tab.
