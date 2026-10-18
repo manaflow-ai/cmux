@@ -26,8 +26,13 @@ export function assertRunRevision(dir: string, expected: string, label: string):
   if (!expected) return;
   const file = join(dir, "results.json");
   if (!existsSync(file)) throw new Error(`${label} matrix has no results.json`);
-  const results = JSON.parse(readFileSync(file, "utf8")) as { id?: string; revision?: { sha?: string } }[];
-  const mismatches = results.filter((result) => result.revision?.sha !== expected);
+  const results = JSON.parse(readFileSync(file, "utf8")) as {
+    id?: string;
+    revision?: { sha?: string; source?: string };
+  }[];
+  const mismatches = results.filter(
+    (result) => result.revision?.sha !== expected || typeof result.revision.source !== "string" || !result.revision.source,
+  );
   if (!results.length || mismatches.length)
     throw new Error(
       `${label} matrix provenance mismatch: expected ${expected}; got ${mismatches

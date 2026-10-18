@@ -9,10 +9,12 @@ test("PR reports reject a matrix captured from the wrong head", () => {
   try {
     writeFileSync(
       join(dir, "results.json"),
-      JSON.stringify([{ id: "agent-pane.effort", revision: { sha: "head-a" } }]),
+      JSON.stringify([{ id: "agent-pane.effort", revision: { sha: "head-a", source: "src/agent-pane/effort.gallery.tsx" } }]),
     );
     expect(() => assertRunRevision(dir, "head-b", "head")).toThrow(/provenance mismatch/);
     expect(() => assertRunRevision(dir, "head-a", "head")).not.toThrow();
+    writeFileSync(join(dir, "results.json"), JSON.stringify([{ id: "agent-pane.effort", revision: { sha: "head-a" } }]));
+    expect(() => assertRunRevision(dir, "head-a", "head")).toThrow(/provenance mismatch/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
