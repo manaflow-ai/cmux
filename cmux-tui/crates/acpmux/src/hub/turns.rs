@@ -448,17 +448,17 @@ impl Hub {
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
-        let stopped = self.take_stopped(session, &turn_id);
-        if let (Err(e), false, false) = (&result, detached, stopped) {
-            let cut = super::auto_resume::CutTurn {
+        let cut = match (&result, detached) {
+            (Err(e), false) => Some(super::auto_resume::CutTurn {
                 prompt_id: &prompt_id,
                 turn_id: &turn_id,
                 control,
                 trust_gate,
                 error: agent_error.as_deref().unwrap_or(&e.message),
-            };
-            self.schedule_auto_resume(session, cut);
-        }
+            }),
+            _ => None,
+        };
+        self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why.
@@ -484,12 +484,7 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = session
-            .turn
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-            .is_none_or(|t| t.turn_id != turn_id);
+        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {

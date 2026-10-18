@@ -17,8 +17,10 @@
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
 //!   checked again under the turn lock), when the person pressed Stop or closed the chat, or
 //!   when the chat is moving. A turn running when Stop or close came gets none, however it
-//!   ends: an agent stopped mid-stream may still answer with a connection error. Each chat staggers its waits a little, so chats an outage cut
-//!   off together do not all come back at the same moment.
+//!   ends: an agent stopped mid-stream may still answer with a connection error. The turn's
+//!   end and Stop's check share one lock, so a Stop after the turn ended but before its
+//!   continuation is scheduled counts too. Each chat staggers its waits a little, so chats an
+//!   outage cut off together do not all come back at the same moment.
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
@@ -85,7 +87,10 @@ pub(super) struct CutTurn<'a> {
 enum Mark {
     /// A continuation waits to answer for this cut turn.
     Waiting(String),
-    /// Stop or close came while this turn ran: it gets no continuation.
+    /// This turn has ended and whether it is continued is not settled yet; Stop or close now
+    /// still counts for it.
+    Ending(String),
+    /// Stop or close came while this turn ran or was ending: it gets no continuation.
     Stopped(String),
 }
 
@@ -170,17 +175,47 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
 }
 
 impl Hub {
-    /// Schedules the next continuation of a turn that failed with a transport error. Nothing
-    /// for any other failure, or once the configured attempts are used.
-    pub(super) fn schedule_auto_resume(self: &Arc<Self>, session: &Arc<Session>, cut: CutTurn<'_>) {
-        if !super::turn_errors::is_transport_error(cut.error) {
-            return;
+    /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
+    /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
+    pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
+        let mut pending = self.auto_resumes.lock();
+        let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
+        if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) && !stopped {
+            pending.insert(session.id.clone(), Mark::Ending(turn_id.to_owned()));
         }
+        turn
+    }
+
+    /// Settles whether the ended turn `turn_id` is continued: it is when `cut` is a transport
+    /// error and no Stop or close came since it began. Nothing for any other failure, or once
+    /// the configured attempts are used.
+    pub(super) fn schedule_auto_resume(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Option<CutTurn<'_>>,
+    ) {
+        let mut pending = self.auto_resumes.lock();
+        let ending = match pending.get(&session.id) {
+            Some(Mark::Ending(t)) if t == turn_id => Some(true),
+            Some(Mark::Stopped(t)) if t == turn_id => Some(false),
+            _ => None,
+        };
+        let Some(cut) =
+            cut.filter(|c| ending == Some(true) && super::turn_errors::is_transport_error(c.error))
+        else {
+            if ending.is_some() {
+                pending.remove(&session.id);
+            }
+            return;
+        };
+        pending.insert(session.id.clone(), Mark::Waiting(turn_id.to_owned()));
+        drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (control, trust_gate) = (cut.control, cut.trust_gate);
-        self.auto_resumes.lock().insert(session.id.clone(), Mark::Waiting(turn_id.clone()));
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
@@ -208,24 +243,18 @@ impl Hub {
         });
     }
 
-    /// Stop or close: the chat's waiting continuation does not fire, and the turn running
-    /// now gets none, however it ends.
+    /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
+    /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
-        match session.turn() {
-            Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t.turn_id)),
+        let ending = match pending.get(&session.id) {
+            Some(Mark::Ending(t)) => Some(t.clone()),
+            _ => None,
+        };
+        match session.turn().map(|t| t.turn_id).or(ending) {
+            Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t)),
             None => pending.remove(&session.id),
         };
-    }
-
-    /// Whether Stop or close came while `turn_id` ran. Clears that mark.
-    pub(super) fn take_stopped(&self, session: &Session, turn_id: &str) -> bool {
-        let mut pending = self.auto_resumes.lock();
-        let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
-        if stopped {
-            pending.remove(&session.id);
-        }
-        stopped
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
@@ -249,7 +278,9 @@ impl Hub {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if !self.take_pending(session, cut_turn) {
-            self.append(session, "mux", "auto_resume_skipped", skipped("stopped"));
+            // Stop or close took it, or a newer turn replaced it.
+            let why = if still_cut(session, cut_turn) { "stopped" } else { "superseded" };
+            self.append(session, "mux", "auto_resume_skipped", skipped(why));
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
