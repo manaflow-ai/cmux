@@ -172,8 +172,9 @@ final class FocusCoordinator {
 
     /// Focuses `key` when it exists unless a newer intent happened since
     /// `generation` (nil: now, for app-driven creations). With `awayFrom`
-    /// it lands only once the tab is in a pane other than that one. `.surface` finds no tab this
-    /// window minted (``TabModel/isClientMinted``): those take `.tab`.
+    /// it lands only once the tab is in a pane other than that one. A `.surface` wait waits
+    /// until the workspace names its tab by id (`WorkspaceContentController.rekeySurfaceWait`):
+    /// topologies carry no surfaces.
     func expect(_ key: FocusState.Expectation.Key, target: FocusState.Target = .content, awayFrom: String? = nil,
                 generation: UInt64? = nil) {
         send(.expect(key, target: target, awayFrom: awayFrom, generation: generation ?? reduced.generation))
