@@ -395,6 +395,7 @@
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
+              "appearance.statusIndicator.animation",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
               "appearance.statusIndicator.color",
@@ -12893,6 +12894,75 @@
     },
     {
       "accepts" : [
+        "animated",
+        "static"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.animated",
+            "text" : "Animated"
+          },
+          "value" : "animated"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.static",
+            "text" : "Static"
+          },
+          "value" : "static"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "animated",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.animation.help",
+        "text" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.animation",
+      "keywords" : [
+        "animation",
+        "motion",
+        "blink",
+        "pulse",
+        "flash",
+        "static",
+        "reduce motion",
+        "accessibility",
+        "headache"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "animation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.statusIndicator.animation",
+        "text" : "Status Indicators"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         1.5,
         1
@@ -25052,7 +25122,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "522f5d2e5cb7e2727a6d1df2df9b8205c42e036c41ad447df91c2d088815d4a1",
+  "schema_hash" : "d422c3c70c8d65dfe476d3a3e3a69da467af5ffa38c707ae18cbe8d2a29b938f",
   "sections" : [
     {
       "id" : "general",

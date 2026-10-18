@@ -41,6 +41,8 @@ import PackageDescription
 // change blends on the GPU with the surface's transition
 // (ghostty_surface_set_color_transition), and the renderer reports its
 // frame counters (ghostty_surface_render_counters; PR 40).
+// Since e6a27a1fb a config change of colors only rebuilds no cells, and the
+// render counters report full rebuilds by cause (PR 41).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -65,8 +67,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e4831af814a1a4232e852081d095e34999bcb07e-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "36d03842bbb7a8ccd33455790e0ff0c0ea5883b6d55d68bc2286a8d3dce92ac9"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e6a27a1fb507f0e2dec899e309b0dd7d7c339d48-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "83b12005fa6e92c5bc9cee08b443bcb714760754e30c87d56fffd8e9b844e872"
         ),
     ]
 )
