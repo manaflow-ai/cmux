@@ -687,13 +687,20 @@ try {
   });
   let restoredTerminal = terminal;
   await timed("restoredTerminal", async () => {
-    const anchor = skipSleep ? `${marker}-2` : `${marker}-6`;
-    // A relaunch gets a fresh local socket and can remap the remote terminal
-    // id while restoring the same session. Resolve the restored terminal from
-    // the new socket before waiting, rather than reusing the dead local id.
-    restoredTerminal = await findRestoredTerminal(relaunched.local_socket, anchor, 30_000);
+    // The provider restores the terminal/session identity, but it does not
+    // promise replay of the old screen buffer. Resolve the terminal from the
+    // fresh socket, then prove it is live with a new post-relaunch command.
+    localSocket = relaunched.local_socket;
+    const listed = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (listed.code !== 0) throw new Error(`restored terminal list failed (${listed.code}): ${listed.stderr.slice(-400)}`);
+    const terminals = JSON.parse(listed.stdout || "[]");
+    restoredTerminal = terminals[0]?.id;
+    if (!restoredTerminal) throw new Error("relaunch restored no terminal");
+    const relaunchMarker = `${marker}-relaunch`;
+    await typeLine(restoredTerminal, `echo ${relaunchMarker}`);
+    await waitForScreen(localSocket, restoredTerminal, relaunchMarker, 30_000);
   });
-  await saveScreen(relaunched.local_socket, restoredTerminal, "03-after-relaunch");
+  await saveScreen(localSocket, restoredTerminal, "03-after-relaunch");
 
   await link.stop();
   await hub.stop();
