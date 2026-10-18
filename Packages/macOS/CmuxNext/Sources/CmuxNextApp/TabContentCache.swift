@@ -110,7 +110,7 @@ final class TabContentCache {
     /// closed, address bar editing ended); the App routes it through the
     /// window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
-    /// A provisional split's terminal tab got its daemon surface on a daemon (``confirmedProvisional(_:validity:target:daemon:)``).
+    /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
     var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
@@ -141,13 +141,10 @@ final class TabContentCache {
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let validity = Self.terminalValidity(tab, daemon: daemon)
-        if let entry = terminals[tab.id], entry.validity == validity { return entry }
+        // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
+        if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil { return entry }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, daemon: daemon) {
-            goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
-            return entry
-        }
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.

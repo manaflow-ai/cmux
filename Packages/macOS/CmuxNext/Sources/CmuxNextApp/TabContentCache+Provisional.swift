@@ -13,30 +13,18 @@ extension TabContentCache {
         return "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
     }
 
-    /// The provisional view of `tab`'s id, now attached to the daemon's `tab`; nil when there is none.
-    func confirmedProvisional(_ tab: TabModel, validity: String, target: TerminalAttachment.Target,
-                              daemon: DaemonService) -> TerminalEntry? {
-        guard !ProvisionalTab.isProvisional(surface: tab.surface), let entry = terminals[tab.id], entry.gate != nil else {
-            return nil
-        }
-        entry.confirm(validity: validity, target: target, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
-        return entry
-    }
-
     /// The provisional view of `entry` attaches when its own tab gets its daemon surface, whether
-    /// or not a pane applies anything then (no strip snapshot carries the surface). This task is
-    /// the one report of the confirm (``onTerminalConfirmed``), in its own turn: a presenter that
-    /// confirmed first does not end it, and nothing re-enters a presentation.
+    /// or not a pane applies anything then (no strip snapshot carries the surface): the one
+    /// confirm, in its own turn (nothing re-enters a presentation), reported to ``onTerminalConfirmed``.
     func awaitConfirm(_ entry: TerminalEntry, of tab: TabModel, daemon: DaemonService) {
         entry.confirmation = Task { [weak self, weak entry, weak tab, weak daemon] in
-            for await surface in ObservationStream({ [weak tab] in tab?.surface }) {
-                guard let self, let entry, let tab, let daemon, let surface else { return }
-                guard !ProvisionalTab.isProvisional(surface: surface) else { continue }
-                guard self.terminals[tab.id] === entry else { return }
-                _ = self.terminal(for: tab, daemon: daemon)
-                self.onTerminalConfirmed?(tab, daemon)
-                return
-            }
+            let surface = await ObservationStream({ [weak tab] in tab?.surface }).first { $0.map { !ProvisionalTab.isProvisional(surface: $0) } ?? true }
+            guard surface != nil, let self, let entry, let tab, let daemon, self.terminals[tab.id] === entry else { return }
+            let target = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: daemon.store.generation)
+            entry.confirm(validity: Self.terminalValidity(tab, daemon: daemon), target: target,
+                          themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
+            self.goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+            self.onTerminalConfirmed?(tab, daemon)
         }
     }
 }

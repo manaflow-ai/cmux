@@ -54,26 +54,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var debugSnapshotRuns = 0
     #endif
 
-    struct Snapshot: Equatable {
+    /// The strip. `structure()` fills all but the daemon tabs' items (it reads no tab field: each
+    /// daemon tab's item is its own observation, `tabItems`, so a confirm of a tab that draws the
+    /// same re-runs only that item and applies nothing); `compose` puts those items first.
+    struct Snapshot {
+        var tabs: [TabModel] // the daemon tabs shown, in order
         var items: [StripTabItem]
         var groups: [TabGroupItem]
         var defaultIndex: Int
         var connected: Bool
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
-    }
-
-    /// What the strip lists, read without any tab's own fields. Each daemon tab's item is its
-    /// own observation (`tabItems`), so a confirm of a tab that draws the same (surface, handle,
-    /// terminal state, size) re-runs only that item and applies nothing.
-    struct Structure {
-        var tabs: [TabModel]
-        var local: [StripTabItem]
-        var groups: [TabGroupItem]
-        var defaultIndex: Int
-        var connected: Bool
-        var generation: String?
-        var hidesStrip: Bool
     }
 
     /// `workspace` is set before the first apply, so the first frame is the settled one.
@@ -143,10 +134,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// now (an untracked read; the list's own change may not have applied yet).
     private func tabItemChanged() { apply(compose(structure())) }
 
-    private func compose(_ structure: Structure, refresh: Bool = false) -> Snapshot {
-        let items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.local
-        let result = Snapshot(items: items, groups: structure.groups, defaultIndex: structure.defaultIndex,
-                              connected: structure.connected, generation: structure.generation, hidesStrip: structure.hidesStrip)
+    private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
+        var result = structure
+        result.items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.items
         #if DEBUG
         DebugLayoutCounters.note("strip \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", #fileID, #line)
         debugLastSnapshot = result
@@ -154,7 +144,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return result
     }
 
-    func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Structure {
+    func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
         debugSnapshotRuns += 1
@@ -182,7 +172,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
         let connected = if case .connected = store.connectionState { true } else { false }
-        return Structure(tabs: pane.tabs.filter { !hidden.contains($0.id) }, local: local, groups: groups,
+        return Snapshot(tabs: pane.tabs.filter { !hidden.contains($0.id) }, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, connected: connected, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil)

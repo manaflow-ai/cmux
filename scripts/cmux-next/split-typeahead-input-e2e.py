@@ -17,7 +17,7 @@ Usage (fleet-built Debug app, launched and quit by this script):
     -- 'python3 scripts/cmux-next/split-typeahead-input-e2e.py --app "$NX_APP" --out "$NX_ARTIFACTS" --rounds 8'
 Exit 0 when every round passes.
 """
-import argparse, importlib.util, json, os, socket, subprocess, sys, time
+import argparse, glob, importlib.util, json, os, socket, stat, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the `cmux DEV <tag>.app` bundle")
@@ -49,10 +49,15 @@ def panes(app):
 
 def daemon(app, request):
     """One request on the app's cmux-tui daemon socket (as cmd-t-focus-e2e.py finds it)."""
-    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    # perf-gate's App gives the app TMPDIR (or /tmp); its daemon makes the socket under it.
+    temps = [os.environ.get("TMPDIR", "/tmp"), "/tmp",
+             subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()]
+    found = [p for t in temps for p in glob.glob(os.path.join(t, f"cmux-tui-{os.getuid()}", f"cmux-app-{app.tag}*")) if stat.S_ISSOCK(os.stat(p).st_mode)]
+    if not found:
+        raise SystemExit(f"no daemon socket cmux-app-{app.tag}* under {temps}")
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.settimeout(10)
-    conn.connect(os.path.join(temp, f"cmux-tui-{os.getuid()}", f"cmux-app-{app.tag}.sock"))
+    conn.connect(found[0])
     conn.sendall((json.dumps(dict(request, id=1)) + "\n").encode())
     buf = b""
     while b"\n" not in buf:
