@@ -194,7 +194,8 @@ def stalls_after(sequence, floor_ms):
     and the newest sequence."""
     records = (rpc("debug.hangs", {"after": sequence}) or {}).get("records") or []
     newest = max([sequence] + [r.get("sequence", 0) for r in records])
-    return [{"ms": round(r.get("duration_ms", 0)), "cpu_ms": round(r.get("cpu_ms", 0)), "top": (r.get("frames") or [])[:3]}
+    return [{"ms": round(r.get("duration_ms", 0)), "cpu_ms": round(r.get("cpu_ms", 0)), "top": (r.get("frames") or [])[:3],
+             "t_ns": r.get("start_uptime_ns")}
             for r in records if r.get("kind", "stall") == "stall" and r.get("duration_ms", 0) >= floor_ms], newest
 
 def windows_now():
@@ -352,8 +353,16 @@ try:
         result["first_tab"] = {"max_ms": max([x["ms"] for x in first_stalls] or [0]), "total_ms": sum(x["ms"] for x in first_stalls),
                                "stalls": first_stalls, "spare_window": (cef_after or {}).get("spare_window"),
                                "trigger": (cef_after or {}).get("trigger"),
-                               "engine_start_main_ms": (cef_after or {}).get("engine_start_main_ms")}
-        print("firsttab  %s" % json.dumps(result["first_tab"])[:1500], flush=True)
+                               "engine_start_main_ms": (cef_after or {}).get("engine_start_main_ms"),
+                               "steps": (cef_after or {}).get("start_steps"), "prefetch": (cef_after or {}).get("prefetch"),
+                               "initialize_ms": (cef_after or {}).get("initialize_ms"), "load_ms": (cef_after or {}).get("load_ms")}
+        print("firsttab  %s" % json.dumps({k: v for k, v in result["first_tab"].items() if k not in ("steps", "stalls")})[:600], flush=True)
+        # One timeline: Chromium's start steps and every main-thread stall, in ms from the first step.
+        timeline = [("step", m.get("name"), m.get("start_uptime_ns"), m.get("ms")) for m in (result["first_tab"]["steps"] or [])]
+        timeline += [("stall", "%s cpu=%s %s" % (x["ms"], x["cpu_ms"], (x["top"] or ["?"])[0][:60]), x.get("t_ns"), x["ms"]) for x in first_stalls]
+        timeline = sorted([t for t in timeline if t[2]], key=lambda t: t[2])
+        origin = timeline[0][2] if timeline else 0
+        print("coldsteps %s" % json.dumps([[kind, name, round((t - origin) / 1e6), round(ms or 0)] for kind, name, t, ms in timeline])[:2200], flush=True)
         step("browser", bool(state) and "error" not in (opened or {}),
              {"run": opened, "state": state or rpc("browser.page.state"),
               "cef": rpc("debug.cef") if debug_router() else None})

@@ -57,7 +57,7 @@ public final class CEFEngine: BrowserEngine {
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         try await CEFRuntime.shared.start(layout: layout)
-        return makeReadyTab(configuration)
+        return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
     /// `makeTab` for a tab the user opens (not a sign-in window): also writes
@@ -126,6 +126,10 @@ public final class CEFEngine: BrowserEngine {
     public func libraryLoadEnded() async {
         _ = await CEFRuntime.shared.loadTask?.value
     }
+
+    /// The timed steps of Chromium's start in this process (`debug.cef`).
+    public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
+
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
