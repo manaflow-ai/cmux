@@ -1149,8 +1149,8 @@ export function VirtualTranscript({
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
-  /// The run or call in it whose text holds `needle` opens, as for a Find match.
-  reveal?: { rowId: string; key: number; needle: string };
+  /// The run that holds call `toolId` opens, as for a Find match.
+  reveal?: { rowId: string; key: number; toolId: string };
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -1832,7 +1832,7 @@ export function VirtualTranscript({
   const countReveal = useMemo(
     () =>
       reveal && revealIndex >= 0
-        ? { rowId: rows[revealIndex]!.id, card: false, needle: reveal.needle, repaint: () => {} }
+        ? { rowId: rows[revealIndex]!.id, card: false, needle: "", toolId: reveal.toolId, repaint: () => {} }
         : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one reveal per key, once its row is drawn
     [reveal?.key, revealIndex >= 0],
@@ -2112,7 +2112,7 @@ export function VirtualTranscript({
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <FindReveal.Provider value={findReveal ?? countReveal}>
+        <FindReveal.Provider value={countReveal ?? findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -3280,7 +3280,7 @@ function AcpmuxPane() {
   // The running line's counts (conversation/WorkingFor.tsx): the subagents still running and the
   // background shells that have not ended. A count of one opens its subagent or the shell's row;
   // of several, the summary card, which lists them all.
-  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; needle: string }>();
+  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
   const runningAgents = useMemo(
     () => (snapshot.isWorking ? [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()].filter(running) : []),
     [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
@@ -3294,7 +3294,7 @@ function AcpmuxPane() {
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
-    const showToolRow = (toolId: string, command: string) => {
+    const showToolRow = (toolId: string) => {
       const { sourceRows: rows, transcriptRows: shown } = counted.current;
       const index = rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId));
       const row = rows[index];
@@ -3307,7 +3307,7 @@ function AcpmuxPane() {
         if (user) openFold(`${WORKED}-${user.id}`);
       }
       const key = Date.now();
-      setRevealRow({ rowId: row.id, key, needle: command.toLocaleLowerCase() });
+      setRevealRow({ rowId: row.id, key, toolId });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     };
     return {
@@ -3320,7 +3320,7 @@ function AcpmuxPane() {
       },
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card } = counted.current;
-        if (commands.length === 1) showToolRow(commands[0]!.id, commands[0]!.command);
+        if (commands.length === 1) showToolRow(commands[0]!.id);
         else card.show();
       },
     };
