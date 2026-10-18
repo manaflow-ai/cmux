@@ -28,3 +28,12 @@
 - **PNG SHA256:** normal-dark `987d08fd023ff5be1ded7c571bcc900eacf5fc774cef7b04de1794475504accc`; normal-light `31747e76190f0a389ea71ee7d15fd9f740b06061c0167e4cd4bd4f48e01d4b4e`; narrow-dark `719150d5aa024043e8d0d234d94ecbda6e039e996aabfc22e38ac68e81ea416b`; narrow-light `59e62e077a529483f5518061632a598358a5841d12439795125348132add03b2`.
 - **Receipt status:** all four PNG hashes rechecked locally; the visual-only fixture has no play steps by design (`play.status=none`).
 - **External packet:** `/Users/leoli/Projects/briefs/current-composer-visual-20261017/managed-39089231277/managed-receipt.json`.
+
+## Gallery presentation follow-up
+
+- **Head:** `20d823c976a73eba9b12e0690084d2cfa00d00b8`.
+- The gallery stage caption now labels every preview as either a `component surface` or a window-pane view with its rendered dimensions.
+- Browse cards now show the variant note, so visual-only fixtures explain their purpose and do not look like product screenshots or behavior journeys.
+- The gallery controls continue to expose the shipped Ghostty theme list, accent, appearance, frame mode, density, scale, locale, and window layout.
+- The `Release` workspace-switch journey remains separate behavior-only evidence.
+- The managed content receipts above remain tied to the earlier fixture head; this follow-up changes gallery presentation metadata and shell labeling only.
