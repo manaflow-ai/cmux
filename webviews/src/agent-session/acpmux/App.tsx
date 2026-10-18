@@ -200,6 +200,8 @@ import {
   useThreadTitle,
 } from "./header/headerStyle";
 import { configureLabs, useLab } from "./labs";
+import { PlanProgress } from "./PlanProgress";
+import { useShortcutsHelp } from "./ShortcutsHelp";
 import { RenderBridgeContext } from "./conversation/RenderBridgeContext";
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
@@ -1129,6 +1131,7 @@ export function VirtualTranscript({
   openAt,
   onAnchor,
   anchorNow,
+  revealRow,
   onLoadOlder,
 }: {
   rows: AcpmuxRow[];
@@ -1140,6 +1143,8 @@ export function VirtualTranscript({
   /// Filled with where it last rested in view (null at the latest message, undefined when it was
   /// never in view), for a page about to let go.
   anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
+  /// A bottom-stack action can reveal a row even while virtualization has it unmounted.
+  revealRow?: React.MutableRefObject<((rowId: string) => void) | undefined>;
   /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
@@ -1900,6 +1905,26 @@ export function VirtualTranscript({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
+  useLayoutEffect(() => {
+    if (!revealRow) return;
+    revealRow.current = (id) => {
+      const node = ref.current;
+      const index = rows.findIndex((row) => row.id === id);
+      if (!node || index < 0) return;
+      const top = Math.max(
+        0,
+        Math.min(layout.tops[index]! - node.clientHeight / 3, layout.totalHeight - node.clientHeight),
+      );
+      follow(false);
+      node.scrollTop = top;
+      scrolledTo.current = scrollPosition(node, layout.totalHeight);
+      seenAnchor.current = restingAnchor(top, scrolledTo.current.atLatest, layout, rows);
+      setScroll((current) => ({ top, delta: top - current.top }));
+    };
+    return () => {
+      revealRow.current = undefined;
+    };
+  });
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
   // A report that came due while the pane was hidden, sent once it has a viewport again.
   const anchorDeferred = useRef(false);
@@ -2728,6 +2753,7 @@ function AcpmuxPane() {
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
   const copyTurn = useLab("copyTurn");
+  const { command: shortcutsCommand, menu: shortcutsMenu, dialog: shortcutsDialog } = useShortcutsHelp();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -3330,6 +3356,7 @@ function AcpmuxPane() {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  const revealPlanRow = useRef<((rowId: string) => void) | undefined>(undefined);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {
@@ -3345,7 +3372,7 @@ function AcpmuxPane() {
     if (!prompt.current) return false;
     prompt.current.focus();
     return true;
-  });
+  }, shortcutsCommand);
   /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
@@ -3503,6 +3530,7 @@ function AcpmuxPane() {
       toggleInspector,
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       command(name) {
+        if (shortcutsCommand(name)) return;
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
         // With the keyboard in the changes view (or the view covering the transcript) they find there.
@@ -4384,7 +4412,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab]);
+  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab, shortcutsCommand]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -4561,6 +4589,7 @@ function AcpmuxPane() {
         );
     const tools: ChatMenuItem[] = [
       ...replay,
+      ...(shortcutsMenu ? [shortcutsMenu] : []),
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
       {
@@ -4892,6 +4921,7 @@ function AcpmuxPane() {
                                       : undefined
                                   }
                                   anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                  revealRow={childRows ? undefined : revealPlanRow}
                                   onAnchor={
                                     quick || childRows || !shownSessionId
                                       ? undefined
@@ -5161,6 +5191,17 @@ function AcpmuxPane() {
           onAdd={() => {
             setAside(undefined);
             ignoreFailure(callNative("chat.send", { text: aside.question, attachments: [] }));
+          }}
+        />
+      )}
+      {!quick && !childRows && (
+        <PlanProgress
+          rows={snapshot.rows}
+          working={snapshot.isWorking}
+          onReveal={(id) => {
+            if (diffView) closeDiff();
+            if (inspectorOpen) closeInspector();
+            revealPlanRow.current?.(id);
           }}
         />
       )}
@@ -5723,6 +5764,7 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
+        {shortcutsDialog}
       </section>
     </ShortcutsContext.Provider>
   );
