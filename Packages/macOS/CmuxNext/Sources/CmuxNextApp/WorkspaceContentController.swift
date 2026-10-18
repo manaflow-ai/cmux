@@ -105,13 +105,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func observe() {
         let workspace = workspace
-        apply(LayoutMapping.shared.map(workspace))
+        // One mapping now (the first frame), tracked; the stream brings the later ones. A trigger:
+        // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
+        let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
         observation = Task { [weak self] in
-            // A trigger: `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
-            for await result in ObservationStream({ ObservationTrigger(LayoutMapping.shared.map(workspace)) }) {
-                self?.apply(result.value)
-            }
+            for await result in later { self?.apply(result.value) }
         }
+        apply(first.value)
         // An empty workspace loaded while disconnected, or drawn from the
         // launch snapshot, is repaired once the daemon is back and its tree
         // is live, even if the tree itself does not change.
@@ -142,14 +142,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
-    func applyCurrent() {
-        apply(LayoutMapping.shared.map(workspace), force: true) // sends the topology again (unpark, expected focus)
+    func applyCurrent(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
     }
 
-    private func apply(_ result: LayoutMapping.Result, force: Bool = false) {
+    private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
         guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else { return }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
+        DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
         let wasApplying = isApplying
         isApplying = true
