@@ -29,11 +29,13 @@
 - **Receipt status:** all four PNG hashes rechecked locally; the visual-only fixture has no play steps by design (`play.status=none`).
 - **External packet:** `/Users/leoli/Projects/briefs/current-composer-visual-20261017/managed-39089231277/managed-receipt.json`.
 
-## Gallery presentation follow-up
+## Gallery presentation and handoff follow-up
 
-- **Head:** `20d823c976a73eba9b12e0690084d2cfa00d00b8`.
-- The gallery stage caption now labels every preview as either a `component surface` or a window-pane view with its rendered dimensions.
-- Browse cards now show the variant note, so visual-only fixtures explain their purpose and do not look like product screenshots or behavior journeys.
-- The gallery controls continue to expose the shipped Ghostty theme list, accent, appearance, frame mode, density, scale, locale, and window layout.
+- **Exact branch head:** `6926d9d96cb9820e5568d60e71f82314a58cba2f`.
+- Stage captions label every preview as either a `component surface` or a window-pane view with rendered dimensions. Browse cards show each variant note, so visual-only fixtures explain their purpose instead of looking like product screenshots or behavior journeys.
+- The shell follows the selected app theme and exposes `Permalink`, `Copy link`, and `Team feed` actions. Permalinks preserve the hash route and every selected control; the feed target is `https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/`.
+- Direct entry routes now resolve as soon as the named lazy entry loads; the router no longer waits for the entire registry before showing a deep link. Remaining entries continue loading independently.
+- The gallery controls expose the shipped Ghostty theme list, accent, appearance, frame mode, density, scale, locale, and window layout.
 - The `Release` workspace-switch journey remains separate behavior-only evidence.
-- The managed content receipts above remain tied to the earlier fixture head; this follow-up changes gallery presentation metadata and shell labeling only.
+- The managed content receipts above remain tied to the earlier fixture head; this follow-up changes gallery shell behavior and presentation only.
+- **Managed preview:** `__build.json` reports build `d84bb90a0796-1792292402`, tip `6926d9d96cb9820e5568d60e71f82314a58cba2f`, `failed: null`.
