@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { withTeamVmApi } from "./team-vm-api-owner-support.ts"
 
 it("routes an API VM's retirement, saved files and deletion through its recorded transport after a rebuild to direct", async () => {
@@ -105,12 +105,19 @@ it.each([false, true])("replaces a physically missing VM, while lost authorizati
 
 it("does not spend on a VM when the wake lease expires during personal-tenant provisioning", async () => {
   await withTeamVmApi(async (t) => {
-    t.onTenantCreate = async () => { await t.expireLeases() }
-    await t.wake()
-    expect(t.identityCreates).toBe(1)
-    expect(t.service.calls).toHaveLength(0)
-    expect((await t.status()).vm).toBeNull()
-    expect((await t.status()).leases).toEqual([])
+    let restoreClock = () => {}
+    t.onTenantCreate = async () => {
+      const expired = Date.now() + 700_000
+      const clock = vi.spyOn(Date, "now").mockReturnValue(expired)
+      restoreClock = () => { clock.mockRestore() }
+    }
+    try {
+      await t.wake()
+      expect(t.identityCreates).toBe(1)
+      expect(t.service.calls).toHaveLength(0)
+      expect((await t.status()).vm).toBeNull()
+      expect((await t.status()).leases).toEqual([])
+    } finally { restoreClock() }
   })
 })
 

@@ -16,7 +16,6 @@ interface Fixture {
   service: ReturnType<typeof teamVmApiService>
   identityCreates: number
   onTenantCreate: () => Promise<void>
-  expireLeases(): Promise<unknown>
   restart(overrides: Partial<Env>): Promise<void>
   wake(): ReturnType<TeamVmDO["ensureAwake"]>
   status(): Promise<TeamVmState>
@@ -42,7 +41,6 @@ export const withTeamVmApi = async (run: (t: Fixture) => Promise<void>, override
   try {
     await inDO(vmStub, async (_instance, state) => {
       fixture = { owner: new TeamVmDO(state, e), team, user: t.user, service, state, identityCreates: 0, onTenantCreate: async () => {},
-        expireLeases: () => inDO(vmStub, async () => Reflect.get(fixture.owner, "submitSystem").call(fixture.owner, "team_vm.leases_expire", { now: Date.now() + 700_000 }, crypto.randomUUID())),
         restart: async (next) => { e = { ...e, ...next }; fixture.owner = new TeamVmDO(state, e); await fixture.owner.readOp(team, p, "team_vm.status", {}) },
         wake: () => fixture.owner.ensureAwake(team, p, { t: "op", op: "team_vm.ensure_awake", params: { reason: "ssh" }, idempotency_key: crypto.randomUUID(), origin: "user" }),
         status: async () => { const r = await fixture.owner.readOp(team, p, "team_vm.status", {}); if (!r.ok) throw Error(r.code); return r.value as TeamVmState }
