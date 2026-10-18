@@ -1894,6 +1894,34 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Provider-neutral persistent workspace lifecycle rows. Provider handles are opaque and never public. */
+export const persistentWorkspaces = pgTable("persistent_workspaces", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  ownerId: text("owner_id").notNull(),
+  provider: text("provider").notNull(),
+  lifecycle: text("lifecycle").notNull().default("provisioning"),
+  providerVmId: text("provider_vm_id"),
+  providerWorkspaceId: text("provider_workspace_id"),
+  providerTerminalId: text("provider_terminal_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestDigest: text("request_digest").notNull(),
+  workspaceName: text("workspace_name").notNull(),
+  failureCode: text("failure_code"),
+  failureMessage: text("failure_message"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("persistent_workspaces_workspace_unique").on(table.workspaceId),
+  uniqueIndex("persistent_workspaces_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey),
+  index("persistent_workspaces_owner_idx").on(table.ownerId, table.updatedAt),
+  check("persistent_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
+  check("persistent_workspaces_provider_check", sql`${table.provider} ~ '^[a-z][a-z0-9-]{1,63}$'`),
+  check("persistent_workspaces_version_positive", sql`${table.version} > 0`),
+]);
+
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",
   {
