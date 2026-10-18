@@ -303,6 +303,7 @@ impl Mux {
             registry.session_id().as_str(),
             target,
             &name,
+            (name_source, name_revision),
             index,
             index == state.active_workspace,
         )]);

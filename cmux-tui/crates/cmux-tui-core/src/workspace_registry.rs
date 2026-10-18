@@ -4251,6 +4251,10 @@ fn normalized_workspace_resource_deltas(
                     "index":u32::try_from(index)
                         .context("workspace index exceeds public uint32 range")?,
                     "focused":active_workspace == Some(workspace.public_id.as_str()),
+                    "extra":crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 },
             }))
         })

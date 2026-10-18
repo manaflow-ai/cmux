@@ -164,6 +164,10 @@ pub(super) fn workspace_value(
         "name":workspace.name,
         "index":u32::try_from(index).context("workspace index exceeds uint32")?,
         "focused":topology.active_workspace.as_ref() == Some(id),
+        "extra":crate::resource_name::workspace_name_extra(
+            workspace.name_source,
+            workspace.name_revision,
+        ),
     }))
 }
 

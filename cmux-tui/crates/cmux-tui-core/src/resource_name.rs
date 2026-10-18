@@ -268,6 +268,13 @@ impl NameUpdate {
     }
 }
 
+/// `workspace-name-source-v1`: the `extra` of a workspace's public value.
+/// The journal decorates stored workspaces with the same fields
+/// (state/values.rs), so a projected value equals the stated one.
+pub(crate) fn workspace_name_extra(source: NameSource, revision: u64) -> Value {
+    json!({"name_source": source, "name_revision": revision.to_string()})
+}
+
 /// `reason_code` of an automatic rename over an explicit user name.
 pub(crate) const NAME_PINNED: &str = "name_pinned";
 /// `reason_code` of an automatic rename to an empty name.

@@ -367,6 +367,7 @@ impl Mux {
                     registry.session_id().as_str(),
                     &target_ws.public_id,
                     &target_ws.name,
+                    (target_ws.name_source, target_ws.name_revision),
                     target_wi,
                     true,
                 ));
@@ -378,6 +379,7 @@ impl Mux {
                         registry.session_id().as_str(),
                         &previous.public_id,
                         &previous.name,
+                        (previous.name_source, previous.name_revision),
                         state.active_workspace,
                         false,
                     ));
@@ -459,6 +461,7 @@ impl Mux {
                             registry.session_id().as_str(),
                             &shifted.public_id,
                             &shifted.name,
+                            (shifted.name_source, shifted.name_revision),
                             index + 1,
                             false,
                         ));

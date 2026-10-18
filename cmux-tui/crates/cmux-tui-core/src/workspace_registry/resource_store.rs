@@ -3362,8 +3362,10 @@ fn upsert_resource_workspace(
     active_screen: Option<&ScreenPublicId>,
     revision: i64,
 ) -> anyhow::Result<()> {
-    workspace_name_store::fence_stored_row(transaction, workspace)?;
+    // Identity first: a key bound to another public id is refused as that,
+    // not as a name conflict with the other workspace's row.
     upsert_workspace_resource(transaction, workspace, revision)?;
+    workspace_name_store::fence_stored_row(transaction, workspace)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
     let (name_source, name_revision) =
         workspace_name_store::sql_name_provenance(workspace.name_source, workspace.name_revision)?;

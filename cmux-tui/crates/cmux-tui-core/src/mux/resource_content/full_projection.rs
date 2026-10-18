@@ -146,6 +146,10 @@ impl Mux {
                     "name":workspace.name,
                     "index":workspace_index,
                     "focused":workspace_index == state.active_workspace,
+                    "extra":crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 }),
             ));
             if scope.is_some_and(|scope| !scope.contains(&workspace.public_id)) {

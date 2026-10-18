@@ -102,7 +102,11 @@ pub(super) fn commit_workspace_registry_in_transaction(
         }
     }
     for (position, workspace) in workspaces.iter().enumerate() {
-        if let Some((_, name, _, _, (source, revision))) = stored.get(&workspace.key) {
+        // Only a rename of the same workspace is fenced by its stored name:
+        // another workspace at this key is refused by the identity checks.
+        if let Some((numeric_id, name, _, _, (source, revision))) = stored.get(&workspace.key)
+            && i64::try_from(workspace.id).ok() == Some(*numeric_id)
+        {
             let (source, revision) =
                 workspace_name_store::stored_name_provenance(source, *revision)?;
             workspace_name_store::fence_stored_name(

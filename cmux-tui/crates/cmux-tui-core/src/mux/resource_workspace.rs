@@ -332,6 +332,7 @@ impl Mux {
                         registry.session_id().as_str(),
                         &previous.public_id,
                         &previous.name,
+                        (previous.name_source, previous.name_revision),
                         state.active_workspace,
                         false,
                     ));
@@ -341,6 +342,7 @@ impl Mux {
                     registry.session_id().as_str(),
                     &public_id,
                     &name,
+                    (name_source, 0),
                     index,
                     true,
                 ));
@@ -569,6 +571,7 @@ impl Mux {
                                 registry.session_id().as_str(),
                                 workspace_id,
                                 &workspace.name,
+                                (workspace.name_source, workspace.name_revision),
                                 position,
                                 active_slot == Some(workspace.id),
                             )
@@ -724,6 +727,7 @@ impl Mux {
                                 registry.session_id().as_str(),
                                 workspace_id,
                                 &workspace.name,
+                                (workspace.name_source, workspace.name_revision),
                                 position,
                                 active_slot == Some(workspace.id),
                             )
