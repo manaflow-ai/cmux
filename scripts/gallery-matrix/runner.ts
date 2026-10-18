@@ -41,9 +41,11 @@ export function captureReceipt(
   expectedResults?: number,
 ): CaptureReceipt {
   const expected = expectedResults ?? cases.length * new Set(results.map((result) => result.engine).filter(Boolean)).size;
+  const declaredCaseIds = new Set(cases.map((item) => item.id));
   const declaredSources = new Map(cases.map((item) => [item.id, item.params?.source]));
   const identities = new Set(results.map((result) => `${String(result.id ?? "")}:${String(result.engine ?? "")}`));
   const complete = results.length === expected && identities.size === expected && expected > 0;
+  const declaredCases = results.every((result) => declaredCaseIds.has(String(result.id)) && typeof result.engine === "string" && result.engine.length > 0);
   const provenanceComplete = results.every((result) => {
     const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
     const declaredSource = declaredSources.get(String(result.id)) ?? (result.params as Record<string, unknown> | undefined)?.source;
@@ -51,7 +53,7 @@ export function captureReceipt(
   });
   const observedShas = new Set(results.map((result) => (result.revision as { sha?: unknown } | undefined)?.sha).filter((sha): sha is string => typeof sha === "string" && sha.length > 0));
   const exactHead = observedShas.size === 1;
-  const quality = !complete || !provenanceComplete || !exactHead || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
+  const quality = !complete || !declaredCases || !provenanceComplete || !exactHead || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
     ? "fail"
     : "pass";
   return {
