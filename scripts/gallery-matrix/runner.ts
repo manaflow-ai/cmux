@@ -2,12 +2,13 @@
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
+import { scenarioFingerprint } from "./scenario";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -30,11 +31,7 @@ export type CaptureReceipt = {
   shard?: { index: number; count: number };
 };
 
-/** Stable manifest identity used by run receipts and PR comparison evidence. */
-export function scenarioFingerprint(cases: readonly MatrixCase[]): string {
-  const input = JSON.stringify(cases.map((item) => ({ id: item.id, path_or_url: item.path_or_url, params: item.params ?? {} })));
-  return createHash("sha256").update(input).digest("hex");
-}
+export { scenarioFingerprint } from "./scenario";
 
 export function captureReceipt(
   cases: readonly MatrixCase[],

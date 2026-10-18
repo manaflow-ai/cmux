@@ -142,6 +142,18 @@ test("parses and validates a manifest", () => {
   expect(() => parseManifest({})).toThrow("array");
 });
 
+test("scenario fingerprints ignore manifest and parameter key order", () => {
+  const first = parseManifest([
+    { id: "b", path_or_url: "frame.html", params: { variant: "x", entry: "b" } },
+    { id: "a", path_or_url: "frame.html", params: { entry: "a", variant: "x" } },
+  ]);
+  const second = parseManifest([
+    { id: "a", path_or_url: "frame.html", params: { variant: "x", entry: "a" } },
+    { id: "b", path_or_url: "frame.html", params: { entry: "b", variant: "x" } },
+  ]);
+  expect(scenarioFingerprint(first)).toBe(scenarioFingerprint(second));
+});
+
 test("capture receipts bind a run to its scenario and observed revisions", () => {
   const cases = parseManifest([{ id: "a", path_or_url: "frame.html", params: { entry: "a", width: 760 } }]);
   const results = [{ id: "a", engine: "chromium", ready: "1", revision: { sha: "head-a", source: "src/a.gallery.tsx" } }];

@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { compareRuns, type Outcome } from "./compare";
 import { commentMarkdown, commentThumbs, diffPage, feedSummary, liveBase, type ReportMeta } from "./report";
+import { scenarioFingerprint } from "./scenario";
 
 type MatrixResult = {
   id?: string;
@@ -73,9 +74,7 @@ const readReceipt = (dir: string): CaptureReceipt | undefined => {
 
 const receiptFingerprint = (manifest: string): string => {
   const cases = JSON.parse(readFileSync(manifest, "utf8")) as ManifestCase[];
-  return createHash("sha256")
-    .update(JSON.stringify(cases.map((item) => ({ id: item.id, path_or_url: item.path_or_url, params: item.params ?? {} }))))
-    .digest("hex");
+  return scenarioFingerprint(cases);
 };
 
 type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerprint: string; quality?: string; status?: string };
