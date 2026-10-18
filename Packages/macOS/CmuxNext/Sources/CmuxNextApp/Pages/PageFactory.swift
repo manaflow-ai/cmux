@@ -171,7 +171,8 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .settings)
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
-            BackdropImagesPageProvider(images: images.images) { [weak provider] in try await provider?.useBackdropImage($0) ?? "" }
+            BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
+                                       inUse: { [weak services] in services?.settings?.snapshot.backdropSelection })
         }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])

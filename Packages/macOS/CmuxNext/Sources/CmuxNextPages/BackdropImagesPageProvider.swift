@@ -7,7 +7,8 @@ public import Foundation
 ///
 /// - `cmux.settings.backdrop.image.link {url}`: downloads an https image or movie and uses it,
 ///   as a picked file is used; `{id}`.
-/// - `cmux.settings.backdrop.image.remove {id}`: deletes one of the folder's own images; `{bytes}`.
+/// - `cmux.settings.backdrop.image.remove {id}`: deletes one of the folder's own images, never
+///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
 ///
@@ -20,13 +21,17 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let images: BackdropUserImages
     private let use: @MainActor (URL) async throws -> String
     private let reveal: @MainActor ([URL]) -> Void
+    private let inUse: @MainActor () -> BackdropSelection?
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
+    /// `inUse` is the background the app shows now, which remove refuses.
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
+                inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
                 reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
         self.images = images
         self.use = use
+        self.inUse = inUse
         self.reveal = reveal
     }
 
@@ -47,6 +52,10 @@ public final class BackdropImagesPageProvider: PageProvider {
             return ["id": .string(try await use(file))]
         case Self.prefix + "remove":
             let selection = try own(params)
+            // Removing the background in use would leave every window blank.
+            guard selection != inUse() else {
+                throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
+            }
             let images = images
             try await Task.detached { try images.remove(selection) }.value
             return try await usage()

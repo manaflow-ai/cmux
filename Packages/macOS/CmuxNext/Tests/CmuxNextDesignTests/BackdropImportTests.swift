@@ -54,48 +54,101 @@ import UniformTypeIdentifiers
     }
 
     @Test func aLinkIsNamedForItsBytesAndRefusedWhenItIsNotMedia() async throws {
-        let session = StubResponses.session()
-        StubResponses.set(["https://example.com/photo?id=7": (try Self.png(), "application/octet-stream", 200),
-                           "https://example.com/page.png": (Data("<html></html>".utf8), "text/html", 200),
-                           "https://example.com/gone.png": (Data(), "text/plain", 404)])
-        let file = try await BackdropUserImages.download(URL(string: "https://example.com/photo?id=7")!, session: session)
+        let configuration = StubResponses.configuration()
+        StubResponses.set(["https://example.com/photo?id=7": .init(body: try Self.png(), type: "application/octet-stream"),
+                           "https://example.com/page.png": .init(body: Data("<html></html>".utf8), type: "text/html"),
+                           "https://example.com/gone.png": .init(body: Data(), type: "text/plain", status: 404)])
+        let file = try await BackdropUserImages.download(URL(string: "https://example.com/photo?id=7")!, configuration: configuration)
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         // PNG bytes behind a link with no extension: named for what they are.
         #expect(file.lastPathComponent == "photo.png")
         await #expect(throws: BackdropUserImages.ImportError.notMedia) {
-            _ = try await BackdropUserImages.download(URL(string: "https://example.com/page.png")!, session: session)
+            _ = try await BackdropUserImages.download(URL(string: "https://example.com/page.png")!, configuration: configuration)
         }
         await #expect(throws: BackdropUserImages.ImportError.downloadFailed) {
-            _ = try await BackdropUserImages.download(URL(string: "https://example.com/gone.png")!, session: session)
+            _ = try await BackdropUserImages.download(URL(string: "https://example.com/gone.png")!, configuration: configuration)
+        }
+    }
+
+    /// The review's path traversal (#21731): an encoded `../` in the link's name never leaves the
+    /// download's own folder.
+    @Test func aLinkNameCannotClimbOutOfTheDownloadFolder() async throws {
+        let configuration = StubResponses.configuration()
+        let link = "https://example.com/..%2F..%2Fevil.png"
+        StubResponses.set([link: .init(body: try Self.png(), type: "image/png")])
+        let file = try await BackdropUserImages.download(URL(string: link)!, configuration: configuration)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        #expect(file.lastPathComponent == "evil.png")
+        #expect(file.deletingLastPathComponent().lastPathComponent.hasPrefix("cmux-background-"))
+        #expect(BackdropUserImages.safeStem(URL(string: "https://example.com/...png")!) == "Background")
+        #expect(BackdropUserImages.safeStem(URL(string: "https://example.com/a%3Ab%5Cc.png")!) == "a-b-c")
+    }
+
+    @Test func aLinkStopsAtItsCapAndNeverFollowsARedirectOffHTTPS() async throws {
+        let configuration = StubResponses.configuration()
+        let big = Data(count: Int(BackdropUserImages.maximumImageBytes) + 1)
+        StubResponses.set([
+            // Refused from its declared length, before the body.
+            "https://example.com/declared.png": .init(body: Data(), type: "image/png",
+                                                     headers: ["Content-Length": "\(BackdropUserImages.maximumImageBytes + 1)"]),
+            // No length declared: stopped once the count passes the cap for a picture.
+            "https://example.com/streamed.png": .init(body: big, type: "image/png", headers: ["Content-Length": ""]),
+            "https://example.com/hop.png": .init(body: Data(), type: "text/plain", status: 302,
+                                                 headers: ["Location": "http://example.com/plain.png"]),
+        ])
+        for link in ["https://example.com/declared.png", "https://example.com/streamed.png"] {
+            await #expect(throws: BackdropUserImages.ImportError.tooLarge) {
+                _ = try await BackdropUserImages.download(URL(string: link)!, configuration: configuration)
+            }
+        }
+        await #expect(throws: BackdropUserImages.ImportError.notHTTPS) {
+            _ = try await BackdropUserImages.download(URL(string: "https://example.com/hop.png")!, configuration: configuration)
         }
     }
 }
 
 /// Canned answers by URL for a URLSession, so link downloads run without a network.
 nonisolated final class StubResponses: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var answers: [String: (Data, String, Int)] = [:]
+    struct Answer {
+        var body: Data
+        var type: String
+        var status = 200
+        var headers: [String: String] = [:]
+    }
+
+    nonisolated(unsafe) static var answers: [String: Answer] = [:]
     static let lock = NSLock()
 
-    static func set(_ answers: [String: (Data, String, Int)]) { lock.withLock { self.answers = answers } }
+    static func set(_ answers: [String: Answer]) { lock.withLock { self.answers = answers } }
 
-    static func session() -> URLSession {
+    static func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubResponses.self]
-        return URLSession(configuration: configuration)
+        return configuration
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let url = request.url, let answer = Self.lock.withLock({ Self.answers[url.absoluteString] }),
-              let response = HTTPURLResponse(url: url, statusCode: answer.2, httpVersion: "HTTP/1.1",
-                                             headerFields: ["Content-Type": answer.1, "Content-Length": "\(answer.0.count)"]) else {
+        guard let url = request.url, let answer = Self.lock.withLock({ Self.answers[url.absoluteString] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }
+        var fields = ["Content-Type": answer.type, "Content-Length": "\(answer.body.count)"].merging(answer.headers) { $1 }
+        fields = fields.filter { !$0.value.isEmpty }
+        let response = HTTPURLResponse(url: url, statusCode: answer.status, httpVersion: "HTTP/1.1", headerFields: fields)!
+        if (300..<400).contains(answer.status), let location = fields["Location"].flatMap(URL.init(string:)) {
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: location), redirectResponse: response)
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: answer.0)
+        var offset = 0
+        while offset < answer.body.count {
+            let end = min(offset + 1 << 20, answer.body.count)
+            client?.urlProtocol(self, didLoad: answer.body.subdata(in: offset..<end))
+            offset = end
+        }
         client?.urlProtocolDidFinishLoading(self)
     }
 

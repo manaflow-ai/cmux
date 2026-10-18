@@ -46,48 +46,49 @@ extension BackdropUserImages {
                                                                kCGImageSourceCreateThumbnailFromImageAlways: true] as CFDictionary) != nil
     }
 
-    /// Downloads the picture or movie at `link` (https only) into a fresh temporary folder and
-    /// returns the file, named for what its bytes are. The caller adopts it (``adoptChecked(_:)``)
-    /// and removes its folder.
-    public nonisolated static func download(_ link: URL, session: URLSession = .shared) async throws -> URL {
-        guard link.scheme?.lowercased() == "https", link.host != nil else { throw ImportError.notHTTPS }
-        let (file, mimeType) = try await fetch(link, session: session)
+    /// Downloads the picture or movie at `link` (https only, redirects included) into a fresh
+    /// temporary folder and returns the file, named for what its bytes are. The caller adopts it
+    /// (``adoptChecked(_:)``) and removes its folder. The download stops as soon as it passes the
+    /// cap for what the server says it is (``maximumImageBytes`` for a picture, else
+    /// ``maximumVideoBytes``), so a huge file never lands on disk whole.
+    public nonisolated static func download(_ link: URL, configuration: URLSessionConfiguration = .ephemeral) async throws -> URL {
+        guard isHTTPS(link) else { throw ImportError.notHTTPS }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-background-\(UUID().uuidString)", isDirectory: true)
         do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("download")
+            let mimeType = try await LinkDownload(file: file, configuration: configuration).run(link)
             let named = try named(file, link: link, mimeType: mimeType)
             let size = (try? named.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
             guard size <= (AppleWallpapers.isVideo(named.path) ? maximumVideoBytes : maximumImageBytes) else { throw ImportError.tooLarge }
             return named
         } catch {
-            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: folder)
             throw error
         }
     }
 
-    /// The download, stopped once it passes ``maximumVideoBytes``, and the server's media type.
-    private nonisolated static func fetch(_ link: URL, session: URLSession) async throws -> (URL, String?) {
-        let watcher = DownloadCap(limit: maximumVideoBytes)
-        let downloaded: URL, response: URLResponse
-        do {
-            (downloaded, response) = try await session.download(from: link, delegate: watcher)
-        } catch {
-            throw watcher.exceeded ? ImportError.tooLarge : ImportError.downloadFailed
-        }
-        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true else {
-            try? FileManager.default.removeItem(at: downloaded)
-            throw ImportError.downloadFailed
-        }
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-background-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent("download")
-        try FileManager.default.moveItem(at: downloaded, to: file)
-        return (file, response.mimeType)
+    nonisolated static func isHTTPS(_ url: URL?) -> Bool {
+        url?.scheme?.lowercased() == "https" && url?.host?.isEmpty == false
+    }
+
+    /// The cap for a body the server calls `mimeType`.
+    nonisolated static func cap(for mimeType: String?) -> Int64 {
+        mimeType?.lowercased().hasPrefix("image/") == true ? maximumImageBytes : maximumVideoBytes
+    }
+
+    /// A file name from the link's last path component: its own name only (no folders, no
+    /// leading dots, nothing the file system reads as a path), at most 80 characters.
+    nonisolated static func safeStem(_ link: URL) -> String {
+        let decoded = link.deletingPathExtension().lastPathComponent
+        let cleaned = String(decoded.map { "/:\\".contains($0) || $0.isNewline ? "-" : $0 })
+        let stem = String(cleaned.drop { $0 == "." || $0 == "-" || $0.isWhitespace }.prefix(80)).trimmingCharacters(in: .whitespaces)
+        return stem.isEmpty ? "Background" : stem
     }
 
     /// `file` renamed for its bytes: a picture's type from ImageIO, else the server's movie type,
     /// else the link's own extension when it names a movie. Anything else is not media.
     private nonisolated static func named(_ file: URL, link: URL, mimeType: String?) throws -> URL {
-        let stem = link.deletingPathExtension().lastPathComponent
-        let name = stem.isEmpty || stem == "/" ? "Background" : String(stem.prefix(80))
         var ext: String?
         if let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) as String? {
             ext = UTType(type)?.preferredFilenameExtension
@@ -97,7 +98,11 @@ extension BackdropUserImages {
             ext = link.pathExtension.lowercased()
         }
         guard let ext, extensions.contains(ext.lowercased()) else { throw ImportError.notMedia }
-        let named = file.deletingLastPathComponent().appendingPathComponent("\(name).\(ext.lowercased())")
+        let named = file.deletingLastPathComponent().appendingPathComponent("\(safeStem(link)).\(ext.lowercased())")
+        // Never outside the download's own folder, whatever the name.
+        guard named.deletingLastPathComponent().standardizedFileURL == file.deletingLastPathComponent().standardizedFileURL else {
+            throw ImportError.notMedia
+        }
         try FileManager.default.moveItem(at: file, to: named)
         return named
     }
@@ -117,22 +122,106 @@ extension BackdropUserImages {
     }
 }
 
-/// Cancels a download once it passes `limit` bytes, so a huge file never lands on disk whole.
-private nonisolated final class DownloadCap: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    let limit: Int64
+/// One link download into `file`: a data task whose delegate checks the declared length and the
+/// running count against the cap for the declared type, refuses a redirect off https, and writes
+/// the body as it arrives. Timeouts are a minute without data and ten minutes in all.
+private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let file: URL
+    private let configuration: URLSessionConfiguration
     private let lock = NSLock()
-    private var passed = false
+    private var handle: FileHandle?
+    private var written: Int64 = 0
+    private var cap = BackdropUserImages.maximumVideoBytes
+    private var mimeType: String?
+    private var refusal: BackdropUserImages.ImportError?
+    private var continuation: CheckedContinuation<String?, any Error>?
 
-    init(limit: Int64) { self.limit = limit }
-
-    var exceeded: Bool { lock.withLock { passed } }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
-                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesWritten > limit || totalBytesExpectedToWrite > limit else { return }
-        lock.withLock { passed = true }
-        downloadTask.cancel()
+    init(file: URL, configuration: URLSessionConfiguration) {
+        self.file = file
+        let configuration = configuration.copy() as? URLSessionConfiguration ?? .ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
+        configuration.urlCache = nil
+        self.configuration = configuration
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+    /// The server's media type once the body is on disk.
+    func run(_ link: URL) async throws -> String? {
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.withLock { self.continuation = continuation }
+                session.dataTask(with: link).resume()
+            }
+        } onCancel: {
+            session.invalidateAndCancel()
+        }
+    }
+
+    private func refuse(_ error: BackdropUserImages.ImportError) {
+        lock.withLock { if refusal == nil { refusal = error } }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard BackdropUserImages.isHTTPS(request.url) else {
+            refuse(.notHTTPS)
+            task.cancel()
+            return completionHandler(nil)
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        let cap = BackdropUserImages.cap(for: response.mimeType)
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true else {
+            refuse(.downloadFailed)
+            return completionHandler(.cancel)
+        }
+        guard response.expectedContentLength <= cap else {
+            refuse(.tooLarge)
+            return completionHandler(.cancel)
+        }
+        let opened: FileHandle? = FileManager.default.createFile(atPath: file.path, contents: nil)
+            ? try? FileHandle(forWritingTo: file) : nil
+        lock.withLock {
+            self.cap = cap
+            mimeType = response.mimeType
+            handle = opened
+        }
+        if opened == nil { refuse(.downloadFailed) }
+        completionHandler(opened == nil ? .cancel : .allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let (handle, over) = lock.withLock { () -> (FileHandle?, Bool) in
+            written += Int64(data.count)
+            return (self.handle, written > cap)
+        }
+        guard !over else {
+            refuse(.tooLarge)
+            return dataTask.cancel()
+        }
+        do { try handle?.write(contentsOf: data) } catch {
+            refuse(.downloadFailed)
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        let (continuation, refusal, mimeType, handle) = lock.withLock {
+            let taken = (self.continuation, self.refusal, self.mimeType, self.handle)
+            self.continuation = nil
+            self.handle = nil
+            return taken
+        }
+        try? handle?.close()
+        if let refusal { continuation?.resume(throwing: refusal) } else if error != nil {
+            continuation?.resume(throwing: BackdropUserImages.ImportError.downloadFailed)
+        } else {
+            continuation?.resume(returning: mimeType)
+        }
+    }
 }

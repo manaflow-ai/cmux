@@ -17,8 +17,9 @@ import Testing
         try Data(repeating: 1, count: 1000).write(to: images.folder.appendingPathComponent("Sea.png"))
         var revealed: [[URL]] = []
         var used: [URL] = []
+        var current: BackdropSelection?
         let provider = BackdropImagesPageProvider(images: images, use: { used.append($0); return "file:\($0.path)" },
-                                                  reveal: { revealed.append($0) })
+                                                  inUse: { current }, reveal: { revealed.append($0) })
         let call = { (op: String, params: JSONValue) in
             try await provider.call(BackdropImagesPageProvider.prefix + op, params: params, context: Self.context)
         }
@@ -38,6 +39,15 @@ import Testing
         #expect(revealed == [[images.folder.appendingPathComponent("Sea.png")], [images.folder]])
         await #expect(throws: PageError.self) { try await call("remove", ["id": "file:/etc/hosts"]) }
         await #expect(throws: PageError.self) { try await call("remove", ["id": "starryNight"]) }
+        // The background in use is refused natively, whatever the page shows.
+        current = BackdropSelection(id: own)
+        do {
+            _ = try await call("remove", ["id": .string(own)])
+            Issue.record("the background in use was removed")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.backdrop.in_use")
+        }
+        current = nil
         #expect(try await call("remove", ["id": .string(own)])["bytes"]?.doubleValue == 0)
         await #expect(throws: PageError.self) { try await call("nothing", [:]) }
     }
