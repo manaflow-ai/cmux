@@ -30,6 +30,8 @@ pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
 pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
+#[cfg(test)]
+mod closed_history_scrub_tests;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
