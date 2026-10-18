@@ -129,6 +129,15 @@ class ReleaseNotesTests(unittest.TestCase):
                                      "- [#4](https://github.com/manaflow-ai/cmux/pull/4) fix: change 4",
                                      "- and 3 more"])
 
+    def test_prs_counts_past_the_change_cap_and_escapes_mentions(self):
+        since = self.head
+        for number in range(1, 206):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: thanks @someone <x> {number} (#{number})")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        lines = run(self.repo, "prs", "--head", self.head, "--since", since).splitlines()
+        self.assertEqual(lines[2], "- [#205](https://github.com/manaflow-ai/cmux/pull/205) fix: thanks &#64;someone &lt;x> 205")
+        self.assertEqual(lines[-1], "- and 165 more")
+
     def test_prs_is_empty_for_an_empty_span(self):
         self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", self.head), "")
 

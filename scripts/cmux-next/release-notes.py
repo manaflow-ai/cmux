@@ -242,11 +242,11 @@ def write_community_summary(digest, args):
             out.write(text)
 
 
-def commits_with_authors(since, head):
-    """(subject, author) of each non-merge commit in the span, newest first, at most MAX_CHANGES."""
+def commits_with_authors(since, head, limit=MAX_CHANGES):
+    """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
     span = rev_range(since, head)
     commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
+    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
 
 
 def pr_lines(items, repo, limit=PR_LIMIT):
@@ -261,7 +261,9 @@ def pr_lines(items, repo, limit=PR_LIMIT):
     if not prs and not without:
         return ""
     lines = ["### PRs in this build", ""]
-    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {i["title"]}' for i in prs[:limit]]
+    # A subject's "@login" would ping that person and a "<" could open an HTML comment.
+    escape = lambda text: text.replace("&", "&amp;").replace("<", "&lt;").replace("@", "&#64;")
+    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}' for i in prs[:limit]]
     if len(prs) > limit:
         lines.append(f"- and {len(prs) - limit} more")
     if not prs:
@@ -272,7 +274,9 @@ def pr_lines(items, repo, limit=PR_LIMIT):
 
 
 def prs(args):
-    print(pr_lines([change_item(s, a) for s, a in commits_with_authors(args.since, args.head)], args.repo, args.limit), end="")
+    # The whole span, not MAX_CHANGES: "and K more" and the no-PR count must cover every commit.
+    commits = commits_with_authors(args.since, args.head, limit=None)
+    print(pr_lines([change_item(s, a) for s, a in commits], args.repo, args.limit), end="")
 
 
 def build(args):
