@@ -26,6 +26,24 @@ function drawnShift(element: HTMLElement): { x: number; y: number } {
 }
 
 /// Where each row's box is laid out, relative to `root`: drawn places less their running slides.
+function cancelRunning(running: { current: Animation[] }): void {
+  // Clear the live set before cancelling: oncancel removes its own animation,
+  // and mutating the array while iterating would skip every other animation.
+  const animations = running.current;
+  running.current = [];
+  for (const animation of animations) animation.cancel();
+}
+
+function trackAnimation(running: { current: Animation[] }, animation: Animation): void {
+  const remove = () => {
+    const index = running.current.indexOf(animation);
+    if (index >= 0) running.current.splice(index, 1);
+  };
+  animation.onfinish = remove;
+  animation.oncancel = remove;
+  running.current.push(animation);
+}
+
 function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
   const origin = root.getBoundingClientRect();
   return new Map(
@@ -55,6 +73,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     () => () => {
       observed.current?.observer.disconnect();
       observed.current = null;
+      cancelRunning(running);
     },
     [],
   );
@@ -80,16 +99,14 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
     if (!root || elements.length !== currentKeys.length) {
-      for (const animation of running.current) animation.cancel();
-      running.current = [];
+      cancelRunning(running);
       places.current = new Map();
       shown.current = "";
       shownKeys.current = [];
       return;
     }
     if (isAgentMotionOff()) {
-      for (const animation of running.current) animation.cancel();
-      running.current = [];
+      cancelRunning(running);
       places.current = measure(root, elements, currentKeys);
       shown.current = signature;
       shownKeys.current = currentKeys;
@@ -99,8 +116,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
     const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
-    if (changed) for (const animation of running.current) animation.cancel();
-    if (changed) running.current = [];
+    if (changed) cancelRunning(running);
     const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
@@ -122,14 +138,15 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       const is = after.get(key);
       if (!was || !is) {
         if (appear > 0)
-          running.current.push(element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
+          trackAnimation(running, element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
         continue;
       }
       const shift = drawn.get(key) ?? { x: 0, y: 0 };
       const x = was.x + shift.x - is.x;
       const y = was.y + shift.y - is.y;
       if (move > 0 && (Math.abs(x) > 0.5 || Math.abs(y) > 0.5)) {
-        running.current.push(
+        trackAnimation(
+          running,
           element.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }], {
             duration: move,
             easing,
