@@ -13,12 +13,13 @@ type CreatedRun = Awaited<ReturnType<typeof createRunRecord>>;
 type RunAttempt = CreatedRun["snapshot"]["attempts"][number];
 
 type AttemptSuccess = {
+  readonly ok: true;
   readonly providerVmId: string;
   readonly vmBody: unknown;
   readonly result: Record<string, unknown>;
 };
 
-type AttemptFailure = { readonly response: Response };
+type AttemptFailure = { readonly ok: false; readonly response: Response };
 
 function errorResponse(message: string, status = 400): Response {
   return vmErrorResponse({
@@ -123,14 +124,15 @@ async function provisionVm(request: Request, userId: string, spec: RunSpec, runI
   if (!vmResponse.ok) {
     const message = vmBody?.message;
     await markAttemptFailed({ runId, attemptId, error: typeof message === "string" ? message : `Cloud VM create failed (${vmResponse.status}).` });
-    return { response: await runReceipt(runId, userId) };
+    return { ok: false, response: await runReceipt(runId, userId) };
   }
   const providerVmId = typeof vmBody?.id === "string" ? vmBody.id : null;
   if (!providerVmId) {
     await markAttemptFailed({ runId, attemptId, error: "Cloud VM create returned no provider id." });
-    return { response: await runReceipt(runId, userId) };
+    return { ok: false, response: await runReceipt(runId, userId) };
   }
   return {
+    ok: true,
     providerVmId,
     vmBody,
     result: {
@@ -159,12 +161,12 @@ async function executeAttempt(request: Request, userId: string, runId: string, a
     const message = typeof execOutput?.message === "string" ? execOutput.message : `Cloud Run command failed (${execResponse.status}).`;
     await markAttemptFailed({ runId, attemptId, error: message });
     await destroyVmForAttempt(request, providerVmId).catch(() => undefined);
-    return { response: await runReceipt(runId, userId) };
+    return { ok: false, response: await runReceipt(runId, userId) };
   }
   const cleanupResponse = await destroyVmForAttempt(request, providerVmId);
   if (!cleanupResponse.ok) {
     await markAttemptFailed({ runId, attemptId, error: `Cloud Run cleanup failed (${cleanupResponse.status}).` });
-    return { response: await runReceipt(runId, userId) };
+    return { ok: false, response: await runReceipt(runId, userId) };
   }
   return { ok: true, result: { ...result, commandReceipt: { commandDigest: runSpecDigest(spec), stdout: execOutput.stdout } } };
 }
@@ -184,7 +186,7 @@ async function executeNewRun(request: Request, user: { id: string }, created: Cr
   const runId = created.snapshot.run.id;
   await markAttemptRunning(runId, attempt.id);
   const provisioned = await provisionVm(request, user.id, spec, runId, attempt.id);
-  if ("response" in provisioned) return runReceipt(runId, user.id);
+  if (!provisioned.ok) return provisioned.response;
   const executed = await executeAttempt(request, user.id, runId, attempt.id, provisioned.providerVmId, provisioned.result, spec);
   if (!executed.ok) return executed.response;
   await markAttemptSucceeded({ runId, attemptId: attempt.id, providerVmId: provisioned.providerVmId, result: executed.result });
