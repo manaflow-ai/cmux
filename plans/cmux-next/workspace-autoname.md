@@ -76,7 +76,9 @@ same rule locally (an `isAutoNamed` flag cleared by `update-tab-group` with a na
 
 ## Surfaces
 
-The CLI shape built in step 1 (hq#1957):
+Proposed CLI shape (the daemon half in #20710, not yet on `feat-cmux-next`; today
+`--source`, `--expected-generation` and `--expected-name-revision` exist only on
+`cmux tab rename`):
 
 - `cmux workspace [<selector>] rename <name> --source auto --expected-generation <g>
   --expected-name-revision <n>` for an automatic name (agents, the app's namer).
@@ -84,13 +86,35 @@ The CLI shape built in step 1 (hq#1957):
 - `cmux workspace [<selector>] rename --release-to-auto` returns a pinned name to
   auto (no name, no expected revision).
 
+`RegistryWorkspace.name_source`, `name_revision` and the `name_pinned` /
+`name_empty` refusals above are likewise proposed in #20710.
+
 Still to build: the MCP tool's `source` param, a palette "Let cmux name this
 workspace" action that sends the release, and the same item in the sidebar
 row's context menu.
 
 ## Order
 
-1. Daemon: workspace name source + revision, protocol, projection, CLI. Rust
-   tests (hosted verify). Review subagent before landing.
-2. App: namer service (sr client + fallback), triggers, setting, crossfade, chat
-   titles. Red/green Swift tests. Before/after recording. SHOW LEO.
+The app half landed first (#21441, #21445):
+
+- `WorkspaceAutoNamer` (`CmuxNextWorkspaceNaming/WorkspaceAutoNamer.swift`)
+  renames a default-named workspace once, from its front agent chat's title,
+  with `source: auto`, the daemon generation and `expected_name_revision`. It
+  only writes to a daemon that serves `workspace-name-source-v1`, which no
+  daemon does until #20710 lands, so today it stays a live sidebar label.
+- `workspaces.autoName.variant` (`WorkspaceAutoNameTunables.swift`, Debug
+  Settings, DEV and NIGHTLY) picks the prototype: `live` (sidebar label only;
+  Release always uses it) or `persist` (the one-time daemon rename above).
+- The user setting is `workspaces.autoName`, a bool ("Name Workspaces from
+  Tabs"). The `workspaceList.autoName` `off` / `onCreate` / `keepUpdated`
+  setting proposed under Behavior would replace it once the variant is picked:
+  `off` is today's `false`, `onCreate` is roughly `persist`, and `keepUpdated`
+  is the model namer that does not exist yet.
+
+Still to do:
+
+1. Daemon: workspace name source + revision, protocol, projection, CLI (#20710).
+   Rust tests (hosted verify). Review subagent before landing.
+2. App: the model namer (sr client + fallback), its triggers, the three-way
+   setting, crossfade, chat titles. Red/green Swift tests. Before/after
+   recording. SHOW LEO.
