@@ -37,15 +37,26 @@ function rowText(row: AcpmuxRow): string | undefined {
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");
 }
 
+// Rows are immutable snapshots. Keep the assembled, case-folded search text by row identity so
+// typing a query does not rebuild every tool output and edit diff on every keystroke. A weak map
+// lets old transcript snapshots disappear as virtualization/history replacement releases them.
+const searchableTextCache = new WeakMap<AcpmuxRow, string | undefined>();
+
+function searchableText(row: AcpmuxRow): string | undefined {
+  if (searchableTextCache.has(row)) return searchableTextCache.get(row);
+  const text = rowText(row)?.toLocaleLowerCase();
+  searchableTextCache.set(row, text);
+  return text;
+}
+
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
 export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
   const needle = query.toLocaleLowerCase();
   if (!needle) return [];
   const matches: FindMatch[] = [];
   rows.forEach((row, rowIndex) => {
-    const found = rowText(row);
-    if (!found) return;
-    const text = found.toLocaleLowerCase();
+    const text = searchableText(row);
+    if (!text) return;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
