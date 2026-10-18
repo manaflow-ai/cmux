@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 
@@ -134,6 +134,32 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     const a = await person("native")
     expect(await welcomeUser(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: `Bearer ${a.token}` }))).toBe(a.user)
     await expectRefused(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: "Bearer not-a-token" }))
+  })
+
+  it("the upgrade forwarded to the owner object carries no credential: no Authorization, no bearer. or ticket. subprotocol", async () => {
+    const a = await person("forward")
+    const ns = testEnv.USER_DO as unknown as { get(id: DurableObjectId): { fetch(r: Request): Promise<Response> } }
+    const get = ns.get.bind(ns)
+    const forwarded: Array<Request> = []
+    const spy = vi.spyOn(ns, "get").mockImplementation((id) => {
+      const stub = get(id)
+      return new Proxy(stub, { get: (t, k) => (k === "fetch" ? (r: Request) => (forwarded.push(r), t.fetch(r)) : Reflect.get(t, k)) })
+    })
+    try {
+      const res = await upgrade("/v1/wire/user", "cmux.wire.v1, bearer.x, ticket.y", { authorization: `Bearer ${a.token}` })
+      // The stray ticket is spent at the entry (and refused), so a stray bearer. beside the header proves the strip.
+      await res.arrayBuffer()
+      const native = await upgrade("/v1/wire/user", "cmux.wire.v1, bearer.x", { authorization: `Bearer ${a.token}` })
+      expect(await welcomeUser(native)).toBe(a.user)
+    } finally {
+      spy.mockRestore()
+    }
+    expect(forwarded).toHaveLength(1)
+    const headers = forwarded[0]!.headers
+    expect(headers.get("authorization")).toBeNull()
+    const protocols = (headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((p) => p.trim())
+    expect(protocols).toEqual(["cmux.wire.v1"])
+    expect(protocols.some((p) => p.startsWith("bearer.") || p.startsWith("ticket."))).toBe(false)
   })
 
   it("the retired bearer subprotocol opens nothing, and the 401 names header auth", async () => {
