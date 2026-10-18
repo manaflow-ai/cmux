@@ -16,7 +16,7 @@ import QuartzCore
 /// `OverlayPlane`, not in this view, so they draw above content that is a
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
-final class PaneHostView: NSView {
+final class PaneHostView: NSView, RestingPlacement {
     let pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
@@ -59,6 +59,9 @@ final class PaneHostView: NSView {
     /// What of the host shows while a spring rect reveals it (a split's arriving pane, a zooming
     /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
     var revealRect: CGRect?
+    /// Where the host will rest minus where it shows now (`RestingPlacement`): its spring rect's
+    /// target and the strip camera's target, against the presented frame. Zero at rest.
+    var restOffset: CGVector = .zero
 
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
