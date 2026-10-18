@@ -97,12 +97,21 @@ class SidebarRowView: NSView {
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades in and out
-    /// (`MotionFade.hover` both ways, Leo 2026-10-13: moving between rows
-    /// snapped); reloads and theme changes apply at once.
+    /// Clears hover state before a row leaves the realized list. This avoids
+    /// carrying its fill or hover controls through the close/recycle motion.
+    func clearHoverImmediately() {
+        isHovered = false
+        fadesNextFill = false
+        fadesNextHover = false
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    /// The next fill change came from hover. Hover entry is immediate and the
+    /// default hover-out token clears it without leaving a trail.
     var fadesNextFill = false
-    /// The next layout came from hover: the row's hover controls fade in
-    /// place (the row's `layout()` clears it).
+    /// The next layout came from hover: the row's hover controls reveal or
+    /// clear in place (the row's `layout()` clears it).
     var fadesNextHover = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
@@ -110,7 +119,7 @@ class SidebarRowView: NSView {
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hover)
+        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }
 
