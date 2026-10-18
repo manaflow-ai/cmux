@@ -192,6 +192,10 @@ class WorkspaceGroupArgumentTests(unittest.TestCase):
         self.assert_sends(["set-color", G1, "--color", "#C0392B"], "workspace.group.set_color", {"hex": "#C0392B"})
         self.assert_sends(["set-color", G1], "workspace.group.set_color", {"hex": ""})
         self.assert_sends(["set-color", G1, "--hex", ""], "workspace.group.set_color", {"hex": ""})
+        # An attached empty value still clears, as it did before the checks.
+        self.assert_sends(["set-color", G1, "--hex="], "workspace.group.set_color", {"group_id": G1, "hex": ""})
+        self.assert_sends(["set-color", G1, "--color="], "workspace.group.set_color", {"group_id": G1, "hex": ""})
+        self.assert_sends(["set-icon", G1, "--symbol="], "workspace.group.set_icon", {"group_id": G1, "symbol": ""})
         self.assert_sends(["set-icon", G1, "--icon", "star"], "workspace.group.set_icon", {"symbol": "star"})
         self.assert_sends(["move", G1, "--to-index", "0"], "workspace.group.move", {"group_id": G1, "to_index": 0})
         self.assert_sends(["move", G1, "--after", G2], "workspace.group.move",

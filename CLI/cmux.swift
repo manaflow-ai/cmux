@@ -13316,7 +13316,14 @@ struct CMUXCLI {
             // CLIWorkspaceGroupSafetyTests pins: a token there is not an option,
             // so it cannot ask for the workspaces to be closed.
             let terminator = rest.firstIndex(of: "--")
-            let checked = sub == "delete" ? Array(rest[..<(terminator ?? rest.endIndex)]) : rest
+            var checked = sub == "delete" ? Array(rest[..<(terminator ?? rest.endIndex)]) : rest
+            // `set-color --hex=` and `set-icon --symbol=` still clear, as they
+            // did before these checks: an attached empty value is allowed here.
+            if sub == "set-color" || sub == "set-icon" {
+                let clearTokens: Set<String> = ["--hex=", "--color=", "--symbol=", "--icon="]
+                let end = checked.firstIndex(of: "--") ?? checked.endIndex
+                checked = checked[..<end].filter { !clearTokens.contains($0) } + checked[end...]
+            }
             try rejectUnexpectedArguments(
                 checked,
                 commandName: "workspace group \(sub)",
