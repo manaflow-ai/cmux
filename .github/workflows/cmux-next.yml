@@ -414,6 +414,9 @@ permissions:
   contents: read
 
 env:
+  # HQ's public cache edge serves read-only restores from every runner; writes
+  # use the controller-owned R2 credentials in the seed steps below.
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
   # The label attempt 1's macOS jobs take when macos-placement finds an idle
   # owned runner for them: a glaeda-* label means a mini. Each macOS job's
   # runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
@@ -812,7 +815,7 @@ jobs:
     # rescue's watch of a side lane ends at attempt 2.
     # Same-tree mode runs it too: its owned-pool-watch marker lets the rescue
     # re-run a tree job that a mini refuses (no head to move on a dispatch).
-    if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
+    if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.macos == 'true' || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.base_ref == 'feat-cmux-next') && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
@@ -857,7 +860,7 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
-          JOBS: swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
+          JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
         run: |
           python3 scripts/ci/side_lane_placement.py
           # The trusted checkout may still be on a base branch that predates
@@ -1632,6 +1635,32 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Owned minis use their connected SSD scratch/cache. Blacksmith overflow
+      # restores from HQ R2 instead; never duplicate the fleet CAS on a mini.
+      - name: Compute Swift fast-tier cache key
+        id: swift-fast-cache-key
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        run: |
+          set -euo pipefail
+          toolchain="$(xcodebuild -version | shasum -a 256 | awk '{print $1}')"
+          inputs="${{ hashFiles('**/Package.swift', '**/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}"
+          prefix="cmux-next-fast-swift-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift fast-tier cache
+        id: swift-fast-cache-restore
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: |
+            Packages/Shared/CmuxHomeRender/.build
+            Packages/macOS/CmuxNext/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.key }}
+          restore-keys: ${{ steps.swift-fast-cache-key.outputs.prefix }}
+
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
@@ -1649,8 +1678,75 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Compute Cargo fast-tier cache key
+        id: cargo-fast-cache-key
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        run: |
+          set -euo pipefail
+          rust="$(rustc -vV | shasum -a 256 | awk '{print $1}')"
+          lock="${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.toml') }}"
+          ghostty="$(git rev-parse HEAD:ghostty-next)"
+          prefix="cmux-next-fast-cargo-v1-${RUNNER_OS}-${RUNNER_ARCH}-${rust}-${lock}-${ghostty}-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Cargo fast-tier cache
+        id: cargo-fast-cache-restore
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: cmux-tui/target
+          key: ${{ steps.cargo-fast-cache-key.outputs.key }}
+          restore-keys: ${{ steps.cargo-fast-cache-key.outputs.prefix }}
+
       - name: Run the fast tier
-        run: python3 -I scripts/cmux-next/fast-tier.py
+        env:
+          CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.swift-fast-cache-key.outputs.key }}
+          CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.swift-fast-cache-restore.outputs.cache-hit }}
+          CMUX_FAST_CARGO_CACHE_KEY: ${{ steps.cargo-fast-cache-key.outputs.key }}
+          CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-fast-cache-restore.outputs.cache-hit }}
+        run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+
+      - name: Save Swift fast-tier cache
+        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: |
+            Packages/Shared/CmuxHomeRender/.build
+            Packages/macOS/CmuxNext/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.key }}
+
+      - name: Save Cargo fast-tier cache
+        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: cmux-tui/target
+          key: ${{ steps.cargo-fast-cache-key.outputs.key }}
+
+      - name: Upload fast-tier timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-fast-tier.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
   # (an empty filter runs every target, as on a push or a full-ci PR). No
@@ -1859,7 +1955,44 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests
+
+      # Cloud bring-back round trips launch two daemons and mutate shared
+      # AppKit/registry state. Run each case in a fresh process so a prior
+      # round trip cannot starve the next case's 60-second action deadline.
+      - name: Run CloudBringBack cases in fresh processes
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) }}
+        timeout-minutes: 40
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
+        run: |
+          set -euo pipefail
+          status=0
+          for test in \
+            CloudBringBackTests.aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed \
+            CloudBringBackTests.aRevokeThatFailsIsTriedAgainUntilItIsDone \
+            CloudBringBackTests.aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt \
+            CloudBringBackTests.aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt \
+            CloudBringBackTests.aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly \
+            CloudBringBackTests.aSyncConflictKeepsTheMachineTabAndShowsTheConflict \
+            CloudBringBackTests.anOutdatedMachineIsNamedAndTheChatStaysOnIt \
+            CloudBringBackTests.updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack \
+            CloudBringBackTests.aGuardRefusalKeepsTheMachineTabWithAClearMessage \
+            CloudBringBackTests.aGuardRefusalOffersAskFirstThenBringsTheChatBack \
+            CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch \
+            CloudBringBackTests.aSyncPullThatThrowsKeepsTheBringBackRetryable; do
+            echo "Running isolated CloudBringBack case: $test"
+            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$test"; then
+              :
+            else
+              case_status=$?
+              (( status == 0 )) && status=$case_status
+              echo "Cloud bring-back case failed: $test (status $case_status)"
+            fi
+          done
+          exit "$status"
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
