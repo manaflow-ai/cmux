@@ -336,6 +336,9 @@ def pass1():
             check(P, "after a relaunch a chat keeps its start picks",
                   "Haiku" in now["model"] and now["effort"] == "Low" and full_access(now["mode"]), json.dumps(now))
         key("]" if shown_now == chat1 else "[", ["command", "shift"])
+        blank = blank_frames(400)
+        check(P, "after a relaunch the first switch to the other chat shows no blank pane", (blank or 0) <= 17,
+              f"blank for {blank:.0f} ms" if blank else "")
         wait(lambda: shown_session() not in (None, shown_now), 5)
         time.sleep(1.0)
         shown_now = shown_session()
