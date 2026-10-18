@@ -52,6 +52,8 @@ extension AgentCLIUpdateActions {
         guard daemon.identity?.capabilities.contains("agent-cli-update-job-resolve-v1") == true else {
             throw DaemonError.missingCapabilities(["agent-cli-update-job-resolve-v1"])
         }
+        let sideEvents = daemon.store.sideEvents
+        guard let stamp = sideEvents.controlStamp, stamp.sourceID == connection.eventSourceID else { throw DaemonError.notConnected }
         var carrier: AgentCLIJobCarrier?
         // Recovery captures the same transport without inventory or acpmux work.
         let captured: @MainActor () async throws -> AgentCLIJobCarrier = {
@@ -66,7 +68,8 @@ extension AgentCLIUpdateActions {
             inventory: { try await captured().inventory() },
             start: { cli, key in try await captured().startUpdate(cli: cli, idempotencyKey: key) },
             observe: { receipt in try await captured().observe(receipt) },
-            resolve: { cli, key in try await captured().resolveUpdate(cli: cli, idempotencyKey: key) })
+            resolve: { cli, key in try await captured().resolveUpdate(cli: cli, idempotencyKey: key) },
+            changes: { Self.terminalChanges(sideEvents: sideEvents, stamp: stamp, current: current) })
     }
 
     private static func withLedger<T>(services: AppServices?, body: @MainActor (AgentCLIIntentLedger) async throws -> T) async throws -> T {

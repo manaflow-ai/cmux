@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextApp
 
@@ -60,6 +61,9 @@ struct AgentCLIUpdateObservationTests {
         #expect(job["intent_key"] == "original" && job["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         #expect(h.owner.starts.count == 1 && h.reads == 2)
         #expect(actions.settled == ["original"])
+        await actions.refresh()
+        #expect(actions.state.arrayValue?.first?["exit_code"] == 23)
+        #expect(h.owner.starts.count == 1 && h.reads == 2, "settled jobs do not keep reading or dispatching")
     }
 
     @Test func paletteAndRecoveredJobsUseTheSameAutomaticObservation() async throws {
@@ -82,6 +86,35 @@ struct AgentCLIUpdateObservationTests {
         await restored.finish(recovered)
         #expect(recovered.state.arrayValue?.first?["exit_code"] == 23)
         #expect(restored.owner.starts.isEmpty && restored.owner.reads == 0)
+    }
+
+    @Observable @MainActor final class Admission {
+        var current = true
+    }
+
+    @Test(arguments: [false, true])
+    func nativeInvalidationsRequireTheOriginalSourceAndSerial(acceptCurrent: Bool) async throws {
+        let store = DaemonStore()
+        let source = UUID()
+        _ = store.apply(batch: [.init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 0),
+            event: .connected(DaemonIdentity(generation: "owner"), generationChanged: true), sourceID: source)])
+        let stamp = try #require(store.sideEvents.controlStamp)
+        let admission = Admission()
+        let changes = AgentCLIUpdateActions.terminalChanges(sideEvents: store.sideEvents, stamp: stamp,
+            current: { admission.current })
+        _ = store.apply(batch: [
+            .init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 10), event: .terminalRegistryChanged(revision: 7), sourceID: UUID()),
+            .init(sequence: DaemonEventEnvelope.sequence(serial: 3, index: 10), event: .terminalRegistryChanged(revision: 8), sourceID: source),
+            .init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 11), event: .bell(surface: 1), sourceID: source),
+        ])
+        if acceptCurrent {
+            _ = store.apply(batch: [.init(sequence: DaemonEventEnvelope.sequence(serial: 4, index: 12),
+                event: .terminalRegistryChanged(revision: 9), sourceID: source)])
+        }
+        admission.current = false
+        var count = 0
+        for await _ in changes { count += 1 }
+        #expect(count == (acceptCurrent ? 1 : 0))
     }
 
     @Test(arguments: ["before", "during", "failed-read"])
