@@ -20,7 +20,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle", "huge-blue"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
