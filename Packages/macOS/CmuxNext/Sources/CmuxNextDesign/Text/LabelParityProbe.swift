@@ -147,7 +147,7 @@ public struct LabelParityProbe {
             row["\(at).ink.stock"] = "\(inks.0)"
             row["\(at).ink.label"] = "\(inks.1)"
             report.checked += 1
-            if !Self.same(inks.0, inks.1) { note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report) }
+            if !Self.placed(inks.0, inks.1) { note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report) }
             label.display()
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"
@@ -223,12 +223,19 @@ public struct LabelParityProbe {
         }
     }
 
+    /// The same pixels covered (within a pixel at each edge): a cached image of a stock field
+    /// redraws its text with smoothing on a clear ground (13-22% heavier than on screen, by
+    /// font), a ChromeLabel's image is its on-screen glyphs, so only the place is compared.
+    private static func placed(_ a: Ink, _ b: Ink) -> Bool {
+        if a.amount == 0 || b.amount == 0 { return a.amount == b.amount }
+        let edges = [a.box.minX - b.box.minX, a.box.minY - b.box.minY, a.box.maxX - b.box.maxX, a.box.maxY - b.box.maxY]
+        return edges.allSatisfy { abs($0) <= 1 }
+    }
+
     private static func same(_ a: Ink, _ b: Ink) -> Bool {
         if a.amount == 0 || b.amount == 0 { return a.amount == b.amount }
         let edges = [a.box.minX - b.box.minX, a.box.minY - b.box.minY, a.box.maxX - b.box.maxX, a.box.maxY - b.box.maxY]
-        // A cached image of a stock field redraws its text with smoothing on a clear ground (about
-        // 12% heavier than on screen); a ChromeLabel's image is its on-screen glyphs.
-        return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.15
+        return edges.allSatisfy { abs($0) <= 1 } && abs(a.amount / b.amount - 1) <= 0.03
     }
 
     private static func ink(cached view: NSView) -> Ink {

@@ -52,17 +52,26 @@ open class ChromeLabel: NSView {
     open var textColor: NSColor? { didSet { if textColor != oldValue { needsDisplay = true } } }
     open var alignment: NSTextAlignment = .natural { didSet { if alignment != oldValue { textDidChange() } } }
 
-    /// As `NSCell`: a wrapping mode turns ``wraps`` on, any other mode turns it off.
+    /// As `NSCell`'s: a wrapping mode turns ``wraps`` on, any other mode turns it off.
     open var lineBreakMode: NSLineBreakMode = .byClipping {
         didSet {
-            wraps = lineBreakMode == .byWordWrapping || lineBreakMode == .byCharWrapping
+            let wrapping = Self.isWrapping(lineBreakMode)
+            if wraps != wrapping { wraps = wrapping }
             if lineBreakMode != oldValue { textDidChange() }
         }
     }
 
-    /// Lines wrap at the width (with ``maximumNumberOfLines`` 0). A label with more than one
-    /// line allowed wraps too, and ``lineBreakMode`` applies to its last line.
-    open var wraps = false { didSet { if wraps != oldValue { textDidChange() } } }
+    /// Lines break at the width, up to ``maximumNumberOfLines`` (0: no limit). As `NSCell`'s:
+    /// turning it on sets ``lineBreakMode`` to word wrapping, turning it off to clipping.
+    open var wraps = false {
+        didSet {
+            guard wraps != oldValue else { return }
+            if Self.isWrapping(lineBreakMode) != wraps { lineBreakMode = wraps ? .byWordWrapping : .byClipping }
+            textDidChange()
+        }
+    }
+
+    private static func isWrapping(_ mode: NSLineBreakMode) -> Bool { mode == .byWordWrapping || mode == .byCharWrapping }
 
     /// 0: no limit (wrapping labels); 1: one line.
     open var maximumNumberOfLines = 1 { didSet { if maximumNumberOfLines != oldValue { textDidChange() } } }
@@ -105,10 +114,17 @@ open class ChromeLabel: NSView {
 
     public convenience init(font: NSFont) {
         self.init(labelWithString: "")
+        // Through a method: an initializer's own assignments skip the property observers.
+        setUp(font: font)
+    }
+
+    /// A one-line label in `font` whose text truncates at its tail.
+    private func setUp(font: NSFont) {
         self.font = font
         lineBreakMode = .byTruncatingTail
         maximumNumberOfLines = 1
         truncatesLastVisibleLine = true
+        frame.size = naturalSize
     }
 
     override public init(frame frameRect: NSRect) {
@@ -285,7 +301,7 @@ open class ChromeLabel: NSView {
         defer { ctx.restoreGState() }
         ctx.setAllowsFontSmoothing(true)
         ctx.setShouldSmoothFonts(true)
-        LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size)
+        LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size, context: ctx)
     }
 
     override open func viewDidChangeBackingProperties() {
@@ -298,10 +314,10 @@ open class ChromeLabel: NSView {
     /// The glyph coverage, upright, in the text color's stem weight, at the backing scale.
     private func glyphImage(_ ink: Ink, color: CGColor?) -> CGImage? {
         guard ink.text.length > 0 else { return nil }
-        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { _, opaque in
+        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { ctx, opaque in
             let text = NSMutableAttributedString(attributedString: ink.text)
             text.addAttribute(.foregroundColor, value: NSColor(cgColor: opaque) ?? .black, range: NSRange(location: 0, length: text.length))
-            LabelText.draw(text, shape: ink.shape, in: ink.size)
+            LabelText.draw(text, shape: ink.shape, in: ink.size, context: ctx)
         }
     }
 
