@@ -72,6 +72,15 @@ export async function POST(
           details: { status: outcome.status },
         });
       }
+      if (outcome.kind === "busy") {
+        return vmErrorResponse({
+          error: "vm_hygiene_busy",
+          status: 409,
+          message: "Another cleanup is already running on this machine.",
+          action: "Wait for it to finish, then run cleanup again.",
+          retryable: true,
+        });
+      }
       if (outcome.kind === "failed") {
         return vmErrorResponse({
           error: "vm_hygiene_failed",

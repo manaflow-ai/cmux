@@ -6,6 +6,8 @@ import { machineHygieneCommand } from "./command";
 
 /** Long enough for du over a large home; the route's maxDuration covers it. */
 export const MACHINE_HYGIENE_TIMEOUT_MS = 180_000;
+/** cmux-machine-hygiene's exit code when another --apply run holds its lock. */
+export const MACHINE_HYGIENE_BUSY_EXIT = 4;
 
 export type MachineHygieneItem = {
   readonly category: string;
@@ -29,6 +31,8 @@ export type MachineHygieneOutcome =
   | { readonly kind: "report"; readonly report: MachineHygieneReport }
   /** Cleanup never wakes a machine; the caller resumes it first. */
   | { readonly kind: "not-running"; readonly status: string }
+  /** Another --apply run on this machine holds the script's lock. */
+  | { readonly kind: "busy" }
   | { readonly kind: "failed"; readonly exitCode: number; readonly detail: string };
 
 const ACTIONS = new Set(["would-delete", "deleted", "skipped"]);
@@ -92,6 +96,7 @@ export function runMachineHygiene(input: {
       timeoutMs: MACHINE_HYGIENE_TIMEOUT_MS,
       providerMetadata: vm.providerMetadata,
     });
+    if (result.exitCode === MACHINE_HYGIENE_BUSY_EXIT) return { kind: "busy" } satisfies MachineHygieneOutcome;
     const report = result.exitCode === 0
       ? parseMachineHygieneReport(result.stdout, input.apply ? "apply" : "dry-run")
       : null;
