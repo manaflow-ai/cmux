@@ -71,15 +71,52 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     public typealias Failure = Never
 
     private let emit: @MainActor @Sendable () -> Element
+    /// Set by `current(_:)`: the tracking armed by the evaluation it returned, and that value.
+    private let primed: Primed?
+
+    fileprivate struct Primed: Sendable {
+        let state: ChangeState
+        let value: Element
+        /// The primed tracking serves one iterator; a later one starts unprimed.
+        let once = OneShot()
+    }
+
+    fileprivate final class OneShot: Sendable {
+        private let taken = Mutex(false)
+        /// True the first time only.
+        func take() -> Bool { taken.withLock { taken in defer { taken = true }; return !taken } }
+    }
 
     /// Makes a sequence of the values of `emit`. `emit` runs on the main actor
     /// once when iteration starts and once after each change of an observable
     /// value that it read.
     public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
         self.emit = emit
+        primed = nil
+    }
+
+    private init(_ emit: @escaping @MainActor @Sendable () -> Element, primed: Primed) {
+        self.emit = emit
+        self.primed = primed
+    }
+
+    /// Evaluates `emit` now, on the main actor, with tracking, and returns that value with the
+    /// stream of the later values: its first `next()` waits for a change of what this evaluation
+    /// read. For a consumer that applies the first value in its own turn (the first frame), so
+    /// the value is computed once, not again by the stream's first `next()`. The first iterator
+    /// gets the primed tracking; another starts as a plain stream. Always the
+    /// `withObservationTracking` path (also with the native opt-in).
+    @MainActor
+    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
+        let state = ChangeState()
+        let value = LegacyIterator.track(emit, state: state)
+        return (value, ObservationStream(emit, primed: Primed(state: state, value: value)))
     }
 
     public func makeAsyncIterator() -> Iterator {
+        if let primed, primed.once.take() {
+            return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), isEqual: Self.equality(), last: primed.value)
+        }
         // The system-iterator path (NativeIterator) traps at launch on macOS 27
         // (exit 133); every OS uses the withObservationTracking path until it is fixed.
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
@@ -115,10 +152,11 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
             self.isEqual = isEqual
         }
 
-        fileprivate init(legacy: LegacyIterator, isEqual: (@Sendable (Element, Element) -> Bool)?) {
+        fileprivate init(legacy: LegacyIterator, isEqual: (@Sendable (Element, Element) -> Bool)?, last: Element? = nil) {
             native = nil
             self.legacy = legacy
             self.isEqual = isEqual
+            self.last = isEqual == nil ? nil : last
         }
 
         public mutating func next(isolation iteratorIsolation: isolated (any Actor)? = #isolation) async -> Element? {
@@ -161,11 +199,20 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// The macOS 14 and 15 iterator (see the type comment).
     fileprivate struct LegacyIterator {
         private var emit: (@MainActor @Sendable () -> Element)?
-        private let state = ChangeState()
-        private var started = false
+        private let state: ChangeState
+        private var started: Bool
 
         init(emit: @escaping @MainActor @Sendable () -> Element) {
             self.emit = emit
+            state = ChangeState()
+            started = false
+        }
+
+        /// An iterator whose first evaluation already ran with `state`'s tracking (`current(_:)`).
+        init(emit: @escaping @MainActor @Sendable () -> Element, state: ChangeState) {
+            self.emit = emit
+            self.state = state
+            started = true
         }
 
         mutating func next(isolation iteratorIsolation: isolated (any Actor)?) async -> Element? {
@@ -195,7 +242,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// is the hop to the main actor (no hop when the iterator already runs
         /// there, as with the system type).
         @MainActor
-        private static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
+        static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
             withObservationTracking {
                 emit()
             } onChange: { [state] in

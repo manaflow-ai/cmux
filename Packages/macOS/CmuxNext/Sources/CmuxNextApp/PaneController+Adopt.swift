@@ -7,6 +7,9 @@ extension PaneController {
     /// its tabs, so focus waited for a daemon surface the strip never listed.
     func adopt(_ model: PaneModel) {
         guard model !== pane else { return }
+        #if DEBUG
+        DebugLayoutCounters.note("pane adopt", #fileID, #line)
+        #endif
         pane = model
         observe()
     }

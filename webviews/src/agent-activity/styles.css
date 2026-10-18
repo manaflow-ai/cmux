@@ -437,6 +437,20 @@ section h3 {
   background: var(--activity-well);
 }
 
+/* Hook updates move a row between priority buckets. Keep the motion short and
+   transform-only so a burst of session_changed events never reflows the list. */
+@media (prefers-reduced-motion: no-preference) {
+  .lane[data-priority-revision] {
+    animation: priority-lane-bounce 180ms cubic-bezier(.2,.8,.2,1);
+  }
+}
+
+@keyframes priority-lane-bounce {
+  0% { transform: translateY(-3px); }
+  65% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+
 .lane-dot {
   width: 7px;
   height: 7px;
