@@ -261,11 +261,7 @@ struct WindowRegistry: Equatable, Sendable {
     }
 
     /// Window `id` was ordered in behind the app's other windows.
-    mutating func moveToBack(_ id: String) {
-        guard window(id) != nil else { return }
-        recency.removeAll { $0 == id }
-        recency.append(id)
-    }
+    mutating func moveToBack(_ id: String) { if window(id) != nil { recency.removeAll { $0 == id }; recency.append(id) } }
 
     mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }

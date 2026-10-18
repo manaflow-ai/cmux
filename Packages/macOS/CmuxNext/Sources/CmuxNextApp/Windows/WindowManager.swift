@@ -106,10 +106,7 @@ final class WindowManager {
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
     private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
-        registry.apply { registry in
-            if inFront { registry.activate(id) } else { registry.moveToBack(id) }
-            return WindowRegistry.Changes()
-        }
+        registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
 
     var active: WindowController? {

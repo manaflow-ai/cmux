@@ -49,9 +49,7 @@ enum WindowInvariants {
             }),
             "recency": .array(value.recency.map(JSONValue.string)),
             // The window server's order of the shown windows: a debug read (the app keeps `recency`).
-            "z_order": .array(NSApp.orderedWindows.compactMap { window in
-                manager.controllers.first { $0.window === window }.map { JSONValue.string($0.state.id) }
-            }),
+            "z_order": .array(NSApp.orderedWindows.compactMap { w in manager.controllers.first { $0.window === w }.map { .string($0.state.id) } }),
             "launch_window": manager.launchWindowID.map(JSONValue.string) ?? .null,
             "controllers": .number(Double(manager.controllers.count)),
             "problems": .array(problems.map(JSONValue.string)),
