@@ -151,6 +151,19 @@ import Testing
         #expect(h.resolutions > 0)
     }
 
+    @Test func aSavedReceiptNeverBecomesPermissionToDispatchAgain() async throws {
+        let h = Harness(); let input = try h.retained()
+        h.ledger.rows[input.key] = try .init(intent: input, receipt: h.owner.receipt(.codex))
+        let (actions, registry) = h.make()
+        h.owner.outcome = "exited"
+        await actions.refresh()
+        #expect(actions.state.arrayValue?.first?["exit_code"] == 23)
+        await actions.refresh()
+        _ = try await actions.resumeRetained(key: input.key, context: gesture(), registry: registry)
+        #expect(actions.state.arrayValue?.first?["state"] == "exited")
+        #expect(h.resolutions == 0 && h.owner.starts.isEmpty)
+    }
+
     @Test func withdrawnAndForeignSessionsCannotSelectAReplacement() async throws {
         let h = Harness()
         let foreign = try AgentCLIUpdateIntent(key: "original-intent", rootKey: "original-root", machine: h.owner.machine,
