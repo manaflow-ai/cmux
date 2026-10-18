@@ -151,16 +151,20 @@ pub(crate) fn setting_snapshot() -> Option<String> {
 
 /// The level a new chat starts at: the latest pick (config.json
 /// `lastPermissionMode`) while the cmux setting is what it was at the pick
-/// (`picked_under`), else `DefaultMode::resolve`. The person's latest
-/// choice wins, whether it is a pick in a chat or a change to the setting.
+/// (`picked_under`, `""` for no setting), else `DefaultMode::resolve`. The
+/// person's latest choice wins, whether it is a pick in a chat or a change to
+/// the setting. A pick saved before acpmux recorded the setting beside it
+/// (`picked_under` absent) wins; `Hub::start_level` records the setting then.
 fn start_level(
     picked: Option<&str>,
     picked_under: Option<&str>,
     configured: Option<&str>,
 ) -> (DefaultMode, Source) {
-    let pick = picked.and_then(DefaultMode::parse);
-    match pick {
-        Some(level) if configured.is_some() || setting_snapshot().as_deref() == picked_under => {
+    let current = setting_snapshot().unwrap_or_default();
+    match picked.and_then(DefaultMode::parse) {
+        Some(level)
+            if configured.is_some() || picked_under.is_none_or(|under| under == current) =>
+        {
             (level, Source::Pick)
         }
         _ => DefaultMode::resolve(configured),
@@ -304,7 +308,7 @@ impl Hub {
 
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
-        let (picked, picked_under, configured) = {
+        let (picked, mut picked_under, configured) = {
             let cfg = self.config.read().await;
             (
                 cfg.last_permission_mode.clone(),
@@ -312,6 +316,19 @@ impl Hub {
                 cfg.default_permission_mode.clone(),
             )
         };
+        // A pick from before the setting was recorded beside it (an upgrade):
+        // record the setting as it is now, so a later change still wins.
+        if picked.is_some() && picked_under.is_none() {
+            let now = setting_snapshot().unwrap_or_default();
+            let mut cfg = self.config.write().await;
+            if cfg.last_permission_mode == picked && cfg.last_permission_mode_setting.is_none() {
+                cfg.last_permission_mode_setting = Some(now.clone());
+                if let Err(e) = cfg.save() {
+                    tracing::warn!("permission pick's setting not saved to config.json: {e}");
+                }
+            }
+            picked_under = cfg.last_permission_mode_setting.clone();
+        }
         start_level(picked.as_deref(), picked_under.as_deref(), configured.as_deref())
     }
 
@@ -427,8 +444,9 @@ impl Hub {
         }
         let family = crate::web_modes::family_of(&meta);
         let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
-        // The setting as it is now, so a later change to it wins over this pick.
-        let setting = setting_snapshot();
+        // The setting as it is now ("" for none), so a later change to it wins
+        // over this pick.
+        let setting = Some(setting_snapshot().unwrap_or_default());
         let mut cfg = self.config.write().await;
         if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;
