@@ -242,13 +242,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:has(:focus-visible)) > .acpmux-composer-strip,
-.nt-composer:has(.nt-box:has(:focus-visible)) .acpmux-composer-strip {
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:has(:focus-visible)) > .acpmux-composer-queue {
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
