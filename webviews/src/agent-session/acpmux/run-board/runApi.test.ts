@@ -155,6 +155,19 @@ describe("Run API client", () => {
     ]);
   });
 
+  test("rejects Huge Blue before sending a request while its adapter is fail-closed", async () => {
+    let calls = 0;
+    const client = createRunApiClient({ fetch: async () => { calls += 1; return new Response("{}", { status: 500 }); } });
+    await expect(client.createRun({
+      source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40), setupManifestDigest: `sha256:${"b".repeat(64)}` },
+      recipe: "parallel-review",
+      desiredAttempts: 1,
+      routing: { requestedProvider: "huge-blue" },
+      variants: [{ id: "focus", label: "Focus", instruction: "Use a quiet canvas." }],
+    }, "huge-blue-key")).rejects.toMatchObject({ status: 409, code: "provider_not_enabled" });
+    expect(calls).toBe(0);
+  });
+
   test("reports HTTP error codes for reconnect policy", async () => {
     const client = createRunApiClient({
       fetch: async () => new Response(JSON.stringify({ error: "run_cursor_stale", message: "expired" }), { status: 409 }),
@@ -209,7 +222,10 @@ describe("Run API client", () => {
       "sha256:2ce92d4f044067d0ce82d8197bc750b0aba820b46ac596776b19aa6fe07503fd",
       "sha256:30709e6b5fc02a39d78e81485de0ae4356ab4af843ea7c2d95af318c3b1976e5",
     ]);
-    expect(wire.variants.every((variant: Record<string, unknown>) => !("instruction" in variant))).toBe(true);
+    expect(wire.variants.map((variant: Record<string, unknown>) => variant.instruction)).toEqual([
+      "Lead with project cards.",
+      "Lead with a quiet canvas.",
+    ]);
     expect(requests[3]?.idempotency).toBe("promote-key");
   });
 });
