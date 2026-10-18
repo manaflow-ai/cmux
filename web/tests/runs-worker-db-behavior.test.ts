@@ -26,10 +26,10 @@ async function fixture(input: { readonly attempts?: number; readonly maxConcurre
   const attemptIds = Array.from({ length: input.attempts ?? 1 }, () => randomUUID());
   cleanupRunIds.push(runId);
   await db`
-    insert into runs (id, user_id, owner_team_id, request_digest, source, spec, recipe, desired_attempts, max_concurrent, status)
+    insert into runs (id, user_id, owner_team_id, request_digest, source, spec, recipe, desired_attempts, status)
     values (${runId}::uuid, ${`worker-test-${runId}`}, ${`team-${runId}`}, 'sha256:worker-test', '{}'::jsonb,
       ${JSON.stringify({ schema: "cmux.run/v1", resources: { maxConcurrent: input.maxConcurrent ?? 1 } })}::jsonb,
-      'worker-test', ${attemptIds.length}, ${input.maxConcurrent ?? 1}, 'queued')
+      'worker-test', ${attemptIds.length}, 'queued')
   `;
   for (const [ordinal, attemptId] of attemptIds.entries()) {
     await db`

@@ -83,6 +83,12 @@ export async function claimNextRunAttempt(input: {
         ${input.ownerTeamId ? sql`and r.owner_team_id = ${input.ownerTeamId}` : sql``}
         and a.cancel_requested_at is null
         and (
+          select count(*) from run_attempts active
+          where active.run_id = a.run_id
+            and active.status = 'running'
+            and active.lease_until > ${now}
+        ) < coalesce(nullif(r.spec #>> '{resources,maxConcurrent}', '')::integer, 1)
+        and (
           a.status = 'queued'
           or (a.status = 'running' and (a.lease_until is null or a.lease_until <= ${now}))
         )
@@ -110,7 +116,7 @@ export async function claimNextRunAttempt(input: {
             where active.run_id = a.run_id
               and active.status = 'running'
               and active.lease_until > ${now}
-          ) < r.max_concurrent
+          ) < coalesce(nullif(r.spec #>> '{resources,maxConcurrent}', '')::integer, 1)
           and (
             a.status = 'queued'
             or (a.status = 'running' and (a.lease_until is null or a.lease_until <= ${now}))
@@ -175,6 +181,34 @@ export async function renewRunAttemptLease(input: {
         and status = 'running' and lease_id = ${input.leaseId}::uuid
         and lease_until > ${now}
         and cancel_requested_at is null
+      returning id
+    `) as readonly Record<string, unknown>[];
+    return rows.length > 0;
+  });
+}
+
+/** Persist provider progress while retaining the same lease fence. */
+export async function checkpointRunAttempt(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseId: string;
+  readonly checkpoint: Record<string, unknown>;
+  readonly cleanupState?: string | null;
+  readonly retainedUntil?: Date | null;
+  readonly now?: Date;
+}): Promise<boolean> {
+  const now = input.now ?? new Date();
+  return await cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run:${input.runId}`}, 0))`);
+    const rows = await tx.execute(sql`
+      update run_attempts
+      set checkpoint = ${JSON.stringify(input.checkpoint)}::jsonb,
+          cleanup_state = coalesce(${input.cleanupState ?? null}, cleanup_state),
+          retained_until = coalesce(${input.retainedUntil ?? null}, retained_until),
+          updated_at = ${now}
+      where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
+        and status = 'running' and lease_id = ${input.leaseId}::uuid
+        and lease_until > ${now} and cancel_requested_at is null
       returning id
     `) as readonly Record<string, unknown>[];
     return rows.length > 0;
