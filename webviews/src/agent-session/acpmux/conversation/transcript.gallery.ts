@@ -324,6 +324,42 @@ const CHIP_HOST = {
   },
 };
 
+const completedFooterSnapshot = chat([
+  user(prompt, 30),
+  assistant(MARKDOWN_MIX, 29),
+  summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
+]);
+
+const footerActionsPlacement = (placement: "left" | "right") => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => {
+    const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+    const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
+    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches =
+      placement === "right"
+        ? datasetPlacement === undefined
+        : datasetPlacement === placement;
+    return (
+      datasetMatches &&
+      group !== null &&
+      group.querySelector('button[aria-label="Copy"]') !== null &&
+      group.querySelector('button[aria-label="Retry"]') !== null
+    );
+  });
+  const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
+  const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+  const copy = group?.querySelector('button[aria-label="Copy"]');
+  const retry = group?.querySelector('button[aria-label="Retry"]');
+  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  await ctx.focus({ selector: 'button[aria-label="Copy"]' });
+  const footerBox = footer.getBoundingClientRect();
+  const groupBox = group.getBoundingClientRect();
+  const footerMid = (footerBox.left + footerBox.right) / 2;
+  const groupMid = (groupBox.left + groupBox.right) / 2;
+  if (placement === "left" ? groupMid >= footerMid : groupMid <= footerMid)
+    throw new Error(`turn footer actions are not ${placement}-aligned`);
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -378,11 +414,19 @@ export default agentPaneEntry({
   variants: {
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
-      snapshot: chat([
-        user(prompt, 30),
-        assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
-      ]),
+      snapshot: completedFooterSnapshot,
+    },
+    "footer-actions-left": {
+      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      theme: { turnActionsPlacement: "left" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("left"),
+    },
+    "footer-actions-right": {
+      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      theme: { turnActionsPlacement: "right" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("right"),
     },
     "github-references": {
       note: "Issue and pull request references link in prose while code stays untouched.",

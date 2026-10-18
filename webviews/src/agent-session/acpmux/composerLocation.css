@@ -222,7 +222,8 @@
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 10px;
-  min-height: 48px;
+  /* Measured rail: one 28px control with 7px above and below (28 + 7 + 7 = 42). */
+  min-height: 42px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
   padding-block: 4px;
