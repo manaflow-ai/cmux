@@ -3,7 +3,8 @@ import { useSyncExternalStore } from "react";
 /// Chat features being tried out (Lucas 2026-10-18: generative UI and chat parity), each its own
 /// switch and off by default, so today's chat is untouched until one is turned on:
 /// - `liveRender`: render pages run on their own, can talk back to the chat (window.cmux), take
-///   React components, and draw on the dev server too (conversation/RenderCard.tsx).
+///   components, preview pages while they are written, and draw on the dev server too
+///   (conversation/RenderCard.tsx, conversation/RenderPreview.tsx).
 /// - `contextMeter`: show the context ring beside the model, with its token details.
 /// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
 /// - `copyTurn`: copy a prompt and its final answer together as Markdown.
