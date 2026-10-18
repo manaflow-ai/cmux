@@ -66,6 +66,7 @@ on:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       - .github/workflows/cmux-vm.yml
   push:
     # Lane branches deploy the preview Worker (decision V6). The preview
@@ -77,6 +78,7 @@ on:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       - .github/workflows/cmux-vm.yml
   workflow_dispatch:
     inputs:

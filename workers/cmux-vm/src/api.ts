@@ -28,6 +28,7 @@ import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
 import { CreatedByCaller } from "./api/common.ts";
+import { VmInstanceIdentity } from "./api/instance-identity.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -314,6 +315,12 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
     .annotateContext(describe(summary, "vm:write", details));
 
 export class VmsGroup extends HttpApiGroup.make("vms")
+  .add(
+    HttpApiEndpoint.get("getVmInstanceIdentity", "/v1/vms/:vmId/identity")
+      .setPath(VmPath).setHeaders(TeamHeaders).addSuccess(VmInstanceIdentity)
+      .addError(NotFound).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM allocation's instance fingerprint", "vm:read", "Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. This reads the ownership record, not the guest: it does not prove liveness or grant access. A binding owner must still validate the guest signature, a single-use nonce and its current epoch.")),
+  )
   .add(
     HttpApiEndpoint.post("retireVm", "/v1/vms/:vmId/retire")
       .setPath(VmPath).setHeaders(TeamHeaders).addSuccess(RetiredVm)

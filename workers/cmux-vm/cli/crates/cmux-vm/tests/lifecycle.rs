@@ -1593,3 +1593,44 @@ async fn file_stat_round_trips_numeric_and_unknown_modification_times() {
         assert_eq!(json_stdout(&out), stat);
     }
 }
+
+#[tokio::test]
+async fn identity_reads_the_exact_public_allocation_for_json_and_humans() {
+    let server = MockServer::start().await;
+    let receipt = json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/identity")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "identity", VM_ID]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), receipt);
+    let human = cli(&server, &["identity", VM_ID]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("sha256-v1"));
+    assert!(human.stdout.contains(&"a".repeat(64)));
+}
+
+#[tokio::test]
+async fn identity_refuses_foreign_or_unrecognized_receipts_without_retry() {
+    for receipt in [
+        json!({"id": "vm_00000000000000000000000000", "scheme": "sha256-v1", "fingerprint": "a".repeat(64)}),
+        json!({"id": VM_ID, "scheme": "other", "fingerprint": "a".repeat(64)}),
+        json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "invalid"}),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/identity")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "identity", VM_ID]).await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}

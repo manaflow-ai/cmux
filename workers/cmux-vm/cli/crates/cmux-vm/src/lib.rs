@@ -84,6 +84,8 @@ enum Command {
     Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
+    /// Show the canonical allocation fingerprint (does not query or wake the guest)
+    Identity(VmArg),
     /// List the team's VMs
     List(ListArgs),
     /// Start a stopped VM
@@ -523,6 +525,20 @@ async fn dispatch(
         Command::Start(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
             out.vm(&vm)
+        }
+        Command::Identity(VmArg { vm_id }) => {
+            let id = vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            let body = fetch_body(client.vms_get_vm_instance_identity(id.as_str(), None)).await?;
+            let receipt: serde_json::Value = serde_json::from_slice(&body)
+                .map_err(|_| CliError::unexpected("the VM instance identity is unconfirmed"))?;
+            if receipt["id"] != id.as_str() || receipt["scheme"] != "sha256-v1" {
+                return Err(CliError::unexpected(
+                    "the VM instance identity is unconfirmed",
+                ));
+            }
+            out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;

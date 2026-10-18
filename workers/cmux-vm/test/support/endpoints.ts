@@ -17,6 +17,7 @@ export interface VmEndpointCase {
 }
 
 export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
+  { name: "getVmInstanceIdentity", method: "GET", template: "/v1/vms/{vmId}/identity", path: (id) => `/v1/vms/${id}/identity`, scope: "vm:read" },
   { name: "statFile", method: "GET", template: "/v1/vms/{vmId}/files/stat", path: (id) => `/v1/vms/${id}/files/stat?path=%2Fsrv%2Fteam`, scope: "vm:files" },
   { name: "retireVm", method: "POST", template: "/v1/vms/{vmId}/retire", path: (id) => `/v1/vms/${id}/retire`, scope: "vm:write" },
   { name: "resizeVm", method: "POST", template: "/v1/vms/{vmId}/resize", path: (id) => `/v1/vms/${id}/resize`, scope: "vm:write", json: { resources: { vcpus: 8 } } },

@@ -53,6 +53,22 @@ not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.
 
 ## VM lifecycle (S2)
 
+`GET /v1/vms/{vmId}/identity` returns `{ id, scheme: "sha256-v1", fingerprint }`
+under the existing `vm:read` scope and current resource restrictions. The
+fingerprint is lowercase SHA-256 of UTF-8 `cmux-vm-instance-v1`, a newline,
+then the exact guest instance ID. The canonical identity comes from the
+ownership record; its private ID is never returned. Power changes keep it;
+a new allocation changes it. No provider request or guest wake is needed.
+This identifies an allocation; it proves neither liveness nor access rights.
+`cmux-vm identity VM_ID --json` exposes the same receipt.
+
+The TeamVmDO bind runner can compare the guest's signed identity through a
+driver-supplied API verifier while retaining its single-use nonce, ES256
+signature, deadline and current-epoch checks. The API verifier checks the
+exact public VM and scheme before comparing fingerprints. Legacy drivers
+retain direct instance equality. Actual TeamVmDO transport selection remains
+a separate migration; this endpoint does not switch existing resources.
+
 The provider has no stop, resume or fork, so: `start` is the provider's start
 (boots a stopped VM, resumes a paused one); `resume` is start of a paused VM
 only (409 otherwise); `stop` runs `poweroff` in the guest; `fork` is snapshot,

@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a VM allocation's instance fingerprint
+         * @description Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. This reads the ownership record, not the guest: it does not prove liveness or grant access. A binding owner must still validate the guest signature, a single-use nonce and its current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["vms.getVmInstanceIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/retire": {
         parameters: {
             query?: never;
@@ -861,13 +881,13 @@ export interface components {
             _tag: "symbol";
             key: string;
         };
-        RetiredVm: {
+        VmInstanceIdentity: {
             /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             /** @enum {string} */
-            state: "paused" | "stopped";
-            /** @enum {boolean} */
-            retired: true;
+            scheme: "sha256-v1";
+            /** @description a string matching the pattern ^[0-9a-f]{64}$ */
+            fingerprint: string;
         };
         Unauthorized: {
             message: string;
@@ -903,6 +923,14 @@ export interface components {
          * @description an integer
          */
         Int: number;
+        RetiredVm: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @enum {string} */
+            state: "paused" | "stopped";
+            /** @enum {boolean} */
+            retired: true;
+        };
         /** @description Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM. */
         ResizeVmRequest: {
             resources: components["schemas"]["ResizeVmResources"];
@@ -1620,6 +1648,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+        };
+    };
+    "vms.getVmInstanceIdentity": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmInstanceIdentity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmInstanceIdentity"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };

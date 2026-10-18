@@ -22,6 +22,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
@@ -37,6 +38,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts

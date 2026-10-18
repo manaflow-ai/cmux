@@ -39,6 +39,116 @@
         "summary": "Liveness check; no credentials needed"
       }
     },
+    "/v1/vms/{vmId}/identity": {
+      "get": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.getVmInstanceIdentity",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmInstanceIdentity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmInstanceIdentity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. This reads the ownership record, not the guest: it does not prove liveness or grant access. A binding owner must still validate the guest signature, a single-use nonce and its current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read a VM allocation's instance fingerprint"
+      }
+    },
     "/v1/vms/{vmId}/retire": {
       "post": {
         "tags": [
@@ -6477,12 +6587,12 @@
           }
         ]
       },
-      "RetiredVm": {
+      "VmInstanceIdentity": {
         "type": "object",
         "required": [
           "id",
-          "state",
-          "retired"
+          "scheme",
+          "fingerprint"
         ],
         "properties": {
           "id": {
@@ -6490,18 +6600,16 @@
             "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
-          "state": {
+          "scheme": {
             "type": "string",
             "enum": [
-              "paused",
-              "stopped"
+              "sha256-v1"
             ]
           },
-          "retired": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
+          "fingerprint": {
+            "type": "string",
+            "description": "a string matching the pattern ^[0-9a-f]{64}$",
+            "pattern": "^[0-9a-f]{64}$"
           }
         },
         "additionalProperties": false
@@ -6648,6 +6756,35 @@
         "type": "integer",
         "description": "an integer",
         "title": "int"
+      },
+      "RetiredVm": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "retired"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "paused",
+              "stopped"
+            ]
+          },
+          "retired": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "ResizeVmRequest": {
         "type": "object",

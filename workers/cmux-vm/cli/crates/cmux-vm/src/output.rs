@@ -85,6 +85,21 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn identity(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmInstanceIdentity = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["id", "scheme", "fingerprint"] {
+            self.line(&format!(
+                "{field:<13}{}",
+                value[field].as_str().unwrap_or_default()
+            ))?;
+        }
+        Ok(())
+    }
+
     pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

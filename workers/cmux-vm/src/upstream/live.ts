@@ -12,6 +12,7 @@ import { makeUpstreamHttp } from "./live-http.ts";
 import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
 import { makeStatFile } from "./live-file-stat.ts";
+import { vmInstanceIdentity } from "./live-identity.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
@@ -206,6 +207,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    ...vmInstanceIdentity,
     resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
       const current = yield* getVmById("resizeVm", id);
       if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {

@@ -29,6 +29,11 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
 
         // The honest call compiles.
         yield* upstream.getVm(a, { owns: ownsA, scope: read });
+        yield* upstream.instanceFingerprint(a, { owns: ownsA, scope: read });
+        // @ts-expect-error ownership of A cannot disclose B's canonical identity
+        yield* upstream.instanceFingerprint(b, { owns: ownsA, scope: read });
+        // @ts-expect-error write scope alone does not grant identity reads
+        yield* upstream.instanceFingerprint(a, { owns: ownsA, scope: write });
 
         // @ts-expect-error no proofs at all
         yield* upstream.getVm(a);

@@ -13,6 +13,8 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { retireVm } from "./retire.ts";
+import { VmInstanceIdentity } from "../api/instance-identity.ts";
+import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent } from "./idempotency.ts";
@@ -454,6 +456,11 @@ const listVms = (params: {
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
+    .handle("getVmInstanceIdentity", ({ path }) => withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) => Effect.gen(function* () {
+      const upstream = yield* UpstreamClient;
+      const fingerprint = yield* upstream.instanceFingerprint(vm, proofs);
+      return new VmInstanceIdentity({ id: vm.value, scheme: INSTANCE_IDENTITY_SCHEME, fingerprint });
+    })))
     .handle("retireVm", ({ path }) => audited("vm.retire", auditableVmId(path.vmId), retireVm(path.vmId)))
     .handle("getVm", ({ path }) =>
       withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) =>

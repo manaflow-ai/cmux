@@ -106,6 +106,8 @@ export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Identifies this exact canonical allocation, without exposing its private provider ID. */
+  readonly instanceFingerprint: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> }) => Effect.Effect<string>;
   /** Reads saved-disk metadata without running guest code, including when retired. */
   readonly statFile: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:files"> }, path: string) => Effect.Effect<FileStatRecord, UpstreamError>;
   /** Irreversibly fences this owned VM; success requires a confirmed zero budget and no running compute. */
