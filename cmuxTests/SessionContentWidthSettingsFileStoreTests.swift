@@ -103,12 +103,15 @@ struct SessionContentWidthSettingsFileStoreTests {
         #expect(Layout.maxTabWidth(defaults: defaults) == Layout.defaultMaxTabWidth)
         #expect(Layout.height(defaults: defaults) == Layout.defaultHeight)
 
+        try #"{"surfaceTabBar":{"widthMode":"fill","maxTabWidth":300,"height":32}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
         try #"{"surfaceTabBar":{"widthMode":"wide","maxTabWidth":10,"height":200}}"#
             .write(to: settingsFileURL, atomically: true, encoding: .utf8)
         store.reload()
-        #expect(Layout.widthMode(defaults: defaults) == .fixed)
-        #expect(Layout.maxTabWidth(defaults: defaults) == Layout.defaultMaxTabWidth)
-        #expect(Layout.height(defaults: defaults) == Layout.defaultHeight)
+        #expect(Layout.widthMode(defaults: defaults) == .fill)
+        #expect(Layout.maxTabWidth(defaults: defaults) == 300)
+        #expect(Layout.height(defaults: defaults) == 32)
     }
 
     /// Runs off the main actor on purpose: Swift Testing's cooperative threads

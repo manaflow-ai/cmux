@@ -89,6 +89,8 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
 
         let workspace = Workspace(title: "Tests")
         defer { workspace.teardownAllPanels() }
+        // Settle colors and font first so the second apply can only change through layout.
+        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout")
         var appearance = workspace.bonsplitController.configuration.appearance
         XCTAssertEqual(appearance.tabWidthMode, .fixed)
         XCTAssertEqual(appearance.tabMaxWidth, Layout.defaultMaxTabWidth)
