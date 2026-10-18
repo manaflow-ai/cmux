@@ -5,14 +5,18 @@ For each scenario folder (left-1, left-2, right-1, right-2) it reads the
 window frames and reports:
 
   camera   the strip camera's per-frame dx, measured on the terminal prompt
-           line (cross-correlation of the content band), in window points.
+           line (best overlap of the two frames' text), in window points.
+           When the frames share no prompt text, the shift most pill edges
+           agree on (listed as camera_from_pills; a pill check there only
+           compares pills against each other).
   pills    every tab pill edge in the tab bar that was on screen in the
            previous frame must have moved by the camera dx (within 1 px at
            2x, 0.5 pt). A pinned or creeping pill fails. Edges at the strip's
            clip edges are skipped (they are cut, not moved).
-  blank    every column whose prompt line is on screen (at least 30 pt of
+  blank    every column whose prompt text is on screen (at least 20 pt of
            it) must show text there. Columns are placed from the scenario's
-           layout.json and the summed camera dx.
+           layout.json and the summed camera dx; the text's extent in the
+           column comes from a frame where the column rests on screen.
   start    the first frame the camera moved, counted from the frame the key
            landed in (timing.json; without it the recorder's 0.15 s lead).
 
@@ -54,27 +58,43 @@ def panes_of(layout):
 
 
 def camera_dx(a, b, x0, x1, y0, y1, search):
-    """Integer pixel shift d that best maps frame a's content band onto frame b (b[x] ~ a[x - d])."""
-    band_a, band_b = a[y0:y1, x0:x1], b[y0:y1, x0:x1]
-    if np.abs(band_a - band_b).mean() < 0.05:
-        return 0
+    """Integer pixel shift d that best maps frame a's prompt text onto frame b's (b[x] ~ a[x - d]):
+    the highest overlap (IoU) of the two frames' text masks. None when they share too little text."""
+    mask_a, mask_b = a[y0:y1, x0:x1] > 120, b[y0:y1, x0:x1] > 120
+    if not mask_a.any() or not mask_b.any():
+        return None
     width = x1 - x0
-    best, best_d = None, 0
+    best, best_d = 0.0, None
     for d in range(-search, search + 1):
-        if width - abs(d) < 200:
+        if abs(d) >= width:
             continue
         if d >= 0:
-            diff = np.abs(band_b[:, d:] - band_a[:, :width - d])
+            sa, sb = mask_a[:, :width - d], mask_b[:, d:]
         else:
-            diff = np.abs(band_b[:, :width + d] - band_a[:, -d:])
-        # Only columns with content in either frame count, so a blank stretch cannot win.
-        mask = (band_b[:, d:] if d >= 0 else band_b[:, :width + d]) > 90
-        mask |= (band_a[:, :width - d] if d >= 0 else band_a[:, -d:]) > 90
-        if mask.sum() < 40:
+            sa, sb = mask_a[:, -d:], mask_b[:, :width + d]
+        inter = (sa & sb).sum()
+        if inter < 60:
             continue
-        score = (diff * mask).sum() / mask.sum()
-        if best is None or score < best:
-            best, best_d = score, d
+        iou = inter / (sa | sb).sum()
+        if iou > best:
+            best, best_d = iou, d
+    return best_d if best >= 0.5 else None
+
+
+def pill_vote(prev, cur, x0, x1, sign, limit):
+    """The shift most on-screen pill edges agree on (within 2 px), from (lefts, rights) of two
+    frames; only shifts in the scroll's direction (`sign`) up to `limit` pixels."""
+    best, best_d = 0, None
+    for kind in (0, 1):
+        for p in prev[kind]:
+            for c in cur[kind]:
+                d = c - p
+                if d * sign <= 0 or abs(d) > limit:
+                    continue
+                votes = sum(1 for k in (0, 1) for e in cur[k] if x0 + 3 < e < x1 - 3
+                            and any(abs(e - d - q) <= 2 for q in prev[k]))
+                if votes > best:
+                    best, best_d = votes, d
     return best_d
 
 
@@ -96,7 +116,7 @@ def pill_edges(frame, y, x0, x1):
     return lefts, rights
 
 
-def check(directory, layout, lead):
+def check(directory, layout, lead, sign):
     frames = frames_of(directory)
     times = (load_json(os.path.join(directory, "frames.json")) or {}).get("times") or []
     timing = load_json(os.path.join(directory, "timing.json"))
@@ -109,12 +129,20 @@ def check(directory, layout, lead):
     # The prompt line (first cell row) and the pill row (above the tab titles).
     prompt_y0, prompt_y1 = int(38 * S), int(58 * S)
     pill_y = int(7 * S)
-    results = []
-    cumulative = 0.0
     cams = [0.0]
+    sources = ["rest"]
     for i in range(1, len(frames)):
-        d = camera_dx(frames[i - 1], frames[i], x0, x1, prompt_y0, prompt_y1, int(500 * S / 2))
+        d = camera_dx(frames[i - 1], frames[i], x0, x1, prompt_y0, prompt_y1, int(450 * S))
+        source = "text"
+        if d is None:
+            # No shared prompt text (it is cut by the strip's edge): the pills' consensus.
+            d = pill_vote(pill_edges(frames[i - 1], pill_y, x0, x1), pill_edges(frames[i], pill_y, x0, x1), x0, x1,
+                          sign, int(450 * S))
+            source = "pills"
+        if d is None:
+            d, source = 0, "none"
         cams.append(d / S)
+        sources.append(source)
     # Pills: every on-screen edge moves by the camera dx.
     pill_fail = []
     for i in range(1, len(frames)):
@@ -133,21 +161,33 @@ def check(directory, layout, lead):
                 worst = max(worst, miss / S)
         if worst > 0.5 + 1e-6:
             pill_fail.append((i, round(worst, 1)))
-    # Blank: place columns from the layout and the summed camera.
+    # Blank: place columns from the layout and the summed camera. Each column's prompt text
+    # extent comes from a frame where it rests fully on screen (the first or the last).
     panes = window.get("panes") or []
     cells = [p["cell"] for p in panes if p.get("cell")]
+    total = sum(cams)
     blank = []
     unchecked = 0
     checked = 0
-    for i, frame in enumerate(frames):
-        cumulative = sum(cams[1:i + 1])
-        for cell in cells:
-            cx = cell[0] + cumulative
-            a = max(cx + 4, left_pt + 1)
-            b = min(cx + 4 + 150, right_pt - 1, cx + cell[2])
-            if cx + cell[2] <= left_pt or cx >= right_pt:
+    for cell in cells:
+        extent = None
+        for frame, offset in ((frames[0], 0.0), (frames[-1], total)):
+            cx = cell[0] + offset
+            if cx >= left_pt - 6 and cx + cell[2] <= right_pt + 6:
+                band = frame[prompt_y0:prompt_y1, max(0, int(cx * S)):int((cx + cell[2]) * S)]
+                xs = np.nonzero((band > 120).any(axis=0))[0]
+                if len(xs):
+                    extent = (xs[0] / S + max(0, -cx), xs[-1] / S + max(0, -cx))
+                break
+        if extent is None:
+            continue
+        for i, frame in enumerate(frames):
+            cx = cell[0] + sum(cams[1:i + 1])
+            a = max(cx + extent[0], left_pt + 1)
+            b = min(cx + extent[1], right_pt - 1)
+            if b <= a:
                 continue
-            if b - a < 30:
+            if b - a < 20:
                 unchecked += 1
                 continue
             checked += 1
@@ -163,11 +203,12 @@ def check(directory, layout, lead):
         key_t, key_t_late, assumed = lead, lead + 0.01, True
     key_frame = next((i for i, t in enumerate(times) if t >= key_t), None)
     moved = next((i for i in range(1, len(cams)) if abs(cams[i]) >= 0.5), None)
-    total = sum(cams)
     return {
         "frames": len(frames),
         "camera_pt": [round(c, 1) for c in cams],
         "camera_total_pt": round(total, 1),
+        "camera_from_pills": [i for i, src in enumerate(sources) if src == "pills"],
+        "camera_unmeasured": [i for i, src in enumerate(sources) if src == "none"],
         "pill_fail_frames": pill_fail,
         "blank_frames": blank,
         "blank_checked": checked,
@@ -198,7 +239,7 @@ for name in SCENARIOS:
     if not os.path.isdir(directory):
         continue
     layout = load_json(os.path.join(directory, "layout.json")) or fallback
-    result, total = check(directory, layout, lead=0.15)
+    result, total = check(directory, layout, lead=0.15, sign=1 if name.startswith("left") else -1)
     result["layout"] = "scenario" if os.path.exists(os.path.join(directory, "layout.json")) else "chained"
     report[name] = result
     fallback = shifted(layout, total)
@@ -206,7 +247,7 @@ for name in SCENARIOS:
     print(f"{name}: ok={result['ok']} frames={result['frames']} camera_total={result['camera_total_pt']}pt "
           f"start={result['frames_to_motion']} frames after the key (key frame {result['key_frame']}"
           f"{', assumed 0.15 s lead' if result['key_time_assumed'] else ''}) "
-          f"pill_fail={result['pill_fail_frames']} blank={result['blank_frames']} "
+          f"pill_fail={result['pill_fail_frames']} camera_from_pills={result['camera_from_pills']} unmeasured={result['camera_unmeasured']} blank={result['blank_frames']} "
           f"(prompt checks {result['blank_checked']}, unchecked {result['blank_unchecked']}, layout {result['layout']})")
     print(f"  camera dx/frame (pt): {result['camera_pt']}")
 if opts.json:
