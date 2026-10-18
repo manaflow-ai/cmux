@@ -3768,6 +3768,16 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
     "journal_segment_kinds",
 ];
 
+/// Idempotency ledgers: one row per committed mutation, holding its result
+/// for a retry of the same `(origin, mutation_id)`. They grow with every
+/// write (a nightly's `projection_mutations` reached 1 GB of history
+/// results) and are read only by that key, so the open-time check skips them
+/// like journal history and touches their newest row and key instead.
+/// `resource_mutations` is not one of them: it is pruned on open and its
+/// terminal-defaults rows are restored state.
+const MUTATION_LEDGER_TABLES: [&str; 3] =
+    ["mutations", "projection_mutations", "terminal_mutations"];
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3781,7 +3791,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+    let skipped = |table: &str| {
+        JOURNAL_HISTORY_TABLES.contains(&table) || MUTATION_LEDGER_TABLES.contains(&table)
+    };
+    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
@@ -3801,6 +3814,15 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
+    for table in MUTATION_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
     }
     Ok(())
 }

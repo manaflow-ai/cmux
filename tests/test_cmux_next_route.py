@@ -94,7 +94,7 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_shared_module_selects_its_dependents(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextWorkspaceNamingTests"])
+        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"])
         self.assertEqual(result["daemon"], "false")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
