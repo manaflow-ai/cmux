@@ -74,3 +74,11 @@ test("a call whose title is its raw input reads as a label, not JSON", () => {
   expect(status.doing).toContain("app.ts");
   expect(status.doing).not.toContain("{");
 });
+
+test("the working dots are the only running motion: Thinking has no shimmer", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(css).not.toContain("cv-thinking-sweep");
+  expect(css).toMatch(/animation: cv-working-dot 2s /);
+});
