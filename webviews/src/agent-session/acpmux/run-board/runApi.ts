@@ -113,10 +113,10 @@ export type RunAttachTicketMint = {
   runId: string;
   attemptId: string;
   provider: string;
-  providerVmId: string;
-  providerWorkspaceId: string;
-  providerTerminalId: string;
-  expiresAt: string;
+  providerVmId?: string;
+  providerWorkspaceId?: string;
+  providerTerminalId?: string;
+  expiresAt?: string;
 };
 
 export type RunAttachTarget = RunAttachTicketMint & {
