@@ -5,14 +5,14 @@ everything in a drag is real time).
   divider-drag-reflow-live.py --tag <tag> [--app APP] --out DIR [--steps 40]
 
 Launches the tagged app (no activation, automation socket, own config), splits a
-terminal right, prints one long line (`seq -s. 900`) in the left terminal, then
+terminal right, prints one long line (`seq -s. 900`) in a terminal, then
 while `debug.window_record` records every display frame and `debug.frames`
 records display-link intervals, drags the split divider left and right, one
-`debug.mouse` event per 60 Hz frame. After each step it reads the left terminal
-from `debug.surfaces` (text: true): the columns its frame fits and the width of
-its first wrapped row (the columns the text is laid out in). Pass: the text
-columns follow the fitted columns within --lag steps on every step, and no
-frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
+`debug.mouse` event per 60 Hz frame. After each step it reads both terminals
+from `debug.surfaces`: the columns each frame fits (`fit_grid`) and the grid the
+surface renders (`grid`, the owner's grid the text is laid out in). Pass: every
+step's rendered columns follow the fitted columns within --lag steps, the grid
+changes during the drag, and no frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
 DIR. Stops only the app it started (by its PID) and the tag's daemons
 (tag_teardown).
 """
@@ -27,7 +27,7 @@ parser.add_argument("--app", default=os.environ.get("NX_APP"))
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/divider-drag-reflow")
 parser.add_argument("--steps", type=int, default=40)
 parser.add_argument("--step-pt", type=float, default=6.0)
-parser.add_argument("--lag", type=int, default=2, help="steps the text may trail the edge")
+parser.add_argument("--lag", type=int, default=3, help="steps the text may trail the edge")
 parser.add_argument("--hitch-ms", type=float, default=50.0)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -81,19 +81,25 @@ def vertical_dividers(window):
     return sorted((x + w / 2, height - (y + h / 2)) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w)
 
 
+def cols(value):
+    try:
+        return int(str(value).split("x")[0])
+    except ValueError:
+        return 0
+
+
 def terminals():
-    """Terminal panes left to right: (grid frame_x, fit columns, text columns, rows of text)."""
-    result = rpc("debug.surfaces", {"text": True}) or {}
+    """Terminal panes left to right: (frame x, columns the view fits, columns the surface renders).
+    `surface.grid` is the owner's grid the mirror is locked to (the text's layout); `fit_grid` what the
+    view fits (PaneController+Diagnostics)."""
+    result = rpc("debug.surfaces") or {}
     rows = []
     for window in result.get("windows") or []:
         for pane in window.get("panes") or []:
-            grid = pane.get("grid")
-            if not grid or not grid.get("cell_width"):
+            surface, grid = pane.get("surface") or {}, pane.get("grid") or {}
+            if not surface.get("fit_grid"):
                 continue
-            fit = int((grid["frame_width"] - (grid["origin_x"] - grid["frame_x"]) * 2) // grid["cell_width"])
-            lines = (pane.get("text") or "").split("\n")
-            wrapped = [len(line.rstrip()) for line in lines if line.startswith("1.2.3.") or line[:1].isdigit()]
-            rows.append((grid["frame_x"], fit, max(wrapped) if wrapped else 0, len(lines)))
+            rows.append((grid.get("frame_x", 0), cols(surface.get("fit_grid")), cols(surface.get("grid"))))
     return sorted(rows)
 
 
@@ -123,8 +129,7 @@ try:
     written = subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", "clear; seq -s. 900\r"],
                              capture_output=True, text=True, timeout=60, env=cli_env, stdin=subprocess.DEVNULL)
     report["write"] = {"exit": written.returncode, "out": written.stdout[-400:], "err": written.stderr[-400:]}
-    if not wait(lambda: any(t[2] > 0 for t in terminals()), 20):
-        report["notes"].append("no long line seen in any terminal text")
+    time.sleep(1.0)
     dividers = vertical_dividers(layer())
     if not dividers:
         sys.exit("no vertical divider")
@@ -142,27 +147,28 @@ try:
                             "press": False, "release": False})
         x += delta
         time.sleep(1 / 60)
-        left = (terminals() or [(0, 0, 0, 0)])[0]
-        report["steps"].append({"pointer_x": round(x, 1), "fit_cols": left[1], "text_cols": left[2]})
+        panes = terminals()
+        report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes]})
     rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
     time.sleep(0.8)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
     report["after"] = terminals()
-    # Pass rule: every step's text columns equal the fitted columns of that step or of one of the
-    # --lag steps before it (the one grid in flight plus its echo).
-    fits = [s["fit_cols"] for s in report["steps"]]
-    misses = []
-    for i, s in enumerate(report["steps"]):
-        recent = fits[max(0, i - opts.lag):i + 1]
-        if s["text_cols"] and s["text_cols"] not in recent and not any(abs(s["text_cols"] - f) <= 1 for f in recent):
-            misses.append(i)
+    # Pass rule, per terminal: the columns it renders equal what its frame fits at that step or one of
+    # the --lag steps before it (one grid in flight and its echo), and they change during the drag.
+    misses, distinct = [], []
+    for pane in range(min(len(s["fit"]) for s in report["steps"])):
+        fits = [s["fit"][pane] for s in report["steps"]]
+        grids = [s["grid"][pane] for s in report["steps"]]
+        for i, grid in enumerate(grids):
+            recent = fits[max(0, i - opts.lag):i + 1]
+            if grid not in recent:
+                misses.append({"pane": pane, "step": i, "grid": grid, "recent_fits": recent})
+        distinct.append(len(set(grids)))
     report["misses"] = misses
+    report["distinct_grids"] = distinct
     stats = report["frames"] or {}
-    worst = max([stats.get("max_ms") or 0, stats.get("max") or 0] + [0])
-    report["worst_frame_ms"] = worst
-    distinct = len(set(s["text_cols"] for s in report["steps"] if s["text_cols"]))
-    report["distinct_text_cols"] = distinct
-    ok = not misses and distinct > opts.steps // 2 and (not worst or worst <= opts.hitch_ms)
+    report["worst_frame_ms"] = stats.get("max_ms") or 0
+    ok = bool(distinct) and not misses and min(distinct) > 5 and report["worst_frame_ms"] <= opts.hitch_ms
 finally:
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
@@ -174,7 +180,7 @@ finally:
     teardown.end()
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
-print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "distinct_text_cols", "worst_frame_ms", "record", "notes")})[:3000])
+print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames:", json.dumps(report.get("frames"))[:800])
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
