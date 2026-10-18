@@ -124,7 +124,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (once per document).
     case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
-    /// or `dictation.openSettings` with `{permission}`.
+    /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
