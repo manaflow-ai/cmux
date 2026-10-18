@@ -1,9 +1,10 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { usePromptFindReveal } from "./chatFind";
 import { MessageTime } from "./MessageTime";
 import { expandPrompt, PROMPT_LINES, usePromptExpanded } from "./promptCollapse";
+import { ChatSessionContext } from "./viewIdentity";
 
 /// Lab bubble: eight lines until opened, measured again when its width changes (Lucas 2026-10-18).
 export function PromptBubble({
@@ -18,7 +19,8 @@ export function PromptBubble({
   times: boolean;
 }) {
   const t = useT();
-  const open = usePromptExpanded(row.id);
+  const sessionId = useContext(ChatSessionContext);
+  const open = usePromptExpanded(row.id, sessionId);
   const content = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   usePromptFindReveal(row, collapse);
@@ -35,7 +37,7 @@ export function PromptBubble({
     return () => observer.disconnect();
   }, [collapse, text]);
   return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus reveals the prompt's send time
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ui-allow: focus reveals the prompt's send time
     <div className="cv-user__bubble selectable cv-user__bubble--labs" tabIndex={times ? 0 : undefined}>
       {collapse ? (
         <>
@@ -48,7 +50,7 @@ export function PromptBubble({
               className="cv-user__expand"
               aria-expanded={open}
               data-find-skip
-              onClick={() => expandPrompt(row.id, !open)}
+              onClick={() => expandPrompt(row.id, !open, sessionId)}
             >
               {open ? t("shell.showLess") : t("sidebar.showMore")}
             </button>

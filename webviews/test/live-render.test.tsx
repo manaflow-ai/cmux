@@ -1,5 +1,5 @@
 // The live-render lab keeps page requests inside the card until the reader confirms.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -57,9 +57,19 @@ afterAll(() => {
 const sent: string[] = [];
 const prefilled: string[] = [];
 const opened: string[] = [];
+const { ChatSessionContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
 const PAGE = "<title>Interactive page</title><p>Ready</p>";
 
-async function draw(live = true, markdown = `\`\`\`cmux-render\n${PAGE}\n\`\`\``) {
+let testSession = 0;
+beforeEach(() => {
+  testSession++;
+});
+
+async function draw(
+  live = true,
+  markdown = `\`\`\`cmux-render\n${PAGE}\n\`\`\``,
+  sessionId = `live-test-${testSession}`,
+) {
   act(() => root?.unmount());
   document.documentElement.toggleAttribute("data-lab-live-render", false);
   if (live) document.documentElement.setAttribute("data-lab-live-render", "on");
@@ -83,7 +93,9 @@ async function draw(live = true, markdown = `\`\`\`cmux-render\n${PAGE}\n\`\`\``
           },
         }}
       >
-        <Markdown>{markdown}</Markdown>
+        <ChatSessionContext.Provider value={sessionId}>
+          <Markdown>{markdown}</Markdown>
+        </ChatSessionContext.Provider>
       </RenderBridgeContext.Provider>,
     ),
   );
@@ -353,4 +365,248 @@ test("the injected bridge resolves replies and updates its theme style in place"
   } finally {
     child.window.close();
   }
+});
+
+test("card state stays in its session across remounts", async () => {
+  const page = "```cmux-render\n<p>session state</p>\n```";
+  const first = await draw(true, page, "state-a");
+  first.request("state.set", { value: { chosen: "B" } });
+  const second = await draw(true, page, "state-b");
+  second.request("state.get", {});
+  expect(second.replies.at(-1)?.value).toBeNull();
+  const remounted = await draw(true, page, "state-a");
+  remounted.request("state.get", {});
+  expect(remounted.replies.at(-1)?.value).toEqual({ chosen: "B" });
+});
+
+test("Stop survives a virtual remount until Run, and belongs to its session", async () => {
+  const page = "```cmux-render\n<p>stopped page</p>\n```";
+  await draw(true, page, "stop-a");
+  click("Stop");
+  await draw(true, page, "stop-a");
+  expect(host.querySelector("iframe")).toBeNull();
+  click("Run");
+  expect(host.querySelector("iframe")).not.toBeNull();
+  click("Stop");
+  await draw(true, page, "stop-b");
+  expect(host.querySelector("iframe")).not.toBeNull();
+});
+
+test("a live frame shrinks below its loading height", async () => {
+  const card = await draw(true, "```cmux-render\n<p>short page</p>\n```");
+  expect(card.frame!.style.height).toBe("120px");
+  void act(() =>
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        source: card.target,
+        data: { type: "cmux-render-content-size", height: 32 },
+      }),
+    ),
+  );
+  expect(card.frame!.style.height).toBe("48px");
+});
+
+test("untitled tool cards use the page title and component cards use their title comment", async () => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  for (const [html, title] of [
+    ["<title>Plan &amp; effort</title><p>Choose</p>", "Plan & effort"],
+    ["<!-- cmux-react -->\n// title: Plan picker\nfunction App() { return null; }", "Plan picker"],
+  ]) {
+    act(() => root!.render(<RenderCard call={{ html }} />));
+    expect(host.querySelector(".acpmux-render-card-title")?.textContent).toBe(title);
+  }
+});
+
+test("identical cards in a reply keep separate state and stop choices", async () => {
+  await draw();
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+  const page = "```cmux-render\n<p>identical</p>\n```";
+  act(() =>
+    root!.render(
+      <ChatSessionContext.Provider value="two-cards">
+        <TranscriptRowContext.Provider value="reply">
+          <Markdown>{page + "\n\n" + page}</Markdown>
+        </TranscriptRowContext.Provider>
+      </ChatSessionContext.Provider>,
+    ),
+  );
+  const frames = [...host.querySelectorAll("iframe")];
+  expect(frames).toHaveLength(2);
+  const replies: Record<string, unknown>[] = [];
+  for (const frame of frames) frame.contentWindow!.postMessage = (data) => replies.push(data);
+  const request = (index: number, method: string, params: unknown) =>
+    void act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: frames[index]!.contentWindow,
+          data: { type: "cmux-render-request", id: "1", method, params },
+        }),
+      ),
+    );
+  request(0, "state.set", { value: "first" });
+  request(1, "state.get", {});
+  expect(replies.at(-1)?.value).toBeNull();
+  click("Stop");
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+});
+
+test("a tool card keeps state and Stop when its HTML changes under the same row id", async () => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+  const card = (html: string) => (
+    <ChatSessionContext.Provider value="tool-identity">
+      <TranscriptRowContext.Provider value="tool-call-1">
+        <RenderCard call={{ html }} />
+      </TranscriptRowContext.Provider>
+    </ChatSessionContext.Provider>
+  );
+  const mount = (html: string) => {
+    act(() => root!.render(card(html)));
+    const target = host.querySelector("iframe")!.contentWindow;
+    const replies: Record<string, unknown>[] = [];
+    target!.postMessage = (data) => replies.push(data);
+    return (method: string, params: unknown) => {
+      void act(() =>
+        dom.window.dispatchEvent(
+          new dom.window.MessageEvent("message", {
+            source: target,
+            data: { type: "cmux-render-request", id: "1", method, params },
+          }),
+        ),
+      );
+      return replies.at(-1);
+    };
+  };
+  mount("<p>version one</p>")("state.set", { value: { chosen: "B" } });
+  expect(mount("<p>version two</p>")("state.get", {})?.value).toEqual({ chosen: "B" });
+  click("Stop");
+  act(() => root!.render(null));
+  act(() => root!.render(card("<p>version three</p>")));
+  expect(host.querySelector("iframe") === null).toBe(true);
+  click("Run");
+  expect(host.querySelector("iframe") !== null).toBe(true);
+});
+
+test("saved card values evict the oldest entry after 200 cards", async () => {
+  const { renderState, saveRenderState } = await import("../src/agent-session/acpmux/conversation/renderState");
+  for (let index = 0; index < 200; index++) saveRenderState(`bounded-${index}`, index);
+  expect(renderState("bounded-0")).toBe(0);
+  saveRenderState("bounded-200", 200);
+  expect(renderState("bounded-0")).toBeNull();
+  expect(renderState("bounded-1")).toBe(1);
+  expect(renderState("bounded-200")).toBe(200);
+});
+
+test("the live frame reports body content height even when the root has a tall viewport", async () => {
+  const { renderBridgeScript } = await import("../src/agent-session/acpmux/conversation/renderFrameDoc");
+  const child = new JSDOM(renderBridgeScript("light", "body{margin:12px}"));
+  try {
+    const win = child.window;
+    const messages: Record<string, unknown>[] = [];
+    const observers: (() => void)[] = [];
+    let height = 220;
+    Object.defineProperty(win.document.documentElement, "scrollHeight", { get: () => 600 });
+    Object.defineProperty(win.document.body, "scrollHeight", { get: () => height });
+    const observe = class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+    };
+    // oxlint-disable-next-line typescript/no-implied-eval -- Execute the generated frame bridge against its DOM.
+    new Function(
+      "window",
+      "document",
+      "parent",
+      "addEventListener",
+      "ResizeObserver",
+      "getComputedStyle",
+      win.document.querySelector("script")!.textContent,
+    )(
+      win,
+      win.document,
+      { postMessage: (data: Record<string, unknown>) => messages.push(data) },
+      win.addEventListener.bind(win),
+      observe,
+      win.getComputedStyle.bind(win),
+    );
+    win.dispatchEvent(new win.Event("DOMContentLoaded"));
+    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 244 });
+    height = 24;
+    observers.forEach((callback) => callback());
+    expect(messages.at(-1)).toEqual({ type: "cmux-render-content-size", height: 48 });
+  } finally {
+    child.window.close();
+  }
+});
+
+test("the approach demo restores its choice and sends the chosen direction", async () => {
+  const { liveRenderTurn } = await import("../src/agent-session/acpmux/mockFixture");
+  const tool = liveRenderTurn().find((step) => "update" in step && step.update.rawInput)!;
+  const html = ("update" in tool ? (tool.update.rawInput as { html: string }) : undefined)!.html;
+  const child = new JSDOM(html);
+  const choices: unknown[] = [];
+  const prompts: string[] = [];
+  try {
+    // oxlint-disable-next-line typescript/no-implied-eval -- Exercise the agent-authored mock page against its DOM.
+    new Function("document", "cmux", child.window.document.querySelector("script")!.textContent)(
+      child.window.document,
+      {
+        state: {
+          get: async () => ({ chosen: "B" }),
+          set: async (value: unknown) => {
+            choices.push(value);
+          },
+        },
+        sendPrompt: async (text: string) => {
+          prompts.push(text);
+        },
+      },
+    );
+    await Promise.resolve();
+    expect(child.window.document.querySelector('[data-option="B"]')?.getAttribute("aria-pressed")).toBe("true");
+    child.window.document.querySelector<HTMLButtonElement>('[data-option="C"]')!.click();
+    expect(choices).toEqual([{ chosen: "C" }]);
+    expect(prompts).toEqual(["Go with option C: Add a job queue."]);
+    expect(child.window.document.querySelector('[data-option="B"]')?.getAttribute("aria-pressed")).toBe("false");
+  } finally {
+    child.window.close();
+  }
+});
+
+test("the backoff demo slider updates its chart and prefills the chosen values", async () => {
+  await draw();
+  const React = await import("react");
+  const { liveRenderTurn } = await import("../src/agent-session/acpmux/mockFixture");
+  const step = liveRenderTurn().find((step) => "update" in step && step.update.content)!;
+  const markdown = ("update" in step ? (step.update.content as { text: string }) : undefined)!.text;
+  const code = markdown.split("```cmux-react\n")[1]!.split("```")[0]!;
+  const compiled = new Bun.Transpiler({ loader: "jsx", tsconfig: { compilerOptions: { jsx: "react" } } }).transformSync(
+    code,
+  );
+  const drafts: string[] = [];
+  // oxlint-disable-next-line typescript/no-implied-eval -- Exercise the mock component with the pane's actual React runtime.
+  const Demo = new Function("React", "cmux", compiled + "\nreturn App;")(React, {
+    prefill: async (text: string) => {
+      drafts.push(text);
+    },
+  });
+  act(() => root!.render(<Demo />));
+  const bars = () => [...host.querySelectorAll("rect")].map((bar) => bar.getAttribute("height"));
+  const before = bars();
+  const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(slider, "600");
+    slider.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    slider.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  expect(host.querySelector("output")?.textContent).toBe("600 ms");
+  expect(bars()).not.toEqual(before);
+  click("Use these values");
+  expect(drafts).toEqual([
+    "Use exponential retry backoff with a base of 600 ms and delays of 600, 1200, 2400, 4800 ms.",
+  ]);
 });

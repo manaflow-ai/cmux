@@ -168,6 +168,8 @@ import {
   setMessageMenuSource,
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
+import { ChatSessionContext, TranscriptRowContext } from "./conversation/viewIdentity";
+import { usePromptRevision } from "./conversation/promptCollapse";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -806,7 +808,7 @@ const defaultRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
+type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; geometry: object };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
@@ -847,6 +849,7 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
       old.sessionId !== entry.sessionId ||
       old.version !== entry.version ||
       old.width !== entry.width ||
+      old.geometry !== entry.geometry ||
       Math.abs(old.height - entry.height) >= 0.5
     )
       return true;
@@ -1177,22 +1180,31 @@ export function VirtualTranscript({
   const [width, setWidth] = useState(760);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
+  const promptCollapse = useLab("promptCollapse");
+  const promptRevision = usePromptRevision(sessionId ?? "");
+  const collapseRevision = promptCollapse ? promptRevision : 0;
+  // Folding changes estimates and DOM heights, including rows outside the mounted window.
+  const geometry = useMemo(() => ({ promptCollapse, collapseRevision }), [promptCollapse, collapseRevision]);
+  const measuredGeometry = useRef(geometry);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<
-    { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
+    | { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string; geometry: object }
+    | undefined
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
   const measurementSession = useRef(sessionId);
-  if (measurementSession.current !== sessionId) {
+  if (measurementSession.current !== sessionId || measuredGeometry.current !== geometry) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
     // prepared markdown and DOM heights from the old transcript must never place the new one.
+    if (measurementSession.current !== sessionId) measurementCache.current.clear();
     measurementSession.current = sessionId;
-    measurementCache.current.clear();
+    measuredGeometry.current = geometry;
+    lastEstimate.current = undefined;
     rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
   }
@@ -1257,9 +1269,10 @@ export function VirtualTranscript({
           version,
           width: rowWidthRef.current,
           height: drawnHeight,
+          geometry,
         });
     },
-    [sessionId],
+    [sessionId, geometry],
   );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
@@ -1274,6 +1287,7 @@ export function VirtualTranscript({
         sessionId?: string;
         /// A new registry estimates every row again, so nothing is kept.
         registry: NativeRegistry;
+        geometry: object;
         first: number;
         last: number;
       }
@@ -1293,6 +1307,7 @@ export function VirtualTranscript({
           old.sessionId === entry.sessionId &&
           old.version === entry.version &&
           old.width === entry.width &&
+          old.geometry === entry.geometry &&
           Math.abs(old.height - entry.height) < 0.5
         )
           continue;
@@ -1421,11 +1436,14 @@ export function VirtualTranscript({
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
-      !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      !fresh && last && last.width === rowWidth && last.sessionId === sessionId && last.geometry === geometry
+        ? last
+        : undefined,
+      sessionId,
     );
-    lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
+    lastEstimate.current = { rows, layout, width: rowWidth, sessionId, geometry };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth]);
+  }, [rows, registry, sessionId, width, chatWidth, geometry]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -1443,6 +1461,7 @@ export function VirtualTranscript({
       last.width === rowWidth &&
       last.sessionId === sessionId &&
       last.registry === registry &&
+      last.geometry === geometry &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -1470,7 +1489,9 @@ export function VirtualTranscript({
             // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
             (index) => {
               const known = drawn.get(rows[index].id);
-              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
+              return known && known.sessionId === sessionId && known.width === rowWidth && known.geometry === geometry
+                ? known.height
+                : undefined;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
           );
@@ -1481,11 +1502,12 @@ export function VirtualTranscript({
       width: rowWidth,
       sessionId,
       registry,
+      geometry,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width]);
+  }, [estimated, drawn, registry, rows, sessionId, width, geometry]);
   // The scroll range ends a little past where the last row draws: rows sit THREAD_INSET below their
   // layout tops, so a followed view that stopped at the layout's own end hid the last row's bottom
   // 16px and pinned the newest text against the composer (Lucas 2026-10-17); THREAD_END leaves room
@@ -1798,6 +1820,7 @@ export function VirtualTranscript({
   const [, setRevealed] = useState(0);
   // Keyed on what it names, not the match object, which is new on each update while Find is open:
   // a new value would open again every group a reader closed.
+  const promptOccurrence = promptCollapse ? findTarget?.occurrence : undefined;
   const findReveal = useMemo(
     () =>
       drawnId !== undefined && findQuery
@@ -1805,10 +1828,11 @@ export function VirtualTranscript({
             rowId: drawnId,
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
+            occurrence: promptOccurrence,
             repaint: () => setRevealed((count) => count + 1),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery],
+    [drawnId, drawnCard, findQuery, promptOccurrence],
   );
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
@@ -2028,7 +2052,7 @@ export function VirtualTranscript({
   const behind = !seeking && !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
-    <>
+    <ChatSessionContext.Provider value={sessionId ?? ""}>
       <div
         ref={ref}
         className="acpmux-scroll"
@@ -2096,14 +2120,16 @@ export function VirtualTranscript({
                         )
                       }
                     >
-                      <Component
-                        row={row}
-                        onToggleActivity={onToggleActivity}
-                        onOpenDiff={onOpenDiff}
-                        expanded={isExpanded}
-                        controls={controls}
-                        githubRepository={githubRepository}
-                      />
+                      <TranscriptRowContext.Provider value={row.id}>
+                        <Component
+                          row={row}
+                          onToggleActivity={onToggleActivity}
+                          onOpenDiff={onOpenDiff}
+                          expanded={isExpanded}
+                          controls={controls}
+                          githubRepository={githubRepository}
+                        />
+                      </TranscriptRowContext.Provider>
                     </RowFrame>
                   );
                 }),
@@ -2113,7 +2139,7 @@ export function VirtualTranscript({
         </FindReveal.Provider>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
-    </>
+    </ChatSessionContext.Provider>
   );
 }
 
@@ -5661,13 +5687,15 @@ function AcpmuxPane() {
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (
           <RenderBridgeContext.Provider value={renderBridge}>
-            <ArtifactPanel
-              key={artifact.opened}
-              artifact={artifact}
-              versions={artifactVersionList}
-              onClose={() => setArtifact(undefined)}
-              onSave={saveDocumentNatively}
-            />
+            <ChatSessionContext.Provider value={shownSessionId ?? ""}>
+              <ArtifactPanel
+                key={artifact.opened}
+                artifact={artifact}
+                versions={artifactVersionList}
+                onClose={() => setArtifact(undefined)}
+                onSave={saveDocumentNatively}
+              />
+            </ChatSessionContext.Provider>
           </RenderBridgeContext.Provider>
         )}
         {imageView && (

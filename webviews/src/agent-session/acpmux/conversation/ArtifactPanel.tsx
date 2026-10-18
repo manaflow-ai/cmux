@@ -6,13 +6,13 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
-import { REACT_MARKER } from "./renderFrameDoc";
+import { isReactRender, REACT_MARKER } from "./renderFrameDoc";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, RenderCard, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { canRender, ranRenders, RenderCard, renderTitle, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -75,7 +75,10 @@ export function ArtifactPanel({
   }, []);
   // The document's own name (its heading or <title>), else its language.
   const language = live && artifact.kind === "react" ? t("render.untitled") : languageLabel(artifact.lang, t);
-  const title = documentName(artifact) || language;
+  const title =
+    (live && artifact.kind === "react"
+      ? renderTitle(isReactRender(artifact.code) ? artifact.code : REACT_MARKER + "\n" + artifact.code)
+      : documentName(artifact)) || language;
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside

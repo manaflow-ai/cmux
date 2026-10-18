@@ -10,13 +10,15 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
-import { ArtifactContext } from "./artifactPreview";
+import { ArtifactContext, documentName } from "./artifactPreview";
 import { Expand } from "./icons";
 import { renderFrameCSS } from "./renderBase";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 import { isReactRender, reactRenderPage, renderBridgeScript, RENDER_FRAME_DOC } from "./renderFrameDoc";
 import { DEV_RENDER_FRAME_PATH } from "./renderFrameShell";
 import { useRenderRequests } from "./useRenderRequests";
+import { ChatSessionContext, TranscriptRowContext } from "./viewIdentity";
+import { stopRender, useRenderStopped } from "./renderState";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
@@ -51,6 +53,7 @@ export function useRenderFrame(
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown };
       if (message.type === "cmux-render-ready") {
+        if (live) setHeight(RENDER_FRAME_MIN_HEIGHT);
         const css = renderFrameCSS();
         const theme = getComputedStyle(document.body).colorScheme.includes("dark") ? "dark" : "light";
         const page = live && isReactRender(html) ? reactRenderPage(html) : html;
@@ -60,11 +63,13 @@ export function useRenderFrame(
         );
       } else if (live && message.type === "cmux-render-request") request?.(data as Record<string, unknown>, target);
       else if (
-        message.type === "cmux-render-size" &&
+        message.type === (live ? "cmux-render-content-size" : "cmux-render-size") &&
         typeof message.height === "number" &&
         Number.isFinite(message.height)
       )
-        setHeight(Math.min(EXPANDED_MAX_HEIGHT, Math.max(RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))));
+        setHeight(
+          Math.min(EXPANDED_MAX_HEIGHT, Math.max(live ? 48 : RENDER_FRAME_MIN_HEIGHT, Math.ceil(message.height))),
+        );
     };
     addEventListener("message", onMessage);
     const theme = () =>
@@ -95,20 +100,24 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
   const t = useT();
   const live = useLab("liveRender");
   const open = useContext(ArtifactContext);
-  const requests = useRenderRequests(call.html);
+  const sessionId = useContext(ChatSessionContext);
+  const rowId = useContext(TranscriptRowContext);
+  const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
+  const key = JSON.stringify([sessionId, identity]);
+  const requests = useRenderRequests(key);
   const { frame, height } = useRenderFrame(call.html, live, requests.request);
   const [expanded, setExpanded] = useState(false);
   // Auto-run trades the Run gate for immediacy. A busy loop still blocks the shared web process
   // (Lucas 2026-10-18); Stop unloads cooperative pages, but cannot interrupt that loop.
   const [ran, setRan] = useState(() => ranRenders.has(call.html));
-  const [stopped, setStopped] = useState(false);
+  const stopped = useRenderStopped(key);
   const running = live ? !stopped : ran;
   const run = () => {
     ranRenders.add(call.html);
     setRan(true);
-    setStopped(false);
+    stopRender(key, false);
   };
-  const title = call.title ?? t("render.untitled");
+  const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
     <div className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}>
@@ -122,12 +131,12 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
         {live && running && (
           <button
             type="button"
-            className="acpmux-review-changes"
+            className="acpmux-review-changes acpmux-render-stop"
             onClick={() => {
               requests.cancel();
               ranRenders.delete(call.html);
               setRan(false);
-              setStopped(true);
+              stopRender(key, true);
             }}
           >
             {t("render.stop")}
@@ -189,5 +198,14 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
       )}
       {live && requests.copied && <output className="acpmux-render-note">{t("turn.copied")}</output>}
     </div>
+  );
+}
+
+/// Agent-authored names stay in the page; unnamed cards keep Preview (Lucas 2026-10-18).
+export function renderTitle(html: string): string {
+  const title = documentName({ kind: "html", lang: "html", code: html });
+  if (title || !isReactRender(html)) return title;
+  return (
+    /^\s*\/\/\s*title:\s*([^\r\n]+)/i.exec(html.trimStart().slice("<!-- cmux-react -->".length))?.[1]?.trim() ?? ""
   );
 }

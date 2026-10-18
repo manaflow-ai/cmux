@@ -623,29 +623,59 @@ export const workedTurn: SeedStep[] = [
 
 /// An extra worked turn for the live-render lab, added only by the mock's lab branch.
 export function liveRenderTurn(): SeedStep[] {
-  const html = `<title>Choose a color</title><style>button{margin-right:8px}output{color:var(--cmux-muted)}</style>
-<button aria-label="Amber" data-color="amber">●</button><button aria-label="Sage" data-color="sage">●</button><output></output>
-<script>
-const output = document.querySelector('output');
-cmux.state.get().then(value => { output.textContent = value || ''; });
-document.querySelectorAll('button').forEach(button => {
-  button.style.color = button.dataset.color === 'amber' ? '#c78b35' : '#6b926c';
-  button.onclick = async () => {
-    const color = button.dataset.color;
-    await cmux.state.set(color);
-    output.textContent = color;
-    cmux.sendPrompt('Use the ' + color + ' color theme.').catch(() => {});
-  };
-});
+  const html = `<title>Choose an approach</title><style>
+.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--cmux-space-2)}
+.options button{display:flex;flex-direction:column;align-items:flex-start;gap:var(--cmux-space-2);padding:var(--cmux-space-3);text-align:left;background:var(--cmux-bg);border:1px solid var(--cmux-border);border-radius:var(--cmux-radius);color:var(--cmux-text)}
+.options button:hover{background:var(--cmux-control-hover)}
+.options button[aria-pressed=true]{background:var(--cmux-control);border-color:var(--cmux-muted)}
+.options span{color:var(--cmux-muted);font-size:var(--cmux-size-detail);line-height:1.4}
+.options small{padding:2px 6px;border-radius:var(--cmux-radius);background:var(--cmux-card);font-size:var(--cmux-size-caption);color:var(--cmux-muted)}
+</style><div class="options">
+<button data-option="A" aria-pressed="false"><strong>Patch the caller</strong><span>Fastest fix, retry logic stays local.</span><small>Low effort</small></button>
+<button data-option="B" aria-pressed="false"><strong>Extract a retry policy</strong><span>One shared policy, easy to test.</span><small>Medium effort</small></button>
+<button data-option="C" aria-pressed="false"><strong>Add a job queue</strong><span>Durable retries, more moving parts.</span><small>High effort</small></button>
+</div><script>
+const tiles = [...document.querySelectorAll('button')];
+function choose(option) { tiles.forEach(tile => tile.setAttribute('aria-pressed', String(tile.dataset.option === option))); }
+cmux.state.get().then(value => choose(value && value.chosen)).catch(() => {});
+tiles.forEach(tile => { tile.onclick = () => {
+  const option = tile.dataset.option;
+  choose(option);
+  cmux.state.set({chosen: option}).catch(() => {});
+  cmux.sendPrompt('Go with option ' + option + ': ' + tile.querySelector('strong').textContent + '.').catch(() => {});
+}; });
 </script>`;
+  const component = `// title: Retry backoff
+function App() {
+  const [base, setBase] = React.useState(200);
+  const delays = [0, 1, 2, 3].map(at => base * 2 ** at);
+  return <div>
+    <label style={{display: 'flex', alignItems: 'center', gap: 'var(--cmux-space-3)'}}>
+      <span style={{whiteSpace: 'nowrap'}}>Base delay</span>
+      <input type="range" min="50" max="1000" step="50" value={base} onChange={event => setBase(Number(event.target.value))} style={{flex: 1, minWidth: 0, accentColor: 'var(--cmux-muted)'}} />
+      <output style={{minWidth: 60, textAlign: 'right', color: 'var(--cmux-muted)', fontVariantNumeric: 'tabular-nums'}}>{base} ms</output>
+    </label>
+    <svg viewBox="0 0 400 112" role="img" aria-label={'Retry delays: ' + delays.join(', ') + ' milliseconds'} style={{display: 'block', width: '100%', height: 112, margin: 'var(--cmux-space-2) 0'}}>
+      <line x1="12" y1="86" x2="388" y2="86" stroke="var(--cmux-border)" />
+      {delays.map((delay, at) => <g key={at}>
+        <rect x={24 + at * 96} y={86 - Math.max(3, delay / 8000 * 72)} width="64" height={Math.max(3, delay / 8000 * 72)} rx="3" fill="var(--cmux-muted)" />
+        <text x={56 + at * 96} y="105" textAnchor="middle" fill="var(--cmux-muted)" style={{fontSize: 'var(--cmux-size-caption)'}}>{delay} ms</text>
+      </g>)}
+    </svg>
+    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--cmux-space-2)'}}>
+      <small style={{color: 'var(--cmux-muted)'}}>Four attempts, exponential delay.</small>
+      <button onClick={() => cmux.prefill('Use exponential retry backoff with a base of ' + base + ' ms and delays of ' + delays.join(', ') + ' ms.').catch(() => {})}>Use these values</button>
+    </div>
+  </div>;
+}`;
   return [
-    { ago: 60_000, mux: "user_message", msg: { text: "Show a color picker and an interactive counter." } },
+    { ago: 60_000, mux: "user_message", msg: { text: "Help me choose a retry strategy, then tune the backoff." } },
     { ago: 59_000, mux: "turn_started" },
     {
       ago: 58_000,
       update: {
         sessionUpdate: "tool_call",
-        toolCallId: "live-render-colors",
+        toolCallId: "live-render-approach",
         kind: "other",
         title: "mcp__cmux__render",
         status: "completed",
@@ -655,7 +685,7 @@ document.querySelectorAll('button').forEach(button => {
     {
       ago: 57_000,
       update: text(
-        "```cmux-react\nfunction App() {\n  const [count, setCount] = React.useState(0);\n  return <div style={{display: 'flex', gap: 12, alignItems: 'center'}}><button onClick={() => setCount(count - 1)}>-</button><output>{count}</output><button onClick={() => setCount(count + 1)}>+</button></div>;\n}\n```",
+        "Choose a direction, then adjust the delay before applying it.\n\n```cmux-react\n" + component + "\n```",
       ),
     },
     { ago: 56_000, mux: "turn_result", msg: { status: "completed" } },

@@ -598,7 +598,7 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
   entry.text = text;
 }
 
-function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
+function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>, sessionId: string): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
   // A note between steps drawn as a closed thought line, as a one-call tool row.
@@ -611,7 +611,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
     return (
       16 +
       chromeHeight(row) +
-      (long && !promptExpanded(row.id) ? PROMPT_LINES * MESSAGE_LINE_HEIGHT : height) +
+      (long && !promptExpanded(row.id, sessionId) ? PROMPT_LINES * MESSAGE_LINE_HEIGHT : height) +
       (long ? 24 : 0)
     );
   }
@@ -646,6 +646,7 @@ export function layoutConversation(
   /// The last layout at this width, whose rows (by object) the new rows may start with: those
   /// keep their places, and only the rows after the first change are placed again.
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  sessionId = "",
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
@@ -668,7 +669,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache);
+          : measuredRowHeight(row, width, cache, sessionId);
       known?.set(row, { width, height });
     }
     heights[index] = height;

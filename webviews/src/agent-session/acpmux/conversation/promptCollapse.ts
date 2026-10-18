@@ -3,24 +3,35 @@ import { useSyncExternalStore } from "react";
 /// Open prompts survive virtual rows remounting (Lucas 2026-10-18).
 export const PROMPT_LINES = 8;
 const expanded = new Set<string>();
+const revisions = new Map<string, number>();
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
 
-export const promptExpanded = (id: string) => expanded.has(id);
+const key = (id: string, sessionId: string) => JSON.stringify([sessionId, id]);
+export const promptExpanded = (id: string, sessionId = "") => expanded.has(key(id, sessionId));
 
-export function expandPrompt(id: string, open: boolean): void {
-  if (expanded.has(id) === open) return;
-  if (open) expanded.add(id);
-  else expanded.delete(id);
+export function expandPrompt(id: string, open: boolean, sessionId = ""): void {
+  if (promptExpanded(id, sessionId) === open) return;
+  if (open) expanded.add(key(id, sessionId));
+  else expanded.delete(key(id, sessionId));
+  revisions.set(sessionId, (revisions.get(sessionId) ?? 0) + 1);
   for (const listener of listeners) listener();
 }
 
-export const usePromptExpanded = (id: string) =>
+export const usePromptExpanded = (id: string, sessionId = "") =>
   useSyncExternalStore(
     subscribe,
-    () => promptExpanded(id),
+    () => promptExpanded(id, sessionId),
     () => false,
+  );
+
+/// A transcript remeasures folded prompts even while those rows are offscreen.
+export const usePromptRevision = (sessionId: string) =>
+  useSyncExternalStore(
+    subscribe,
+    () => revisions.get(sessionId) ?? 0,
+    () => 0,
   );

@@ -55,6 +55,7 @@ const { createRoot } = await import("react-dom/client");
 const { configureLabs } = await import("../src/agent-session/acpmux/labs");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { FindReveal, findMatches } = await import("../src/agent-session/acpmux/conversation/chatFind");
+const { ChatSessionContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
 const { layoutConversation } = await import("../src/agent-session/acpmux/model");
 const { turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
@@ -212,7 +213,7 @@ test("messageTimes uses the prompt time, adds a date on older messages, and is f
   const time = host.querySelector("time")!;
   expect(time.dateTime).toBe(new Date(at).toISOString());
   expect(time.textContent).toContain("2020");
-  expect(time.title).toContain("2020");
+  expect(time.getAttribute("aria-label")).toContain("2020");
   expect(host.querySelector(".cv-user__bubble")?.getAttribute("tabindex")).toBe("0");
   await draw(<UserBubble row={prompt("today")} text="Hello" />);
   expect(host.querySelector("time")?.textContent).not.toContain(String(new Date().getFullYear()));
@@ -304,4 +305,113 @@ test("contextMeter reuses the ring details and hides unknown or disabled usage",
     expect(host.querySelector(".acpmux-context-ring")).toBeNull();
   }
   client.clear();
+});
+
+test("prompt expansion belongs to the session even when row ids repeat", async () => {
+  act(() => configureLabs({ labs: { promptCollapse: true } }));
+  const text = Array.from({ length: 16 }, (_, n) => `line ${n}`).join("\n");
+  const bubble = (session: string) => (
+    <ChatSessionContext.Provider value={session}>
+      <UserBubble row={prompt("repeated", text)} text={text} />
+    </ChatSessionContext.Provider>
+  );
+  await draw(bubble("prompt-a"));
+  await act(async () => button("Show more")!.click());
+  await draw(null);
+  await draw(bubble("prompt-b"));
+  expect(host.querySelector(".is-clamped")).not.toBeNull();
+  await draw(bubble("prompt-a"));
+  expect(host.querySelector(".is-clamped")).toBeNull();
+});
+
+test("transcript invalidates unmounted prompt estimates when collapse changes", async () => {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { expandPrompt } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  const text = Array.from({ length: 40 }, (_, n) => `line ${n}`).join("\n");
+  const rows = Array.from({ length: 80 }, (_, n) => prompt(`geometry-${n}`, text));
+  const transcript = (
+    <VirtualTranscript rows={rows} sessionId="geometry" expanded={new Set()} onToggleActivity={() => {}} />
+  );
+  await draw(transcript);
+  const height = () => parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+  const full = height();
+  expect(host.querySelector('[data-row-id="geometry-0"]')).toBeNull();
+  await act(async () => configureLabs({ labs: { promptCollapse: true } }));
+  const collapsed = height();
+  expect(collapsed).toBeLessThan(full);
+  await act(async () => expandPrompt("geometry-0", true, "geometry"));
+  expect(height()).toBeGreaterThan(collapsed);
+  await act(async () => configureLabs(undefined));
+  expect(height()).toBe(full);
+});
+
+test("a folded offscreen prompt discards its old drawn height and reused layout prefix", async () => {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { expandPrompt } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  const text = Array.from({ length: 40 }, (_, n) => `line ${n}`).join("\n");
+  const rows = Array.from({ length: 80 }, (_, n) => prompt(`drawn-${n}`, text));
+  const transcript = (shown: AcpmuxRow[]) => (
+    <VirtualTranscript rows={shown} sessionId="drawn" expanded={new Set()} onToggleActivity={() => {}} />
+  );
+  const prototype = dom.window.HTMLElement.prototype;
+  const rect = prototype.getBoundingClientRect;
+  const viewport = Object.getOwnPropertyDescriptor(prototype, "clientHeight");
+  Object.defineProperty(prototype, "clientHeight", { configurable: true, get: () => 600 });
+  prototype.getBoundingClientRect = function () {
+    const bounds = rect.call(this);
+    return this.getAttribute("data-row-id") === "drawn-0"
+      ? new dom.window.DOMRect(bounds.x, bounds.y, bounds.width, 3000)
+      : bounds;
+  };
+  try {
+    await draw(transcript([rows[0]!]));
+    await draw(transcript(rows));
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    await act(async () => {
+      scroller.scrollTop = 70_000;
+      scroller.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+    });
+    expect(host.querySelector('[data-row-id="drawn-0"]') === null).toBe(true);
+    const height = () => parseFloat(host.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+    await act(async () => configureLabs({ labs: { promptCollapse: true } }));
+    const collapsed = height();
+    const short = layoutConversation([rows[0]!], 700, undefined, undefined, undefined, undefined, "drawn").totalHeight;
+    await act(async () => expandPrompt("drawn-0", true, "drawn"));
+    const tall = layoutConversation([rows[0]!], 700, undefined, undefined, undefined, undefined, "drawn").totalHeight;
+    expect(height()).toBeCloseTo(collapsed + tall - short, 5);
+    await act(async () => expandPrompt("drawn-0", false, "drawn"));
+    expect(height()).toBe(collapsed);
+  } finally {
+    prototype.getBoundingClientRect = rect;
+    if (viewport) Object.defineProperty(prototype, "clientHeight", viewport);
+    else Reflect.deleteProperty(prototype, "clientHeight");
+  }
+});
+
+test("Find reopens a prompt for the next occurrence after the reader collapses it", async () => {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { useChatFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  act(() => configureLabs({ labs: { promptCollapse: true } }));
+  const text = Array.from({ length: 16 }, () => "match").join("\n");
+  const rows = [prompt("find-occurrences", text)];
+  let find!: ReturnType<typeof useChatFind>;
+  function Transcript() {
+    find = useChatFind(rows);
+    return (
+      <VirtualTranscript
+        rows={rows}
+        sessionId="find-occurrences"
+        find={find}
+        expanded={new Set()}
+        onToggleActivity={() => {}}
+      />
+    );
+  }
+  await draw(<Transcript />);
+  await act(async () => find.show("match"));
+  expect(button("Show less")).toBeDefined();
+  await act(async () => button("Show less")!.click());
+  expect(host.querySelector(".is-clamped")).not.toBeNull();
+  await act(async () => find.next());
+  expect(host.querySelector(".is-clamped")).toBeNull();
 });

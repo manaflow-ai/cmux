@@ -1,11 +1,12 @@
 import { translate } from "../i18n";
 
-import { literal, POLICY_META } from "./renderFrameShell";
+import { literal } from "./renderFrameShell";
 
 export { RENDER_FRAME_DOC, RENDER_POLICY } from "./renderFrameShell";
 
 /// Installed before page scripts on either frame path. It exposes only requests to the card.
 export function renderBridgeScript(theme: string, css: string): string {
+  // l10n-allow: executable frame bridge, with no user-facing copy
   return `<script>(function () {
     var pending = new Map(), callbacks = new Set(), next = 0;
     var theme = { mode: ${literal(theme)} };
@@ -33,6 +34,23 @@ export function renderBridgeScript(theme: string, css: string): string {
         set: function (value) { return request('state.set', { value: value }); }
       }
     };
+    // The root's scrollHeight has a viewport floor. Measure the body so a short page can shrink.
+    function size() {
+      var body = document.body;
+      if (!body) return;
+      var style = getComputedStyle(body);
+      var height = Math.max(body.getBoundingClientRect().height, body.scrollHeight)
+        + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+      parent.postMessage({ type: 'cmux-render-content-size', height: Math.ceil(height) }, '*');
+    }
+    function observe() {
+      new ResizeObserver(size).observe(document.body);
+      new ResizeObserver(size).observe(document.documentElement);
+      size();
+    }
+    if (document.readyState === 'loading') addEventListener('DOMContentLoaded', observe, { once: true });
+    else observe();
+    addEventListener('load', size);
     addEventListener('message', function (event) {
       var data = event.data;
       if (event.source !== parent || !data) return;
@@ -56,6 +74,7 @@ export const isReactRender = (html: string) => html.trimStart().startsWith(REACT
 /// Compile in the opaque frame, never in the pane. Failures stay readable in the card.
 export function reactRenderPage(code: string): string {
   const source = code.trimStart().startsWith(REACT_MARKER) ? code.trimStart().slice(REACT_MARKER.length) : code;
+  // l10n-allow: executable component loader; its load failure uses the catalog
   return `<!doctype html><html><head></head><body><div id="root"></div><script>
   (function () {
     var root = document.getElementById('root');

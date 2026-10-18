@@ -11,6 +11,8 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type RenderCall = {
   html: string;
+  /// Stable tool or fence identity inside its transcript row, when available.
+  id?: string;
   /// The card's heading, when the call names one.
   title?: string;
 };

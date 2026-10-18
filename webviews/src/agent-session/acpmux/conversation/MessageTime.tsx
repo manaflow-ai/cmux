@@ -10,7 +10,7 @@ export function MessageTime({ at }: { at: number }) {
     <time
       className="cv-user__time"
       dateTime={date.toISOString()}
-      title={new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "long" }).format(date)}
+      aria-label={new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "long" }).format(date)}
       data-find-skip
     >
       {new Intl.DateTimeFormat(locale, {

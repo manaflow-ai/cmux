@@ -1,13 +1,12 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./clipboard";
 import { RenderBridgeContext } from "./RenderBridgeContext";
+import { renderState, saveRenderState } from "./renderState";
 
-/// Client view state only, retained when virtualization unmounts a card (Lucas 2026-10-18).
-const states = new Map<string, unknown>();
 type Reply = (ok: boolean, value?: unknown) => void;
 type Pending = { method: "sendPrompt" | "openLink"; text: string; reply: Reply };
 
-export function useRenderRequests(html: string) {
+export function useRenderRequests(key: string) {
   const bridge = useContext(RenderBridgeContext);
   const [pending, setPending] = useState<Pending>();
   const held = useRef<Pending | undefined>(undefined);
@@ -18,7 +17,7 @@ export function useRenderRequests(html: string) {
     held.current = undefined;
     setPending(undefined);
   }, []);
-  useEffect(() => cancel, [html, cancel]);
+  useEffect(() => cancel, [key, cancel]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 1500);
@@ -45,12 +44,12 @@ export function useRenderRequests(html: string) {
       const params = data.params;
       if (!params || typeof params !== "object" || Array.isArray(params)) return reply(false, "invalid params");
       const args = params as Record<string, unknown>;
-      if (data.method === "state.get") return reply(true, states.get(html) ?? null);
+      if (data.method === "state.get") return reply(true, renderState(key));
       if (data.method === "state.set") {
         try {
           const json = JSON.stringify(args.value);
           if (!json || new TextEncoder().encode(json).length > 65536) return reply(false, "invalid state");
-          states.set(html, JSON.parse(json));
+          saveRenderState(key, JSON.parse(json));
           return reply(true, null);
         } catch {
           return reply(false, "invalid state");
@@ -84,7 +83,7 @@ export function useRenderRequests(html: string) {
       held.current = { method, text, reply };
       setPending(held.current);
     },
-    [html, bridge],
+    [key, bridge],
   );
   const confirm = (edit: boolean) => {
     const ask = pending;

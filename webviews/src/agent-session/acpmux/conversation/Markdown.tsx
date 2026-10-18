@@ -5,9 +5,10 @@
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
+import { TranscriptRowContext } from "./viewIdentity";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
@@ -562,7 +563,9 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  renderId,
 }: {
+  renderId?: string;
   block: MdBlock;
   opts: InlineOptions;
   depth: number;
@@ -575,6 +578,7 @@ function Block({
   tail?: FreshTail;
 }): ReactNode {
   const liveRender = useLab("liveRender");
+  const rowId = useContext(TranscriptRowContext);
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
   switch (block.type) {
@@ -662,7 +666,7 @@ function Block({
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       // The lab also gives a closed render fence a frame on the dev server.
       const render = (canRender() || liveRender) && !block.open ? renderFence(block.lang, block.code) : undefined;
-      if (render) return <RenderCard call={render} />;
+      if (render) return <RenderCard call={{ ...render, id: rowId ? (renderId ?? block.code) : undefined }} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     }
@@ -796,6 +800,7 @@ export function Markdown({
       <BlockView
         key={entry.key}
         block={entry.block}
+        renderId={entry.key}
         opts={opts}
         depth={0}
         enter={streaming && live}
