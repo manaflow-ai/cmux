@@ -96,7 +96,7 @@ async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS, extraHea
 
 function expectStatus(response, statuses, what) {
   if (!statuses.includes(response.status)) {
-    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 400)}`);
+    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 2_000)}`);
   }
   return response.json;
 }
