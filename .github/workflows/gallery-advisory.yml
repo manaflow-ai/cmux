@@ -144,6 +144,7 @@ jobs:
           mkdir -p "$evidence/diff"
           bun pr.ts --base "$evidence/base" --head "$evidence/head" \
             --base-manifest "$RUNNER_TEMP/base.json" --head-manifest "$RUNNER_TEMP/head.json" \
+            --capture-manifest "$RUNNER_TEMP/cases.json" \
             --out "$evidence/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$base_sha" \
             --artifact-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
           test -f "$evidence/diff/comparison.json"

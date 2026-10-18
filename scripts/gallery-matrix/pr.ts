@@ -73,14 +73,15 @@ const receiptFingerprint = (manifest: string): string => {
 };
 
 type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerprint: string; quality?: string; status?: string };
-const evidenceReceipt = (dir: string, label: string, manifest?: string): EvidenceReceipt | undefined => {
+const evidenceReceipt = (dir: string, label: string, manifest?: string, captureManifest?: string): EvidenceReceipt | undefined => {
   const receipt = readReceipt(dir);
   if (!receipt?.captureId || !receipt.scenario?.fingerprint) return undefined;
-  const manifestCount = manifest ? (JSON.parse(readFileSync(manifest, "utf8")) as ManifestCase[]).length : 0;
+  const manifestForReceipt = captureManifest ?? manifest;
+  const manifestCount = manifestForReceipt ? (JSON.parse(readFileSync(manifestForReceipt, "utf8")) as ManifestCase[]).length : 0;
   // PR workflows render a union manifest (head plus base-only cases), while the report receives
   // each side's narrower manifest. Verify the narrower case params below; compare fingerprints
   // only when the receipt and supplied manifest describe the same complete set.
-  if (manifest && receipt.scenario.count === manifestCount && receipt.scenario.fingerprint !== receiptFingerprint(manifest))
+  if (manifestForReceipt && receipt.scenario.count === manifestCount && receipt.scenario.fingerprint !== receiptFingerprint(manifestForReceipt))
     throw new Error(`${label} receipt scenario fingerprint mismatch`);
   return {
     captureId: receipt.captureId,
@@ -171,6 +172,7 @@ if (import.meta.main) {
       repeat: { type: "string" },
       "base-manifest": { type: "string" },
       "head-manifest": { type: "string" },
+      "capture-manifest": { type: "string" },
       out: { type: "string" },
       outcomes: { type: "string" },
       pr: { type: "string" },
@@ -187,7 +189,7 @@ if (import.meta.main) {
   });
   const required = values.outcomes
     ? (["out", "pr"] as const)
-    : (["base", "head", "head-manifest", "out", "pr"] as const);
+    : (["base", "head", "head-manifest", "capture-manifest", "out", "pr"] as const);
   for (const name of required) if (!values[name]) throw new Error(`--${name} is required`);
   const out = values.out!;
   mkdirSync(out, { recursive: true });
@@ -224,9 +226,9 @@ if (import.meta.main) {
       live: values.branch ? liveBase(values.branch) : undefined,
     },
   };
-  const baseEvidence = values.outcomes ? undefined : evidenceReceipt(values.base!, "base", values["base-manifest"]);
-  const headEvidence = values.outcomes ? undefined : evidenceReceipt(values.head!, "head", values["head-manifest"]);
-  const repeatEvidence = values.outcomes || !values.repeat ? undefined : evidenceReceipt(values.repeat, "repeat", values["head-manifest"]);
+  const baseEvidence = values.outcomes ? undefined : evidenceReceipt(values.base!, "base", values["base-manifest"], values["capture-manifest"]);
+  const headEvidence = values.outcomes ? undefined : evidenceReceipt(values.head!, "head", values["head-manifest"], values["capture-manifest"]);
+  const repeatEvidence = values.outcomes || !values.repeat ? undefined : evidenceReceipt(values.repeat, "repeat", values["head-manifest"], values["capture-manifest"]);
   meta.evidence = { base: baseEvidence, head: headEvidence, repeat: repeatEvidence };
   writeFileSync(join(out, "outcomes.json"), `${JSON.stringify(outcomes, null, 2)}\n`);
   writeFileSync(join(out, "summary.json"), `${JSON.stringify(feedSummary(outcomes, meta), null, 2)}\n`);
