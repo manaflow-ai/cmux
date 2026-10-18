@@ -155,6 +155,7 @@ struct TextBoxSubmitActionTests {
         XCTAssertEqual(
             plan.events,
             [
+                .validateCloudImages([imageURL.standardizedFileURL]),
                 .pasteText("inspect"),
                 .pasteCloudImages([imageURL.standardizedFileURL]),
                 .pasteText(" "),
