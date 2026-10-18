@@ -65,7 +65,7 @@ struct AgentCLIUpdateObservationTests {
     @Test func paletteAndRecoveredJobsUseTheSameAutomaticObservation() async throws {
         let h = Harness(); let (actions, registry) = h.make()
         let work = registry.capturingWork {
-            registry.perform("agent.harness.updateAll", invocation: .init(arguments: ["id": "work-profile"], origin: .user))
+            registry.perform("agent.harness.updateAll", invocation: .init(arguments: ["id": .string("work-profile")], origin: .user))
         }
         for task in work { #expect(await task.value == nil) }
         let key = try #require(actions.intents.keys.first)
