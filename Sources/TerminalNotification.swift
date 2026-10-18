@@ -14,6 +14,10 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let body: String
     let createdAt: Date
     var isRead: Bool
+    /// Whether an agent hook produced this notification. The notification
+    /// history retains this provenance for the Notifications tab; the agent
+    /// Feed is sourced from workstream events only.
+    var isAgentEvent: Bool = false
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
@@ -40,6 +44,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         body: String,
         createdAt: Date,
         isRead: Bool,
+        isAgentEvent: Bool = false,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
@@ -61,6 +66,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.body = body
         self.createdAt = createdAt
         self.isRead = isRead
+        self.isAgentEvent = isAgentEvent
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction

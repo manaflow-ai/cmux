@@ -15,6 +15,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
     )
 
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every
@@ -24,6 +32,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "extensions.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "extensions.beta.enabled"
+    )
+
+    /// Click by Hint: hint mode (Cmd-J labels every clickable control in the
+    /// window; typing a label clicks it) as an opt-in preview. Defaults off;
+    /// a remote rollout flag can turn it on even while this is off.
+    public let windowHints = DefaultsKey<Bool>(
+        id: "windowHints.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "windowHints.beta.enabled"
     )
 
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
@@ -56,22 +73,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
-    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands), and the gate
-    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
-    /// builds default on for dogfood; release builds stay opt-in. An explicit
-    /// setting still wins on either build.
+    /// Cloud Machines' persisted first-use activation marker. The row moved out
+    /// of Beta Features when Cloud graduated; this storage key remains stable
+    /// so installed users keep their activation and existing configuration
+    /// domains migrate without a destructive reset.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
         defaultValue: Self.cloudMachinesDefault,
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    #if DEBUG
-    private static let cloudMachinesDefault = true
-    #else
     private static let cloudMachinesDefault = false
-    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
@@ -86,5 +98,46 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// New Workspace on the remote host: with a remote tmux workspace selected, New
+    /// Workspace creates a tmux session on that workspace's host and New Local Workspace
+    /// is offered for local work. Defaults off; while off, New Workspace always creates a
+    /// local workspace.
+    public let remoteTmuxNewWorkspaceOnHost = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.newWorkspaceOnHost.enabled"
+    )
+
+    /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
+    /// (required for hosts that permit a single concurrent SSH connection) instead of
+    /// one connection per session. The workspace model is identical either way.
+    /// Defaults off; while off, the per-session GA transport is used.
+    public let remoteTmuxMultiplexer = DefaultsKey<Bool>(
+        id: "remoteTmux.multiplexer.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.multiplexer.beta.enabled"
+    )
+
+
+    /// Remote host origin colors: tint each remote workspace's sidebar row and
+    /// tab with a stable per-host color (hashed from the host name into a palette
+    /// picked to stay distinguishable, collisions taking the next color) so servers are easy
+    /// to tell apart and a given host shows the same color in every window. A
+    /// user's manual workspace color always wins. Defaults off; while off, remote
+    /// workspaces render with no origin tint.
+    public let remoteTmuxOriginColors = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.originColors.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.originColors.enabled"
+    )
+
+    /// Remote host names on duplicate titles: when sidebar workspaces share a title and come from
+    /// different places, show each remote one's host after its title, leaving off the domain the
+    /// hosts share. Defaults off; while off, titles show as they are.
+    public let remoteTmuxOriginHostTitles = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.originHostTitles.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.originHostTitles.enabled"
+    )
     public init() {}
 }

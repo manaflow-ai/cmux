@@ -106,11 +106,21 @@ final class AgentJournalLifecycleCenter: Sendable {
                         )
                     }
                 }
+                // Live events only: the startup replay folds history through
+                // its own path, so restoring a session never types `continue`.
+                if decision.disposition != .stale {
+                    await MainActor.run { AgentAutoResumeCoordinator.shared.observe(canonical.draft) }
+                }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)
                 guard notificationEvent.draft.attention?.notification != nil else { return false }
                 guard let identity = decision.identity else {
                     Self.notificationDiagnostic(canonical.draft, reason: decision.disposition.rawValue)
+                    return false
+                }
+                if let completion = decision.remindedCompletion,
+                   await MainActor.run(body: { Self.reminderRepeatsAcknowledgedCompletion(completion) }) {
+                    Self.notificationDiagnostic(canonical.draft, reason: "completion-acknowledged", identity: identity)
                     return false
                 }
                 guard !Task.isCancelled,

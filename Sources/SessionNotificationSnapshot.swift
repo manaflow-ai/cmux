@@ -9,6 +9,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
+    /// Optional so snapshots written before the flag existed still decode.
+    var isAgentEvent: Bool?
     var retargetsToLiveSurfaceOwner: Bool?
     var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
@@ -28,6 +30,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        isAgentEvent: Bool? = nil,
         retargetsToLiveSurfaceOwner: Bool? = nil,
         correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
@@ -44,6 +47,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.isAgentEvent = isAgentEvent
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
@@ -66,6 +70,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            isAgentEvent: notification.isAgentEvent,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             correlationKey: notification.correlationKey,
             scrollPosition: persistedScrollPosition,
@@ -93,6 +98,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             body: body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
+            // Unknown provenance restores as agent-produced so a legacy
+            // banner cannot re-enter the mobile Feed; it stays in the
+            // Notifications screen either way.
+            isAgentEvent: isAgentEvent ?? true,
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
             clickAction: clickAction,

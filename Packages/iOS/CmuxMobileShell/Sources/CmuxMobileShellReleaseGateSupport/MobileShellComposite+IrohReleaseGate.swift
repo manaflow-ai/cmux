@@ -251,7 +251,7 @@ extension MobileShellComposite {
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity?,
         relayCredentialExpiry: @escaping @Sendable () async -> Date?
     ) async throws -> RelayRolloverContinuity {
-        guard soakDurationSeconds >= 330,
+        guard soakDurationSeconds >= 1_950,
               let endpointBefore = await endpointIdentity(),
               let credentialExpiryBefore = await relayCredentialExpiry(),
               let connectionBefore = await client.transportContinuityID() else {

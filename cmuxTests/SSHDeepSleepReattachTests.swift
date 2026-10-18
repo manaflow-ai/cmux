@@ -294,7 +294,12 @@ struct SSHDeepSleepReattachTests {
             detail: "Connected to Cloud VM",
             target: "cloud-vm"
         )
-        #expect(workspace.reconnectRemoteConnection(surfaceId: panel.id))
+        // The public reconnect command is correctly gated when Cloud is disabled
+        // on a CI runner. Exercise the persistent reattach operation directly.
+        #expect(workspace.reattachPersistentRemotePTYPanels(
+            requestedSurfaceId: panel.id,
+            restartEndedSessions: true
+        ).contains(panel.id))
 
         let restarted = try #require(workspace.terminalPanel(for: panel.id))
         #expect(restarted.surface !== panel.surface)

@@ -21,6 +21,7 @@ public struct SidebarSection: View {
     @State var showNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
+    @State private var showCloudDeviceIcons: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
@@ -31,9 +32,10 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State var showAgentActivity: DefaultsValueModel<Bool>
+    @State var showAgentUsage: DefaultsValueModel<Bool>
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State private var showMetadata: DefaultsValueModel<Bool>
+    @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -53,6 +55,7 @@ public struct SidebarSection: View {
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
+        _showCloudDeviceIcons = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudDeviceIcons))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
@@ -63,6 +66,7 @@ public struct SidebarSection: View {
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
+        _showAgentUsage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentUsage))
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
@@ -95,16 +99,14 @@ public struct SidebarSection: View {
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
+            showCloudDeviceIcons,
             showPR,
             watchGit,
             prClickable,
             prLinks,
             portLinks,
-            showSSH,
-            showPorts,
-            showLog,
-            showProgress,
-            showAgentActivity,
+            showSSH, showPorts, showLog,
+            showProgress, showAgentActivity, showAgentUsage,
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
@@ -383,9 +385,21 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
-                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display git branches, Cloud machine info, and working directories.")
+                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display git branches and working directories.")
             ) {
                 Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showCloudDeviceIcons"),
+                String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar"),
+                subtitle: String(localized: "settings.app.showCloudDeviceIcons.subtitle", defaultValue: "Display the cloud machine or device icon independently of Git branch and directory details.")
+            ) {
+                Toggle("", isOn: Binding(get: { showCloudDeviceIcons.current }, set: { showCloudDeviceIcons.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

@@ -15,6 +15,24 @@ import Testing
 @MainActor
 @Suite("Cloud surface mutation boundaries", .serialized)
 struct CloudSurfaceMoveOwnershipTests {
+    @Test("A Cloud Dock accepts a same-Dock reorder through its mapped-tab path")
+    func sameDockReorderKeepsSurfaceOnMachine() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-a", isBase: false)
+        let dock = workspace.requiredDockSplitForTesting
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let panel = try #require(dock.newSurface(kind: .terminal, inPane: pane))
+        let tab = try #require(dock.surfaceId(forPanelId: panel))
+        let processID = Int32(ProcessInfo.processInfo.processIdentifier)
+        let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id, sourceProcessId: processID)
+        let policy = SurfaceOwnershipPolicy(cloudMachine: .cloud("cloud-a"))
+        #expect(dock.surfaceDropRejection(transfer, source: .surface, policy: policy) == nil)
+        let unmappedTransfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: pane.id, sourceProcessId: processID)
+        #expect(dock.surfaceDropRejection(unmappedTransfer, source: .surface, policy: policy) == .cloudMachineMismatch)
+        #expect(dock.machineOwningSurface(panel) == .local)
+    }
+
     @Test("Per-workspace Docks reject foreign displays before detaching", arguments: ["a", "b"])
     func foreignDisplayDockMove(owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -79,7 +97,32 @@ struct CloudSurfaceMoveOwnershipTests {
         }
     }
 
-    @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases, ["a", "b"])
+    @Test("A browser moves into and back out of a Cloud workspace without changing its identity")
+    func browserRoundTrip() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let destination = fixture.manager.addWorkspace(title: "Cloud", select: false)
+            defer { destination.teardownAllPanels() }
+            destination.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "browser-destination", isBase: false)
+            let pane = try #require(source.bonsplitController.allPaneIds.first)
+            let browser = try #require(source.newBrowserSurface(inPane: pane, url: URL(string: "about:blank"), focus: false))
+            let tab = try #require(source.surfaceIdFromPanelId(browser.id))
+            let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id,
+                                           sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
+            #expect(destination.surfaceDropRejection(transfer, source: .surface) == nil)
+            #expect(fixture.appDelegate.canMoveBonsplitTab(tabId: tab.uuid, toWorkspace: destination.id))
+            #expect(fixture.appDelegate.moveSurface(panelId: browser.id, toWorkspace: destination.id, focus: false, focusWindow: false))
+            #expect(destination.panels[browser.id] === browser)
+            #expect(source.panels[browser.id] == nil)
+            #expect(fixture.appDelegate.moveSurface(panelId: browser.id, toWorkspace: source.id, focus: false, focusWindow: false))
+            #expect(source.panels[browser.id] === browser)
+            #expect(destination.panels[browser.id] == nil)
+        }
+    }
+
+    @Test("Foreign Cloud terminal and display moves leave both workspaces intact", arguments: [SurfaceResourceKind.terminal, .display], ["a", "b"])
     func foreignCloudMove(kind: SurfaceResourceKind, owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()

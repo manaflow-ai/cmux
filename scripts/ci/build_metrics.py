@@ -17,9 +17,29 @@ from typing import Iterable
 TARGET_RE = re.compile(r"\(in target '([^']+)' from project '[^']+'\)")
 SWIFT_COMPILE_RE = re.compile(r"^SwiftCompile\s+.*\bCompiling(?:\\ |\s)")
 SWIFT_EMIT_RE = re.compile(r"^(?:SwiftEmitModule|SwiftDriverJobDiscovery\s+.*\bEmitting module)")
+CACHE_SUMMARY_RE = re.compile(
+    r"(?:note:\s*)?(\d+)\s*(?:hits?\s*)?/\s*(\d+)\s+cacheable tasks?",
+    re.IGNORECASE,
+)
+CACHE_REMARK_HIT_RE = re.compile(
+    r"^note:\s*(?:cache key query hit|cache hit|local cache found for key|replayed? cache hit)\b",
+    re.IGNORECASE,
+)
+CACHE_REMARK_MISS_RE = re.compile(
+    r"^note:.*(?:\bcache\b.*\bmiss(?:ed|es)?\b|\bmiss(?:ed|es)?\b.*\bcache\b)",
+    re.IGNORECASE,
+)
 TIMING_RE = re.compile(
     r"^\s*(.+?)(?:\s+\(\d+\s+tasks?\)\s+\|)?\s+"
     r"([0-9]+(?:\.[0-9]+)?) seconds\s*$"
+)
+CACHE_PLUGIN_SETTING_RE = re.compile(
+    r"\bCOMPILATION_CACHE_ENABLE_PLUGIN\s*=\s*YES\b",
+    re.IGNORECASE,
+)
+CACHE_REMOTE_SETTING_RE = re.compile(
+    r"\bCOMPILATION_CACHE_REMOTE_SERVICE_PATH\s*=\s*\S+",
+    re.IGNORECASE,
 )
 CACHE_VALUES = {"Cache hit": "hit", "Cache miss": "miss"}
 
@@ -75,15 +95,27 @@ def parse_log(path: Path) -> dict[str, object]:
     cache_by_target: dict[str, Counter[str]] = defaultdict(Counter)
     swift_compile_by_target = Counter()
     swift_emit_by_target = Counter()
+    summary_hits = 0
+    summary_tasks = 0
 
     for index, raw in enumerate(lines):
         line = raw.strip()
+        summary = CACHE_SUMMARY_RE.search(line)
+        if summary:
+            summary_hits += int(summary.group(1))
+            summary_tasks += int(summary.group(2))
         for marker, outcome in CACHE_VALUES.items():
             if line == marker:
                 cache[outcome] += 1
                 target = nearest_target(lines, index)
                 cache_by_target[target or "<unattributed>"][outcome] += 1
                 break
+        else:
+            outcome = "hit" if CACHE_REMARK_HIT_RE.match(line) else "miss" if CACHE_REMARK_MISS_RE.match(line) else None
+            if outcome:
+                cache[outcome] += 1
+                target = nearest_target(lines, index)
+                cache_by_target[target or "<unattributed>"][outcome] += 1
 
         target_match = TARGET_RE.search(line)
         target = target_match.group(1) if target_match else None
@@ -103,6 +135,11 @@ def parse_log(path: Path) -> dict[str, object]:
             "swift_emit_module_events": swift_emit_by_target[target],
         }
 
+    # Xcode 26.6 emits one authoritative "hits / cacheable tasks" line per
+    # scheme. Older logs only have standalone Cache hit/miss remarks.
+    if summary_tasks:
+        cache["hit"] = summary_hits
+        cache["miss"] = max(0, summary_tasks - summary_hits)
     return {
         "path": path.name,
         "bytes": path.stat().st_size,
@@ -110,6 +147,16 @@ def parse_log(path: Path) -> dict[str, object]:
         "cache_misses": cache["miss"],
         "swift_compile_events": sum(swift_compile_by_target.values()),
         "swift_emit_module_events": sum(swift_emit_by_target.values()),
+        "cacheable_tasks": cache["hit"] + cache["miss"],
+        # The command's build-settings echo is the only portable evidence of
+        # whether Xcode was given the fleet plugin/socket. Keep the value
+        # categorical; never copy the socket path into telemetry.
+        "cache_backend": (
+            "fleet"
+            if CACHE_PLUGIN_SETTING_RE.search("\n".join(lines))
+            and CACHE_REMOTE_SETTING_RE.search("\n".join(lines))
+            else "local"
+        ),
         "timing_summary_seconds": timing_summary(lines),
         "targets": targets,
     }
@@ -123,6 +170,7 @@ def aggregate(schemes: list[dict[str, object]]) -> dict[str, object]:
     for scheme in schemes:
         for key in ("cache_hits", "cache_misses", "swift_compile_events", "swift_emit_module_events"):
             totals[key] += int(scheme[key])
+        totals["cacheable_tasks"] += int(scheme.get("cacheable_tasks", int(scheme["cache_hits"]) + int(scheme["cache_misses"])))
         for name, seconds in dict(scheme["timing_summary_seconds"]).items():
             timing[name] += float(seconds)
         for target, values in dict(scheme["targets"]).items():
@@ -131,6 +179,7 @@ def aggregate(schemes: list[dict[str, object]]) -> dict[str, object]:
 
     return {
         **dict(totals),
+        "cache_backend": "fleet" if any(scheme.get("cache_backend") == "fleet" for scheme in schemes) else "local",
         "timing_summary_seconds": dict(sorted(timing.items())),
         "targets": {
             target: dict(values)
@@ -144,6 +193,11 @@ def aggregate(schemes: list[dict[str, object]]) -> dict[str, object]:
             )
         },
     }
+
+
+def phase_seconds(timing: dict[str, float], pattern: str) -> float:
+    matcher = re.compile(pattern, re.IGNORECASE)
+    return round(sum(value for name, value in timing.items() if matcher.search(name)), 3)
 
 
 def discover_activity_logs(derived_data: Path) -> list[dict[str, object]]:
@@ -168,6 +222,8 @@ def build_receipt(
     derived_data: Path,
     compile_seconds: float | None,
     compile_outcome: str | None = None,
+    seed_distance: int | None = None,
+    fetch_seconds: float | None = None,
 ) -> dict[str, object]:
     scheme_logs = sorted(derived_data.glob("*-build.log"))
     schemes = [parse_log(path) for path in scheme_logs]
@@ -176,6 +232,30 @@ def build_receipt(
     sdk_version = command_output("xcrun", "--sdk", "macosx", "--show-sdk-version")
     sdk_build = command_output("xcrun", "--sdk", "macosx", "--show-sdk-build-version")
 
+    aggregate_values = aggregate(schemes)
+    timing = dict(aggregate_values["timing_summary_seconds"])
+    cacheable = int(aggregate_values.get("cacheable_tasks", 0))
+    hits = int(aggregate_values.get("cache_hits", 0))
+    # `-showBuildTimingSummary` uses the action name (`CompileSwiftSources`)
+    # while ordinary build logs use `SwiftCompile`/`SwiftDriver`; account for
+    # both spellings so host telemetry does not silently report zero compile
+    # time for a successful admission.
+    compile_phase = phase_seconds(
+        timing, r"CompileSwift|SwiftCompile|SwiftDriver|SwiftEmitModule|CompileC"
+    )
+    link_phase = phase_seconds(timing, r"(?:^|\s)Ld(?:$|\s)|Link")
+    compiler_cache = {
+        "cacheable_tasks": cacheable,
+        "hits": hits,
+        "misses": max(0, cacheable - hits),
+        "hit_rate": round(hits / cacheable, 6) if cacheable else None,
+        "seed_distance": seed_distance,
+        "compile_seconds": compile_phase,
+        "compile_wall_seconds": compile_seconds,
+        "fetch_seconds": fetch_seconds,
+        "link_seconds": link_phase,
+        "cache_backend": aggregate_values.get("cache_backend", "local"),
+    }
     return {
         "schema_version": 1,
         "source": {
@@ -193,11 +273,14 @@ def build_receipt(
             "arch": os.environ.get("RUNNER_ARCH") or platform.machine(),
         },
         "compile_wall_seconds": compile_seconds,
+        "seed_distance": seed_distance,
+        "fetch_seconds": fetch_seconds,
         "compile_outcome": compile_outcome,
         "derived_data_log_count": len(schemes),
         "activity_logs": discover_activity_logs(derived_data),
         "schemes": schemes,
-        "aggregate": aggregate(schemes),
+        "aggregate": aggregate_values,
+        "compiler_cache": compiler_cache,
     }
 
 
@@ -208,6 +291,7 @@ def write_summary(receipt: dict[str, object], stream) -> None:
     print(f"- compile wall seconds: `{receipt.get('compile_wall_seconds')}`", file=stream)
     print(f"- cache hits: `{aggregate_values.get('cache_hits', 0)}`", file=stream)
     print(f"- cache misses: `{aggregate_values.get('cache_misses', 0)}`", file=stream)
+    print(f"- cacheable tasks: `{aggregate_values.get('cacheable_tasks', 0)}`", file=stream)
     print(f"- SwiftCompile events: `{aggregate_values.get('swift_compile_events', 0)}`", file=stream)
     print(f"- Swift emit-module events: `{aggregate_values.get('swift_emit_module_events', 0)}`", file=stream)
     targets = dict(aggregate_values.get("targets", {}))
@@ -228,6 +312,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--compile-seconds", type=float)
     parser.add_argument("--compile-outcome")
+    parser.add_argument("--seed-distance", type=int)
+    parser.add_argument("--fetch-seconds", type=float)
+    parser.add_argument("--host-telemetry", type=Path)
     parser.add_argument("--summary", type=Path)
     args = parser.parse_args()
 
@@ -235,6 +322,8 @@ def main() -> int:
         args.derived_data,
         args.compile_seconds,
         compile_outcome=args.compile_outcome,
+        seed_distance=args.seed_distance,
+        fetch_seconds=args.fetch_seconds,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -243,6 +332,19 @@ def main() -> int:
         args.summary.parent.mkdir(parents=True, exist_ok=True)
         with args.summary.open("a", encoding="utf-8") as stream:
             write_summary(receipt, stream)
+    if args.host_telemetry:
+        # The glaeda hook consumes this bounded, non-sensitive subset and
+        # embeds it in the completed host job record.
+        args.host_telemetry.write_text(
+            json.dumps({
+                "schema": "cmux-compile-telemetry/v1",
+                "run_id": os.environ.get("GITHUB_RUN_ID"),
+                "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+                **dict(receipt["compiler_cache"]),
+            },
+                       separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 

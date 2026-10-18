@@ -16,6 +16,13 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("SSH hosts accept stale replay daemons while Cloud remains strict")
+    func staleReplayPolicyIsScopedToCloudMachines() {
+        let stale = [CloudTuiManualIOCommand.viewAttachmentLeaseCapability]
+        #expect(!CloudTuiManualMirrorSession.shouldRejectStaleReplay(machineID: "ssh:fixture", capabilities: stale))
+        #expect(CloudTuiManualMirrorSession.shouldRejectStaleReplay(machineID: "vm_fixture", capabilities: stale))
+    }
+
     @Test
     func closingFixtureIsIdempotent() throws {
         let fixture = try CloudManualMirrorSocketFixture()
@@ -653,7 +660,7 @@ struct CloudManualMirrorTransportTests {
         session.inputRouter.send(.bytes(Data("first".utf8)))
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1"]]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1", "terminal-pending-sequence-v1"]]])
         let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(registration.cmd == "set-client-info")
         fixture.send(["id": registration.id, "ok": true, "data": [:]])
@@ -728,6 +735,7 @@ struct CloudManualMirrorTransportTests {
                     "view-attachment-lease-v1",
                     "view-attachment-detach-v1",
                     "attach-initial-size",
+                    "terminal-pending-sequence-v1",
                 ],
             ],
         ])

@@ -110,6 +110,7 @@ public:
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScreenResult> read_screen(const ReadScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReadScrollbackResult> read_scrollback(const ReadScrollbackRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ReattachViewResult> reattach_view(const ReattachViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> register_browser_provider(const RegisterBrowserProviderRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});

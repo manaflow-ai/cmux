@@ -95,15 +95,35 @@ verify_manifest_attestation() {
     exit 1
   }
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
-  gh attestation verify "$MANIFEST" "${args[@]}" >&2 || {
+  # An exhausted GitHub API quota says nothing about the attestation, and
+  # failing on it discards a signed nightly leg (run 37526635018). Retry only
+  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
+  # failure is a verdict and stays final.
+  local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
+  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local output status
+  while :; do
+    status=0
+    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+    [[ $status -eq 0 ]] && return 0
+    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
+      echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
+      sleep "$delay"
+      retries_left=$((retries_left - 1))
+      delay=$((delay * 2))
+      continue
+    fi
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
-  }
+  done
 }
 
+PROBE=""
 verify_probe() {
   local probe capability
   probe="$("$DEST" remote-probe --json 2>/dev/null || true)"
+  PROBE="$probe"
   [[ "$probe" == *'"app":"cmux-tui"'* ]] || {
     echo "error: installed binary does not probe as cmux-tui: $probe" >&2
     exit 1
@@ -230,9 +250,27 @@ verify_probe
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.
+# A client reporting ssh-payload-download fetches the Linux builds itself from
+# the same immutable commit prefix, once per platform into a local cache, and
+# checks them against this manifest, so the app ships only their checksums
+# (about 77 MiB less). A client reporting ssh-payload-macos-from-client uploads
+# its own build, or its slice of this universal binary, to a Mac, and downloads
+# only an architecture it lacks against the manifest's published pin, so the
+# macOS payloads (about 77 MiB more) are not bundled either. Without them the
+# signing step re-pins nothing and the published pins stay.
 SSH_ARTIFACT_DIR="$DEST_DIR/cmux-tui-ssh"
 mkdir -p "$SSH_ARTIFACT_DIR"
-for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+client_reports() {
+  python3 -c 'import json,sys; raise SystemExit(0 if sys.argv[1] in json.loads(sys.argv[2]).get("capabilities", []) else 1)' "$1" "$PROBE"
+}
+SSH_TARGETS=()
+if ! client_reports ssh-payload-macos-from-client; then
+  SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+fi
+if ! client_reports ssh-payload-download; then
+  SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"})
+fi
+for target in ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"}; do
   artifact="$(fetch_slice "cmux-tui-$target")"
   install -m 644 "$artifact" "$SSH_ARTIFACT_DIR/cmux-tui-$target"
 done

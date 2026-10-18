@@ -130,3 +130,67 @@ struct CLITmuxCompatBufferContentTests {
         return (done, stop)
     }
 }
+
+struct CLITmuxCompatArgumentParserTests {
+    @Test func parsesTargetOptionsAndCommandLiterals() throws {
+        let clear = try TmuxCompatArgumentParser.parseClearHistory([
+            "--workspace", "workspace:2", "--surface=surface:4", "--window", "window:1"
+        ])
+        #expect(clear.workspace == "workspace:2")
+        #expect(clear.surface == "surface:4")
+        #expect(clear.window == "window:1")
+
+        let respawn = try TmuxCompatArgumentParser.parseRespawnPane([
+            "--workspace", "workspace:2", "--", "echo", "--literal"
+        ])
+        #expect(respawn.commandText == "echo --literal")
+
+        let message = try TmuxCompatArgumentParser.parseDisplayMessage([
+            "--print", "--", "--literal", "message"
+        ])
+        #expect(message.printOnly)
+        #expect(message.message == "--literal message")
+    }
+
+    @Test func parsesPasteFlagsAndExplicitCommand() throws {
+        let paste = try TmuxCompatArgumentParser.parsePasteBuffer([
+            "--name=build", "--bracketed"
+        ])
+        #expect(paste.name == "build")
+        #expect(paste.bracketed)
+
+        let respawn = try TmuxCompatArgumentParser.parseRespawnPane([
+            "--command", "echo --literal"
+        ])
+        #expect(respawn.commandText == "echo --literal")
+    }
+
+    @Test(arguments: [
+        ["--typo"],
+        ["--surface"],
+        ["--surface="]
+    ])
+    func rejectsMalformedClearHistory(arguments: [String]) {
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parseClearHistory(arguments)
+        }
+    }
+
+    @Test func rejectsUnknownAndMissingValuesAcrossCommands() {
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parsePasteBuffer(["--typo"])
+        }
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parseRespawnPane(["--command"])
+        }
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parseRespawnPane(["--commnad", "echo hi"])
+        }
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parseDisplayMessage(["--pritn", "done"])
+        }
+        #expect(throws: CLIError.self) {
+            try TmuxCompatArgumentParser.parseDisplayMessage(["done", "--typo"])
+        }
+    }
+}

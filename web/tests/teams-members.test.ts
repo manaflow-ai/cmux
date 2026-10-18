@@ -9,6 +9,7 @@ import {
   FakeStack,
   MEMBER_ID,
   MemoryInviteStore,
+  MemoryTeamSeatSync,
   noLock,
   OUTSIDER_ID,
   standardTeam,
@@ -31,10 +32,47 @@ async function rejection(promise: Promise<unknown>): Promise<TeamApiError> {
   throw new Error("expected a TeamApiError");
 }
 
+describe("role change response", () => {
+  // The macOS client decodes this reply into `CloudTeamMember`, whose
+  // `isViewer: Bool` is not optional, so a reply of just `{ userId, role }`
+  // fails the whole decode and every successful role change looks like an
+  // error. The shape has to match the roster's members.
+  test("returns the full member, not just the id and role", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const member = await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
+    expect(member.userId).toBe(MEMBER_ID);
+    expect(member.role).toBe("admin");
+    expect(member.isViewer).toBe(false);
+    expect(member.displayName).toBe("Name bbbb");
+    expect(member).toHaveProperty("email");
+    expect(member).toHaveProperty("profileImageUrl");
+  });
+
+  test("marks the caller as the viewer when they change their own role", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
+    const self = await changeMemberRole(await accessFor(stack, ADMIN_ID), ADMIN_ID, "member", deps);
+    expect(self.userId).toBe(ADMIN_ID);
+    expect(self.role).toBe("member");
+    expect(self.isViewer).toBe(true);
+  });
+
+  test("a no-op role change returns the same full shape", async () => {
+    const stack = standardTeam();
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
+    const member = await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "member", deps);
+    expect(member.role).toBe("member");
+    expect(member.isViewer).toBe(false);
+    expect(member.displayName).toBe("Name bbbb");
+  });
+});
+
 describe("last-admin guard", () => {
   test("the sole admin cannot demote themself", async () => {
     const stack = standardTeam();
-    const error = await rejection(changeMemberRole(await accessFor(stack, ADMIN_ID), ADMIN_ID, "member", { stack: stack.app(), lock: noLock }));
+    const error = await rejection(changeMemberRole(await accessFor(stack, ADMIN_ID), ADMIN_ID, "member", { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() }));
     expect(error.code).toBe("last_admin");
     expect(error.status).toBe(409);
     expect(stack.grantsOf(TEAM_ID, ADMIN_ID).has("team_admin")).toBe(true);
@@ -42,14 +80,14 @@ describe("last-admin guard", () => {
 
   test("the sole admin cannot leave", async () => {
     const stack = standardTeam();
-    const error = await rejection(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, { stack: stack.app(), lock: noLock, store: new MemoryInviteStore() }));
+    const error = await rejection(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() }));
     expect(error.code).toBe("last_admin");
     expect(stack.calls.some((call) => call.startsWith("removeUser"))).toBe(false);
   });
 
   test("with two admins one may demote the other, then the survivor is protected", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
     await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
     expect(stack.grantsOf(TEAM_ID, MEMBER_ID).has("team_admin")).toBe(true);
 
@@ -62,7 +100,7 @@ describe("last-admin guard", () => {
 
   test("the guard re-reads roles inside the lock instead of trusting the caller's snapshot", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() };
     await changeMemberRole(await accessFor(stack, ADMIN_ID), MEMBER_ID, "admin", deps);
     // Both admins load access while two admins exist...
     const first = await accessFor(stack, ADMIN_ID);
@@ -78,7 +116,7 @@ describe("last-admin guard", () => {
 describe("member mutations", () => {
   test("a member may leave but may not remove someone else", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock, store: new MemoryInviteStore() };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() };
     const forbidden = await rejection(removeMember(await accessFor(stack, MEMBER_ID), ADMIN_ID, deps));
     expect(forbidden.code).toBe("forbidden");
     await removeMember(await accessFor(stack, MEMBER_ID), MEMBER_ID, deps);
@@ -87,7 +125,7 @@ describe("member mutations", () => {
 
   test("an admin removes a member and gets member_not_found for a non-member", async () => {
     const stack = standardTeam();
-    const deps = { stack: stack.app(), lock: noLock, store: new MemoryInviteStore() };
+    const deps = { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync(), store: new MemoryInviteStore() };
     const missing = await rejection(removeMember(await accessFor(stack, ADMIN_ID), OUTSIDER_ID, deps));
     expect(missing.code).toBe("member_not_found");
     await removeMember(await accessFor(stack, ADMIN_ID), MEMBER_ID, deps);
@@ -96,7 +134,7 @@ describe("member mutations", () => {
 
   test("a member cannot promote themself", async () => {
     const stack = standardTeam();
-    const error = await rejection(changeMemberRole(await accessFor(stack, MEMBER_ID), MEMBER_ID, "admin", { stack: stack.app(), lock: noLock }));
+    const error = await rejection(changeMemberRole(await accessFor(stack, MEMBER_ID), MEMBER_ID, "admin", { stack: stack.app(), lock: noLock, seats: new MemoryTeamSeatSync() }));
     expect(error.code).toBe("forbidden");
   });
 });

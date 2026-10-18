@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import {
   stackAccessTokenVerifierFromEnv,
@@ -38,6 +39,8 @@ export type AuthedUser = {
   isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
+  /** Whether Stack verified the primary email; absent on identity snapshots. */
+  primaryEmailVerified?: boolean;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
   selectedTeamId: string | null;
@@ -293,6 +296,35 @@ export async function withSubrouterAuthorizationDeadline<T>(
   }
 }
 
+/**
+ * Run a Stack call under a caller's authorization deadline. The call shares
+ * the deadline-gated concurrency slots and `cmux.stack_auth.*` span with
+ * verification, and rejects with `SubrouterAuthorizationTimeoutError` once the
+ * signal aborts. A call that has not started when the signal aborts never
+ * starts.
+ */
+export function deadlineGatedStackCall<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+  operationName: string,
+): Promise<T> {
+  return stackAuthorizationCall(operation, signal, operationName);
+}
+
+/**
+ * Persist the identity snapshot after the response. `after` keeps the
+ * function alive on Vercel; outside a request scope (tests, scripts) it
+ * throws and the write runs detached. The write already swallows its own
+ * failures.
+ */
+function deferIdentitySnapshotWrite(write: () => Promise<void>): void {
+  try {
+    after(write);
+  } catch {
+    void write();
+  }
+}
+
 export async function verifySubrouterRequest(
   request: Request,
   signal: AbortSignal,
@@ -376,6 +408,7 @@ async function stackAuthorizationCall<T>(
     release();
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
   void pending.then(release, release);
@@ -388,6 +421,7 @@ async function stackAuthorizationCall<T>(
     }
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
 }
@@ -407,9 +441,10 @@ function acquireStackAuthorizationSlot(
     timedOutStackAuthorizationCalls >=
       MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization circuit is open",
-    ));
+    ), { transient: true }));
   }
   if (
     activeStackAuthorizationCalls <
@@ -422,9 +457,10 @@ function acquireStackAuthorizationSlot(
     stackAuthorizationWaiters.length >=
       MAX_QUEUED_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization queue is full",
-    ));
+    ), { transient: true }));
   }
   return new Promise((resolve, reject) => {
     const waiter = {
@@ -591,9 +627,15 @@ async function verifyNativeRequest(
     }
     if (resolved) {
       recordAuthResolution({ source: "stack", providerCalled: true });
-      await writeIdentitySnapshot(resolved.user, {
+      const writeSnapshot = () => writeIdentitySnapshot(resolved.user, {
         completeTeamList: resolved.completeTeamList,
       });
+      // The snapshot is a best-effort optimization. A deadline-gated caller
+      // must not spend its Stack budget waiting for a database connection:
+      // production traces showed this upsert idle 6-11 s behind a saturated
+      // pool, which alone pushed /api/coderouter/organizations past 10 s.
+      if (options.subrouterAuthorizationSignal) deferIdentitySnapshotWrite(writeSnapshot);
+      else await writeSnapshot();
     }
     return resolved?.user ?? null;
   }
@@ -810,34 +852,58 @@ async function resolveStackTeamMembership(
     };
   }
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
-  // Full pagination is reserved for the explicit team-picker route. Other
-  // callers resolve one requested team with Stack's exact-ID search so shared
-  // VM authentication never inherits an unbounded multi-page dependency.
+  // Stack may return only the selected team's ID. Resolve its details before
+  // choosing billing, or paid members inherit the user's free plan instead.
+  const selectedTeamNeedsDetails = !!selectedTeam && selectedTeam.clientReadOnlyMetadata === undefined;
+  const teamIdsToLookup = uniqueStrings([
+    requestedTeamId && requestedTeamId !== selectedTeam?.id ? requestedTeamId : undefined,
+    selectedTeamNeedsDetails ? selectedTeam.id : undefined,
+  ]);
+  // Snapshot-capable callers need a complete paginated list. Bounded
+  // subrouter callers resolve only the requested and selected IDs so shared VM
+  // authentication does not inherit an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
     !selectedTeam ||
-    (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
+    teamIdsToLookup.length > 0;
   // Whether the branch taken below enumerates every team the user belongs to.
   // Only that case may be stored as an identity snapshot.
-  const completeTeamList = options.subrouterAuthorizationSignal === undefined
+  let completeTeamList = options.subrouterAuthorizationSignal === undefined
     ? needsListedTeams && typeof user.listTeams === "function"
     : options.listAllTeams === true;
-  const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
-    ? completeTeamList
-      ? await user.listTeams!()
-      : []
-    : options.listAllTeams === true
-    ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
-    : requestedTeamId && requestedTeamId !== selectedTeam?.id
-    ? await findStackTeam(
+  let listedTeamRaw: readonly unknown[];
+  if (options.subrouterAuthorizationSignal === undefined) {
+    if (!completeTeamList) {
+      listedTeamRaw = [];
+    } else if (options.forceCompleteTeamList === true) {
+      // Snapshot refreshes must fail closed: storing a partial team list could
+      // later deny a team that was omitted by an incomplete page walk.
+      listedTeamRaw = await listAllStackTeams(user, undefined);
+    } else {
+      // VM listing can still use the selected team's ID and user plan when
+      // Stack returns a broken or unexpectedly large pagination chain. Do not
+      // mark the partial result complete, so it is never snapshotted.
+      const listed = await listStackTeams(user, undefined);
+      listedTeamRaw = listed.teams;
+      completeTeamList = listed.complete;
+    }
+  } else if (options.listAllTeams === true) {
+    listedTeamRaw = await listAllStackTeams(user, options.subrouterAuthorizationSignal);
+  } else if (teamIdsToLookup.length > 0) {
+    listedTeamRaw = (await Promise.all(teamIdsToLookup.map((teamId) => findStackTeam(
       user,
-      requestedTeamId,
+      teamId,
       options.subrouterAuthorizationSignal,
-    )
-    : [];
+    )))).flat();
+  } else {
+    listedTeamRaw = [];
+  }
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
     .filter((team): team is BillingTeamLike => !!team);
-  return { selectedTeam, listedTeams, completeTeamList };
+  const resolvedSelectedTeam = selectedTeamNeedsDetails
+    ? listedTeams.find((team) => team.id === selectedTeam.id) ?? selectedTeam
+    : selectedTeam;
+  return { selectedTeam: resolvedSelectedTeam, listedTeams, completeTeamList };
 }
 
 async function authedUserFromStackUser(
@@ -880,6 +946,7 @@ async function authedUserFromStackUser(
       isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
+      primaryEmailVerified: user.primaryEmailVerified === true,
       billingCustomerType: billingTeam ? "team" : "user",
       billingTeamId: billingTeam?.id ?? user.id,
       selectedTeamId: selectedTeam?.id ?? null,
@@ -896,11 +963,18 @@ async function authedUserFromStackUser(
 const MAX_STACK_TEAM_PAGES = 100;
 const STACK_TEAM_PAGE_SIZE = 100;
 
-async function listAllStackTeams(
+type StackTeamPageResult = {
+  readonly teams: readonly unknown[];
+  readonly complete: boolean;
+  readonly incompleteReason?: string;
+};
+
+/** List every available Stack team while retaining pages before a cursor fault. */
+async function listStackTeams(
   user: StackUserLike,
   signal: AbortSignal | undefined,
-): Promise<readonly unknown[]> {
-  if (typeof user.listTeams !== "function") return [];
+): Promise<StackTeamPageResult> {
+  if (typeof user.listTeams !== "function") return { teams: [], complete: true };
 
   const teams: unknown[] = [];
   const seenCursors = new Set<string>();
@@ -916,14 +990,23 @@ async function listAllStackTeams(
     );
     teams.push(...page);
     const nextCursor = normalizedOptionalString(page.nextCursor);
-    if (!nextCursor) return teams;
+    if (!nextCursor) return { teams, complete: true };
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Stack team pagination repeated a cursor");
+      return { teams, complete: false, incompleteReason: "Stack team pagination repeated a cursor" };
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
-  throw new Error("Stack team pagination exceeded its page limit");
+  return { teams, complete: false, incompleteReason: "Stack team pagination exceeded its page limit" };
+}
+
+async function listAllStackTeams(
+  user: StackUserLike,
+  signal: AbortSignal | undefined,
+): Promise<readonly unknown[]> {
+  const result = await listStackTeams(user, signal);
+  if (result.complete) return result.teams;
+  throw new Error(result.incompleteReason ?? "Stack team pagination is incomplete");
 }
 
 async function findStackTeam(
@@ -974,6 +1057,7 @@ type StackUserLike = {
   readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise helper submission, artifact identity, and release gates with fake Apple tools."""
+import base64
 import json
 import os
 from pathlib import Path
@@ -11,12 +12,28 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/ci/notarize-computer-use-helper.sh'
 TOOL = r'''#!/usr/bin/env python3
-import hashlib, json, os, pathlib, shutil, sys
+import hashlib, json, os, pathlib, shutil, stat, sys
 name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 root = pathlib.Path(os.environ['FIXTURE_ROOT'])
 with (root / 'calls').open('a') as f:
     f.write(json.dumps([name, *args]) + '\n')
+if name == 'xcrun' and args[:1] == ['notarytool']:
+    def flag(option):
+        return args[args.index(option) + 1] if option in args else None
+    key = flag('--key')
+    key_path = pathlib.Path(key) if key else None
+    exists = bool(key_path and key_path.is_file())
+    with (root / 'notary-auth').open('a') as f:
+        f.write(json.dumps({
+            'key': key,
+            'key_id': flag('--key-id'),
+            'issuer': flag('--issuer'),
+            'exists': exists,
+            'mode': stat.S_IMODE(key_path.stat().st_mode) if exists else None,
+            'content_ok': exists and key_path.read_bytes() == b'fixture-p8',
+            'apple_id_auth': any(a in args for a in ('--apple-id', '--password', '--team-id')),
+        }) + '\n')
 helper = root / 'cmux.app/Contents/Library/cmux Computer Use.app'
 def arches():
     return os.environ.get('FIXTURE_ARCHS', 'arm64 x86_64').split()
@@ -50,8 +67,16 @@ elif name == 'xcrun':
         ]))
         print(json.dumps({'id': 'fixture-submission', 'status': 'In Progress'}))
     elif args[:2] == ['notarytool', 'wait']:
+        if os.environ.get('FIXTURE_NOTARY_WAIT_TIMEOUT'):
+            print('Timeout of 25m reached before processing completed.', file=sys.stderr)
+            sys.exit(124)
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_NOTARY_STATUS', 'Accepted')}))
+    elif args[:2] == ['notarytool', 'info']:
+        print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_INFO_STATUS', 'In Progress')}))
     elif args[:2] == ['notarytool', 'log']:
+        if os.environ.get('FIXTURE_LOG_TIMEOUT'):
+            import time
+            time.sleep(float(os.environ['FIXTURE_LOG_TIMEOUT']))
         entries = json.loads((root / 'submitted.json').read_text())
         entries = [e for e in entries if e['arch'] != os.environ.get('FIXTURE_LOG_OMIT')]
         print(json.dumps({'status': 'Accepted', 'ticketContents': entries}))
@@ -92,10 +117,11 @@ class HelperNotarizationTests(unittest.TestCase):
         self.entitlements = self.root / 'entitlements.plist'
         self.entitlements.write_bytes(plistlib.dumps({}))
         self.state = self.root / 'submission.state'
-        # Authentication is stubbed; this credential has no account or network access.
-        self.env = dict(os.environ, FIXTURE_ROOT=str(self.root),
-                        APPLE_ID='fixture@example.com', APPLE_TEAM_ID='FIXTURETEAM',
-                        APPLE_APP_SPECIFIC_PASSWORD='fixture-password',  # noqa: S106  # gitleaks:allow
+        # Authentication is stubbed; this key has no account or network access.
+        env = {k: v for k, v in os.environ.items() if not k.startswith(('ASC_API_', 'APPLE_'))}
+        self.env = dict(env, FIXTURE_ROOT=str(self.root),
+                        ASC_API_KEY_ID='FIXTUREKEY', ASC_API_ISSUER_ID='fixture-issuer',
+                        ASC_API_KEY_P8_BASE64=base64.b64encode(b'fixture-p8').decode(),
                         CMUX_HELPER_ENTITLEMENTS=str(self.entitlements),
                         CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS='0',
                         CMUX_GATEKEEPER_ASSESS_ATTEMPTS='3')
@@ -115,7 +141,8 @@ class HelperNotarizationTests(unittest.TestCase):
         return result
 
     def calls(self, tool, *prefix):
-        calls = [json.loads(line) for line in (self.root / 'calls').read_text().splitlines()]
+        path = self.root / 'calls'
+        calls = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
         return [c for c in calls if c[0] == tool and c[1:1 + len(prefix)] == list(prefix)]
 
     def test_submit_and_finish_preserve_ticket_and_reseal_outer_app(self):
@@ -173,6 +200,39 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertFalse(self.calls('xcrun', 'stapler'))
         self.assertTrue(self.calls('xcrun', 'notarytool', 'log'))
 
+    def test_helper_wait_timeout_retains_state_and_signed_app_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper('--finish', self.state, success=False, FIXTURE_NOTARY_WAIT_TIMEOUT='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(self.state.exists())
+        evidence = Path(str(self.state) + '.log')
+        self.assertTrue(evidence.exists())
+        self.assertIn('Timeout of 25m reached', evidence.read_text())
+        self.assertIn('status=In Progress', self.state.read_text())
+        self.assertIn('pending=true', self.state.read_text())
+        self.assertEqual(result.returncode, 75)
+        self.assertIn('wait_exit=124', self.state.read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
+    def test_helper_log_timeout_retains_accepted_state_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper(
+            '--finish', self.state,
+            success=False,
+            FIXTURE_LOG_TIMEOUT='2',
+            CMUX_HELPER_LOG_TIMEOUT_SECONDS='1',
+        )
+        self.assertEqual(result.returncode, 75)
+        self.assertTrue(self.state.exists())
+        state = self.state.read_text()
+        self.assertIn('status=Accepted', state)
+        self.assertIn('post_wait_pending=true', state)
+        self.assertIn('pending=true', state)
+        self.assertIn('command timed out after 1s', (self.state.with_suffix('.state.log')).read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
     def test_invalid_signature_or_ticket_cannot_reseal_host(self):
         for env in ({'FIXTURE_VERIFY_FAIL': '1'}, {'FIXTURE_VALIDATE_FAIL': '1'}):
             with self.subTest(env=env):
@@ -188,6 +248,40 @@ class HelperNotarizationTests(unittest.TestCase):
         self.run_helper(success=False, FIXTURE_REJECTS='5')
         self.assertEqual(len(self.calls('spctl')), 3)
         self.assertFalse(self.calls('sign-bundle'))
+
+    def test_published_continuation_can_defer_gatekeeper_assessment(self):
+        # The continuation re-runs this assessment after the outer Apple wait.
+        # Deferral must retain every deterministic helper gate and only skip the
+        # CDN-backed check on the signing lane.
+        self.run_helper(CMUX_DEFER_GATEKEEPER_ASSESSMENT='true')
+        self.assertFalse(self.calls('spctl'))
+        validations = self.calls('xcrun', 'stapler', 'validate')
+        self.assertTrue(any(call[-1].endswith('/standalone/cmux Computer Use.app') for call in validations))
+        self.assertTrue(self.calls('sign-bundle'))
+
+    def notary_auth(self):
+        path = self.root / 'notary-auth'
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_notarytool_authenticates_with_team_api_key_and_deletes_it(self):
+        self.run_helper('--start', self.state)
+        self.run_helper('--finish', self.state)
+        auth = self.notary_auth()
+        for verb in ('submit', 'wait', 'log'):
+            self.assertTrue(self.calls('xcrun', 'notarytool', verb), verb)
+        self.assertEqual(len(auth), len(self.calls('xcrun', 'notarytool')))
+        for call in auth:
+            self.assertEqual((call['key_id'], call['issuer']), ('FIXTUREKEY', 'fixture-issuer'))
+            self.assertTrue(call['exists'] and call['content_ok'], call)
+            self.assertEqual(call['mode'], 0o600)
+            self.assertFalse(call['apple_id_auth'], call)
+            self.assertFalse(Path(call['key']).exists(), 'the decoded API key must be deleted on exit')
+
+    def test_missing_api_key_stops_before_upload(self):
+        for missing in ('ASC_API_KEY_ID', 'ASC_API_ISSUER_ID', 'ASC_API_KEY_P8_BASE64'):
+            with self.subTest(missing=missing):
+                self.run_helper(success=False, **{missing: ''})
+        self.assertFalse(self.calls('xcrun', 'notarytool'))
 
     def test_existing_submission_cannot_be_overwritten(self):
         self.run_helper('--start', self.state)

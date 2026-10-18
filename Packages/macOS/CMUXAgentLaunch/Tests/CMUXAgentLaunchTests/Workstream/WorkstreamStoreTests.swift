@@ -5,6 +5,18 @@ import Testing
 @MainActor
 @Suite("WorkstreamStore")
 struct WorkstreamStoreTests {
+    @Test("Feed ingestion preserves every reply provider", arguments:
+        ["claude", "codex", "opencode", "pi", "cursor", "grok", "gemini"]
+    )
+    func preservesReplyProvider(_ provider: String) {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "reply-provider", hookEventName: .stop, source: provider
+        ))
+        #expect(store.items.first?.source.rawValue == provider)
+        #expect(store.items.first?.kind == .stop)
+    }
+
     @Test("ingest creates a pending item for permission requests")
     func ingestPending() {
         let store = WorkstreamStore(ringCapacity: 10)
@@ -26,6 +38,52 @@ struct WorkstreamStoreTests {
         } else {
             Issue.record("expected .resolved status")
         }
+    }
+
+    @Test("Resolution and terminal replies survive a store restart")
+    func durableMutationsRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mutations-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("durable", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        await first.flushPersistence()
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        let restored = try #require(second.items.first)
+        #expect(restored.id == id)
+        #expect(restored.reply?.text == "continue")
+        if case .resolved(.permission(.once), _) = restored.status {
+            // expected
+        } else {
+            Issue.record("expected resolved decision after restart")
+        }
+        #expect(second.revision >= 3)
+    }
+
+    @Test("Feed revision remains above the previous snapshot after restart")
+    func durableRevisionRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-revision-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("revision", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        let oldRevision = first.revision
+        await first.flushPersistence()
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        #expect(second.revision >= oldRevision)
+        #expect(second.items.first?.reply?.text == "continue")
     }
 
     @Test("Ring buffer evicts oldest items past capacity")

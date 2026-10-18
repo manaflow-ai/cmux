@@ -1,19 +1,26 @@
+import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../../../db/client";
 import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  runAfterResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   capabilityList,
   optionalClientIdentifier,
   optionalString,
   parseLenientObjectBody,
 } from "../../../../../services/vms/routeInput";
+
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 960;
 
 export async function POST(
   request: Request,
@@ -72,7 +79,10 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
-        }), { request });
+          // An opted-in machine's agent-update exec runs after the response.
+          deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+          modelPlane: vmModelPlaneRevoker(),
+        }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
       }
@@ -93,7 +103,8 @@ export async function POST(
         providerVmId: id,
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
-      }), { request });
+        modelPlane: vmModelPlaneRevoker(),
+      }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
       if (!run.ok) return run.response;
       const endpoint = run.value;
       setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });

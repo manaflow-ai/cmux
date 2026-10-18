@@ -1,15 +1,59 @@
 /**
- * Paid plans include 50 independent machines per seat. CPU, memory, and disk
- * describe each machine; there is no aggregate resource quota. This module is
- * dependency-free so provider sizing does not import the billing graph.
+ * Paid plans include up to 5 active machines per seat, and those machines
+ * share one vCPU and memory pool: Pro, Team (per paid seat), and Founder's
+ * Edition get 20 vCPUs and 40 GB RAM, Max gets 80 vCPUs and 160 GB RAM. Disk
+ * stays a per-machine limit. Only provisioning and running machines draw from
+ * the pool. This module is dependency-free so provider sizing does not import
+ * the billing graph.
  */
-export const PAID_MAX_ACTIVE_VMS_DEFAULT = 50;
+export const PAID_MAX_ACTIVE_VMS_DEFAULT = 5;
 export const PLAN_MACHINE_MEMORY_MB = 8192;
-export const VM_MEMORY_MB_PER_VCPU = 4096;
+/** The image ladder pairs one vCPU with every 2 GB of memory (md = 4 vCPU / 8 GB). */
+export const VM_MEMORY_MB_PER_VCPU = 2048;
+
+/** The pooled dimensions. Disk is deliberately absent: it is a per-VM limit. */
+export type VmComputeResources = {
+  readonly vcpus: number;
+  readonly memoryMb: number;
+};
+
+/** One paid seat's pool on Pro, Team, and Founder's Edition. */
+export const PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 20, memoryMb: 40 * 1024 };
+/** The Max pool. */
+export const MAX_PLAN_RESOURCE_POOL: VmComputeResources = { vcpus: 80, memoryMb: 160 * 1024 };
+
+/**
+ * Everything the repository needs to enforce a billing scope's pool inside
+ * its create/resume/resize transaction. `legacyReservation` is the
+ * conservative provider maximum used for a live row without a valid
+ * reservation marker until reconciliation records the actual dimensions.
+ */
+export type VmResourcePoolPolicy = {
+  readonly capacity: VmComputeResources;
+  readonly legacyReservation: VmComputeResources;
+  /** The plan that owns the pool, used to name an upgrade in the refusal. */
+  readonly planId: string;
+};
+
+/** Pool dimensions in the order a refusal names them: memory first, then vCPUs. */
+export const VM_POOL_RESOURCES = ["memoryMb", "vcpus"] as const;
+export type VmPoolResourceName = (typeof VM_POOL_RESOURCES)[number];
+
+/** The first pooled dimension that `used + requested` would push past the pool. */
+export function firstExceededPoolResource(input: {
+  readonly capacity: VmComputeResources;
+  readonly used: VmComputeResources;
+  readonly requested: VmComputeResources;
+}): VmPoolResourceName | null {
+  for (const resource of VM_POOL_RESOURCES) {
+    if (input.used[resource] + input.requested[resource] > input.capacity[resource]) return resource;
+  }
+  return null;
+}
 
 /** New machines start with this disk. Freestyle resizes disks grow-only. */
 export const VM_DISK_MB_DEFAULT = 32768;
-/** Freestyle Pro's documented per-VM disk ceiling. */
+/** Freestyle's global grow-only disk ceiling; each plan may cap below it. */
 export const VM_DISK_MB_MAX = 262144;
 /** User-facing disk sizes are aligned to whole GiB steps. */
 export const VM_DISK_MB_STEP = 4096;
@@ -52,7 +96,11 @@ export type VmImageResourceShape = {
   readonly storageMb: number;
 };
 
-/** Historical default shape for legacy rows, not a quota on new machines. */
+/**
+ * Historical default shape for recovery paths that predate reservation
+ * markers. Never use it for the resource pool: a legacy live row reserves the
+ * provider maximum until reconciliation measures it (VmResourcePoolPolicy).
+ */
 export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
   vcpus: 5,
   memoryMb: 20 * 1024,
@@ -79,7 +127,7 @@ export function vmResourceForkPendingFromMetadata(
   return resourceReservationFromValue(metadata?.[VM_RESOURCE_FORK_PENDING_METADATA_KEY]);
 }
 
-/** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
+/** vCPUs a machine of `memoryMb` gets on the image ladder: one per 2 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {
   return Math.max(1, Math.ceil(memoryMb / VM_MEMORY_MB_PER_VCPU));
 }

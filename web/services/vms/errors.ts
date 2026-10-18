@@ -3,6 +3,7 @@ import * as Data from "effect/Data";
 import * as Option from "effect/Option";
 import * as Runtime from "effect/Runtime";
 import type { ProviderId } from "./drivers";
+import type { VmComputeResources, VmPoolResourceName } from "./machineSpec";
 
 export class VmDatabaseError extends Data.TaggedError("VmDatabaseError")<{
   readonly operation: string;
@@ -101,10 +102,40 @@ export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoun
   readonly snapshotId: string;
 }> {}
 
+/** A firewall rule that is not in the caller's network (route: 404 vm_firewall_rule_not_found; a missing VM stays vm_not_found). */
+export class VmFirewallRuleNotFoundError extends Data.TaggedError("VmFirewallRuleNotFoundError")<{
+  readonly ruleId: string;
+}> {}
+
+/** A firewall rule the caller may not create (route: 400 vm_invalid_firewall_rule). */
+export class VmFirewallRuleInvalidError extends Data.TaggedError("VmFirewallRuleInvalidError")<{
+  readonly reason: string;
+}> {}
+
+/** The caller already has the most firewall rules allowed (route: 409 vm_firewall_rule_limit). */
+export class VmFirewallRuleLimitError extends Data.TaggedError("VmFirewallRuleLimitError")<{
+  readonly limit: number;
+}> {}
+
+/** A Cloud VM file path that does not exist (route: 404 vm_file_not_found, so a retried delete is correct). */
+export class VmFileNotFoundError extends Data.TaggedError("VmFileNotFoundError")<{
+  readonly path: string;
+}> {}
+
 /** A free-plan machine whose access window has lapsed; upgrading unlocks it. */
 export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpiredError")<{
   readonly vmId: string;
   readonly windowDays: number;
+}> {}
+
+/** A snapshot with this idempotency key is still running on this machine. */
+export class VmSnapshotInProgressError extends Data.TaggedError("VmSnapshotInProgressError")<{
+  readonly vmId: string;
+}> {}
+
+/** This idempotency key already named another snapshot request on this machine. */
+export class VmSnapshotIdempotencyConflictError extends Data.TaggedError("VmSnapshotIdempotencyConflictError")<{
+  readonly vmId: string;
 }> {}
 
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
@@ -146,15 +177,60 @@ export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly reason: string;
 }> {}
 
+/** One machine the active-VM limit counted, so the refusal can name it. */
+export interface VmActiveLimitMachine {
+  /** Provider machine id, or the row id while provisioning has none yet. */
+  readonly id: string;
+  readonly name: string;
+  readonly status: "provisioning" | "running";
+}
+
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
   readonly kind: "active_vms";
   readonly billingTeamId: string;
   readonly limit: number;
+  /** The machines the count saw, oldest first; capped, so it can be shorter than the count. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
+}> {}
+
+/**
+ * A create, Base open/reset, resume, resize, or fork would push the billing
+ * scope's active machines past the plan's shared vCPU or memory pool.
+ */
+export class VmResourcePoolExceededError extends Data.TaggedError("VmResourcePoolExceededError")<{
+  readonly kind: "resource_pool";
+  readonly billingTeamId: string;
+  readonly phase: "create" | "resume" | "resize" | "fork";
+  /** The first pooled dimension that does not fit (memory is checked first). */
+  readonly resource: VmPoolResourceName;
+  readonly pool: VmComputeResources;
+  /** What the scope's other active machines already use. */
+  readonly used: VmComputeResources;
+  /** The whole size of the machine being created, resumed, resized, or forked. */
+  readonly requested: VmComputeResources;
+  /** The plan that owns the pool, so the refusal can name an upgrade. */
+  readonly planId: string;
 }> {}
 
 export class VmUsageLimitExceededError extends Data.TaggedError("VmUsageLimitExceededError")<{
   readonly includedHours: number;
   readonly usedHours: number;
+}> {}
+
+/**
+ * A Pro or Max monthly allowance is used up: compute-hours (machines may not
+ * start until `resetsAt`) or the total disk of saved machines.
+ */
+export class VmPlanBudgetExceededError extends Data.TaggedError("VmPlanBudgetExceededError")<{
+  readonly planId: "pro" | "max";
+  readonly resource: "compute" | "storage";
+  /** Compute-hours, or GB of disk. */
+  readonly included: number;
+  readonly used: number;
+  /** GB of disk the refused request needed; 0 for compute. */
+  readonly requested: number;
+  /** When the compute allowance resets (the end of the billing period). */
+  readonly resetsAt: Date;
 }> {}
 
 export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExceededError")<{
@@ -219,6 +295,19 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The route's answer deadline passed while the provider had not answered.
+ * A mutation (`mutating`) may still complete at the provider, so the answer
+ * says it is in progress and the caller checks status; a read answers that
+ * the provider is slow. See routeDeadline.ts.
+ */
+export class VmOperationDeadlineError extends Data.TaggedError("VmOperationDeadlineError")<{
+  readonly operation: string;
+  readonly mutating: boolean;
+  readonly waitedMs: number;
+  readonly cause?: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmMemoryPlanError
   | VmResizePlanLimitError
@@ -229,6 +318,12 @@ export type VmWorkflowError =
   | VmResizeInvalidError
   | VmResizeInProgressError
   | VmSnapshotNotFoundError
+  | VmSnapshotInProgressError
+  | VmSnapshotIdempotencyConflictError
+  | VmFileNotFoundError
+  | VmFirewallRuleNotFoundError
+  | VmFirewallRuleInvalidError
+  | VmFirewallRuleLimitError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
@@ -236,8 +331,10 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmResourcePoolExceededError
   | VmUsageLimitExceededError
   | VmSavedLimitExceededError
+  | VmPlanBudgetExceededError
   | VmGoShapeError
   | VmCreateCreditsInsufficientError
   | VmBillingError
@@ -249,7 +346,8 @@ export type VmWorkflowError =
   | VmAccessGrantRevokedError
   | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
-  | VmModelPlaneError;
+  | VmModelPlaneError
+  | VmOperationDeadlineError;
 
 export function isVmPrivateNetworkUnavailableError(
   err: unknown,
@@ -325,6 +423,10 @@ export function isVmLimitExceededError(err: unknown): err is VmLimitExceededErro
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
 }
 
+export function isVmResourcePoolExceededError(err: unknown): err is VmResourcePoolExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmResourcePoolExceededError";
+}
+
 export function isVmUsageLimitExceededError(err: unknown): err is VmUsageLimitExceededError {
   return (err as { _tag?: string } | null)?._tag === "VmUsageLimitExceededError";
 }
@@ -378,6 +480,12 @@ const vmWorkflowErrorTagRecord = {
   VmResizeInvalidError: true,
   VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
+  VmSnapshotInProgressError: true,
+  VmSnapshotIdempotencyConflictError: true,
+  VmFileNotFoundError: true,
+  VmFirewallRuleNotFoundError: true,
+  VmFirewallRuleInvalidError: true,
+  VmFirewallRuleLimitError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
   VmCreateFailedError: true,
@@ -385,8 +493,10 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmResourcePoolExceededError: true,
   VmUsageLimitExceededError: true,
   VmSavedLimitExceededError: true,
+  VmPlanBudgetExceededError: true,
   VmGoShapeError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
@@ -399,6 +509,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
+  VmOperationDeadlineError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));

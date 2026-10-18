@@ -813,6 +813,72 @@ def test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures: list[st
         )
 
 
+def run_tui_python_wrapper_under_python_launcher(
+    source_root: Path,
+    output: Path,
+) -> subprocess.CompletedProcess[str]:
+    # Mirror Hermes's process tree: a Python launcher starts an intermediate
+    # process (the Node TUI), which spawns the gateway through the wrapper.
+    # The trailing `exit` keeps sh from exec'ing the wrapper in its place.
+    env = os.environ.copy()
+    env.pop("CMUX_HERMES_TUI_REAL_PYTHON", None)
+    env["HERMES_PYTHON_SRC_ROOT"] = str(source_root)
+    gateway = [
+        str(SOURCE_TUI_PYTHON_WRAPPER),
+        "-c",
+        "import sys; open(sys.argv[1], 'w').write('launcher')",
+        str(output),
+    ]
+    launcher = (
+        "import subprocess, sys; "
+        "sys.exit(subprocess.run(['/bin/sh', '-c', '\"$0\" \"$@\"; exit $?'] + sys.argv[1:]).returncode)"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", launcher, *gateway],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def make_fake_tui_venv(source_root: Path, version: str, output: Path) -> None:
+    venv = source_root / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(
+        f"home = /nonexistent/bin\nversion_info = {version}\n",
+        encoding="utf-8",
+    )
+    python = venv / "bin" / "python"
+    python.write_text(
+        "#!/bin/sh\n"
+        f"printf venv > '{output}'\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+
+
+def test_tui_python_wrapper_skips_venv_for_other_python_version(failures: list[str]) -> None:
+    launcher_version = "%d.%d" % sys.version_info[:2]
+    cases = [
+        ("mismatched venv", "2.7.18", "launcher"),
+        ("matching venv", f"{launcher_version}.0", "venv"),
+    ]
+    for label, venv_version, expected in cases:
+        with tempfile.TemporaryDirectory(prefix="cmux-hermes-python-test-") as td:
+            tmp = Path(td)
+            source_root = tmp / "hermes"
+            output = tmp / "selected"
+            make_fake_tui_venv(source_root, venv_version, output)
+            result = run_tui_python_wrapper_under_python_launcher(source_root, output)
+            expect(result.returncode == 0, f"{label}: wrapper failed: {result.stderr}", failures)
+            selected = output.read_text(encoding="utf-8") if output.exists() else ""
+            expect(
+                selected == expected,
+                f"{label}: expected the {expected} interpreter, got {selected or 'nothing'}",
+                failures,
+            )
+
+
 def test_tui_gateway_rejects_retired_cmux_python_wrapper(failures: list[str]) -> None:
     expected_events = [
         f"gateway:{event}:{turn}"
@@ -1050,6 +1116,7 @@ def main() -> int:
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)
         test_tui_python_wrapper_prefers_symlinked_venv_interpreter(failures)
+        test_tui_python_wrapper_skips_venv_for_other_python_version(failures)
         test_tui_gateway_rejects_retired_cmux_python_wrapper(failures)
         test_bundled_wrappers_ignore_path_bash_shadow(failures)
         test_explicit_classic_cli_skips_tui_watcher(failures)

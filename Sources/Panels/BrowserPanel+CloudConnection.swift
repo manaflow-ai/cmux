@@ -8,24 +8,43 @@ extension BrowserPanel {
     /// Keeps the browser-owned readiness callback installed while a committed
     /// WebKit document is rebound to a new same-VM route.
     func bindCloudBrowserNavigation() {
-        cloudAccess.automaticallyNavigate { [weak self] url in
+        cloudAccess.automaticallyNavigateRequest { [weak self] request in
             guard let self, !self.isClosingWebViewLifecycle else { return }
-            _ = self.navigate(to: url)
+            // Readiness callbacks used to enter through `navigate(to:)`, which
+            // installs the authenticated proxy before the first WebKit load.
+            // Keep that preparation when the request-preserving path is used;
+            // otherwise a proxied Cloud route can reach WebKit before its
+            // profile has the proxy configuration.
+            if let model = self.cloudAccess.model,
+               model.usesBrowserProxy,
+               let url = request.url,
+               self.cloudAccess.owns(url) {
+                self.prepareCloudBrowserNavigation()
+            }
+            _ = self.navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                trustedInternalNavigation: true
+            )
         }
     }
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
-    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                               request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
         webView.stopLoading()
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
             prepareCloudBrowserStore(machineID: machineID)
         }
-        showCloudAddress(url)
         // A cached model can navigate synchronously. Its machine/profile store
         // must be installed first, including on reconfiguration and duplication.
-        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID, request: request)
+        // CloudBrowserAccessState canonicalizes SSH loopback identities to the
+        // stable `localhost:<port>` origin before any WebKit callbacks publish
+        // a URL. Seed the chrome from that identity as well.
+        showCloudAddress(cloudAccess.remoteURL ?? url)
         bindCloudBrowserNavigation()
         model.connect()
     }
@@ -36,6 +55,8 @@ extension BrowserPanel {
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
         pendingCloudRestoreURL = nil
+        // An ordinary local browser again: a blank page may focus its address bar.
+        opensLinkedContent = false
         if retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
         }
@@ -75,7 +96,7 @@ extension BrowserPanel {
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
-                             activate: Bool = true) {
+                             activate: Bool = true, automaticRetriesRemaining: Int = 2) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -89,9 +110,36 @@ extension BrowserPanel {
         retainTransferredSurfaceMachine(resource.machine)
         catalog.restore([SurfaceProjectionRecord(panelID: id, resource: resource)], workspaceID: workspaceId)
         guard activate else { return }
-        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
-              let known = catalog.resources[resource] else {
-            cloudAccess.showUnavailable(String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."))
+        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+            showCloudRestoreUnavailable(
+                resource,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
+            return
+        }
+        guard let known = catalog.resources[resource] else {
+            // The provider can be registered before its first port/display
+            // snapshot. Force that provider's metadata and graph refresh so a
+            // restored port is discovered before retrying materialization.
+            showCloudRestoreUnavailable(
+                resource,
+                provider: provider,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
+            return
+        }
+        if let loopbackURL = provider.cloudLoopbackBrowserURL(for: known) {
+            let restoredURL = cloudRestoreURL(on: loopbackURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
+            return
+        }
+        if let browserURL = provider.cloudBrowserOriginURL(for: known, restoring: self) {
+            let restoredURL = cloudRestoreURL(on: browserURL)
+            let configured = provider.configureBrowser(self, url: restoredURL, resourceID: resource)
+            if configured { pendingCloudRestoreURL = nil }
             return
         }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
@@ -102,8 +150,45 @@ extension BrowserPanel {
                     resourceID: resource)
                 if configured { pendingCloudRestoreURL = nil }
             }
-        case .unsupported(let message): cloudAccess.showUnavailable(message)
+        case .unsupported(let message):
+            // The provider owns the retry because it can refresh the machine's
+            // private address before trying to materialize the saved projection.
+            // This is the same recovery path used by a live port row.
+            provider.showPortUnavailable(message, resourceID: resource, browser: self)
         }
+    }
+
+    /// Keep a restored Cloud pane recoverable while its provider is being
+    /// discovered. Session restore can run before the machine list has
+    /// registered the provider or before its first resource snapshot arrives.
+    private func showCloudRestoreUnavailable(
+        _ resource: SurfaceResourceID,
+        provider: CmuxTuiSurfaceProvider? = nil,
+        message: String,
+        automaticRetriesRemaining: Int
+    ) {
+        let preferredURL = pendingCloudRestoreURL
+        let recover: @MainActor (UInt64) async -> Void = { [weak self] request in
+            guard let self else { return }
+            if let provider {
+                provider.requestPortDiscovery()
+                try? await provider.refreshPortMetadata()
+                await provider.refresh(force: true)
+            } else {
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            }
+            guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+            self.restoreCloudResource(
+                resource,
+                preferredURL: preferredURL,
+                automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
+            )
+        }
+        // The staged projection resolves on its own once the provider
+        // publishes the resource, so a miss here is still loading. The
+        // provider's settled port scan or the restore deadline ends it.
+        cloudAccess.showRestoring(retry: recover, unavailableMessage: message)
+        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
@@ -122,7 +207,13 @@ extension BrowserPanel {
     }
 
     func cloudRestoreURL(on target: URL) -> URL {
-        Self.cloudRestoredURL(
+        if let resource = cloudResourceForDuplication,
+           resource.machine.cloudMachineID != nil, resource.kind == .browser, !resource.key.hasPrefix("port:"),
+           let preferred = pendingCloudRestoreURL ?? currentURLForTabDuplication,
+           ["http", "https"].contains(preferred.scheme?.lowercased() ?? "") {
+            return preferred
+        }
+        return Self.cloudRestoredURL(
             pendingCloudRestoreURL ?? currentURLForTabDuplication,
             on: target,
             isDisplay: cloudResourceForDuplication?.kind == .display
@@ -135,13 +226,70 @@ extension BrowserPanel {
     /// a loopback URL routes only to the machine that owns this browser.
     func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
         let catalog = SurfaceCatalog.shared
+        if let resource = cloudResourceForDuplication,
+           resource.machine.cloudMachineID != nil,
+           resource.kind == .browser, !resource.key.hasPrefix("port:") {
+            return catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider
+        }
+        if RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
+           let owner = privateAddressRouteOwner, owner.cloudMachineID != nil {
+            return catalog.provider(for: owner) as? CmuxTuiSurfaceProvider
+        }
         let addresses = catalog.machines.compactMapValues(\.privateAddress)
         let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
-            forHost: url.host,
+            forHost: Self.privateAddressRouteHost(url.host),
             owner: privateAddressRouteOwner,
             addresses: addresses
         )
         return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// SSH machines advertise `127.0.0.1`, so every loopback spelling
+    /// (`localhost`, `::1`, `0.0.0.0`) names that same private address.
+    nonisolated static func privateAddressRouteHost(_ host: String?) -> String? {
+        guard let host, PrivateNetworkHostPolicy().isLoopback(host: host) else { return host }
+        return "127.0.0.1"
+    }
+
+    /// Managed SSH workspaces have no workspace-wide browser proxy.
+    var owningWorkspaceRoutesThroughSSHTui: Bool {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .usesSSHTui ?? false
+    }
+
+    /// The SSH service a loopback URL in a managed SSH workspace names, or `nil`
+    /// when the URL loads from this Mac as is: a non-loopback page, or this
+    /// pane's own forward listener. A listener URL copied from another pane
+    /// maps back to the service it forwards.
+    func sshLoopbackServiceURL(for url: URL) -> URL? {
+        guard PrivateNetworkHostPolicy().isLoopback(host: url.host ?? "") else { return nil }
+        if let listenerPort = cloudAccess.model?.localAddress
+            .flatMap({ Int($0.split(separator: ":").last ?? "") }),
+           url.scheme?.lowercased() == "http",
+           url.port == listenerPort { return nil }
+        if let serviceURL = privateAddressRouteProvider(for: url)?.sshServiceURL(forForwardListener: url) {
+            return serviceURL
+        }
+        if let remoteURL = cloudAccess.remoteURL,
+           cloudAccess.model?.route == .loopback,
+           var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            if cloudAccess.isRetiredListener(url) {
+                // A forward restart leaves WebKit history and in-flight
+                // commits pointing at the retired listener. Resolve only that
+                // known stale port against the stable service identity.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+                parts.port = remoteURL.port
+            } else {
+                // A different loopback port can be another SSH service. Keep
+                // its port while using this machine's private service host.
+                parts.scheme = remoteURL.scheme
+                parts.host = remoteURL.host
+            }
+            return parts.url
+        }
+        return url
     }
 
     /// The machine this browser belongs to: its current cloud route, or the
@@ -158,6 +306,15 @@ extension BrowserPanel {
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
         guard let provider = privateAddressRouteProvider(for: url) else {
             return false
+        }
+        // A loopback URL that commits before the navigation delegate can
+        // intercept it has already loaded this Mac's service. Reconfigure the
+        // SSH route so the browser follows its listener instead of preserving
+        // the wrong local document. Same-VM non-loopback redirects can retain
+        // their committed document safely.
+        if owningWorkspaceRoutesThroughSSHTui,
+           let serviceURL = sshLoopbackServiceURL(for: url) {
+            return provider.configureBrowser(self, url: serviceURL)
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)
     }
@@ -181,8 +338,8 @@ extension BrowserPanel {
               let address = cloudAccess.model?.target.host else { return }
         guard endpoint != cloudBrowserProxyEndpoint else { return }
         cloudBrowserProxyEndpoint = endpoint
-        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
+        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)]
+        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView, remoteNetwork: cloudAccess.model?.usesRemoteNetwork == true)
         if webView.configuration.websiteDataStore !== websiteDataStore {
             replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
                                          reason: "cloud_browser_route", restoreAfterReplacement: false)

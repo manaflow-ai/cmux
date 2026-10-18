@@ -119,10 +119,11 @@ describe("role and permission mapping", () => {
 describe("loadTeamDetail", () => {
   test("hides invitations and links from members and shows them to admins", async () => {
     const stack = standardTeam();
-    const invitation = stack.addInvitation(TEAM_ID, "new@example.com");
     const store = new MemoryInviteStore();
-    await store.upsertInviteRole({ stackTeamId: TEAM_ID, email: "new@example.com", role: "admin", invitedByUserId: ADMIN_ID });
-    await store.bindInviteRoleInvitation(TEAM_ID, "new@example.com", invitation.id);
+    await store.createEmailInvitation({
+      stackTeamId: TEAM_ID, email: "new@example.com", role: "admin", invitedByUserId: ADMIN_ID,
+      tokenHash: "b".repeat(64), expiresAt: new Date("2026-10-04T12:00:00.000Z"),
+    });
     await store.createLink({ stackTeamId: TEAM_ID, tokenHash: "a".repeat(64), createdByUserId: ADMIN_ID, expiresAt: null, maxUses: null });
     const deps = { store, hasActiveSubscription: async () => true };
 
@@ -142,7 +143,7 @@ describe("loadTeamDetail", () => {
       expect.objectContaining({ email: "new@example.com", role: "admin" }),
     ]);
     expect(adminView.links).toHaveLength(1);
-    expect(adminView.billing).toEqual({ planId: null, seats: null, memberCount: 2, hasActiveSubscription: true });
+    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: null, memberCount: 2, hasActiveSubscription: true });
     expect(adminView.members.find((member) => member.userId === ADMIN_ID)?.role).toBe("admin");
   });
 

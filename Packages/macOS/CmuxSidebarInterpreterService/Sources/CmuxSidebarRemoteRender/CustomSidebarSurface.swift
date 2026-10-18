@@ -21,6 +21,7 @@ import SwiftUI
 /// dependency and tests can drive both branches directly.
 public struct CustomSidebarSurface: View {
     private let fileURL: URL
+    private let sourceOverride: String?
     private let dataContext: [String: SwiftValue]
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
@@ -41,6 +42,7 @@ public struct CustomSidebarSurface: View {
     ///     spawn-and-handshake blank frame (see ``RemoteCustomSidebarHost``).
     public init(
         fileURL: URL,
+        sourceOverride: String? = nil,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
         contentInsets: CustomSidebarContentInsets = .zero,
@@ -48,6 +50,7 @@ public struct CustomSidebarSurface: View {
         client: Binding<RenderWorkerClient?>
     ) {
         self.fileURL = fileURL
+        self.sourceOverride = sourceOverride
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
@@ -56,12 +59,13 @@ public struct CustomSidebarSurface: View {
     }
 
     public var body: some View {
-        if rendersInProcess {
+        if rendersInProcess || sourceOverride != nil {
             // `.id(fileURL)` per CustomSidebarView's contract: its @State
             // model is keyed to the file it was created with, so switching
             // providers must rebuild it against the new file.
             CustomSidebarView(
                 fileURL: fileURL,
+                sourceOverride: sourceOverride,
                 dataContext: dataContext,
                 dispatch: dispatch,
                 contentInsets: contentInsets
