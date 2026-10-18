@@ -34,7 +34,9 @@ struct TerminalTTYSessionIdentity: Equatable, Sendable {
     /// device id and avoids the uninterruptible `open(2)` path entirely.
     static func sessionLeaderPID(forDeviceNamed deviceName: String) -> pid_t? {
         var metadata = stat()
-        guard Darwin.stat("/dev/\(deviceName)", &metadata) == 0 else { return nil }
+        // `Darwin.stat(...)` resolves to the `struct stat` initializer; the
+        // device node is never a symlink, so `lstat` reads the same metadata.
+        guard lstat("/dev/\(deviceName)", &metadata) == 0 else { return nil }
 
         var mib: [Int32] = [
             CTL_KERN,
@@ -50,7 +52,7 @@ struct TerminalTTYSessionIdentity: Equatable, Sendable {
 
         let stride = MemoryLayout<kinfo_proc>.stride
         guard stride > 0 else { return nil }
-        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 1)
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 16)
         size = processes.count * stride
         guard sysctl(&mib, UInt32(mib.count), &processes, &size, nil, 0) == 0 else {
             return nil
