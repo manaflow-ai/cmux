@@ -78,6 +78,23 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
+
+# Every shipped build uses the exact Go named by the `toolchain` line of
+# daemon/remote/go.mod: the Mac nightly and the HQ Linux nightly-next builder
+# must produce the same bytes. GOTOOLCHAIN=local stops a silent switch to a
+# downloaded Go; any other installed Go fails the build.
+PINNED_GO="$(sed -n 's/^toolchain \(go[0-9][0-9.]*\)$/\1/p' "${DAEMON_ROOT}/go.mod")"
+if [[ ! "$PINNED_GO" =~ ^go1\.[0-9]+\.[0-9]+$ ]]; then
+  echo "error: daemon/remote/go.mod has no exact 'toolchain go1.N.P' line" >&2
+  exit 1
+fi
+export GOTOOLCHAIN=local
+ACTUAL_GO="$(go -C "$DAEMON_ROOT" env GOVERSION)"
+if [[ "$ACTUAL_GO" != "$PINNED_GO" ]]; then
+  echo "error: cmuxd-remote needs ${PINNED_GO} (daemon/remote/go.mod), but go is ${ACTUAL_GO}" >&2
+  exit 1
+fi
+echo "cmuxd-remote Go: ${ACTUAL_GO}"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
