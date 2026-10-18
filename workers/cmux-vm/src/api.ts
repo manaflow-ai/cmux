@@ -24,6 +24,7 @@ import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
+import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -90,6 +91,10 @@ export class Vm extends Schema.Class<Vm>("Vm")({
   updatedAt: Schema.String,
 }) {}
 
+export class CreatedVm extends Vm.extend<CreatedVm>("CreatedVm")({
+  initialNetwork: Schema.optional(InitialVmNetworkReceipt),
+}) {}
+
 export class VmList extends Schema.Class<VmList>("VmList")({
   items: Schema.Array(Vm),
   nextCursor: Schema.NullOr(Schema.String).annotations({ description: "Pass as `cursor` to read the next page; null on the last page." }),
@@ -122,6 +127,7 @@ export const RequestedResources = Schema.Struct({
 
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
+    initialNetwork: Schema.optional(InitialVmNetwork),
     displayName: Schema.optional(DisplayName),
     snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; omit for the base image." })),
     resources: Schema.optional(RequestedResources),
@@ -274,7 +280,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
       .setHeaders(CreateHeaders)
-      .addSuccess(Vm, { status: 201 })
+      .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
       .addError(NotFound)
@@ -285,7 +291,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Create a VM",
           "vm:write",
-          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create.",
+          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
         ),
       ),
   )

@@ -31,6 +31,7 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  readonly httpsProxyOrigins?: ReadonlyArray<string>;
   /** The deployment environment; every tenant is dev/test outside production. */
   readonly environment?: "local" | "staging" | "production";
   /** Tenants treated as dev/test in production. */
@@ -159,6 +160,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   });
 
   const policy = tenantPolicyLayer({
+    ...(options.httpsProxyOrigins === undefined ? {} : { httpsProxyOrigins: options.httpsProxyOrigins }),
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
     ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),

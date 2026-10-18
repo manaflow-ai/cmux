@@ -80,11 +80,11 @@
         ],
         "responses": {
           "201": {
-            "description": "Vm",
+            "description": "CreatedVm",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Vm"
+                  "$ref": "#/components/schemas/CreatedVm"
                 }
               }
             }
@@ -177,7 +177,7 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -5810,6 +5810,9 @@
         "type": "object",
         "required": [],
         "properties": {
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetwork"
+          },
           "displayName": {
             "type": "string",
             "description": "a string at most 100 character(s) long",
@@ -5852,6 +5855,66 @@
         },
         "additionalProperties": false,
         "description": "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+      },
+      "InitialVmNetwork": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "publicEgress": {
+            "type": "boolean"
+          },
+          "httpsProxies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmHttpsProxy"
+            },
+            "description": "an array of at most 8 item(s)",
+            "title": "maxItems(8)",
+            "maxItems": 8
+          }
+        },
+        "additionalProperties": false,
+        "description": "Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default."
+      },
+      "VmHttpsProxy": {
+        "type": "object",
+        "required": [
+          "hostname",
+          "destination"
+        ],
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "a string at most 253 character(s) long",
+            "title": "maxLength(253)",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "destination": {
+            "type": "string",
+            "description": "A bare HTTPS origin enabled by the deployment's proxy policy.",
+            "title": "maxLength(2048)",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "headers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VmProxyHeaders"
+              }
+            ],
+            "description": "Redacted(<redacted>)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmProxyHeaders": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "maxProperties": 16,
+        "writeOnly": true
       },
       "RequestedResources": {
         "type": "object",
@@ -5897,7 +5960,7 @@
           "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
         }
       },
-      "Vm": {
+      "CreatedVm": {
         "type": "object",
         "required": [
           "id",
@@ -5984,6 +6047,9 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetworkReceipt"
           }
         },
         "additionalProperties": false
@@ -6007,6 +6073,26 @@
           }
         },
         "additionalProperties": false
+      },
+      "InitialVmNetworkReceipt": {
+        "type": "object",
+        "required": [
+          "publicEgress",
+          "httpsProxyHosts"
+        ],
+        "properties": {
+          "publicEgress": {
+            "type": "boolean"
+          },
+          "httpsProxyHosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "description": "Accepted creation-time policy. Proxy credentials and destination origins are never returned."
       },
       "BadRequest": {
         "type": "object",
@@ -6061,6 +6147,7 @@
             "enum": [
               "vm:read",
               "vm:write",
+              "vm:network",
               "vm:exec",
               "vm:files",
               "vm:terminal",
@@ -6225,6 +6312,97 @@
               }
             ],
             "description": "Pass as `cursor` to read the next page; null on the last page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Vm": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "labels",
+          "state",
+          "resources",
+          "idleTimeoutSeconds",
+          "maxRunSeconds",
+          "autoDeleteSeconds",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name given at create or fork; null when none was given."
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "stopped",
+              "unknown"
+            ],
+            "description": "starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/VmResources"
+          },
+          "idleTimeoutSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness."
+          },
+          "maxRunSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pauses the VM once a single run lasts this long; each start resets it. Null: no cap."
+          },
+          "autoDeleteSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -6805,6 +6983,7 @@
               "enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",
@@ -6885,6 +7064,7 @@
               "enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",
@@ -6978,6 +7158,7 @@
               "enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",

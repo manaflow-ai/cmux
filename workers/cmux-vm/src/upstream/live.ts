@@ -7,6 +7,7 @@
  * composition root src/index.ts import this module.
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
+import { initialNetworkBody } from "./initial-network.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -202,7 +203,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
-    createVm: (caller, spec, { source }) => {
+    createVm: (caller, spec, { source, network }) => {
       const sourceIdOf: Effect.Effect<UpstreamId | null> = source === undefined ? Effect.succeed(null) : idOf(source.owns);
       return Effect.flatMap(sourceIdOf, (sourceId) => {
       const tenantId = caller.value.tenantId;
@@ -215,8 +216,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
         ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
         metadata,
-        // Nothing implicit: no inbound and no outbound rules until networking endpoints add them.
-        firewall: { rules: [] },
+        // Omitted policy retains the existing no-network default.
+        ...initialNetworkBody(network),
         ...(sourceId !== null
           ? { snapshotId: sourceId }
           : baseImageFor(spec.size) === null

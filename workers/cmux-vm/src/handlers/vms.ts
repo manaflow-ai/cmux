@@ -14,7 +14,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
-import { CmuxVmApi, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
+import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import {
@@ -37,6 +37,7 @@ import { TenantLimits } from "../limits/service.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamClient, type SizeRequest, type UpstreamError, type UpstreamVm } from "../upstream/client.ts";
@@ -168,6 +169,7 @@ const createRecorded = <C, S>(
   proofs: {
     readonly mayCreate: TenantMayCreate<C, "vm">;
     readonly scope: KeyHasScope<C, "vm:write">;
+    readonly network?: VmNetworkAllowed<C>;
     readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
   },
 ) =>
@@ -283,6 +285,8 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       yield* requireServiceLabels(principal, payload.labels ?? {});
+      const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
+      const networkIntent = network === undefined ? undefined : vmNetworkEvidenceOf(network);
       const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
       const spec: NewVm = {
         displayName: payload.displayName ?? null,
@@ -302,6 +306,8 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
         payload.autoDeleteSeconds ?? null,
         sortedLabels(payload.labels),
       ];
+      // Omitted network must keep the exact fingerprint of pre-feature creates.
+      if (networkIntent !== undefined) request.push(networkIntent.fingerprint);
       return yield* idempotent(
         principal,
         idempotencyKey,
@@ -309,20 +315,20 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
         () =>
           Effect.gen(function* () {
             if (payload.snapshotId === undefined) {
-              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope }));
+              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }) }));
             }
             return yield* name(payload.snapshotId, (snapshot) =>
               Effect.gen(function* () {
                 const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
                 if (owns === null) return yield* Effect.fail(snapshotNotFound());
                 return yield* withCreateSlot(caller, (mayCreate) =>
-                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns } }),
+                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }),
                 );
               }),
             );
           }),
         (vmId) => replayVm(caller, scope, vmId),
-      );
+      ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }) })));
     }),
   );
 

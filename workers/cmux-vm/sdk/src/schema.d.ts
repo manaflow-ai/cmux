@@ -36,7 +36,7 @@ export interface paths {
         put?: never;
         /**
          * Create a VM
-         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         post: operations["vms.createVm"];
         delete?: never;
@@ -763,6 +763,7 @@ export interface components {
         };
         /** @description Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise. */
         CreateVmRequest: {
+            initialNetwork?: components["schemas"]["InitialVmNetwork"];
             /**
              * maxLength(100)
              * @description a string at most 100 character(s) long
@@ -787,6 +788,32 @@ export interface components {
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
             labels?: components["schemas"]["Labels"];
+        };
+        /** @description Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default. */
+        InitialVmNetwork: {
+            publicEgress?: boolean;
+            /**
+             * maxItems(8)
+             * @description an array of at most 8 item(s)
+             */
+            httpsProxies?: components["schemas"]["VmHttpsProxy"][];
+        };
+        VmHttpsProxy: {
+            /**
+             * maxLength(253)
+             * @description a string at most 253 character(s) long
+             */
+            hostname: string;
+            /**
+             * maxLength(2048)
+             * @description A bare HTTPS origin enabled by the deployment's proxy policy.
+             */
+            destination: string;
+            /** @description Redacted(<redacted>) */
+            headers?: components["schemas"]["VmProxyHeaders"];
+        };
+        VmProxyHeaders: {
+            [key: string]: string;
         };
         /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
         RequestedResources: {
@@ -814,7 +841,7 @@ export interface components {
         Labels: {
             [key: string]: string;
         };
-        Vm: {
+        CreatedVm: {
             /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             /** @description The name given at create or fork; null when none was given. */
@@ -834,11 +861,17 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
         };
         VmResources: {
             vcpus: number;
             memoryMib: number;
             diskMib: number;
+        };
+        /** @description Accepted creation-time policy. Proxy credentials and destination origins are never returned. */
+        InitialVmNetworkReceipt: {
+            publicEgress: boolean;
+            httpsProxyHosts: string[];
         };
         BadRequest: {
             message: string;
@@ -853,7 +886,7 @@ export interface components {
         Forbidden: {
             message: string;
             /** @enum {string} */
-            missingScope?: "vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin";
+            missingScope?: "vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin";
             /** @enum {string} */
             _tag: "Forbidden";
         };
@@ -889,6 +922,27 @@ export interface components {
             items: components["schemas"]["Vm"][];
             /** @description Pass as `cursor` to read the next page; null on the last page. */
             nextCursor: string | null;
+        };
+        Vm: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            /** @description The name given at create or fork; null when none was given. */
+            displayName: string | null;
+            labels: components["schemas"]["Labels"];
+            /**
+             * @description starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
+             * @enum {string}
+             */
+            state: "starting" | "running" | "pausing" | "paused" | "stopped" | "unknown";
+            resources: components["schemas"]["VmResources"];
+            /** @description Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. */
+            idleTimeoutSeconds: number | null;
+            /** @description Pauses the VM once a single run lasts this long; each start resets it. Null: no cap. */
+            maxRunSeconds: number | null;
+            /** @description Deletes the VM once it has gone this long without running; each start resets the clock. Null: never. */
+            autoDeleteSeconds: number | null;
+            createdAt: string;
+            updatedAt: string;
         };
         ForkVmRequest: {
             /**
@@ -1058,7 +1112,7 @@ export interface components {
              * maxItems(32)
              * @description an array of at most 32 item(s)
              */
-            scopes: ("vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
             /**
              * maxItems(100)
              * @description an array of at most 100 item(s)
@@ -1072,7 +1126,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: ("vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
             resourceAllowlist: string[] | null;
             createdAt: string;
             expiresAt: string | null;
@@ -1085,7 +1139,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: ("vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: ("vm:read" | "vm:write" | "vm:network" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
             resourceAllowlist: string[] | null;
             createdBy: string;
             createdAt: string;
@@ -1463,13 +1517,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Vm */
+            /** @description CreatedVm */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Vm"];
+                    "application/json": components["schemas"]["CreatedVm"];
                 };
             };
             /** @description The request did not match the expected schema */

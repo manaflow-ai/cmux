@@ -12,6 +12,7 @@ import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
+import { parseHttpsProxyOrigins } from "./network-origin.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
@@ -28,6 +29,8 @@ import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/iden
 export { TenantLimitsObject } from "./limits/durable-object.ts";
 
 export interface Env {
+  /** JSON array of exact HTTPS origins approved for creation-time proxies. Default: none. */
+  readonly VM_HTTPS_PROXY_ORIGINS?: string;
   readonly HYPERDRIVE: Hyperdrive;
   readonly UPSTREAM_API_URL: string;
   readonly UPSTREAM_API_KEY: string;
@@ -56,6 +59,7 @@ export interface Env {
 const liveServices = (env: Env) => {
   const sql = hyperdriveSqlLayer(env.HYPERDRIVE.connectionString);
   const policy = tenantPolicyLayer({
+    httpsProxyOrigins: parseHttpsProxyOrigins(env.VM_HTTPS_PROXY_ORIGINS),
     environment: parseEnvironment(env.ENVIRONMENT),
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),

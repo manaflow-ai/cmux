@@ -9,6 +9,7 @@ import { Schema } from "effect";
 export const SCOPES = [
   "vm:read",
   "vm:write",
+  "vm:network",
   "vm:exec",
   "vm:files",
   "vm:terminal",

@@ -9,6 +9,8 @@ import { Effect } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
+import { tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
+import { vmNetworkAllowed } from "../../src/proofs/vm-network.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 
@@ -64,4 +66,26 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         }),
       ),
     );
+  });
+
+/** Network authority is bound to the same caller as the quota and write proofs. */
+export const networkMisuse = (principal: Principal, vmId: VmId) =>
+  Effect.gen(function* () {
+    const upstream = yield* UpstreamClient;
+    yield* name(principal, (caller) => name(principal, (other) => Effect.gen(function* () {
+      const scope = keyHasScope(caller, "vm:write");
+      const networkScope = keyHasScope(caller, "vm:network");
+      const decision = yield* tenantMayCreate(caller, "vm");
+      if (scope === null || networkScope === null || decision._tag !== "granted") return;
+      const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local" };
+      const network = yield* vmNetworkAllowed(caller, { publicEgress: true, httpsProxies: [] });
+      const otherNetwork = yield* vmNetworkAllowed(other, { publicEgress: true, httpsProxies: [] });
+      yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, network });
+      // @ts-expect-error a network scope alone is not a checked network policy
+      yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, network: networkScope });
+      // @ts-expect-error another caller's network proof cannot authorize this create
+      yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, network: otherNetwork });
+      // @ts-expect-error raw network intent cannot bypass the proof argument
+      yield* upstream.createVm(caller, { ...spec, initialNetwork: { publicEgress: true } }, { scope, mayCreate: decision.proof });
+    })));
   });

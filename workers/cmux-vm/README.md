@@ -28,7 +28,7 @@ a VM `role=chief` to hand it to the service.
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
 `TenantOwnsResource` (carries the provider id as evidence),
-`TenantMayCreate` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
+`TenantMayCreate`, `VmNetworkAllowed` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
 exact named arguments, and the provider id is reachable only through a
 `TenantOwnsResource` proof. `test/types/proof-misuse.ts` lists calls that must
 not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.
@@ -60,6 +60,48 @@ pauses them. Until the billing source is wired (TODO in
 
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
+
+## Creation-time networking
+
+`POST /v1/vms` accepts optional `initialNetwork`. Omit it to retain the
+private default. Supplying it requires both `vm:write` and `vm:network`,
+including when requesting an empty policy. Existing API keys keep their
+current scopes.
+
+```json
+{
+  "initialNetwork": {
+    "publicEgress": true,
+    "httpsProxies": [{
+      "hostname": "api.cmux.internal",
+      "destination": "https://api.example.com",
+      "headers": { "authorization": "Bearer <proxy credential>" }
+    }]
+  }
+}
+```
+
+`publicEgress` defaults to false and allows only public destinations.
+HTTPS proxies default to none. An operator must separately enable each
+destination origin with `VM_HTTPS_PROXY_ORIGINS`, a JSON array such as
+`["https://api.example.com"]`. Missing or malformed configuration disables
+proxies. Origins match exactly, including nondefault ports; paths,
+credentials, query strings and fragments are refused.
+
+Up to eight distinct virtual DNS hostnames are installed inline during
+creation. Each proxy accepts up to 16 headers, with names up to 128 bytes,
+values up to 4096 printable ASCII bytes and a combined 32 KiB limit.
+Case-insensitive duplicate names and framing/hop-by-hop headers are refused.
+All rules use only the newly created VM as their source. This endpoint does
+not configure inbound domains, existing VMs or token refresh.
+
+The create response includes `initialNetwork: { publicEgress,
+httpsProxyHosts }` only when requested. Callers requiring networking must
+check for this receipt: an older API may ignore the request field. Headers
+are write-only and are never persisted in ownership, audit or idempotency
+rows, or returned in errors and VM responses. A retry with changed network
+intent or credentials under the same Idempotency-Key is 409. Forks do not
+inherit network intent.
 
 ## Layout
 
