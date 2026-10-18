@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0.
+// cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -560,6 +560,9 @@ pub struct ConversationTabSplit {
     /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane_id: Optional<String>,
+    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -996,6 +999,8 @@ pub enum Layout {
         ratio: f32,
         #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
         split: Option<Id>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        split_id: Option<String>,
     },
     #[serde(rename = "stack")]
     Stack {
@@ -1112,6 +1117,15 @@ pub struct MoveTerminalResult {
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NameSource {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "auto")]
+    Auto,
 }
 
 #[rustfmt::skip]
@@ -2684,6 +2698,10 @@ pub struct Workspace {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name_revision: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name_source: Option<NameSource>,
     pub screens: Vec<Screen>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,

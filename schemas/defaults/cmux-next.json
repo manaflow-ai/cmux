@@ -274,6 +274,7 @@
     "setting.appearance.metrics.titlebarHeight": null,
     "setting.appearance.saturation": 1,
     "setting.appearance.sidebarSurface": "same",
+    "setting.appearance.statusIndicator.animation": "animated",
     "setting.appearance.statusIndicator.color": null,
     "setting.appearance.statusIndicator.honorStatusStyle": true,
     "setting.appearance.statusIndicator.showAgentWorkingOnTabs": true,
@@ -572,6 +573,7 @@
     "setting.window.titlebar": "minimal",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
+    "setting.workspaces.autoName": true,
     "setting.workspaces.newPlacement": "top",
     "steps-aside.yieldsToCodeEditor": ["focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight"],
     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"]

@@ -1,7 +1,6 @@
 /* App Store page; the shared base (colors, menu) is shared/pageBase.css. It fills an app screen
    (wide) or a page tab (narrow): content is capped to readable widths and wraps, nothing assumes a
-   narrow tab. Cards use quiet elevation and selection tokens so the catalog remains legible in both
-   the app's light and dark themes. */
+   narrow tab. No fills of its own beyond hover/selection; cards are hairline-separated. */
 .apps-page {
   display: flex;
   flex-direction: column;
@@ -14,31 +13,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 12px var(--page-edge);
+  padding: 10px var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
-}
-
-.apps-toolbar-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: max-content;
-}
-
-.apps-toolbar-title h1,
-.apps-discover-intro h2 {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.apps-eyebrow {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .apps-tabs {
@@ -82,9 +58,8 @@
 
 .apps-error {
   display: block;
-  padding: 8px var(--page-edge);
+  padding: 6px var(--page-edge);
   color: var(--page-text-2);
-  background: color-mix(in srgb, var(--page-selection) 25%, transparent);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -95,43 +70,23 @@
 }
 
 .apps-discover-list {
-  max-width: 1240px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 8px var(--page-edge) 28px;
-}
-
-.apps-discover-intro {
-  display: flex;
-  align-items: end;
-  gap: 12px;
-  padding: 8px 0 10px;
-}
-
-.apps-discover-intro > div {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.apps-discover-rule {
-  flex: 1;
-  height: 1px;
-  margin-bottom: 3px;
-  background: var(--page-separator);
+  padding: 0 var(--page-edge) 24px;
 }
 
 .apps-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 0 14px;
+  padding: 12px 0;
 }
 
 .apps-chip {
   border: 0;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: var(--text-caption);
+  font-size: 11px;
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
@@ -144,71 +99,22 @@
 
 .apps-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 14px;
-}
-
-.apps-featured-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 14px;
-}
-
-.apps-catalog-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.apps-catalog-section + .apps-catalog-section {
-  margin-top: 22px;
-}
-
-.apps-section-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 0 2px;
-}
-
-.apps-section-heading h3 {
-  margin: 0;
-  color: var(--page-text);
-  font-size: var(--text-detail);
-  font-weight: 650;
-}
-
-.apps-section-heading span {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
 }
 
 .apps-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--page-elevated) 28%, transparent);
-  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+  border-radius: 10px;
 }
 
 .apps-card:hover {
   background: var(--page-hover);
-  border-color: var(--page-text-3);
-  transform: translateY(-1px);
-}
-
-.apps-card.featured {
-  border-color: color-mix(in srgb, var(--page-text-3) 65%, var(--page-separator));
-  background: color-mix(in srgb, var(--page-selection) 38%, transparent);
-}
-
-.apps-card.featured .apps-icon {
-  width: 52px;
-  height: 52px;
 }
 
 .apps-card-open,
@@ -233,27 +139,6 @@
   min-width: 0;
 }
 
-.apps-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  overflow-wrap: anywhere;
-}
-
-.apps-verified {
-  display: inline-grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  color: var(--page-elevated);
-  background: var(--page-text-2);
-  font-size: var(--text-caption);
-  font-weight: 700;
-}
-
 .apps-name {
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -273,10 +158,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-}
-
-.apps-button-subtle {
-  color: var(--page-text-2);
 }
 
 .apps-spacer {
@@ -318,13 +199,12 @@
   place-items: center;
   font-weight: 600;
   color: var(--page-text-2);
-  background: linear-gradient(145deg, var(--page-selection), var(--page-hover));
-  border: 1px solid var(--page-separator);
+  background: var(--page-selection);
 }
 
 .apps-badge {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--page-hover);
@@ -349,54 +229,6 @@
   background: var(--page-selection);
   border-color: transparent;
   font-weight: 500;
-}
-
-.apps-card-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 150px;
-  padding: 14px;
-  border: 1px solid var(--page-separator);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--page-elevated) 24%, transparent);
-}
-
-.apps-skeleton-icon,
-.apps-skeleton-line,
-.apps-skeleton-footer {
-  display: block;
-  border-radius: 5px;
-  background: var(--page-hover);
-  animation: apps-pulse 1.25s ease-in-out infinite;
-}
-
-.apps-skeleton-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-}
-
-.apps-skeleton-line {
-  width: 58%;
-  height: 9px;
-}
-
-.apps-skeleton-line.wide {
-  width: 78%;
-  height: 11px;
-}
-
-.apps-skeleton-footer {
-  width: 38%;
-  height: 20px;
-  margin-top: auto;
-}
-
-@keyframes apps-pulse {
-  50% {
-    opacity: 0.45;
-  }
 }
 
 .apps-split {
@@ -683,55 +515,8 @@ code {
   text-align: center;
 }
 
-.apps-state {
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 6px;
-  flex: 1;
-  min-height: 180px;
-  padding: 32px;
-  color: var(--page-text-2);
-  text-align: center;
-}
-
-.apps-state strong {
-  color: var(--page-text);
-  font-size: var(--text-body);
-}
-
-.apps-state > span:last-child {
-  max-width: 340px;
-  font-size: var(--text-detail);
-}
-
-.apps-state-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  margin-bottom: 4px;
-  border: 1px solid var(--page-separator);
-  border-radius: 9px;
-  color: var(--page-text-2);
-  background: var(--page-hover);
-  font-size: var(--text-title);
-}
-
-.apps-state-empty {
-  min-height: 220px;
-  margin-top: 8px;
-  border: 1px dashed var(--page-separator);
-  border-radius: 12px;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .apps-switch-knob,
-  .apps-card,
-  .apps-skeleton-icon,
-  .apps-skeleton-line,
-  .apps-skeleton-footer {
+  .apps-switch-knob {
     transition: none;
-    animation: none;
   }
 }

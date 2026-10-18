@@ -71,7 +71,9 @@ extension WorkspaceRowView {
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let fades = fadesNextHover
+        // Entering a row should reveal its controls immediately. Keep the
+        // short fade only for clearing them as the pointer leaves.
+        let fades = fadesNextHover && !isHovered
         defer { fadesNextHover = false; CATransaction.commit() }
 
         // Members indent under their group header; the members' line is

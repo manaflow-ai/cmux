@@ -112,6 +112,10 @@ class HomeInboxKind(str, Enum):
     CHANNEL = 'channel'
     GROUP = 'group'
 
+class NameSource(str, Enum):
+    USER = 'user'
+    AUTO = 'auto'
+
 class NotificationLevel(str, Enum):
     INFO = 'info'
     WARNING = 'warning'
@@ -675,6 +679,7 @@ class ConversationTabSplit:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
     direction: str
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -989,6 +994,7 @@ class LayoutSplit:
     ratio: float
     type: Literal['split']
     split: Union[Id, MissingType] = field(default=MISSING)
+    split_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2036,6 +2042,8 @@ class Workspace:
     name: str
     screens: List[Screen]
     key: Union[str, MissingType] = field(default=MISSING)
+    name_revision: Union[str, MissingType] = field(default=MISSING)
+    name_source: Union[NameSource, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -4093,6 +4101,9 @@ class RenameWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    expected_name_revision: Union[str, None, MissingType] = field(default=MISSING)
+    release: Union[bool, MissingType] = field(default=MISSING)
+    source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4506,6 +4517,7 @@ class SplitRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -5736,6 +5748,7 @@ __all__ = [
     'FrontendFocusTarget',
     'HomeChiefState',
     'HomeInboxKind',
+    'NameSource',
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',

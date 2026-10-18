@@ -37,6 +37,7 @@ public struct PaneSplitCommand: Sendable {
         var options = options
         options.paneID = provisional.paneID
         options.tabID = provisional.tabID
+        options.splitID = provisional.splitID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
