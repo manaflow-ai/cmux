@@ -21,7 +21,7 @@ export type RunApiAttempt = {
   id: string;
   runId?: string;
   ordinal: number;
-  variant?: { id: string; label: string; instruction: string };
+  variant?: { id: string; label: string; instruction?: string; instructionDigest?: string };
   status: string;
   providerVmId?: string | null;
   runtimeId?: string | null;
@@ -52,8 +52,27 @@ export type RunApiSnapshot = {
   run: RunApiRun;
   attempts: RunApiAttempt[];
   artifacts: RunApiArtifact[];
+  events?: RunApiEvent[];
   /** A future API may include the event cursor captured by the snapshot. */
   cursor?: string;
+};
+
+/** Flat receipt returned by the Cloud `/api/runs` routes. */
+export type RunApiReceipt = {
+  id: string;
+  status: string;
+  provider?: string;
+  requestDigest?: string | null;
+  desiredAttempts: number;
+  source?: RunApiRun["source"];
+  recipe?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string | null;
+  error?: string | null;
+  attempts: RunApiAttempt[];
+  events?: RunApiEvent[];
+  artifacts?: RunApiArtifact[];
 };
 
 export type RunApiEvent = {
@@ -72,6 +91,8 @@ export type RunApiEventPage = { events: RunApiEvent[]; nextCursor?: string | nul
 
 export type RunCreateInput = {
   source: { repository: string; commit: string; ref?: string; setupManifestDigest: string };
+  /** Human-readable shared intent; the wire contract stores only its digest. */
+  intent?: string;
   recipe: "parallel-review";
   desiredAttempts: number;
   provider?: "cloud-vm";
@@ -79,12 +100,10 @@ export type RunCreateInput = {
   variants: Array<{ id: string; label: string; instruction: string }>;
 };
 
-export type RunCreateResponse = {
+export type RunCreateResponse = RunApiReceipt & {
   id: string;
   specDigest?: string | null;
   status: string;
-  attempts: Array<{ id: string; ordinal: number; status: string }>;
-  createdAt?: string;
   executionProvider?: string;
   backendProvider?: string;
 };
@@ -133,7 +152,7 @@ export type AttachTicketIntent = {
 };
 
 export type RunApiClient = {
-  getSnapshot(runId: string): Promise<RunApiSnapshot | RunBoardSnapshot>;
+  getSnapshot(runId: string): Promise<RunApiSnapshot | RunApiReceipt | RunBoardSnapshot>;
   getEvents(runId: string, after?: string): Promise<RunApiEventPage>;
   createRun(input: RunCreateInput, idempotencyKey: string): Promise<RunCreateResponse>;
   mintAttachTicket(runId: string, attemptId: string, ttlMs?: number): Promise<RunAttachTicketMint>;
@@ -171,6 +190,36 @@ function apiUrl(baseUrl: string, path: string): string {
 
 async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => ({}));
+}
+
+const RUN_SPEC_SCHEMA = "cmux.run/v1" as const;
+
+async function sha256Digest(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function toRunSpec(input: RunCreateInput, operationId: string): Promise<Record<string, unknown>> {
+  const intent = input.intent?.trim() || input.variants.map((variant) => `${variant.id}:${variant.instruction}`).join("\n");
+  return {
+    schema: RUN_SPEC_SCHEMA,
+    operationId,
+    source: input.source,
+    intent: { digest: await sha256Digest(intent) },
+    recipe: { id: input.recipe, version: 1 },
+    variants: await Promise.all(input.variants.map(async (variant) => ({
+      id: variant.id,
+      label: variant.label,
+      instructionDigest: await sha256Digest(variant.instruction),
+    }))),
+    workspace: { kind: "ephemeral" },
+    resources: { maxAttempts: input.desiredAttempts, maxConcurrent: Math.min(2, input.desiredAttempts) },
+    routing: { executionProvider: "cloud-vm", backend: input.routing?.requestedProvider ?? "auto" },
+    capabilities: { secretRefs: [] },
+    checks: [],
+    policy: { mode: "thunderdome", humanApprovalRequired: true, evidenceKinds: ["screenshot", "recording", "patch"] },
+  };
 }
 
 /** Same-origin HTTP transport used by the real Run board. */
@@ -250,10 +299,11 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       return { events, nextCursor: null };
     },
     async createRun(input, idempotencyKey) {
+      const spec = await toRunSpec(input, idempotencyKey);
       return jsonRequest<RunCreateResponse>("/api/runs", {
         method: "POST",
         headers: { "idempotency-key": idempotencyKey },
-        body: JSON.stringify(input),
+        body: JSON.stringify(spec),
       }, "Run creation failed");
     },
     async mintAttachTicket(runId, attemptId, ttlMs) {
@@ -301,8 +351,31 @@ function encodeBase64Url(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
 }
 
-function isSnapshot(value: RunApiSnapshot | RunBoardSnapshot): value is RunApiSnapshot {
+function isSnapshot(value: RunApiSnapshot | RunApiReceipt | RunBoardSnapshot): value is RunApiSnapshot {
   return "run" in value && typeof value.run === "object";
+}
+
+function isReceipt(value: RunApiSnapshot | RunApiReceipt | RunBoardSnapshot): value is RunApiReceipt {
+  return "id" in value && typeof value.id === "string" && "status" in value && typeof value.status === "string" && Array.isArray(value.attempts);
+}
+
+function receiptSnapshot(receipt: RunApiReceipt): RunApiSnapshot {
+  return {
+    run: {
+      id: receipt.id,
+      source: receipt.source ?? {},
+      recipe: receipt.recipe ?? "parallel-review",
+      provider: receipt.provider,
+      desiredAttempts: receipt.desiredAttempts,
+      status: receipt.status,
+      createdAt: receipt.createdAt,
+      updatedAt: receipt.updatedAt,
+      error: receipt.error,
+    },
+    attempts: receipt.attempts,
+    artifacts: receipt.artifacts ?? [],
+    events: receipt.events ?? [],
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -363,7 +436,15 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
   const placement = record(attempt.placement);
   const sessionId = stringValue(placement.sessionId) ?? stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id;
   const backendProvider = stringValue(placement.backendProvider);
-  const variant = attempt.variant ?? { id: `attempt-${attempt.ordinal + 1}`, label: `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`, instruction: "Explore the shared intent independently and publish build, test, and artifact evidence." };
+  const rawVariant = attempt.variant;
+  const variant = rawVariant
+    ? {
+        id: rawVariant.id,
+        label: rawVariant.label,
+        instruction: rawVariant.instruction ?? (rawVariant.instructionDigest ? `Instruction digest ${rawVariant.instructionDigest.slice(0, 19)}…` : "Recipe instructions are sealed by digest."),
+        ...(rawVariant.instructionDigest ? { instructionDigest: rawVariant.instructionDigest } : {}),
+      }
+    : { id: `attempt-${attempt.ordinal + 1}`, label: `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`, instruction: "Explore the shared intent independently and publish build, test, and artifact evidence." };
   return {
     id: attempt.id,
     label: stringValue(resultValue(result, "label")) ?? `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`,
@@ -383,18 +464,19 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
   };
 }
 
-export function normalizeRunSnapshot(value: RunApiSnapshot | RunBoardSnapshot): RunBoardSnapshot {
-  if (!isSnapshot(value)) return value;
-  const source = value.run.source ?? {};
+export function normalizeRunSnapshot(value: RunApiSnapshot | RunApiReceipt | RunBoardSnapshot): RunBoardSnapshot {
+  if (!isSnapshot(value) && !isReceipt(value)) return value;
+  const snapshot = isReceipt(value) ? receiptSnapshot(value) : value;
+  const source = snapshot.run.source ?? {};
   const commit = source.commit ? ` @ ${source.commit.slice(0, 12)}` : "";
-  const cursor = decodeCursorSequence(value.cursor);
+  const cursor = decodeCursorSequence(snapshot.cursor) ?? snapshot.events?.at(-1)?.sequence;
   return {
-    id: value.run.id,
-    title: `Run ${value.run.id.slice(0, 8)}`,
-    intent: `${value.run.recipe} on ${source.repository ?? "the attached repository"}${commit}`,
+    id: snapshot.run.id,
+    title: `Run ${snapshot.run.id.slice(0, 8)}`,
+    intent: `${snapshot.run.recipe} on ${source.repository ?? "the attached repository"}${commit}`,
     source: `${source.repository ?? "repository"}${commit}`,
     cursor: cursor === undefined ? "0" : String(cursor),
-    attempts: value.attempts.map((attempt) => mapAttempt(attempt, value.artifacts)),
+    attempts: snapshot.attempts.map((attempt) => mapAttempt(attempt, snapshot.artifacts)),
   };
 }
 
@@ -472,11 +554,16 @@ export class RunBoardApiSession {
   async snapshotAndReplay(): Promise<RunBoardSnapshot> {
     const raw = await this.client.getSnapshot(this.runId);
     let snapshot = normalizeRunSnapshot(raw);
-    this.lastSequence = decodeCursorSequence(isSnapshot(raw) ? raw.cursor : snapshot.cursor) ?? 0;
-    this.transportCursor = isSnapshot(raw) && raw.cursor
-      ? (/^\d+$/.test(raw.cursor) ? encodeCursor(this.lastSequence) : raw.cursor)
-      : undefined;
-    const events = await this.readPages(this.transportCursor);
+    const embeddedEvents = isSnapshot(raw) || isReceipt(raw) ? (raw.events ?? []) : [];
+    this.lastSequence = decodeCursorSequence(isSnapshot(raw) ? raw.cursor : snapshot.cursor) ?? embeddedEvents.at(-1)?.sequence ?? 0;
+    this.transportCursor = this.lastSequence > 0
+      ? encodeCursor(this.lastSequence)
+      : isSnapshot(raw) && raw.cursor
+        ? raw.cursor
+        : undefined;
+    let events = embeddedEvents;
+    const replayEvents = await this.readPages(this.transportCursor);
+    events = [...events, ...replayEvents];
     for (const event of events) snapshot = applyRunEvent(snapshot, event);
     if (this.lastSequence > 0) snapshot = { ...snapshot, cursor: String(this.lastSequence) };
     return snapshot;
@@ -510,7 +597,13 @@ export function createFixtureRunApiClient(initial: RunBoardSnapshot, replay?: Ru
       return { events, nextCursor: null };
     },
     async createRun() {
-      return { id: snapshot.id, status: "running", attempts: snapshot.attempts.map((attempt, ordinal) => ({ id: attempt.id, ordinal, status: "running" })) };
+      return {
+        id: snapshot.id,
+        status: "running",
+        desiredAttempts: snapshot.attempts.length,
+        attempts: snapshot.attempts.map((attempt, ordinal) => ({ id: attempt.id, ordinal, status: "running" })),
+        events: [],
+      };
     },
     async mintAttachTicket(runId, attemptId) {
       return {

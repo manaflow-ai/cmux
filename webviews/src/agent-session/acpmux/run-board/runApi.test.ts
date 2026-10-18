@@ -95,6 +95,38 @@ describe("Run API client", () => {
     expect(recovered.attempts[0]?.state).toBe("completed");
   });
 
+  test("normalizes the flat Cloud receipt and preserves event-backed progress", () => {
+    const receipt = {
+      id: "run-flat",
+      status: "running",
+      provider: "cloud-vm",
+      requestDigest: digest,
+      desiredAttempts: 1,
+      source: { repository: "manaflow-ai/cmux", commit: "c".repeat(40) },
+      recipe: "parallel-review",
+      attempts: [{
+        id: "attempt-flat",
+        runId: "run-flat",
+        ordinal: 0,
+        status: "running",
+        variant: { id: "focus", label: "Focus", instructionDigest: digest },
+      }],
+      events: [{ ...output, id: "event-flat", runId: "run-flat", attemptId: "attempt-flat" }],
+    };
+    const snapshot = normalizeRunSnapshot(receipt);
+    expect(snapshot.id).toBe("run-flat");
+    expect(snapshot.source).toContain("manaflow-ai/cmux");
+    expect(snapshot.cursor).toBe("2");
+    expect(snapshot.attempts[0]?.variant?.instruction).toContain("Instruction digest sha256:");
+    const session = new RunBoardApiSession("run-flat", {
+      getSnapshot: async () => receipt,
+      getEvents: async () => ({ events: [], nextCursor: null }),
+    });
+    return session.snapshotAndReplay().then((replayed) => {
+      expect(replayed.attempts[0]?.rows.at(-1)?.items?.[0]?.tool?.output).toBe("checking the workspace");
+    });
+  });
+
   test("normalizes a board fixture without treating it as a server snapshot", () => {
     const board: RunBoardSnapshot = { id: "run-1", title: "Fixture", intent: "intent", source: "fixture", cursor: "4", attempts: [] };
     expect(normalizeRunSnapshot(board)).toBe(board);
@@ -168,6 +200,16 @@ describe("Run API client", () => {
       "/api/runs/run-new/attempts/attempt-1/promote",
     ]);
     expect(requests[0]?.idempotency).toBe("create-key");
+    const wire = JSON.parse(requests[0]?.body ?? "{}") as Record<string, any>;
+    expect(wire.schema).toBe("cmux.run/v1");
+    expect(wire.operationId).toBe("create-key");
+    expect(wire.recipe).toEqual({ id: "parallel-review", version: 1 });
+    expect(wire.intent.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(wire.variants.map((variant: Record<string, unknown>) => variant.instructionDigest)).toEqual([
+      "sha256:2ce92d4f044067d0ce82d8197bc750b0aba820b46ac596776b19aa6fe07503fd",
+      "sha256:30709e6b5fc02a39d78e81485de0ae4356ab4af843ea7c2d95af318c3b1976e5",
+    ]);
+    expect(wire.variants.every((variant: Record<string, unknown>) => !("instruction" in variant))).toBe(true);
     expect(requests[3]?.idempotency).toBe("promote-key");
   });
 });
