@@ -885,7 +885,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_advisory_only_statuses_do_not_count_as_required_evidence(self):
         result, merged, _ = self.run_case(
-            checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": "neutral"}],
+            checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": "neutral", "app": {"id": 42, "slug": "vercel"}}],
             statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
             files=["build-fleet/internal/agentledger/consumer.go"],
         )

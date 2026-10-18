@@ -162,16 +162,20 @@ is_preview_context() {
   local lowered_name
   lowered_name=$(tr '[:upper:]' '[:lower:]' <<<"${1:-}")
   case "$lowered_name" in
-    vercel|vercel\ preview|vercel\ preview\ comments|vercel\ agent\ review|netlify\ preview)
-      return 0
+    vercel|vercel\ preview|vercel\ preview\ comments|vercel\ agent\ review)
+      case "${2:-}" in vercel|legacy-status) return 0 ;; esac
+      ;;
+    netlify\ preview)
+      case "${2:-}" in netlify|legacy-status) return 0 ;; esac
       ;;
     *) return 1 ;;
   esac
+  return 1
 }
 
 is_web_path() {
   case "$1" in
-    web|web/*|webviews|webviews/*|cmux-tui/frontends|cmux-tui/frontends/*|frontend|frontend/*|frontends|frontends/*|site|site/*|apps/*/web|apps/*/web/*|apps/*/frontend|apps/*/frontend/*|apps/*/site|apps/*/site/*|services/*/vercel.json|vercel.json|.vercelignore)
+    web|web/*|webviews|webviews/*|cmux-tui/frontends|cmux-tui/frontends/*|frontend|frontend/*|frontends|frontends/*|site|site/*|apps/*/web|apps/*/web/*|apps/*/frontend|apps/*/frontend/*|apps/*/site|apps/*/site/*|services/*/vercel.json|vercel.json|.vercelignore|netlify.toml)
       return 0
       ;;
   esac
@@ -506,30 +510,74 @@ if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --p
 fi
 if ! statuses=$(jq -r '
   (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
-  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state, "legacy-status"] | @tsv
 ' <<<"$statuses_json" 2>/dev/null); then
   refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
 fi
+# Rulesets and classic protection are independent sources of requirements.
+# Only a confirmed 404 means absent; permissions and server errors stay closed.
 required_contexts=''
-set +e
-required_rules=$(gh api "repos/$repo/rules/branches/$base" 2>/dev/null)
-rules_status=$?
-set -e
-if [ $rules_status -ne 0 ]; then
-  if ! jq -e '.status == 404' <<<"$required_rules" >/dev/null 2>&1; then
-    refuse "not green: cannot read required branch contexts for $base" 'restore GitHub rules API access; refusing to guess which contexts are required'
+required_requirements=''
+for protection_source in rules classic; do
+  if [ "$protection_source" = rules ]; then
+    protection_route="repos/$repo/rules/branches/$base"
+  else
+    protection_route="repos/$repo/branches/$base/protection"
   fi
-elif ! required_contexts=$(jq -r '
-  if type == "array"
-  then [.[].parameters.required_status_checks[]?.context?] | .[]?
-  else [.parameters.required_status_checks[]?.context?] | .[]?
-  end
-' <<<"$required_rules" 2>/dev/null); then
-  refuse "not green: cannot parse required branch contexts for $base" 'retry after GitHub returns valid rules metadata'
-fi
-all_verdicts="$runs"$'\n'"$statuses"
-while IFS= read -r required_context; do
+  set +e
+  protection_json=$(gh api "$protection_route" 2>/dev/null)
+  protection_status=$?
+  set -e
+  if [ "$protection_status" -ne 0 ]; then
+    if jq -e '.status == 404' <<<"$protection_json" >/dev/null 2>&1; then
+      continue
+    fi
+    refuse "not green: cannot read $protection_source required branch contexts for $base" 'restore GitHub protection API access; refusing to guess which contexts are required'
+  fi
+  if ! protection_requirements=$(jq -r --arg source "$protection_source" '
+    def requirement:
+      if (.context | type) != "string" or .context == "" then error("invalid context")
+      elif .provider != null and ((.provider | type) != "number" or (.provider != -1 and .provider <= 0)) then error("invalid integration")
+      else [.context, (if .provider == null or .provider == -1 then "*" else (.provider | tostring) end)] | @tsv end;
+    if $source == "rules" then
+      if type != "array" then error("invalid rules") else
+        .[] | (.parameters.required_status_checks // [])[]
+        | {context, provider: .integration_id} | requirement
+      end
+    else
+      if type != "object" then error("invalid protection") else
+        .required_status_checks as $required
+        | if $required == null then empty else
+          ($required.checks // []) as $checks
+          | ($checks[] | {context, provider: .app_id} | requirement),
+            (($required.contexts // [])[] | . as $context
+             | select(all($checks[]; .context != $context))
+             | {context: $context, provider: null} | requirement)
+          end
+      end
+    end
+  ' <<<"$protection_json" 2>/dev/null); then
+    refuse "not green: cannot parse $protection_source required branch contexts for $base" 'retry after GitHub returns valid protection metadata'
+  fi
+  required_requirements+="$protection_requirements"$'\n'
+done
+required_contexts=$(printf '%s' "$required_requirements" | cut -f1 | sort -u)
+while IFS=$'\t' read -r required_context required_integration; do
   [ -n "$required_context" ] || continue
+  # Use raw check runs: selecting the newest namesake first could discard the
+  # required app and let another integration impersonate its result.
+  if ! required_verdicts=$(jq -r --arg context "$required_context" --arg integration "$required_integration" '
+    (map(.check_runs) | add // [])
+    | map(select(.name == $context and ($integration == "*" or (.app.id | tostring) == $integration)))
+    | sort_by((.app.id // -1), (.id // 0)) | group_by(.app.id // -1)[] | last
+    | [.name, .status, (.conclusion // "")] | @tsv
+  ' <<<"$check_runs_json" 2>/dev/null); then
+    refuse "not green: cannot match required context '$required_context' on $sha" 'retry after GitHub returns valid check metadata'
+  fi
+  # Legacy statuses cannot prove the identity of an app-bound requirement.
+  if [ "$required_integration" = '*' ]; then
+    required_verdicts+=$'\n'"$(awk -F '\t' -v context="$required_context" '$1 == context' <<<"$statuses")"
+  fi
   required_seen=0
   while IFS=$'\t' read -r context status conclusion _; do
     [ "$context" = "$required_context" ] || continue
@@ -547,11 +595,11 @@ while IFS= read -r required_context; do
           'repair the required branch context on the exact head, then retry'
         ;;
     esac
-  done <<<"$all_verdicts"
+  done <<<"$required_verdicts"
   [ "$required_seen" -eq 1 ] || refuse \
-    "not green: required context '$required_context' has not reported on $sha" \
-    'wait for the required branch context on the exact head, then retry'
-done <<<"$required_contexts"
+    "not green: required context '$required_context' from integration $required_integration has not reported on $sha" \
+    'wait for the required branch context from its configured integration on the exact head, then retry'
+done <<<"$required_requirements"
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
@@ -576,7 +624,7 @@ if [ "$has_ci" -eq 0 ]; then
     if [ -n "$required_contexts" ] && grep -Fqx "$name" <<<"$required_contexts"; then
       required_match=1
     fi
-    if [ "$web_changed" -eq 0 ] && [ "$required_match" -eq 0 ] && is_preview_context "$name"; then
+    if [ "$web_changed" -eq 0 ] && [ "$required_match" -eq 0 ] && is_preview_context "$name" "$app_slug"; then
       echo "note: advisory preview context '$name' ignored for non-web head $sha" >&2
       continue
     fi

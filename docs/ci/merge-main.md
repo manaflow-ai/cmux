@@ -56,12 +56,16 @@ is the only supported branch catch-up path.
 ## gh-merge-green status classification
 
 The merge helper evaluates checks against the immutable pull-request head SHA.
-When the base does not publish an aggregate ci-status, it also reads legacy
-commit statuses. Vercel and Netlify preview contexts are advisory only for
+The helper requires successful ci-status when the base publishes that aggregate
+job. Otherwise it uses the exact-head check runs and legacy commit statuses;
+an aggregate that does not exist is not a prerequisite. Vercel and Netlify preview contexts are advisory only for
 heads whose changed files do not touch a deployed web surface (web/, webviews/,
-frontend roots, or a Vercel configuration); a web change keeps those contexts
+frontend roots, or Vercel/Netlify configuration); a web change keeps those contexts
 strict. A branch-protection-required context remains strict even when its
-name is a preview provider. Unknown contexts remain blocking, and an
+name is a preview provider. Both rulesets and classic branch protection are
+checked. App-bound requirements must match the check run app ID; a legacy
+status cannot satisfy them. Advisory check runs must come from the named
+Vercel or Netlify app. Unknown contexts and apps remain blocking, and an
 advisory-only response is rejected because it provides no required evidence.
 Failures to read changed files or branch rules are fail-closed. Neutral and
 skipped conclusions are accepted only after a required check has reported for
