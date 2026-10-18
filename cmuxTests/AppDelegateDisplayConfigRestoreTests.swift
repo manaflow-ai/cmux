@@ -396,6 +396,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         appDelegate.isScreenChangeCaptureSuppressed = true
         appDelegate.screenChangeCaptureSuppressionSignature = nil
         defer {
+            appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
             appDelegate.isScreenChangeCaptureSuppressed = false
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil
@@ -469,6 +470,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         )
         appDelegate.lastAppliedConfigurationSignature = signature
         appDelegate.didObserveUnknownDisplayConfiguration = false
+        appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
         return (windowId, window, signature)
     }
 
@@ -534,6 +536,70 @@ struct AppDelegateDisplayConfigRestoreTests {
         moved.size.width -= 100
         window.setFrame(moved, display: false)
         appDelegate.handleScreenParametersDidChange()
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        #expect(window.frame == moved)
+    }
+
+    private func spinMainRunLoop(_ seconds: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    private final class NotificationCounter: @unchecked Sendable {
+        var count = 0
+    }
+
+    @Test
+    func endingDisplayReconfigurationSchedulesFinalReconcile() {
+        // An idle reconcile can run between the begin and end callbacks. The
+        // end callback must queue its own pass, or the marker it sets is left
+        // with nothing to consume it.
+        let appDelegate = testAppDelegate()
+        defer { resetDisplayChangeState(appDelegate) }
+        spinMainRunLoop(0.2)
+
+        let counter = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: AppDelegate.screenChangeReconcileNotification,
+            object: appDelegate,
+            queue: nil
+        ) { _ in counter.count += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        spinMainRunLoop(0.2)
+        let before = counter.count
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
+        spinMainRunLoop(0.3)
+
+        #expect(counter.count > before)
+    }
+
+    @Test
+    func reconcileBetweenBeginAndEndDoesNotLeaveStaleRestoreMarker() throws {
+        let appDelegate = testAppDelegate()
+        let remembered = try rememberedFrameInsideLiveDisplay(appDelegate)
+        let (windowId, window, _) = try windowWithRememberedFrame(appDelegate, remembered: remembered)
+        defer {
+            closeCreatedWindow(appDelegate, windowId: windowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: windowId)
+            resetDisplayChangeState(appDelegate)
+        }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
+        spinMainRunLoop(0.3)
+
+        // The user then places the window, and a later Dock resize raises a
+        // screen-parameters change. It must not be pulled back.
+        var moved = remembered
+        moved.origin.x += 20
+        moved.size.width -= 100
+        window.setFrame(moved, display: false)
+        appDelegate.handleScreenParametersDidChange()
+        spinMainRunLoop(0.3)
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
 
         #expect(window.frame == moved)
