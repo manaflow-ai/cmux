@@ -31,7 +31,7 @@ import {
   scrollTargetFor,
 } from "./scroll";
 import metrics from "virtual:cmux-gallery/metrics";
-import themes from "virtual:cmux-gallery/themes";
+import { useGalleryThemes } from "../theme/useThemes";
 import { Popover } from "../../ui/Popover";
 import { Select } from "../../ui/Select";
 
@@ -380,6 +380,7 @@ export function Stage({
 }
 
 export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: GalleryEnv) => void }) {
+  const themes = useGalleryThemes();
   const set = <K extends keyof GalleryEnv>(key: K, value: GalleryEnv[K]) => onChange({ ...env, [key]: value });
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<HTMLButtonElement | null>(null);

@@ -13,7 +13,7 @@ import { getEntryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
 import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
-import themes from "virtual:cmux-gallery/themes";
+import { useGalleryThemes } from "../theme/useThemes";
 import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
@@ -330,7 +330,7 @@ function subscribeMinute(listener: () => void): () => void {
 const useMinuteClock = () => useSyncExternalStore(subscribeMinute, () => minuteNow);
 
 /** The shell's chrome colors from the current theme (the gallery's own token pipeline). */
-function shellColors(search: ShellSearch): Record<string, string> {
+function shellColors(search: ShellSearch, themes: readonly import("../theme/ghostty").GhosttyTheme[]): Record<string, string> {
   const theme =
     themes.find((candidate) => candidate.name === search.theme) ??
     themes.find((candidate) => candidate.name === DEFAULT_DARK_THEME);
@@ -355,13 +355,14 @@ function shellColors(search: ShellSearch): Record<string, string> {
 }
 
 function Layout() {
+  const themes = useGalleryThemes();
   const states = useEntryStates();
   const status = useSyncExternalStore(liveStatus.subscribe, liveStatus.get);
   const address = useAddress(states);
   const { state, search } = address;
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setContainer} className="gallery" style={shellColors(search)}>
+    <div ref={setContainer} className="gallery" style={shellColors(search, themes)}>
       <UiProvider container={container} dir={languageDirection(search.locale)}>
         <Sidebar address={address} states={states} status={status} />
         <main className="gallery-main">
@@ -390,6 +391,7 @@ function Layout() {
 
 /** Browse is registry-wide, so it must not wait for the route's current entry to load. */
 function BrowseEntryView({ address, states }: { address: Address; states: readonly EntryState[] }) {
+  const themes = useGalleryThemes();
   const { search } = address;
   const current = states.find((state) => known(state)?.id === address.entry);
   const canCompare = Boolean(current && known(current)?.experiment);
@@ -452,6 +454,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
 
 /** One entry's header and stages. */
 function EntryView({ entry, address, status }: { entry: GalleryEntry; address: Address; status: LiveStatus }) {
+  const themes = useGalleryThemes();
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;

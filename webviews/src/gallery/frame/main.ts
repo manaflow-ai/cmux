@@ -12,7 +12,7 @@ import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import { deriveAppTheme } from "../../theme/appTheme";
-import themes from "virtual:cmux-gallery/themes";
+import { loadGalleryThemes } from "../theme/catalog";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
@@ -23,6 +23,7 @@ installGalleryClock();
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
+const themes = await loadGalleryThemes();
 const root = document.documentElement;
 const stageRoot = document.getElementById("root");
 const sourceHint = params.get("source") || undefined;

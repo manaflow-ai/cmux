@@ -42,15 +42,20 @@ const METRICS_SWIFT = path.join(
   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift",
 );
 const THEMES_ID = "virtual:cmux-gallery/themes";
+const THEMES_JSON_PATH = "__cmux_gallery/themes.json";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
 const REVISION_ID = "virtual:cmux-gallery/revision";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
 // The CSS id is a path under the gallery (no file there), so Vite's CSS pipeline takes it.
 const PANE_CSS_PATH = path.join(galleryDir, "agent-pane.virtual.css");
 
+let shippedThemesCache: { key: string; themes: GhosttyTheme[]; json: string } | undefined;
+
 /** Every shipped theme (Ghostty's and cmux's own), sorted by name; files that name no colors are skipped. */
 export function readShippedThemes(dirs = [THEMES_DIR, CMUX_THEMES_DIR]): GhosttyTheme[] {
-  return dirs
+  const key = dirs.join("\0");
+  if (shippedThemesCache?.key === key) return shippedThemesCache.themes;
+  const themes = dirs
     .filter((dir) => fs.existsSync(dir))
     .flatMap((dir) =>
       fs
@@ -61,6 +66,8 @@ export function readShippedThemes(dirs = [THEMES_DIR, CMUX_THEMES_DIR]): Ghostty
     .sort((a, b) => a.name.localeCompare(b.name, "en"))
     .map(({ name, file }) => parseGhosttyTheme(name, fs.readFileSync(file, "utf8")))
     .filter((theme): theme is GhosttyTheme => theme !== null);
+  shippedThemesCache = { key, themes, json: JSON.stringify(themes) };
+  return themes;
 }
 
 /** The shared fixture roots (repo-relative), from schemas/gallery/fixtures.json. */
@@ -208,6 +215,11 @@ export function galleryModules(): Plugin {
     name: "cmux-gallery-modules",
     generateBundle() {
       this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
+      this.emitFile({
+        type: "asset",
+        fileName: THEMES_JSON_PATH,
+        source: readShippedThemes().length ? shippedThemesCache!.json : "[]",
+      });
     },
     resolveId(source) {
       if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID].includes(source)) return `\0${source}`;
@@ -225,6 +237,12 @@ export function galleryModules(): Plugin {
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
+        if (request.url?.split("?")[0]?.endsWith(`/${THEMES_JSON_PATH}`)) {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(readShippedThemes().length ? shippedThemesCache!.json : "[]");
+          return;
+        }
         if (!request.url?.split("?")[0]?.endsWith("/__lib/vega.js")) return next();
         response.setHeader("Content-Type", "text/javascript; charset=utf-8");
         response.end(readVegaLibrary());
@@ -254,6 +272,7 @@ export function galleryModules(): Plugin {
                 : file === PANE_BUILD_SCRIPT
                   ? PANE_CSS_PATH
                   : undefined;
+        if (file.startsWith(`${THEMES_DIR}/`) || file.startsWith(`${CMUX_THEMES_DIR}/`)) shippedThemesCache = undefined;
         const module = id ? server.moduleGraph.getModuleById(id) : undefined;
         if (!module) return;
         server.moduleGraph.invalidateModule(module);
