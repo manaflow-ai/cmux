@@ -105,7 +105,8 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useSummaryCard } from "./summary/cardState";
+import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
+import { chatGallery } from "./summary/chatGallery";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -202,14 +203,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import {
-  SUBAGENT_OF,
-  SUBAGENT_ROW,
-  type SubagentRows,
-  childView,
-  isSubagentGroup,
-  subagentRowsFrom,
-} from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -1197,6 +1191,9 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  // This effect validates at most two focused ids, so build the lookup once per rows identity
+  // instead of scanning the whole transcript for every id on each streaming snapshot.
+  const rowIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -1205,14 +1202,13 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    // Two ids to look up: a scan, not a set of a long chat's every row on each snapshot.
-    const has = (id: string) => rows.some((row) => row.id === id);
+    const has = (id: string) => rowIds.has(id);
     setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
       return has(current.anchorId) && has(current.focusId) ? current : undefined;
     });
-  }, [rows, sessionChanged, sessionKey]);
+  }, [rowIds, rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -1981,13 +1977,16 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
-  const markTurns = () => {
+  const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  };
-  useLayoutEffect(markTurns);
+  }, [lastTurnId]);
+  // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
+  // layout effect scanned every commit, including scroll/follow state commits that cannot change
+  // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
+  useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
@@ -2694,14 +2693,30 @@ function AcpmuxPane() {
     chatShellRuns,
     panelAsks,
   ]);
-  // Another chat never opens on a subagent of this one.
+  // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
+  // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
-  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
-  const summaryCard = useSummaryCard(
-    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
-    hasSubagents && !subagentPane.current,
-  );
+  const summaryHasContent = useMemo(() => {
+    if (chatGallery(snapshot.rows).length > 0) return true;
+    return snapshot.rows.some(
+      (row) =>
+        row.subagents?.length ||
+        row.backgroundTask ||
+        (row.kind === "activity" &&
+          row.items?.some((item) => {
+            const tool = item.tool;
+            if (!tool) return false;
+            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            if (tool.kind !== "execute") return false;
+            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
+            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
+              command,
+            );
+          })),
+    );
+  }, [snapshot.rows]);
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -5268,10 +5283,30 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  const summaryPanel = (
+    <SummaryCard
+      key={snapshot.sessionId}
+      card={summaryCard}
+      rows={snapshot.rows}
+      changes={quick ? undefined : lastChanges}
+      onOpenChanges={toggleLastChanges}
+      onOpenOutput={quick ? undefined : openOutput}
+      onOpenImage={quick ? undefined : openImage}
+      subagents={cardSubagents}
+    />
+  );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
-        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
+      <section
+        ref={setShell}
+        className="acpmux-shell"
+        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+      >
+        <div
+          className="acpmux-main"
+          data-new-chat={freshView && !showNewTab ? "" : undefined}
+          data-summary={summaryCard.column ? "inline" : "popover"}
+        >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5494,17 +5529,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                <SummaryCard
-                  // Another chat closes this one's gallery, as it does the image viewer.
-                  key={snapshot.sessionId}
-                  card={summaryCard}
-                  rows={snapshot.rows}
-                  changes={quick ? undefined : lastChanges}
-                  onOpenChanges={toggleLastChanges}
-                  onOpenOutput={quick ? undefined : openOutput}
-                  onOpenImage={quick ? undefined : openImage}
-                  subagents={cardSubagents}
-                />
+                {!summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -5591,6 +5616,13 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {!harnessesOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          !inspectorOpen &&
+          !diffView &&
+          summaryCard.column &&
+          summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (

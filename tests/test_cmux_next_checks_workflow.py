@@ -324,6 +324,15 @@ class GodfilePullRequestScope(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("over budget on the base", result.stdout)
 
+    def test_base_as_self_without_optional_rust_tree_excuses_inherited_debt(self):
+        # A Swift-only checkout must not let the optional cmux-tui archive path
+        # erase the base tree and turn inherited debt into a new failure.
+        self.git("rm", "-q", "-r", "cmux-tui")
+        self.commit("swift-only base")
+        result = self.run_check("--only", "swift", "--base", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("over budget on the base", result.stdout)
+
     def test_an_unrelated_change_passes_over_base_reds(self):
         (self.rust / "small.rs").write_text("fn f() {}\n")
         (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
@@ -463,6 +472,15 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
+
+    def test_generated_files_use_cached_web_bundles_without_rebuilding(self):
+        """A cache hit must install the keyed bundles and skip the source build."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["generated-files"]["steps"]
+        build = next(step for step in steps if step.get("name") == "Build the web bundles")
+        self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+        install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
+        self.assertEqual(install["if"], "steps.web-bundle-cache.outputs.cache-hit == 'true'")
 
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
@@ -880,9 +898,17 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
         runs = [step.get("run", "") for step in job["steps"]]
         tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
-        init = next(i for i, run in enumerate(runs) if "git submodule update --init" in run and "ghostty-next" in run)
+        init = next(i for i, run in enumerate(runs)
+                    if "scripts/ci/init-submodule.sh ghostty-next" in run
+                    or ("git submodule update --init" in run and "ghostty-next" in run))
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         self.assertLess(max(init, zig), tier)
+
+    def test_fast_tier_uses_bounded_ghostty_initialization(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        init = next(step for step in job["steps"]
+                    if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
+        self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
 
     def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]

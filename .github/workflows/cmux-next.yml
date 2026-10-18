@@ -60,6 +60,7 @@ on:
       - schemas/**
       - plans/cmux-next/**
       - docs/mdm/**
+      - docs/configuration.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
@@ -1642,7 +1643,8 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        run: git submodule update --init --depth 1 --filter=blob:none ghostty-next
+        # Bound stalled GitHub connections before they consume the fast-tier budget.
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -2265,6 +2267,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
