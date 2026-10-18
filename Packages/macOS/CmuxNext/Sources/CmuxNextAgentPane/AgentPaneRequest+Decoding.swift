@@ -150,6 +150,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "nowPlaying.command":
+            if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
