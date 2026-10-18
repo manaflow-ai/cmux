@@ -1,0 +1,94 @@
+name: risk tier
+
+# Labels each feat-cmux-next pull request risk:low, risk:medium or risk:high from the paths it
+# changes, and reports the evidence that tier still needs in its description
+# (docs/ci/risk-tiers.md). gh-merge-green refuses a red `risk evidence` check on the exact head.
+#
+# pull_request_target so fork pull requests can be labeled. It never checks out or runs the
+# pull request's code: the classifier comes from the base branch and reads only the changed-file
+# list, the commit list and the description through the API.
+
+on:
+  pull_request_target:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review, labeled, unlabeled]
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/ci/risk_tier.py
+      - tests/test_risk_tier.py
+      - .github/workflows/risk-tier.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: risk-tier-${{ github.event_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    if: github.event_name == 'pull_request'
+    name: risk tier tests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # read-only unit tests
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            tests/test_risk_tier.py
+          sparse-checkout-cone-mode: false
+      - run: python3 tests/test_risk_tier.py -v
+
+  evidence:
+    # Our own label edits come from GITHUB_TOKEN and do not retrigger this; a person's do.
+    if: github.event_name == 'pull_request_target' && (!(github.event.action == 'labeled' || github.event.action == 'unlabeled') || startsWith(github.event.label.name, 'risk:'))
+    name: risk evidence
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout the base's classifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout-cone-mode: false
+      - name: Grade the pull request
+        id: grade
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Set the risk label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          LABEL: ${{ steps.grade.outputs.label }}
+        run: |
+          for tier in low medium high; do
+            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; medium) echo FBCA04;; high) echo B60205;; esac)" \
+              --description "Path-based risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
+          done
+          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          for old in $(grep -E '^risk:(low|medium|high)$' <<<"$current" || true); do
+            [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
+          done
+          grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+      - name: Require the tier's evidence
+        if: steps.grade.outputs.ready != 'true'
+        env:
+          TIER: ${{ steps.grade.outputs.tier }}
+        run: |
+          echo "::error::risk:$TIER needs more evidence in the description before merge; the job summary lists it."
+          exit 1
