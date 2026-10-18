@@ -321,10 +321,10 @@ export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 /**
  * How long the status cron waits before pausing a machine it found running
  * under a paused row. A personal machine's resume writes `running` only after
- * the provider settles (up to about a minute), so a wake still present after
+ * the provider settles (about a minute at worst), so a wake still present after
  * this wait had no resume behind it.
  */
-const UNEXPECTED_WAKE_CONFIRM_MS = 90_000;
+const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
