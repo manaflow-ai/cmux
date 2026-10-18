@@ -305,6 +305,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

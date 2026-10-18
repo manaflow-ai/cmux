@@ -1,7 +1,5 @@
-import CmuxNextSettings
-
 /// A user interaction with a pane that has an unread notification.
-enum NotificationTrigger: String, Hashable, Sendable {
+public nonisolated enum NotificationTrigger: String, Hashable, Sendable {
     /// The pane became the focused pane of the key window while cmux is active.
     case focus
     /// A mouse-down in the pane.
@@ -16,11 +14,22 @@ enum NotificationTrigger: String, Hashable, Sendable {
 
 /// The notification rules (plans/cmux-next/notifications.md), pure so every
 /// case is a table test. The daemon owns unread state; these rules only
-/// decide when the app acknowledges it and what an arrival shows.
-enum NotificationPolicy {
+/// decide when the app acknowledges it and what an arrival shows. Lives
+/// beside the preferences it reads, outside the App target (SW14).
+public nonisolated struct NotificationPolicy: Sendable {
+    public let prefs: NotificationPreferences
+
+    public init(prefs: NotificationPreferences) {
+        self.prefs = prefs
+    }
+
     /// Whether `trigger` acknowledges a notification under `mode`. The
     /// dismiss verbs (Mark Read, Mark All Read, CLI clear) always do and do
     /// not come here.
+    public func clears(_ trigger: NotificationTrigger, for source: NotificationSource) -> Bool {
+        Self.clears(trigger, mode: prefs.dismissal(for: source))
+    }
+
     static func clears(_ trigger: NotificationTrigger, mode: NotificationDismissal) -> Bool {
         switch mode {
         case .focus: trigger != .timeout
@@ -33,36 +42,44 @@ enum NotificationPolicy {
     }
 
     /// What the app knows when a notification arrives.
-    struct Arrival: Hashable, Sendable {
-        var source: NotificationSource
-        var workspaceMuted = false
+    public struct Arrival: Hashable, Sendable {
+        public var source: NotificationSource
+        public var workspaceMuted = false
         /// The pane is the focused pane of the key window and cmux is active.
-        var paneIsViewed = false
-        var appActive = false
+        public var paneIsViewed = false
+        public var appActive = false
         /// Local minutes after midnight, for quiet hours.
-        var minuteOfDay = 12 * 60
+        public var minuteOfDay = 12 * 60
         /// Seconds since the last keystroke in the notifying pane, if any.
-        var typedAgo: Double?
+        public var typedAgo: Double?
         /// The poster allows a banner (false for `notify --desktop false`).
-        var bannerAllowed = true
+        public var bannerAllowed = true
+
+        public init(source: NotificationSource) {
+            self.source = source
+        }
     }
 
-    struct Decision: Hashable, Sendable {
+    public struct Decision: Hashable, Sendable {
         /// Acknowledge at once: it is already seen.
-        var acknowledge = false
+        public var acknowledge = false
         /// Draw the pane attention ring.
-        var attention = true
+        public var attention = true
         /// It would alert (banner) were the poster not asking for none:
         /// the phone push follows this, as classic's did.
-        var alerts = false
-        var desktop = false
+        public var alerts = false
+        public var desktop = false
         /// The sound to play, nil for none.
-        var sound: String?
+        public var sound: String?
         /// Acknowledge after this many seconds unless cleared earlier.
-        var timeout: Double?
+        public var timeout: Double?
+        /// Bounce the Dock icon: it alerts while cmux is inactive (`notifications.dockBounce`).
+        public var bounce: DockBounceMode?
+
+        public init() {}
     }
 
-    static func decide(_ arrival: Arrival, prefs: NotificationPreferences) -> Decision {
+    public func decide(_ arrival: Arrival) -> Decision {
         var decision = Decision()
         let mode = prefs.dismissal(for: arrival.source)
         if prefs.suppressWhileTypingSeconds > 0, let typed = arrival.typedAgo, typed <= prefs.suppressWhileTypingSeconds {
@@ -91,6 +108,7 @@ enum NotificationPolicy {
             decision.sound = sound
         }
         if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
+        if decision.alerts, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
         return decision
     }
 }
