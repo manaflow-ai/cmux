@@ -525,10 +525,13 @@ finally:
                        stdout=f, stderr=subprocess.STDOUT, timeout=120)
     # Privacy: which TCC services the app asked for during the run (none expected; the early
     # LocalAuthentication ask must not be one).
-    tcc = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",
-                          time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
-                          "--predicate", 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "%s"' % bundle_id],
-                         capture_output=True, text=True, timeout=120).stdout
+    try:
+        tcc = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",
+                              time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
+                              "--predicate", 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "%s"' % (bundle_id or "-none-")],
+                             capture_output=True, text=True, timeout=120).stdout
+    except subprocess.TimeoutExpired:
+        tcc = "log show timed out"
     services = sorted(set(re.findall(r"kTCCService\w+", tcc)))
     result["tcc_services"] = services
     print("tcc       %s" % json.dumps({"services": services, "lines": len([l for l in tcc.splitlines() if bundle_id in l])}), flush=True)

@@ -345,7 +345,7 @@ public final class DaemonService {
     /// Runs a command and logs a failure. Returns false when it threw.
     @discardableResult
     public func run(_ label: String, _ body: DaemonCommandBody) async -> Bool {
-        await failure(label, ticket: openTicket(), body) == nil
+        await failure(label, ticket: openTicket(label), body) == nil
     }
 
     /// Outcome of a command whose reply may miss its deadline.
@@ -360,7 +360,7 @@ public final class DaemonService {
     /// Like ``run(_:_:)``, but tells a deadline miss (outcome unknown) apart
     /// from a failure, so callers can reconcile instead of reverting.
     func runReportingTimeout(_ label: String, _ body: DaemonCommandBody) async -> CommandOutcome {
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
@@ -388,7 +388,7 @@ public final class DaemonService {
         // creating it (and drop the command) when no tracker is set.
         // The ticket opens now, so an action that awaits its scope waits
         // for this command even before the task starts.
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         let task = Task { await failure(label, ticket: ticket, body) }
         workTracker?(task)
     }
@@ -397,7 +397,7 @@ public final class DaemonService {
     /// with the same ticket and work tracking.
     public func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         let task = Task {
             let failed = await failure(label, ticket: ticket, body)
             if let failed { onFailure(failed) }
@@ -408,7 +408,7 @@ public final class DaemonService {
 
     /// Runs a command; returns nil on success, else the failure (logged).
     public func failure(_ label: String, _ body: DaemonCommandBody) async -> ActionWorkFailure? {
-        await failure(label, ticket: openTicket(), body)
+        await failure(label, ticket: openTicket(label), body)
     }
 
     private func failure(_ label: String, ticket: CommandTicket?,

@@ -15,8 +15,8 @@ public struct CommandTicket {
 extension DaemonService {
     /// Opens a ticket on entry (synchronously, on the main actor), so the
     /// scope is not idle between a task's commands.
-    public func openTicket() -> CommandTicket? {
-        guard let scope = DaemonCommandScope.current, let ticket = scope.begin() else { return nil }
+    public func openTicket(_ label: String? = nil) -> CommandTicket? {
+        guard let scope = DaemonCommandScope.current, let ticket = scope.begin(label: label) else { return nil }
         return CommandTicket(scope: scope, ticket: ticket)
     }
 
