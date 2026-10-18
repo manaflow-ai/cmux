@@ -48,11 +48,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
 
-    /// Parks this content before its window shows another workspace.
-    func park() { isParked = true }
+    /// Parks this content before its window shows another workspace. Its attention rings draw
+    /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
+    func park() {
+        isParked = true
+        attentionObservation?.cancel()
+    }
 
-    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply.
-    func unpark() { isParked = false }
+    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
+    /// the attention rings are read now (this frame) and followed again.
+    func unpark() {
+        isParked = false
+        observeAttention()
+    }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
@@ -130,8 +138,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
                 self?.updateEmptyState()
             }
         }
-        // Panes with an unread notification draw the attention ring.
-        let notifications = services.notifications
+        observeAttention()
+    }
+
+    /// Panes with an unread notification draw the attention ring.
+    private func observeAttention() {
+        let notifications = services.notifications, workspace = workspace
+        let marks = notifications.attentionMarks(for: workspace)
+        if layoutModel.attention != marks { layoutModel.attention = marks }
+        attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
