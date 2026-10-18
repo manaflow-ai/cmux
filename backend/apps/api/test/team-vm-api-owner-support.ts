@@ -15,7 +15,8 @@ interface Fixture {
   user: string
   service: ReturnType<typeof teamVmApiService>
   identityCreates: number
-  onTenantCreate: () => void
+  onTenantCreate: () => Promise<void>
+  expireLeases(): Promise<unknown>
   restart(overrides: Partial<Env>): Promise<void>
   wake(): ReturnType<TeamVmDO["ensureAwake"]>
   status(): Promise<TeamVmState>
@@ -30,16 +31,18 @@ export const withTeamVmApi = async (run: (t: Fixture) => Promise<void>, override
   await inDO(teamStub(team), async (owner) => {
     let found: Array<{ id: string; marker: PersonalTenantMarker }> = []
     owner.personalStack = { find: async () => found, members: async () => [t.stackUser], create: async (marker: PersonalTenantMarker) => {
-      fixture.identityCreates++; fixture.onTenantCreate(); const receipt = { id: tenant, marker }; found = [receipt]; return receipt
+      fixture.identityCreates++; await fixture.onTenantCreate(); const receipt = { id: tenant, marker }; found = [receipt]; return receipt
     } }
   })
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(service.fetch)
   let e: Env = { ...(env as Env), TEAM_VM_TRANSPORT: "vm-api", TEAM_VM_API_ORIGIN: "https://vm.test", TEAM_VM_API_SERVICE_KEY: "team-transport-test-key",
     TEAM_VM_API_IMAGE: "team-agent", TEAM_VM_API_IMAGE_REVISION: "v1", TEAM_VM_SLUG_PREFIX: "cmuxnp-dev-tvm-", TEAM_VM_BIND_ENABLED: "1", CLOUD_API_ORIGIN: "https://api.test", ...overrides }
   const p = { identity: `user:${t.user}`, kind: "session" as const, user: t.user, team }
+  const vmStub = (env as Env).TEAM_VM_DO.get((env as Env).TEAM_VM_DO.idFromName(team))
   try {
-    await inDO((env as Env).TEAM_VM_DO.get((env as Env).TEAM_VM_DO.idFromName(team)), async (_instance, state) => {
-      fixture = { owner: new TeamVmDO(state, e), team, user: t.user, service, state, identityCreates: 0, onTenantCreate: () => {},
+    await inDO(vmStub, async (_instance, state) => {
+      fixture = { owner: new TeamVmDO(state, e), team, user: t.user, service, state, identityCreates: 0, onTenantCreate: async () => {},
+        expireLeases: () => inDO(vmStub, async () => Reflect.get(fixture.owner, "submitSystem").call(fixture.owner, "team_vm.leases_expire", { now: Date.now() + 700_000 }, crypto.randomUUID())),
         restart: async (next) => { e = { ...e, ...next }; fixture.owner = new TeamVmDO(state, e); await fixture.owner.readOp(team, p, "team_vm.status", {}) },
         wake: () => fixture.owner.ensureAwake(team, p, { t: "op", op: "team_vm.ensure_awake", params: { reason: "ssh" }, idempotency_key: crypto.randomUUID(), origin: "user" }),
         status: async () => { const r = await fixture.owner.readOp(team, p, "team_vm.status", {}); if (!r.ok) throw Error(r.code); return r.value as TeamVmState }

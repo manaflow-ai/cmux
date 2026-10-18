@@ -1,6 +1,7 @@
 import type { Env } from "./env.ts"
+import type { SqlStore } from "@cmux/ownership"
 import { vmApiSettings, type CloudTransport } from "./cloud-vm-api-config.ts"
-import { requiredSlugPrefix } from "./team-vm-driver.ts"
+import { requiredSlugPrefix, teamVmDriver } from "./team-vm-driver.ts"
 
 export interface TeamVmCreateSpec { readonly image: { readonly id: string; readonly revision: string }; readonly idleTimeoutSeconds: number }
 export const teamVmCreationTransport = (env: Env): CloudTransport | null =>
@@ -12,6 +13,10 @@ export const teamVmCreateSpec = (env: Env): TeamVmCreateSpec | null => {
   const settings = teamVmApiSettings(env)
   if (!settings || !env.TEAM_VM_SLUG_PREFIX || (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith(requiredSlugPrefix(env.ENVIRONMENT)))) return null
   return { image: settings.image, idleTimeoutSeconds: env.ENVIRONMENT === "production" ? 600 : 300 }
+}
+export const teamVmCreationReady = (env: Env, sql: SqlStore): boolean => {
+  const transport = teamVmCreationTransport(env)
+  return transport === "direct" ? teamVmDriver(env, sql) !== null : transport === "vm-api" && teamVmCreateSpec(env) !== null
 }
 export const parseTeamVmCreateSpec = (text: string | null): TeamVmCreateSpec | null => {
   try {

@@ -23,6 +23,12 @@ export class TeamVmOwnerDriver implements TeamVmDriver {
     }
   }
   slugPrefix(): string | null { return this.direct?.slugPrefix?.() ?? null }
+  configured(id: string): boolean {
+    const row = this.ledger.byId(id)
+    if (!row || row.team !== this.team || row.env !== (this.env.ENVIRONMENT ?? "unknown") || row.state === "deleted") return false
+    const transport = transportOf(row)
+    return transport === "direct" ? this.direct !== null : transport === "vm-api" && teamVmApiSettings(this.env) !== null
+  }
   private async route(row: LedgerRow | undefined, purpose: "operate" | "cleanup", create = false): Promise<TeamVmDriver> {
     if (!row || row.team !== this.team || row.env !== (this.env.ENVIRONMENT ?? "unknown") || row.state === "deleted") throw refused()
     const transport = transportOf(row)

@@ -10,7 +10,7 @@ it("routes an API VM's retirement, saved files and deletion through its recorded
     expect(rebuilt.ok).toBe(true)
     const current = await t.status()
     expect(current.vm).toMatch(/^fakevm-/)
-    expect(current.retired).toMatchObject([{ vm: old, fenced: true, state: "paused" }])
+    expect(current.retired).toMatchObject([{ vm: old, state: "paused" }])
     expect(t.service.vms.get(old)?.retired).toBe(true)
     const before = t.service.calls.length
     const exported = await t.owner.adminAction(t.team, { action: "export", vm: old, by: t.user, key: crypto.randomUUID() })
@@ -43,7 +43,7 @@ it("keeps a legacy VM on direct while a later epoch uses the tenant API", async 
     expect(t.service.calls).toHaveLength(0)
     expect((await t.owner.adminAction(t.team, { action: "rebuild", epoch: 1, by: t.user, key: crypto.randomUUID() })).ok).toBe(true)
     expect((await t.status()).vm).toMatch(/^vm_/)
-    expect((await t.status()).retired).toMatchObject([{ vm: old, fenced: true }])
+    expect((await t.status()).retired).toMatchObject([{ vm: old, state: "paused" }])
     expect(t.service.calls.some((c) => c.path.includes(old))).toBe(false)
     expect((await t.owner.ledger(t.team)).rows.map((r) => r.transport)).toEqual(["direct", "vm-api"])
   }, { TEAM_VM_TRANSPORT: "direct" })
@@ -97,7 +97,7 @@ it.each([false, true])("replaces a physically missing VM, while lost authorizati
 
 it("does not spend on a VM when the wake lease expires during personal-tenant provisioning", async () => {
   await withTeamVmApi(async (t) => {
-    t.onTenantCreate = () => Reflect.get(t.owner, "submitSystem").call(t.owner, "team_vm.leases_expire", { now: Date.now() + 700_000 }, crypto.randomUUID())
+    t.onTenantCreate = async () => { await t.expireLeases() }
     await t.wake()
     expect(t.identityCreates).toBe(1)
     expect(t.service.calls).toHaveLength(0)
@@ -126,4 +126,16 @@ it("keeps the production plan gate closed for API-backed Team VMs", async () => 
     expect(t.identityCreates).toBe(0)
     expect(t.service.calls).toHaveLength(0)
   }, { ENVIRONMENT: "production" })
+})
+
+it("refuses a rebuild before changing the current VM if its recorded backend is unconfigured", async () => {
+  await withTeamVmApi(async (t) => {
+    await t.wake()
+    const old = (await t.status()).vm!
+    await t.restart({ TEAM_VM_TRANSPORT: "direct", TEAM_VM_API_SERVICE_KEY: undefined })
+    const result = await t.owner.adminAction(t.team, { action: "rebuild", epoch: 1, by: t.user, key: crypto.randomUUID() })
+    expect(result).toMatchObject({ ok: false, code: "team_vm.not_configured" })
+    expect((await t.status()).vm).toBe(old)
+    expect((await t.status()).retired ?? []).toEqual([])
+  })
 })

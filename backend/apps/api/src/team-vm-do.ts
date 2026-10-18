@@ -3,7 +3,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { TeamVmOwnerDriver } from "./team-vm-api-route.ts"
-import { teamVmCreationTransport, teamVmCreateSpec } from "./team-vm-api-config.ts"
+import { teamVmCreationReady, teamVmCreationTransport, teamVmCreateSpec } from "./team-vm-api-config.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, journalCaller, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
@@ -144,6 +144,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   async adminAction(entity: string, req: AdminRequest): Promise<AdminReply> {
     if (!this.isBound(entity)) return { ok: false, code: "selector.not_found", message: "this team has no VM" }
     this.bind(entity)
+    if (req.action === "rebuild" && !providerRefusal(this.env)) {
+      const vm = this.boundEngine?.currentState.vm
+      if (!teamVmCreationReady(this.env, this.sqlStore) || (vm && !this.ownerDriver()?.configured(vm))) return { ok: false, code: "team_vm.not_configured", message: "the current or replacement Team VM transport is unavailable" }
+    }
     return adminAction(this.taintDeps, req)
   }
 

@@ -8139,6 +8139,9 @@ pub mod types {
         pub fingerprint: VmInstanceIdentityFingerprint,
         ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         pub id: VmInstanceIdentityId,
+        ///Present only when checkPresence=true. Missing means this caller owns the allocation but its VM is gone; an inaccessible allocation remains 404.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub presence: ::std::option::Option<::std::string::String>,
         pub scheme: VmInstanceIdentityScheme,
     }
     ///a string matching the pattern ^[0-9a-f]{64}$
@@ -8611,6 +8614,53 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
+        }
+    }
+    ///`VmsGetVmInstanceIdentityCheckPresence`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmsGetVmInstanceIdentityCheckPresence {
+        #[serde(rename = "true")]
+        True,
+    }
+    impl ::std::fmt::Display for VmsGetVmInstanceIdentityCheckPresence {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::True => f.write_str("true"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmsGetVmInstanceIdentityCheckPresence {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "true" => Ok(Self::True),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsGetVmInstanceIdentityCheckPresence {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsGetVmInstanceIdentityCheckPresence {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
         }
     }
     ///a string at most 128 character(s) long
@@ -11862,17 +11912,19 @@ impl Client {
     }
     /**Read a VM allocation's instance fingerprint
 
-    Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. This reads the ownership record, not the guest: it does not prove liveness or grant access. A binding owner must still validate the guest signature, a single-use nonce and its current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. By default this reads only the ownership record. checkPresence=true also reads provider state without waking the guest and returns present or missing; only a caller that owns the allocation can receive missing, while an inaccessible allocation remains 404. Neither result grants access. Binding still requires a guest signature, single-use nonce and current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `GET` request to `/v1/vms/{vmId}/identity`
 
     Arguments:
     - `vm_id`
+    - `check_presence`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vms_get_vm_instance_identity<'a>(
         &'a self,
         vm_id: &'a str,
+        check_presence: Option<types::VmsGetVmInstanceIdentityCheckPresence>,
         x_cmux_team_id: Option<&'a types::VmsGetVmInstanceIdentityXCmuxTeamId>,
     ) -> Result<ResponseValue<types::VmInstanceIdentity>, Error<ByteStream>> {
         let url = format!(
@@ -11896,6 +11948,10 @@ impl Client {
                 ::reqwest::header::ACCEPT,
                 ::reqwest::header::HeaderValue::from_static("application/json"),
             )
+            .query(&progenitor_client::QueryParam::new(
+                "checkPresence",
+                &check_presence,
+            ))
             .headers(header_map)
             .build()?;
         let info = OperationInfo {
