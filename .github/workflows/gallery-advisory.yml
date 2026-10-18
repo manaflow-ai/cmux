@@ -116,6 +116,7 @@ jobs:
               exit 1
             fi
             test -f "$out/results.json"
+            test -f "$out/receipt.json"
             expected_sha="$HEAD_SHA"
             if [ "$stage" = base ]; then expected_sha="$base_sha"; fi
             jq -e --arg sha "$expected_sha" \
@@ -125,13 +126,27 @@ jobs:
                 jq '[.[] | {id, engine, revision}]' "$out/results.json" >&2
                 exit 1
               }
+            jq -e --arg sha "$expected_sha" \
+              '.schemaVersion == 1 and (.captureId | type == "string" and length > 0) and (.scenario.fingerprint | type == "string" and length == 64) and .results.status == "complete" and any(.revisions.shas[]?; . == $sha)' \
+              "$out/receipt.json" >/dev/null || {
+                echo "Gallery capture receipt mismatch in $stage: expected complete receipt for $expected_sha" >&2
+                cat "$out/receipt.json" >&2
+                exit 1
+              }
           done
+
+          jq -s -e 'length == 2 and .[0].scenario.fingerprint == .[1].scenario.fingerprint' \
+            "$evidence/base/receipt.json" "$evidence/head/receipt.json" >/dev/null || {
+              echo "Gallery base/head receipts describe different scenarios" >&2
+              exit 1
+            }
 
           mkdir -p "$evidence/diff"
           bun pr.ts --base "$evidence/base" --head "$evidence/head" \
             --base-manifest "$RUNNER_TEMP/base.json" --head-manifest "$RUNNER_TEMP/head.json" \
             --out "$evidence/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$base_sha" \
             --artifact-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+          test -f "$evidence/diff/comparison.json"
           jq -r '.[] | [.status, .entry, .variant, .theme, .engine] | @tsv' \
             "$evidence/diff/outcomes.json" > "$evidence/summary.tsv"
           {
