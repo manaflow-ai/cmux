@@ -146,7 +146,7 @@ public final class HomeStore {
     @ObservationIgnored let viewCache: HomeClientViewCache
 
     public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
-                clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
+                clock: any Clock<Duration> = HomeSleepClock(), cache: HomeCache? = nil,
                 cacheWriteDelay: Duration = .milliseconds(250)) {
         self.source = source
         self.blobCacheDirectory = blobCacheDirectory

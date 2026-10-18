@@ -15,6 +15,6 @@ public func waitUntil(timeout: Duration = .seconds(20), sourceLocation: SourceLo
             Issue.record("waited \(timeout) and the condition never held", sourceLocation: sourceLocation)
             return
         }
-        try? await Task.sleep(for: .milliseconds(2))
+        try? await Task.sleep(nanoseconds: 2_000_000)
     }
 }
