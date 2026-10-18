@@ -125,6 +125,7 @@ export function createEntryStore(sources: readonly EntrySource[]) {
     /** Resolves as soon as the requested entry loads; unrelated entries may still be loading. */
     find(id: string): Promise<{ entry?: GalleryEntry; state?: EntryState }> {
       const current = snapshot;
+      if (current.length === 0) return Promise.resolve({});
       return new Promise((resolve) => {
         let remaining = current.length;
         let done = false;

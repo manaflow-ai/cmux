@@ -541,6 +541,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             variant={variant}
             env={env}
             tune={search.tune}
+            sourcePath={address.sourcePath}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}

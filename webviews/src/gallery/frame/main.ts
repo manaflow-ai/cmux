@@ -106,6 +106,8 @@ if (env.scale !== 1) root.style.zoom = String(env.scale);
 root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
+root.dataset.gallerySource = entryState?.path ?? "";
+root.dataset.galleryEntryVersion = String(entryState?.version ?? "");
 
 // An experiment's arm (the compare view's cells, the matrix runner's experiment cases): the page
 // reads it through experimentArm(), and the harness controls every Web Animation it starts.
@@ -145,7 +147,16 @@ if (stageRoot) {
 function markReady(): void {
   if (window.cmuxGalleryPlayReport) root.dataset.galleryPlay = window.cmuxGalleryPlayReport.status;
   root.dataset.galleryReady = "1";
-  parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+  parent.postMessage(
+    {
+      type: "cmux-gallery-stage",
+      status: "ready",
+      width: widthPx(env.width, entry.widths),
+      source: entryState?.path,
+      version: entryState?.version,
+    },
+    "*",
+  );
 }
 
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
