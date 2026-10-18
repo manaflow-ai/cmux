@@ -72,6 +72,8 @@ final class FocusCoordinator {
         isRunning = true
         defer { isRunning = false }
         // The settled observer can send or reduce a pending topology: what it queued runs too.
+        // wakeup-allow: a synchronous drain of the events queued while it ran; it ends once the
+        // settled observer queues nothing.
         repeat {
             while !queue.isEmpty {
                 let event = queue.removeFirst()
