@@ -4,12 +4,29 @@ import CmuxCloudImagePaste
 
 extension TextBoxInputContainer {
     /// A composer must never submit a Mac path or send an attachment before Submit.
-    func refuseCloudComposerImage() {
+    func refuseCloudComposerImage(_ error: CloudImagePasteError = .useTerminal) {
         let alert = NSAlert()
         alert.messageText = String(localized: "cloud.imagePaste.failed", defaultValue: "Image could not be pasted")
-        alert.informativeText = CloudImagePasteError.useTerminal.localizedMessage
+        alert.informativeText = error.localizedMessage
         if let window = surface.hostedView.window { alert.beginSheetModal(for: window) }
         else { NSSound.beep() }
+    }
+
+    /// Why Cloud cannot send these image files from a composer, or `nil` when
+    /// every one can be uploaded at submit. Checking type and size when an image
+    /// is attached refuses it then, instead of failing the whole submit later.
+    static func cloudComposerImageRefusal(for fileURLs: [URL]) -> CloudImagePasteError? {
+        guard !fileURLs.isEmpty else { return .unsupportedType }
+        for fileURL in fileURLs {
+            do {
+                try CloudClipboardImage.validateFile(at: fileURL)
+            } catch let error as CloudImagePasteError {
+                return error
+            } catch {
+                return .storage
+            }
+        }
+        return nil
     }
 
     /// Inserts Cloud image attachments into the composer without sending them
@@ -26,7 +43,8 @@ extension TextBoxInputContainer {
                 cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
             )
         }
-        guard !attachments.isEmpty, attachments.allSatisfy(\.isImage) else { return false }
+        guard Self.cloudComposerImageRefusal(for: attachments.compactMap(\.localURL)) == nil,
+              attachments.allSatisfy(\.isImage) else { return false }
         textView.insertAttachments(attachments)
         self.attachments = textView.inlineAttachments()
         text = textView.plainText()
@@ -48,7 +66,8 @@ extension TextBoxInputContainer {
                 cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0.fileURL)
             )
         }
-        guard !attachments.isEmpty, attachments.allSatisfy(\.isImage) else { return false }
+        guard Self.cloudComposerImageRefusal(for: attachments.compactMap(\.localURL)) == nil,
+              attachments.allSatisfy(\.isImage) else { return false }
         guard textView.replacePendingAttachmentUploadPlaceholder(
             id: placeholderID,
             with: attachments
@@ -111,7 +130,7 @@ extension TextBoxInputContainer {
             return true
         case .pasteCloudImages:
             guard insertCloudComposerImages(fileURLs, into: textView) else {
-                refuseCloudComposerImage()
+                refuseCloudComposerImage(Self.cloudComposerImageRefusal(for: fileURLs) ?? .useTerminal)
                 GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                 return true
             }

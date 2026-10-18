@@ -1179,6 +1179,7 @@ enum TextBoxSubmit {
         case keyText(String)
         case pasteText(String)
         case pasteFilePath(String)
+        case validateCloudImages([URL])
         case pasteCloudImages([URL])
         case namedKeyRepeat(String, Int)
         case namedKey(String)
@@ -1288,7 +1289,8 @@ enum TextBoxSubmit {
     static func cleanupAttachmentsAfterSubmit(
         from parts: [TextBoxSubmissionPart],
         terminalAgentContext: String,
-        completionContext: CompletionContext = .empty
+        completionContext: CompletionContext = .empty,
+        imageTransferTarget: TerminalImageTransferTarget = .local
     ) -> [TextBoxAttachment] {
         let isClaude = TextBoxAgentDetection.isClaudeCode(context: terminalAgentContext)
         var confirmedClaudeImageSubmissionTexts = completionContext.confirmedClaudeImageSubmissionTexts
@@ -1297,6 +1299,9 @@ enum TextBoxSubmit {
             return nil
         }.filter { attachment in
             guard attachment.cleanupLocalURLWhenDisposed else { return false }
+            // A Cloud submit uploaded the image bytes, so nothing reads the
+            // local file afterwards.
+            if imageTransferTarget == .cloud, attachment.isImage { return true }
             if isClaude, attachment.isImage {
                 let remainingCount = confirmedClaudeImageSubmissionTexts[attachment.submissionText, default: 0]
                 guard remainingCount > 0 else { return false }
@@ -1358,7 +1363,11 @@ enum TextBoxSubmit {
             events.append(.pasteText(" "))
         }
         events.append(.namedKey(submitKey))
-        return events
+        let imageURLs = events.flatMap { event -> [URL] in
+            if case .pasteCloudImages(let urls) = event { return urls }
+            return []
+        }
+        return [.validateCloudImages(imageURLs)] + events
     }
 
     private static func claudeSequentialImageDispatchEvents(
@@ -1686,6 +1695,17 @@ private final class TextBoxSubmitEventRunner {
                     fail(.terminalWriteRejected)
                     return
                 }
+            case .validateCloudImages(let urls):
+                guard let terminalSurface = surface.textBoxSubmitTerminalSurface else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                do {
+                    try terminalSurface.validateCloudImagesForSubmit(urls)
+                } catch {
+                    fail(.terminalWriteRejected)
+                    return
+                }
             case .pasteCloudImages(let urls):
                 guard let terminalSurface = surface.textBoxSubmitTerminalSurface else {
                     fail(.terminalWriteRejected)
@@ -1696,7 +1716,7 @@ private final class TextBoxSubmitEventRunner {
                         return
                     }
                     do {
-                        try await terminalSurface.pasteCloudImages(urls)
+                        try await terminalSurface.pasteCloudImages(urls, cleansUpTransferredFiles: false)
                         self.cloudImagePasteTask = nil
                         self.processNext()
                     } catch {
@@ -2263,6 +2283,8 @@ private final class TextBoxSubmitEventRunner {
             return "pasteText(\(debugText(text)))"
         case .pasteFilePath(let path):
             return "pasteFilePath(length:\(path.utf8.count))"
+        case .validateCloudImages(let urls):
+            return "validateCloudImages(count:\(urls.count))"
         case .pasteCloudImages(let urls):
             return "pasteCloudImages(count:\(urls.count))"
         case .namedKeyRepeat(let key, let count):
@@ -2752,7 +2774,8 @@ struct TextBoxInputContainer: View {
             let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: submittedParts,
                 terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
-                completionContext: completionContext
+                completionContext: completionContext,
+                imageTransferTarget: imageTransferTarget
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
