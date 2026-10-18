@@ -211,6 +211,7 @@ async function toRunSpec(input: RunCreateInput, operationId: string): Promise<Re
     variants: await Promise.all(input.variants.map(async (variant) => ({
       id: variant.id,
       label: variant.label,
+      instruction: variant.instruction,
       instructionDigest: await sha256Digest(variant.instruction),
     }))),
     workspace: { kind: "ephemeral" },
@@ -299,6 +300,9 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       return { events, nextCursor: null };
     },
     async createRun(input, idempotencyKey) {
+      if (input.routing?.requestedProvider === "huge-blue") {
+        throw new RunApiHttpError(409, "Huge Blue is not enabled for Cloud Runs yet.", "provider_not_enabled");
+      }
       const spec = await toRunSpec(input, idempotencyKey);
       return jsonRequest<RunCreateResponse>("/api/runs", {
         method: "POST",
