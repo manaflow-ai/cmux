@@ -404,7 +404,7 @@ function indexChildren(
 }
 
 function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCard {
-  const parents = [card.sessionId, card.chatKey].filter((id): id is string => Boolean(id));
+  const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
   const children = parents
     .flatMap((parent) => indexed.get(parent) ?? [])
     .sort((a, b) => b.at - a.at)
