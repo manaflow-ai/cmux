@@ -114,6 +114,16 @@
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Обчислювальний ліміт {plan} вичерпано",
+      "computeMessage": "Тариф {plan} використав {included} обчислювальних годин за цей розрахунковий період. Обчислювальна година — це 1 vCPU з 2 ГБ пам'яті протягом однієї години. Машини знову можна буде запустити {resetDate}.",
+      "computeAction": "Призупинені машини зберігають свої файли. Зверніться до підтримки, якщо вам потрібно більше обчислень до {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Ліміт диска {plan} вичерпано",
+      "storageMessage": "Тариф {plan} включає {included} ГБ диска на всі збережені машини. Збережені машини займають {used} ГБ, а цьому запиту потрібно {requested} ГБ.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Недостатньо ресурсів Cloud VM",
       "memoryMessage": "Ваші ВМ уже використовують {used} з {pool} ГБ RAM. Цій ВМ потрібно {requested} ГБ.",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Щоб змінити тариф, спочатку відновіть його.",
           "granted": "Надано cmux. Змінювати нічого.",
+          "grantedNoCancel": "Надано cmux, тож скасовувати нічого.",
+          "paymentFailed": "Оновіть спосіб оплати, перш ніж змінювати план.",
+          "foundersLifetime": "Founder's Edition включає Pro назавжди.",
           "adminOnly": "Змінити тариф можуть лише адміністратори команди."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Змінити на {plan}?",
         "upgradeBody": "{plan} починає діяти зараз. Сьогодні ви сплачуєте {amount} за решту цього розрахункового періоду. З {date} ви сплачуєте {price} на місяць.",
+        "upgradeBodyYearly": "{plan} починає діяти зараз. Сьогодні ви сплачуєте {amount} за решту цього розрахункового періоду. З {date} ви сплачуєте {price} на рік.",
         "downgradeBody": "{plan} починає діяти зараз. Невикористана частина поточного тарифу, {credit}, буде зарахована в наступні рахунки. Наступний рахунок, {date}, становитиме {amount}.",
         "confirm": "Змінити на {plan}",
         "keep": "Залишити поточний тариф",
@@ -568,6 +582,8 @@
         "title": "Скасувати {plan}?",
         "body": "{plan} залишиться у вас до {date}. Після цього ви втратите:",
         "bodyNoDate": "{plan} залишиться у вас до кінця цього розрахункового періоду. Після цього ви втратите:",
+        "foundersBody": "Ваша підписка {plan} закінчиться {date}. Після цього у вас буде Pro, який Founder's Edition включає назавжди.",
+        "foundersBodyNoDate": "Ваша підписка {plan} закінчиться наприкінці цього розрахункового періоду. Після цього у вас буде Pro, який Founder's Edition включає назавжди.",
         "reasonLabel": "Чому ви скасовуєте? (необов'язково)",
         "otherPlaceholder": "Розкажіть докладніше (необов'язково)",
         "confirm": "Скасувати тариф",
