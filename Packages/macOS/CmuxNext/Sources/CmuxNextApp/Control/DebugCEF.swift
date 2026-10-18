@@ -23,6 +23,9 @@ enum DebugCEF {
             "start_steps": .array(services.cache.cef.startMarks.map {
                 ["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)]
             }),
+            "prefetch": services.cache.cef.frameworkPrefetch.map {
+                ["bytes": .number(Double($0.bytes)), "files": .number(Double($0.files)), "ms": .number($0.milliseconds)]
+            } ?? .null,
         ]
         if case let browserTabs = services.cache.browserTabs {
             object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)

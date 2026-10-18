@@ -131,6 +131,12 @@ public final class CEFEngine: BrowserEngine {
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
 
+    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
+    /// bytes, files and milliseconds; nil before one ran.
+    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double)? {
+        CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, Double($0.duration.components.attoseconds) / 1e15 + Double($0.duration.components.seconds) * 1000) }
+    }
+
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
 
