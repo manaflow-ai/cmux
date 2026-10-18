@@ -274,9 +274,10 @@ class App:
 
     QUIET_KEYS = ("workspace_applies", "topology_sends", "pane_snapshots", "list_reloads", "selection_patches")
 
-    def quiet_counters(self):
+    def quiet_counters(self, before_reset=None):
         """settle(), then the counters once two reads 0.2 s apart agree on the budget counters (at
-        most 3 s), so late work of this op is not counted in the next op's window; then reset."""
+        most 3 s), so late work of this op is not counted in the next op's window; then reset.
+        `before_reset` runs just before the reset, so its socket reads count in this window."""
         self.settle()
         deadline = time.monotonic() + 3
         last = self.counters(reset=False)
@@ -286,6 +287,8 @@ class App:
             if all(now.get(k) == last.get(k) for k in self.QUIET_KEYS):
                 break
             last = now
+        if before_reset:
+            before_reset()
         return self.counters()
 
     def draws(self):
@@ -350,6 +353,7 @@ class Gate:
         self.app, self.opts = app, opts
         self.frames = None  # (draws, stats), read once
         self.warned = set()
+        self.full = not opts.only or set(opts.only.split(",")) == set(SCENARIOS)
 
     def frames_ok(self, scenario):
         """Whether frame-dependent checks run; reports the skip (auto) or the failure (required)."""
@@ -373,8 +377,9 @@ class Gate:
             start = time.monotonic()
             app.action("goToWorkspace", {"workspace": target})
             latency = (time.monotonic() - start) * 1000
-            measured = app.quiet_counters()
-            shown = app.shown_workspace()
+            landed = {}
+            measured = app.quiet_counters(lambda: landed.setdefault("shown", app.shown_workspace()))
+            shown = landed.get("shown")
             if shown != target:
                 check(False, f"switch to {target} landed (shown {shown})", scenario)
             rows.append({"to": target, "latency_ms": round(latency, 1),
@@ -388,7 +393,8 @@ class Gate:
             for k in BUDGET["switch"]:
                 worst[k] = max(worst.get(k, 0), measured.get(k, 0))
         report["phases"][scenario] = {"switches": rows, "worst": worst}
-        if not self.opts.only:
+        # The ratchet needs the full run's workspaces (no --only) and a clean scenario.
+        if self.full and not any(f.startswith(f"[{scenario}]") for f in failures):
             self.ratchet(scenario, worst, BUDGET["switch"])
         return rows, worst, patches
 
@@ -744,6 +750,9 @@ def main():
                         check(False, f"the scenario crashed: {error!r}", name)
                     report.setdefault("seconds", {})[name] = round(time.monotonic() - start, 1)
             except SystemExit as error:
+                if isinstance(error.code, int) and error.code >= 128:
+                    check(False, f"stopped by signal {error.code - 128}", "signal")
+                    raise
                 check(False, f"stopped: {error}", "launch")
             finally:
                 app.stop()
