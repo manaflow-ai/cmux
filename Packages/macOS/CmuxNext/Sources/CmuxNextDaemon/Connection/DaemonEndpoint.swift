@@ -47,6 +47,10 @@ public struct DaemonCapabilities: Sendable {
     /// another browser profile in place (same tab id and position).
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
+    /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
+    /// the grid (`TerminalAttachment.sendHidden`). The GUI reads it from `identify`; it does not
+    /// advertise it back (that would subscribe its streams to `size-state` events).
+    public let sharedSizing = "shared-sizing-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"

@@ -11,7 +11,8 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendInput(_ data: Data)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
-    func sendReleaseGeometry()
+    /// The view hid or shows again; hidden, it keeps its lease and claim and stops counting toward the grid.
+    func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
     func sendSnapshotRequest(reason: SnapshotRequestReason)
     /// Detaches and closes the connection; its `events` then finish.
@@ -167,7 +168,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             startAttempt(attempt, size: size, delay: failedReconnects)
         case .send(let ref, let data): ref.link.sendInput(data)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
-        case .release(let ref): ref.link.sendReleaseGeometry()
+        case .hide(let ref): ref.link.sendHidden(true)
+        case .unhide(let ref): ref.link.sendHidden(false)
         case .detach(let ref): ref.link.detachNow()
         case .status(let status): queue.pushControl(.status(status))
         case .finish:
