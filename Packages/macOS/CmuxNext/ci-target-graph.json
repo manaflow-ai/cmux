@@ -110,6 +110,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -127,6 +128,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -244,7 +246,9 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
         "CmuxNextApp",
+        "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -259,6 +263,7 @@
         "CmuxNextLayout",
         "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
+        "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -285,11 +290,24 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextAppsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppsTests",
+      "targets": [
+        "CmuxNextApps",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
