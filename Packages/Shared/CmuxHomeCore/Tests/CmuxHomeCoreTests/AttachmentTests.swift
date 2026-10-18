@@ -80,13 +80,59 @@ func movieHasLocation(_ url: URL) async throws -> Bool {
         || $0.identifier == .quickTimeUserDataLocationISO6709 }
 }
 
+/// Media fixtures encode one at a time. Several suites starting the video
+/// encoder at once crashed the test process (signal 11) on CI's virtual Macs,
+/// which have no hardware encoder.
+actor MediaFixtureGate {
+    static let shared = MediaFixtureGate()
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Waits until no other fixture is encoding.
+    func acquire() async {
+        guard busy else {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Lets the next waiting fixture encode.
+    func release() {
+        if waiters.isEmpty { busy = false } else { waiters.removeFirst().resume() }
+    }
+
+    /// Runs `body` while holding the gate.
+    static func serially(_ body: () async throws -> Void) async throws {
+        await shared.acquire()
+        do {
+            try await body()
+        } catch {
+            await shared.release()
+            throw error
+        }
+        await shared.release()
+    }
+}
+
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
 /// by its track transform (display size is `height` x `width`).
 func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
-                       location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
-                       timedLocation: String? = nil,
-                       timedIdentifier: AVMetadataIdentifier = .quickTimeMetadataLocationISO6709,
-                       subtitle: String? = nil) async throws {
+               location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
+               timedLocation: String? = nil,
+               timedIdentifier: AVMetadataIdentifier = .quickTimeMetadataLocationISO6709,
+               subtitle: String? = nil) async throws {
+    try await MediaFixtureGate.serially {
+        try await encodeMovie(at: url, width: width, height: height, frames: frames, fps: fps,
+                              location: location, locationName: locationName, trackLocation: trackLocation,
+                              timedLocation: timedLocation, timedIdentifier: timedIdentifier, subtitle: subtitle)
+    }
+}
+
+private func encodeMovie(at url: URL, width: Int, height: Int, frames: Int, fps: Int32,
+                         location: String?, locationName: String?, trackLocation: String?,
+                         timedLocation: String?, timedIdentifier: AVMetadataIdentifier,
+                         subtitle: String?) async throws {
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
     func item(_ identifier: AVMetadataIdentifier, _ value: String) -> AVMutableMetadataItem {
         let item = AVMutableMetadataItem()

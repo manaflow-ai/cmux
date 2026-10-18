@@ -40,6 +40,10 @@ func movieLocation(_ url: URL) async throws -> MovieLocation {
 
 /// A one-second silent AAC file (`.m4a`) carrying an ISO 6709 location.
 func makeM4A(at url: URL, location: String) async throws {
+    try await MediaFixtureGate.serially { try await encodeM4A(at: url, location: location) }
+}
+
+private func encodeM4A(at url: URL, location: String) async throws {
     let plain = url.deletingLastPathComponent().appendingPathComponent("plain-\(UUID().uuidString).m4a")
     let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 44_100))
