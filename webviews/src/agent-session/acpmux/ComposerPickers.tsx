@@ -11,6 +11,7 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -281,6 +282,18 @@ export function ComposerPickers({
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
+  // The bolt left of the mic (FastToggle.tsx): every tier the option offers past off, where the
+  // running model honors fast mode (as the menu's speed section), or while a tier is still on.
+  const speedTiers: SpeedTiers | undefined =
+    fastOption && fastMode && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue)
+      ? {
+          current: fastOption.currentValue,
+          off: fastMode.offValue,
+          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
+          onPick: fastMode.onPick,
+        }
+      : undefined;
+  useSpeedToggle(speedTiers);
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -740,7 +753,13 @@ function AccessMenu({
   return (
     <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
+        <MenuButton
+          className="acpmux-picker-button acpmux-access-trigger"
+          label={label}
+          /* tooltip-allow: the chip is its shield alone; the tooltip names the mode */
+          title={`${label}: ${currentMode?.name ?? label}`}
+          aria-haspopup="menu"
+        >
           {modes.length > 0 ? <ModeShield modeId={value} /> : <LockIcon />}
           <span className="acpmux-mode-text">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
