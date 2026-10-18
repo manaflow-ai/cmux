@@ -66,8 +66,9 @@ pub fn ghostty_macos_min(config_zig: &str) -> Option<String> {
 }
 
 /// The `-Dcpu=` argument for zig, if any: `CMUX_GHOSTTY_VT_ZIG_CPU` when set,
-/// else a baseline CPU for macOS so a native build does not use the build
-/// Mac's CPU features.
+/// else a baseline CPU for macOS. On a macOS build host Ghostty's generic
+/// macOS target drops `-Dcpu` and resolves to the same baseline CPU, so the
+/// override has no effect there for macOS targets.
 pub fn zig_cpu_arg(target: &str, cpu_override: Option<&str>) -> Option<String> {
     match cpu_override {
         Some(cpu) => Some(format!("-Dcpu={cpu}")),
