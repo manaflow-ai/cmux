@@ -23,7 +23,8 @@ function sourceText(row: HarnessRow): string {
 function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   if (job.state === "created") return t("settingsWindow.harnesses.jobCreated");
   if (job.state === "pending") return t("settingsWindow.harnesses.jobPending");
-  if (job.state === "exited" && job.exit_code !== undefined) return t("settingsWindow.harnesses.jobExit", job.exit_code);
+  if (job.state === "exited" && job.exit_code !== undefined)
+    return t("settingsWindow.harnesses.jobExit", job.exit_code);
   if (job.state === "exited" && job.signal !== undefined) return t("settingsWindow.harnesses.jobSignal", job.signal);
   return t("settingsWindow.harnesses.jobUnknown");
 }
@@ -182,8 +183,14 @@ export function HarnessesCard() {
         )}
       </div>
       {(harnesses?.jobs ?? []).map((job, index) => (
-        <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" role="status" data-agent-update-job={job.state}>
-          {agentDisplayName(job.cli)}{" · "}
+        <div
+          key={`${job.machine}:${job.terminal ?? index}`}
+          className="row-help"
+          role="status"
+          data-agent-update-job={job.state}
+        >
+          {agentDisplayName(job.cli)}
+          {" · "}
           {jobText(job)}
         </div>
       ))}
