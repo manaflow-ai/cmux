@@ -365,8 +365,13 @@ public final class LayoutRootView: NSView {
 
     // MARK: Layout and window
 
+    /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
+    /// workspace only; a parked one keeps its frame until it shows again.
+    public static var layoutPasses: UInt64 = 0
+
     override public func layout() {
         super.layout()
+        Self.layoutPasses &+= 1
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {

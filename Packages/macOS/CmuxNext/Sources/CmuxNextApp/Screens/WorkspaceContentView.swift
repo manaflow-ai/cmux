@@ -100,6 +100,10 @@ final class WorkspaceContentView: NSView {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// A parked workspace lists nothing to VoiceOver or the window's hint targets: AppKit unwraps an
+    /// ignored (hidden) view into its children, so the subtree is cut here.
+    override func accessibilityChildren() -> [Any]? { isHidden ? [] : super.accessibilityChildren() }
+
     /// Counts window entries (`debug.layout_counters`): a switch to a parked workspace adds none.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
