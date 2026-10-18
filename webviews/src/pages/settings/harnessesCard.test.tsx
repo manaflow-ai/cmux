@@ -13,6 +13,35 @@ const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[
 const ids = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness);
 
+test("owner job receipts stay pending until a terminal exit and unknown outcomes block another update", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const show = async (state: string, extra = {}) => {
+    await act(async () => page.provider.setHarnesses({ ...base, jobs: [{
+      machine: "machine_original", session: "session_original", cli: "codex", profiles: ["codex"],
+      terminal: "term_original", state, ...extra,
+    }] } as typeof base));
+    await settle();
+  };
+  await show("created");
+  let job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.dataset.agentUpdateJob).toBe("created");
+  expect(job?.textContent).toContain("Update terminal created");
+  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(true);
+  await show("pending");
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.textContent).toContain("Waiting for update to finish");
+  await show("exited", { exit_code: 23 });
+  job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
+  expect(job?.textContent).toContain("Exit code: 23");
+  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(false);
+  await show("unknown");
+  expect(card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]")?.textContent).toContain("Outcome unknown");
+  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(true);
+  page.unmount();
+});
+
 test("the card lists the host's harnesses with their names and reads them again when it opens", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();
