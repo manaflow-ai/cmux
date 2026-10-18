@@ -37,7 +37,7 @@ it("does not report success until idempotency completion is durable, then repair
   expect(t.resources).toHaveLength(1);
   const retry = await create(t, key);
   expect(retry.status).toBe(201);
-  expect((await retry.json() as { id: string }).id).toBe(t.resources[0]!.cmuxId);
+  expect(await retry.json()).toMatchObject({ id: t.resources[0]!.cmuxId });
   expect(allocation(t)).toHaveLength(1);
   expect(t.upstream.vms.size).toBe(1);
 });
