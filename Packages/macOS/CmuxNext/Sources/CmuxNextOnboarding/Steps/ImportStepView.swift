@@ -179,5 +179,5 @@ final class ImportStepView: NSView {
 
 /// A document view that lays out from the top.
 final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

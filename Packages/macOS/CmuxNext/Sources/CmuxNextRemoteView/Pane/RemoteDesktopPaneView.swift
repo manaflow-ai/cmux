@@ -22,7 +22,7 @@ public final class RemoteDesktopPaneView: NSView {
 
     static let toolbarInset: CGFloat = 8
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

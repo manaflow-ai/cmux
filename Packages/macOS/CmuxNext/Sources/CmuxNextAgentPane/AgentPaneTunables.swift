@@ -25,6 +25,22 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     }
 }
 
+/// What a folded long thought's one line reads (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtHeader`. `duration` sets nothing on the page.
+public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, TunableChoice {
+    /// "Thought for 12s", as Codex's reasoning trace reads once it ends (#20963).
+    case duration
+    /// "Thought", then the thought's first line (#20948).
+    case preview
+
+    public var tunableTitle: String {
+        switch self {
+        case .duration: "Thought for 12s (default)"
+        case .preview: "Thought, then its first line"
+        }
+    }
+}
+
 /// Where the quiet answer-footer actions sit under a completed turn.
 public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIterable, TunableChoice {
     case right
@@ -141,6 +157,13 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
         default: false, code: "AgentPaneTunables.foldLongThoughts")
 
+    /// What a folded long thought's line reads: how long the agent thought, or its first line.
+    /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
+    public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(
+        "agentPane.debug.thoughtHeader", PageTunables.section, "Folded thought header",
+        help: "A folded long thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
+        default: .duration, code: "AgentPaneTunables.thoughtHeader")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -183,12 +206,15 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
+        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
+                   thoughtHeader: thoughtHeader.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle) -> [String: String] {
+    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+                           thoughtHeader: AgentPaneThoughtHeader = .duration) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
+        if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         return attributes
     }
@@ -227,5 +253,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, thoughtHeader.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

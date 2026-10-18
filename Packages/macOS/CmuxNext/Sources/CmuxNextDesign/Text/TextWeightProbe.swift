@@ -53,12 +53,18 @@ public struct TextWeightProbe {
                                y: root.bounds.height - Self.margin - Self.rowHeight * CGFloat(index / 3 + 1) + 2,
                                width: width - 24, height: 18)
             switch index % 3 {
-            case 0, 1:
-                let field = index % 3 == 0 ? NSTextField(labelWithString: Self.text) : ChromeLabel(labelWithString: Self.text)
+            case 0:
+                let field = NSTextField(labelWithString: Self.text)
                 field.font = font
                 field.textColor = row.ink
                 field.frame = frame
                 root.addSubview(field)
+            case 1:
+                let label = ChromeLabel(labelWithString: Self.text)
+                label.font = font
+                label.textColor = row.ink
+                label.frame = frame
+                root.addSubview(label)
             default:
                 let host = NSView(frame: frame)
                 host.wantsLayer = true
