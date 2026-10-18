@@ -545,12 +545,8 @@ async fn dispatch(
                 "--check-presence",
                 check_presence.then(|| "true".to_owned()),
             )?;
-            let body = fetch_body(client.vms_get_vm_instance_identity(
-                id.as_str(),
-                presence.as_ref(),
-                None,
-            ))
-            .await?;
+            let body = fetch_body(client.vms_get_vm_instance_identity(id.as_str(), presence, None))
+                .await?;
             let receipt: serde_json::Value = serde_json::from_slice(&body)
                 .map_err(|_| CliError::unexpected("the VM instance identity is unconfirmed"))?;
             if receipt["id"] != id.as_str()
