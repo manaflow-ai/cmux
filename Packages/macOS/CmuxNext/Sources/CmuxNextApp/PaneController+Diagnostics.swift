@@ -108,7 +108,9 @@ struct PaneSurfaceStatus {
                              "full_palette": .number(Double(counters.fullPalette)),
                              "full_config": .number(Double(counters.fullConfig)),
                              "full_font": .number(Double(counters.fullFont)),
-                             "full_other": .number(Double(counters.fullOther))])
+                             "full_other": .number(Double(counters.fullOther)),
+                             "full_swap": .number(Double(counters.fullSwap)),
+                             "full_resize": .number(Double(counters.fullResize))])
                 } ?? .null,
                 // Where the terminal is in its window (fractions, top-left origin) for recordings.
                 "window_fraction": terminal.windowFraction.map { (rect: CGRect) -> JSONValue in
