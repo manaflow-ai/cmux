@@ -14,7 +14,7 @@ use super::{
 };
 use crate::WorkspaceMutation;
 use crate::mux::Mux;
-use crate::resource::{MachinePublicId, ResourceError};
+use crate::resource::{MachinePublicId, ResourceError, SessionPublicId};
 
 pub(super) const CAPABILITY: &str = "agent-cli-update-job-v1";
 const COMMAND: &str = "agent-cli-update-job";
@@ -24,6 +24,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 #[serde(deny_unknown_fields)]
 struct Params {
     expected_machine_id: String,
+    expected_session_id: String,
     cli: String,
     idempotency_key: String,
 }
@@ -33,6 +34,7 @@ enum Failure {
     NotTrusted,
     BadRequest,
     OwnerMismatch,
+    SessionMismatch,
     Busy,
     Unavailable,
     Unsupported,
@@ -46,6 +48,7 @@ impl Failure {
             Self::NotTrusted => "agent_cli_job.not_trusted",
             Self::BadRequest => "agent_cli_job.bad_request",
             Self::OwnerMismatch => "agent_cli_job.owner_mismatch",
+            Self::SessionMismatch => "agent_cli_job.session_mismatch",
             Self::Busy => "agent_cli_job.busy",
             Self::Unavailable => "agent_cli_job.unavailable",
             Self::Unsupported => "agent_cli_job.unsupported",
@@ -95,6 +98,12 @@ pub(super) fn try_handle(
     };
     if expected != mux.machine_public_id {
         return Some(reply(writer, id, Err(Failure::OwnerMismatch.into())));
+    }
+    let Ok(expected_session) = SessionPublicId::parse(params.expected_session_id) else {
+        return Some(reply(writer, id, Err(Failure::BadRequest.into())));
+    };
+    if expected_session != mux.session_public_id {
+        return Some(reply(writer, id, Err(Failure::SessionMismatch.into())));
     }
     if params.cli.is_empty()
         || params.cli.len() > 128

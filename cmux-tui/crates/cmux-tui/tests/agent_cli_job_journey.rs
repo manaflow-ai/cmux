@@ -109,11 +109,11 @@ fn ensure(machine: &Machine) {
     assert!(output.status.success(), "ensure: {}", String::from_utf8_lossy(&output.stderr));
 }
 
-fn native(root: &Path, name: &str, acpmux: &Path) -> Machine {
+fn native(root: &Path, name: &str, acpmux: &Path, state: Option<&Path>) -> Machine {
     let dir = root.join(name);
     fs::create_dir_all(dir.join("acpmux")).unwrap();
     fs::write(dir.join("acpmux/config.json"), "{\"harnesses\":{}}").unwrap();
-    let machine = Machine {
+    let mut machine = Machine {
         socket: dir.join("mux.sock"),
         session: format!("owner-job-{name}"),
         dir,
@@ -126,6 +126,9 @@ fn native(root: &Path, name: &str, acpmux: &Path) -> Machine {
             ("CMUX_APPS_DEFAULT", "".into()),
         ],
     };
+    if let Some(state) = state {
+        machine.env.push(("CMUX_TUI_STATE_DIR", state.to_string_lossy().into_owned()));
+    }
     ensure(&machine);
     machine
 }
@@ -194,7 +197,7 @@ fn identity(machine: &Machine) -> Value {
             .unwrap()
             .contains(&json!("agent-cli-update-job-v1"))
     );
-    reply["data"]["machine_id"].clone()
+    reply["data"].clone()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -203,16 +206,26 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     let root = scratch.path().canonicalize().unwrap();
     let selected_acp = AcpmuxOwner::start(&root.join("selected")).await;
     let other_acp = AcpmuxOwner::start(&root.join("other")).await;
-    let selected = native(&root, "selected", &selected_acp.socket);
-    let other = native(&root, "other", &other_acp.socket);
-    let machine = identity(&selected);
-    assert_ne!(machine, identity(&other));
+    let selected = native(&root, "selected", &selected_acp.socket, None);
+    let other = native(&root, "other", &other_acp.socket, None);
+    let another_session =
+        native(&root, "another-session", &other_acp.socket, Some(&selected.dir.join("state")));
+    let selected_identity = identity(&selected);
+    let machine = selected_identity["machine_id"].clone();
+    let session = selected_identity["session_resource_id"].clone();
+    assert!(session.as_str().is_some_and(|id| id.starts_with("session_") && id.len() == 40));
+    assert_ne!(machine, identity(&other)["machine_id"]);
+    let same_machine = identity(&another_session);
+    assert_eq!(same_machine["machine_id"], machine);
+    assert_ne!(same_machine["session_resource_id"], session);
     let intent = json!({"cmd":"agent-cli-update-job","expected_machine_id":machine,
-        "cli":"claude","idempotency_key":"original-update-intent"});
+        "expected_session_id":session,"cli":"claude","idempotency_key":"original-update-intent"});
     let unverified = Client::connect(&selected).rpc(intent.clone());
     assert_eq!(unverified["error_code"], "agent_cli_job.not_trusted", "{unverified}");
     let mut foreign = Client::proved(&other);
     assert_eq!(foreign.rpc(intent.clone())["error_code"], "agent_cli_job.owner_mismatch");
+    let mut wrong_session = Client::proved(&another_session);
+    assert_eq!(wrong_session.rpc(intent.clone())["error_code"], "agent_cli_job.session_mismatch");
     assert!(!selected_acp.marker.exists() && !other_acp.marker.exists());
     let mut client = Client::proved(&selected);
     let mut commands = intent.clone();
@@ -221,6 +234,7 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     let started = client.rpc(intent.clone());
     assert_eq!(started["ok"], true, "{started}");
     assert_eq!(started["data"]["machine"], machine);
+    assert_eq!(started["data"]["session"], session);
     assert_eq!(started["data"]["replayed"], false);
     assert!(!started.to_string().contains("secret-token"));
     let path = started["data"]["path"].clone();
@@ -260,7 +274,9 @@ async fn cmux_next_agent_cli_job_journey_exec_exit_and_restart_replay_stay_on_ow
     let stopped = selected.server("stop").output().unwrap();
     assert!(stopped.status.success(), "stop: {}", String::from_utf8_lossy(&stopped.stderr));
     ensure(&selected);
-    assert_eq!(identity(&selected), machine, "restart must retain canonical owner");
+    let restarted = identity(&selected);
+    assert_eq!(restarted["machine_id"], machine, "restart must retain canonical owner");
+    assert_eq!(restarted["session_resource_id"], session, "restart must retain canonical session");
     let mut reconnected = Client::proved(&selected);
     let recovered = reconnected.rpc(intent);
     assert_eq!(recovered["ok"], true, "{recovered}");

@@ -31,6 +31,7 @@ impl Mux {
         let fingerprint = json!({
             "operation":"agent_cli.update",
             "machine":self.machine_public_id,
+            "session":self.session_public_id,
             "cli":cli,
             "actor":mutation.actor.wire(),
         });
@@ -101,7 +102,7 @@ impl Mux {
         }
         // This acknowledges a terminal, not a successful update. Its owner
         // provides terminal.wait_exit, including after detachment or exit.
-        Ok(json!({"machine":self.machine_public_id,"cli":cli,
+        Ok(json!({"machine":self.machine_public_id,"session":self.session_public_id,"cli":cli,
             "path":commit.result,"revision":commit.revision.to_string(),"replayed":commit.replayed}))
     }
 }

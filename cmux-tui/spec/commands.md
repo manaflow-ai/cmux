@@ -9105,24 +9105,28 @@ and cannot complete a job.
 ### Native visible update job
 
 `agent-cli-update-job-v1` adds the internal native carrier
-`{id, cmd:"agent-cli-update-job", expected_machine_id, cli, idempotency_key}`.
+`{id, cmd:"agent-cli-update-job", expected_machine_id, expected_session_id, cli, idempotency_key}`.
 Only a proved main-app Unix connection without an agent binding may call it.
-The canonical owner condition is required and checked before worker admission
-or socket access. Unknown fields, including argv, shell, socket, session and
+The canonical machine and session conditions are required and checked before
+worker admission or socket access. A machine can host multiple daemon sessions;
+the same machine ID cannot authorize a replacement session to execute a job.
+An enriched `identify {machine_metadata:true}` includes `session_resource_id`
+alongside `machine_id`; the legacy registry UUID is not a public session ID.
+Unknown fields, including argv, shell, socket, session selectors and
 actor claims, refuse. The daemon derives the audit actor from the connection.
 App `agent_cli.update` execution scopes remain unsupported; this carrier does
 not grant one or upgrade an opaque actor forwarded by a provider.
 
 The Rust owner serializes preparation, then looks up stable intent in its
 existing correlated workspace-creation journal before requiring acpmux. The
-intent binds owner, CLI, operation and actor to the original mutation key.
+intent binds machine, session, CLI, operation and actor to the original mutation key.
 A receipt replays with acpmux offline or inventory changed; a changed intent
 conflicts. A new job negotiates `harnessUpdatePrepare` on one captured local
 link and sends only `{cli}`. There is no legacy update, owner start, handoff,
 focused-pane or shell-typing fallback. The exact prepared argv and original
 audit actor are journaled before a dedicated terminal workspace is executed.
 
-Successful data is `{machine, cli, path, revision, replayed}`, where path is
+Successful data is `{machine, session, cli, path, revision, replayed}`, where path is
 the existing public created-terminal path and revision is decimal text. This
 acknowledges creation, not update completion. The same owner's
 `terminal.wait_exit` supplies the durable outcome; inventory invalidations

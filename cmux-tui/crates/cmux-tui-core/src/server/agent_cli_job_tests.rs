@@ -58,7 +58,7 @@ fn prepared() -> Value {
 
 fn request(mux: &Mux, cli: &str, key: &str) -> Value {
     json!({"id":1,"cmd":COMMAND,"expected_machine_id":mux.machine_public_id,
-        "cli":cli,"idempotency_key":key})
+        "expected_session_id":mux.session_public_id,"cli":cli,"idempotency_key":key})
 }
 
 #[test]
