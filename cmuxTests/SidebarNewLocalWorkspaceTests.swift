@@ -165,6 +165,31 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(fixture.manager.tabs.count == originalCount + 2)
     }
 
+    @Test func contextFollowingCommandNPreservesCloudAnchoredGroupDirectoriesLocal() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let anchor = try #require(fixture.manager.selectedWorkspace)
+        anchor.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        anchor.currentDirectory = "/cloud-only/project"
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "Context Cmd-N",
+            childWorkspaceIds: [anchor.id]
+        ))
+        let originalCount = fixture.manager.tabs.count
+
+        #expect(fixture.app.performNewWorkspaceAction(
+            tabManager: fixture.manager,
+            debugSource: "test.context.cmdN",
+            localOnly: true
+        ))
+
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(fixture.manager.tabs.count == originalCount + 1)
+        #expect(created.groupId == groupID)
+        #expect(created.cloudVMID == nil)
+        #expect(created.currentDirectory == fixture.root.path)
+    }
+
     @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)

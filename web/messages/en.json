@@ -35,7 +35,7 @@
     "workspaceMissingID": "The peer did not return a workspace ID. No command was started.",
     "missingDaemon": "cmux-tui daemon binary not found at %s",
     "envSingleLineValue": "env set: values must be a single line",
-    "routeToken": "refusing a coderouter route token in the VM; use the Freestyle TLS edge",
+    "routeToken": "refusing a coderouter route token in the VM; use the host-managed authenticated route",
     "missingCodeRouter": "CodeRouter is not configured in this VM (CMUX_CODEROUTER_URL is missing)",
     "insecureCodeRouter": "CodeRouter requires an https:// endpoint; refusing an insecure URL",
     "invalidCodeRouter": "CodeRouter endpoint must be a bare https:// host",
@@ -112,7 +112,7 @@
     "hostTokens": "Stack account tokens: host-only (never stored in this VM)",
     "version": "cmux guest CLI (cmux-tui transport)",
     "connected": "OK connected %s socket=%s",
-    "help": "cmux - Cloud workspace CLI (inside a cmux Cloud machine)\n\nTHIS MACHINE (your session; the same verbs as on a Mac)\n  cmux tree [--json]                          workspaces, panes, and terminals here\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   drive any terminal headlessly (cmux terminal help)\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     environment for every shell and agent here (cmux env help)\n  cmux file receive <path> [--mode <octal>]   receiving end of cmux vm push (a Mac's --secret, a peer): bytes typed over the link (cmux file help)\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui's own resource grammar (cmux <resource> --help)\n\nWHO AM I\n  cmux self [--json]                          name, id, status, team, owner, plan, as the control plane knows it\n  cmux self peers|integrations|owner|machine [--json]   what I can reach and use (aliases: cmux whoami, cmux reflect)\n\nOTHER MACHINES (cmux vm <verb> <machine> ...; the same grammar as on a Mac)\n  cmux vm ls [--json]                         the owner's machines, this one marked *\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   one file, typed over the link (never an exec API)\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    (cmux vm help lists them all)\n\nREACH THE HUMAN\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nMODELS AND AGENTS\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   runs here, in this terminal, until it exits\n  cmux agent list|report|hook ...\n\nAUTH\n  cmux auth status [--json]                   this daemon, the injected CodeRouter edge, and the machine identity\n  cmux auth login|logout                      account sign-in is host-owned; run it on the Mac\n\nNo account token lives in this machine: the TLS edge authenticates it on the wire.\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
+    "help": "cmux - Cloud workspace CLI (inside a cmux Cloud machine)\n\nTHIS MACHINE (your session; the same verbs as on a Mac)\n  cmux tree [--json]                          workspaces, panes, and terminals here\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   drive any terminal headlessly (cmux terminal help)\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     environment for every shell and agent here (cmux env help)\n  cmux file receive <path> [--mode <octal>]   receiving end of cmux vm push (a Mac's --secret, a peer): bytes typed over the link (cmux file help)\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui's own resource grammar (cmux <resource> --help)\n\nWHO AM I\n  cmux self [--json]                          name, id, status, team, owner, plan, as the control plane knows it\n  cmux self peers|integrations|owner|machine [--json]   what I can reach and use (aliases: cmux whoami, cmux reflect)\n\nOTHER MACHINES (cmux vm <verb> <machine> ...; the same grammar as on a Mac)\n  cmux vm ls [--json]                         the owner's machines, this one marked *\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   one file, typed over the link (never an exec API)\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    (cmux vm help lists them all)\n\nREACH THE HUMAN\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nMODELS AND AGENTS\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cr use [own|team|auto] [claude|codex|opencode]   how each agent signs in here: your own login or the team's accounts\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   runs here, in this terminal, until it exits\n  cmux agent list|report|hook ...\n\nAUTH\n  cmux auth status [--json]                   this daemon, the injected CodeRouter edge, and the machine identity\n  cmux auth login|logout                      account sign-in is host-owned; run it on the Mac\n\nNo account token lives in this machine: the TLS edge authenticates it on the wire.\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
     "peerHelp": "cmux vm - other cmux Cloud machines of the same owner, from inside this one (the same grammar as on a Mac).\n\n  cmux vm ls [--json]                 the owner's machines: this one marked *, status, reachable, linked/connected\n  cmux vm connect <machine>           bring up the link (done lazily otherwise)\n  cmux vm exec <machine> -- <cmd…>    run a command on the machine (durable terminal)\n  cmux vm tree <machine>              the machine's workspace/terminal snapshot\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> …   drive a terminal there headlessly\n  cmux vm send|send-key|read-screen <machine> <term> …       the same, Mac spelling\n  cmux vm workspace new|rename|close|rm <machine> …          its workspaces (rm kills their terminals)\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]\n                                      one file (up to 256 KiB) into its cmux file receive, typed over the link:\n                                      never an exec API, an argv, or a control plane\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>\n                                      start a coding agent in a durable terminal there; --wait blocks until it exits\n                                      (exit code = the agent's), --output prints its terminal stream, --timeout caps the wait\n  cmux vm layout export|apply <machine> …    its workspace layouts as data (see cmux layout help)\n  cmux vm env set|ls|rm|path <machine> …     its machine env (values travel only over the link; see cmux env help)\n  cmux vm <resource> <machine> …      any cmux-tui resource verb there\n\nA machine with no link yet is found through reflection (cmux self peers): its\nprivate-network route is enough on current images, so no Mac step is needed.\nLocal verbs need no prefix: cmux workspace…, cmux terminal…, cmux session….\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
     "thisMachine": "(this machine)",
     "selfHelp": "cmux self - who am I. Reflection is the control plane's view of this machine, asserted by the TLS edge (no credential lives here).\n\n  cmux self [--json]                   name, id, status, team, owner, plan\n  cmux self peers [--json]             the owner's other machines: status, private route, reachable\n  cmux self integrations [--json]      what this machine can use, each with a help command\n  cmux self owner|machine [--json]     the owner / this machine's size, image, network, desktop\n  cmux self <path> [--json]            any reflection path (peers, /peers, ...)\n\nAliases: cmux whoami = cmux self; cmux reflect [<path>] = cmux self [<path>].\nDiscovery: cmux vm ls lists the same machines; cmux vm exec <machine> -- <cmd> links on first use.",
@@ -124,7 +124,25 @@
     "workspaceReuseNeedsName": "Workspace reuse requires a nonempty --name.",
     "workspaceReuseUnavailable": "Workspace state changed or is unavailable. Reconnect and retry.",
     "workspaceReuseAmbiguous": "Several workspaces have that name. Use a workspace ID or choose a unique name.",
-    "workspacePreparationChanged": "Another command created this workspace. Retry vm dev to reuse its current layout."
+    "workspacePreparationChanged": "Another command created this workspace. Retry vm dev to reuse its current layout.",
+    "useHelp": "Usage: cr use [own|team|auto] [claude|codex|opencode]... [--json]\n  own   the agent uses your own sign-in (/login in Claude Code, codex login,\n        opencode auth login), and nothing is sent through CodeRouter\n  team  the agent uses the team's CodeRouter accounts\n  auto  no fixed choice: your own sign-in once you have signed in here,\n        otherwise the team's accounts when the team has an account for it\nWithout an agent, the change applies to Claude Code, Codex, and OpenCode.\nWith no mode, shows how each agent signs in on this machine. A change\napplies the next time you start the agent.",
+    "useUnknown": "unknown cr use argument '%s' (try cr use --help)",
+    "useOneMode": "cr use takes one mode: own, team, or auto (try cr use --help)",
+    "useUnsupported": "This machine's image predates the agent sign-in switch. To use your own account in a terminal here: Claude Code, run unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL, then claude and /login; Codex, run codex login, then start it with codex -c model_provider=openai; OpenCode, run opencode auth login, then start it with env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode.",
+    "useWriteFailed": "could not record the choice in %s",
+    "useModeOwn": "%s: your own login (%s)",
+    "useModeTeam": "%s: the team's CodeRouter accounts (%s)",
+    "useReasonEnv": "%s is set in this environment",
+    "useReasonChosen": "chosen with cr use",
+    "useReasonLogin": "signed in on this machine",
+    "useReasonTeamAccount": "default: the team has an account for it",
+    "useReasonNoTeamAccount": "default: the team has no account for it",
+    "useReasonTeamUnreachable": "default: CodeRouter cannot be reached from this machine",
+    "useReasonTeamUnknown": "default: the team's accounts could not be checked",
+    "useNextLaunch": "This applies the next time you start each agent; running sessions keep their current sign-in.",
+    "useEnvOverride": "  ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL is set in this environment; Claude Code started from here uses that instead of either mode.",
+    "useOwnLogin": "  Sign in with %s if you have not already.",
+    "useTeamNoAccount": "  The team has no %s account yet. Add one with %s, or switch with cr use own %s."
   },
   "billingRecovery": {
     "message": "If we found an account, check your email for next steps",
@@ -174,12 +192,27 @@
     "guestUnresponsive": {
       "title": "Machine not responding",
       "message": "This machine did not respond in time, so the request could not finish.",
-      "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
+      "action": "Contact support with the trace ID before creating another machine."
+    },
+    "inProgress": {
+      "title": "Still in progress",
+      "message": "The cloud provider has not finished this change yet. It may still complete.",
+      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
     },
     "providerTimeout": {
       "title": "Cloud provider is slow",
       "message": "The cloud provider did not answer in time.",
       "action": "Try again in a moment."
+    },
+    "providerCapacity": {
+      "title": "No Cloud capacity right now",
+      "message": "The Cloud service is at capacity and has no room for this machine right now. Nothing was changed.",
+      "action": "Try again in a minute."
+    },
+    "stateConflict": {
+      "title": "Machine is busy",
+      "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
+      "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
     },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
@@ -248,12 +281,27 @@
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} compute allowance used",
+      "computeMessage": "Your {plan} plan has used its {included} compute-hours for this billing period. A compute-hour is 1 vCPU with 2 GB of memory running for one hour. Your machines can start again on {resetDate}.",
+      "computeAction": "Paused machines keep their files. Contact support if you need more compute before {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} disk allowance used",
+      "storageMessage": "Your {plan} plan includes {included} GB of disk across all saved machines. Saved machines use {used} GB, and this request needs {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Not enough Cloud VM resources",
       "memoryMessage": "Your VMs already use {used} of {pool} GB RAM. This VM needs {requested} GB.",
       "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
       "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
       "action": "Pause or delete a VM."
+    },
+    "activeLimit": {
+      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "provisioning": "{name} (provisioning)",
+      "separator": ", "
     }
   },
   "ios": {
@@ -622,7 +670,7 @@
       "cancelAction": "Cancel",
       "shareWithTeam": "Share with team",
       "makePrivate": "Make private",
-      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs.",
+      "privateImportHint": "In an organization, new accounts are shared with the team and its Cloud VMs. In your personal team they stay private to you. Use Make private or Share with team to change an account.",
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
@@ -675,7 +723,7 @@
       "banners": {
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
-        "nosub": "No active Stripe subscription was found for this account.",
+        "nosub": "No active web subscription was found for this account.",
         "error": "Billing could not be updated. Try again shortly.",
         "pastDue": "Your latest payment failed. Update your payment method to keep your plan active.",
         "team_admin_required": "Only team admins can manage this team's billing.",
@@ -789,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "Resume your plan to change it.",
           "granted": "Granted by cmux. There is nothing to change.",
+          "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
+          "paymentFailed": "Update your payment method before changing plans.",
+          "foundersLifetime": "Founder's Edition includes Pro for life.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {
@@ -831,6 +882,7 @@
       "change": {
         "title": "Switch to {plan}?",
         "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "upgradeBodyYearly": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per year.",
         "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
         "confirm": "Switch to {plan}",
         "keep": "Keep current plan",
@@ -843,6 +895,8 @@
         "title": "Cancel {plan}?",
         "body": "You keep {plan} until {date}. After that, you lose:",
         "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "foundersBody": "Your {plan} subscription ends on {date}. After that, you have Pro, which Founder's Edition includes for life.",
+        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you have Pro, which Founder's Edition includes for life.",
         "reasonLabel": "Why are you canceling? (optional)",
         "otherPlaceholder": "Tell us more (optional)",
         "confirm": "Cancel plan",
@@ -1599,6 +1653,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Compare"
@@ -3466,6 +3521,13 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -4734,8 +4796,8 @@
       "cloudLink": "How agents are configured on Cloud machines",
       "teamsTitle": "Teams and sharing",
       "teamsScope": "Accounts belong to the team you are signed in to. cr org list shows your teams, and cr org switch changes the team that cr uses. cmux coderouter commands take --team '<id>'.",
-      "teamsPrivate": "A new account is private to the person who added it. In the dashboard, Share with team makes it available to every member and to the team's Cloud machines, and Make private reverses that.",
-      "teamsPersonal": "In your personal team, your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so share an account before you expect a machine to use it.",
+      "teamsPrivate": "An account added to an organization is shared with the team, so every member and the team's Cloud machines can use it. In the dashboard, Make private limits it to the person who added it, and Share with team reverses that.",
+      "teamsPersonal": "In your personal team, new accounts are private, and your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so a private account must be shared before a machine can use it.",
       "teamsManage": "Any team member can add, rename, disable, transfer, and remove the team's shared accounts. cr transfer moves an account to another team after you confirm.",
       "usageTitle": "Usage and limits",
       "usageLimits": "Each provider meters the account that served a request, under that account's own plan and limits. CodeRouter spreads work across accounts but does not raise any single account's limit.",
@@ -4775,12 +4837,13 @@
       "apiKeyScope": "An organization's API key uses only the team's shared accounts. A key in your personal team can also use your private accounts. CodeRouter serves the OpenAI Responses API, not Chat Completions.",
       "apiKeyLogin": "On a machine that cannot open a browser, cr login --api-key signs cr in with a key, and CODEROUTER_API_KEY supplies one for a single command. Revoke a key in the dashboard, or run cr logout on the machine that uses it.",
       "cloudTitle": "On cmux Cloud machines",
-      "cloudDesc": "Cloud machines need no setup. The machine's environment points OPENAI_BASE_URL and ANTHROPIC_BASE_URL at a private CodeRouter address, and cmux writes each agent's configuration the first time a shell or the agent starts:",
-      "cloudClaude": "Claude Code reads ANTHROPIC_BASE_URL and a placeholder ANTHROPIC_API_KEY from the environment. Its first-run prompts are already answered.",
+      "cloudDesc": "Cloud machines need no setup. Each agent uses your team's CodeRouter accounts through a private CodeRouter address, and cmux writes its configuration the first time a shell or the agent starts:",
+      "cloudClaude": "Claude Code gets ANTHROPIC_BASE_URL and a placeholder ANTHROPIC_API_KEY each time it starts, not from every shell, so they never outrank your own sign-in. Its first-run prompts are already answered.",
       "cloudCodex": "Codex gets a cmux model provider in ~/.codex/config.toml.",
       "cloudPi": "Pi gets a provider override in ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode downloads its provider list from CodeRouter the first time it starts and saves it to ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode downloads its provider list from CodeRouter the first time it starts, saves it to ~/.config/cmux/opencode-team.json, and adds it to your own configuration for each run.",
       "cloudYours": "cmux writes each file only when it is missing, so your edits are kept. A Codex configuration that already names another model provider is left alone.",
+      "cloudOwnLogin": "To use your own account instead, run cr use own on the machine, then sign in the way the agent normally does: /login in Claude Code, codex login, or opencode auth login. cr use team switches back, cr use own codex changes one agent, and cr use shows how each agent signs in. Without a choice, an agent you have signed in to on the machine uses your own account, and an agent your team has no account for shows its normal sign-in. A change applies the next time the agent starts.",
       "cloudRun": "Run agents as usual. cmux coderouter agent turns a bare prompt into the agent's one-shot form; inside a machine it runs in the current terminal, and on your Mac it starts the agent on the machine you name, like cmux vm agent.",
       "cloudAccounts": "Cloud machines use the accounts of the team that owns them. If an agent reports that no account is available, add one or share an existing one with that team.",
       "modelsTitle": "Models",
@@ -4851,11 +4914,11 @@
       "metaDescription": "How cmux Cloud machines are isolated, where credentials live, and how to limit what a machine can reach with an outbound network policy.",
       "intro": "This page describes the security model of cmux Cloud machines: what isolates a machine, where credentials live, and how to limit what a machine can reach on the network.",
       "isolationTitle": "Isolation",
-      "isolationVm": "Each machine is a Freestyle microVM with its own Linux kernel. It is not a container on a shared kernel.",
+      "isolationVm": "Each machine is a microVM with its own Linux kernel. It is not a container on a shared kernel.",
       "isolationRoot": "You have passwordless root in the machine by design. The VM is the security boundary, not the user account in it. Every process in the machine, including an agent, can do what root can do there.",
       "isolationHome": "Recreating a machine resets its home directory. Recreate a machine to return it to a known state.",
       "credentialsTitle": "Credentials",
-      "credentialsModel": "Model credentials for CodeRouter never enter the machine. The Freestyle TLS edge adds them to requests after the requests leave the machine. The provider stores these header values write-only, so nobody can read them back after cmux sets them.",
+      "credentialsModel": "Model credentials for CodeRouter never enter the machine. The cmux Cloud TLS edge adds them to requests after the requests leave the machine. The provider stores these header values write-only, so nobody can read them back after cmux sets them.",
       "credentialsAttach": "Attach credentials, which let a client open a session on the machine, are short-lived and scoped to one machine and one session.",
       "previewsTitle": "Port previews",
       "previewsDesc": "Port previews go over your private WireGuard network. They have no public URL. Only devices on your private network can open them.",
@@ -4949,6 +5012,23 @@
     "metaTitle": "Wall of Love — cmux",
     "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
   },
+  "art": {
+    "metaTitle": "Art for cmux backgrounds",
+    "metaDescription": "Browse the public-domain paintings cmux offers as window backgrounds: Van Gogh, Friedrich, Goya, Doré and more, with sources and licenses.",
+    "title": "Art",
+    "description": "Famous public-domain paintings and prints you can put behind your terminals. Every work's artist died over 70 years ago and it was published before 1931.",
+    "howToUse": "Coming soon to cmux: set any of these as the background behind your terminals.",
+    "loading": "Loading the collection…",
+    "unavailable": "The collection could not be loaded. Try again in a few minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Public domain · Source",
+    "collections": {
+      "darkArt": "Dark Art",
+      "museumIcons": "Museum Icons",
+      "calm": "Calm",
+      "dore": "Doré"
+    }
+  },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
     "steipete": "I'm late to the party, but cmux is great. Current split: Codex Mac app for knowledge work, learning, reading; cmux + Codex CLI for coding.",
@@ -5018,7 +5098,10 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "rateLimitedTitle": "Sign-in is busy",
+    "rateLimitedBody": "Our sign-in provider is handling too many requests. Wait a few seconds, then continue. You do not need to sign in again.",
+    "retryButton": "Continue signing in"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",
@@ -7232,7 +7315,10 @@
     "switchFailed": "Could not sign out. Try again.",
     "invalidTitle": "This invitation is no longer valid",
     "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
-    "goToTeams": "Go to your teams"
+    "goToTeams": "Go to your teams",
+    "unavailableTitle": "Could not confirm your sign-in",
+    "unavailableBody": "Our sign-in provider is busy. Wait a few seconds, then try the invitation again. You do not need to sign in again.",
+    "retry": "Try again"
   },
   "mobile": {
     "agentFeed": {
@@ -7303,5 +7389,89 @@
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "Staff · Operations",
+    "title": "VM Health",
+    "description": "Whether any Cloud VM needs an operator. A read-only sweep of the provider account runs every five minutes; this page shows the latest one.",
+    "noSnapshotTitle": "No sweep yet",
+    "noSnapshotBody": "The health cron has not stored a sweep. It runs every five minutes once deployed and migrated.",
+    "attentionYes": "Needs attention: yes",
+    "attentionNo": "Needs attention: no",
+    "sweptAt": "Swept {age}, in {seconds, plural, one {# second} other {# seconds}}.",
+    "coverage": "Probed {probed} of {running} running VMs. Not probed: {skippedBudget} past the time budget, {skippedIdle} with an idle timeout. {probeErrors, plural, =0 {No probe errors.} one {# probe error.} other {# probe errors.}}",
+    "reason": {
+      "stale": "The latest sweep is from {age}; the health cron may be failing.",
+      "hung_vms": "{count, plural, one {# running VM does not answer its control path} other {# running VMs do not answer their control path}}",
+      "stuck_transitions": "{count, plural, one {# VM is stuck in a transition} other {# VMs are stuck in a transition}}",
+      "drift": "{count, plural, one {# VM differs between the database and the provider} other {# VMs differ between the database and the provider}}",
+      "tls_over_limit": "TLS rules are at or over the account limit: {count} of {limit}. Network policy domain additions fail.",
+      "tls_near_limit": "TLS rules are near the account limit: {count} of {limit}.",
+      "sweep_incomplete": "The sweep was incomplete: {unprobed, plural, one {# running VM was} other {# running VMs were}} not probed, or the VM list was partial.",
+      "sweep_errors": "{count, plural, one {# sweep stage failed} other {# sweep stages failed}}."
+    },
+    "hung": {
+      "title": "Hung VMs ({count})",
+      "body": "Provider state is running, but a 10-second file system probe timed out or the provider answered 409 or 5xx."
+    },
+    "stuck": {
+      "title": "Stuck transitions ({count})",
+      "body": "VMs starting or pausing at the provider, or provisioning in the database, for longer than 15 minutes."
+    },
+    "drift": {
+      "title": "Database and provider drift ({count})",
+      "body": "cmux Cloud VMs whose database status disagrees with the provider for longer than 10 minutes. The reconcile cron repairs drift; this page only reports it."
+    },
+    "tls": {
+      "title": "TLS rule budget",
+      "body": "Account-wide TLS rules count against one limit shared by every workload on the provider account.",
+      "unavailable": "The sweep could not read TLS rules.",
+      "usage": "{count} of {limit} rules in use.",
+      "over": "{over, plural, =0 {At the limit.} other {# over the limit.}}",
+      "partial": "Only {listed} rules were listed, so the breakdown is partial.",
+      "pausedTitle": "Held by VMs paused for more than {days} days: {rules, plural, one {# rule} other {# rules}} on {vms, plural, one {# VM} other {# VMs}}"
+    },
+    "tlsOwner": {
+      "account_level": "Account level (no VM)",
+      "vpc_unattributed": "Private network (no VM)",
+      "unknown_vm": "Deleted or unlisted VM",
+      "managed": "Provider managed"
+    },
+    "errors": {
+      "title": "Sweep errors",
+      "body": "Stages of the last sweep that failed. Sections that depend on them may be empty."
+    },
+    "driftKind": {
+      "provider_missing": "Missing at the provider",
+      "db_running_provider_paused": "Running in the database, paused at the provider",
+      "db_paused_provider_running": "Paused in the database, running at the provider",
+      "db_destroyed_provider_present": "Destroyed in the database, present at the provider",
+      "provider_untracked": "At the provider with no database row"
+    },
+    "source": {
+      "provider": "Provider",
+      "db": "Database"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "Workload",
+      "owner": "Owner",
+      "image": "Image and size",
+      "firstSeenHung": "First seen hung",
+      "updated": "Last updated",
+      "detail": "Probe result",
+      "state": "State",
+      "source": "Source",
+      "since": "Since",
+      "drift": "Drift",
+      "dbStatus": "Database",
+      "providerState": "Provider",
+      "pausedSince": "Paused since",
+      "rules": "Rules"
+    },
+    "size": "{cpu} vCPU · {memory} GiB · {disk} GB disk",
+    "dbUpdated": "Database: {time}",
+    "noOwner": "No cmux owner",
+    "none": "None."
   }
 }

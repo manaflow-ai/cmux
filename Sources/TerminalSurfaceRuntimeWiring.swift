@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import AppKit
 import Foundation
 import CmuxFoundation
@@ -6,6 +7,18 @@ import CmuxTerminalCore
 import GhosttyKit
 import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
+
+private enum GhosttyLinkFilterAPI {
+    // Xcode 26.6's Clang importer omits this declaration even though the
+    // pinned GhosttyKit header and binary export it. Keep the ABI declaration
+    // local until the importer exposes the API directly.
+    @_silgen_name("ghostty_surface_set_link_filter")
+    static func set(
+        _ surface: ghostty_surface_t,
+        _ callback: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt) -> Bool)?,
+        _ userdata: UnsafeMutableRawPointer?
+    )
+}
 
 // The app-side conformances and bridges injected into the CmuxTerminal
 // package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
@@ -30,6 +43,17 @@ extension GhosttyApp: TerminalEngineHosting {
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     let imageTransferPreparation: TerminalImageTransferPreparationService
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
+
+    init(
+        imageTransferPreparation: TerminalImageTransferPreparationService,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore
+            ?? AppDelegate.shared?.sshClipboardWriteTrustStore
+            ?? SSHClipboardWriteTrustStore(defaults: .standard)
+    }
 
     @MainActor
     func makeSurfaceViews(
@@ -37,7 +61,8 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
         let view = GhosttyNSView(
             frame: initialFrame,
-            imageTransferPreparation: imageTransferPreparation
+            imageTransferPreparation: imageTransferPreparation,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
         )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
@@ -177,7 +202,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             teeContext.toOpaque()
         )
         let linkFilter = Unmanaged.passRetained(TerminalLinkHoverFilter(surfaceID: surfaceID))
-        ghostty_surface_set_link_filter(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
+        GhosttyLinkFilterAPI.set(surface, cmuxTerminalLinkFilterCallback, linkFilter.toOpaque())
         return Lease(
             context: teeContext,
             linkFilter: linkFilter,

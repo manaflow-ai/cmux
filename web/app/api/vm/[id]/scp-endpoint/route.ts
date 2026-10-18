@@ -5,6 +5,10 @@ import { prepareScpEndpoint, scpAnswerBudgetMs } from "../../../../../services/v
 import { parseSshPublicKey } from "../../../../../services/vms/drivers/scp";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   return withAuthedVmApiRoute(request, "/api/vm/[id]/scp-endpoint", { "cmux.vm.operation": "prepare_scp" }, "/api/vm/[id]/scp-endpoint failed", async ({ user, span, routeStartedAtMs }) => {
     let publicKey: string;

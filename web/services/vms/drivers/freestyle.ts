@@ -15,12 +15,14 @@ import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgr
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
   ProviderGuestUnresponsiveError,
+  isProviderHangCause,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
@@ -55,6 +57,8 @@ import {
   type VMResourceStatsResult,
   type VMStatus,
   type ProviderReadOptions,
+  type VmPauseState,
+  type VmHealthInventory,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -602,6 +606,18 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
   }
 }
 
+/** Freestyle's raw state as a pause observation (see FreestyleProvider.getPauseState). */
+export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
+  if (state === "paused") return "paused";
+  if (state === "pausing" || state === "starting") return "in_progress";
+  // Powered off: not pausable (Freestyle refuses), and recorded as our
+  // `paused` row state, as getStatus already does. Resume calls start() for
+  // both, which cold-boots a stopped machine (the systemd units bring the
+  // daemon back); only memory and running sessions differ.
+  if (state === "stopped") return "stopped";
+  return "not_paused";
+}
+
 /**
  * Tunnel creates finish in ~150 ms at the median and ~2.2 s at the slowest
  * seen in production (30 days); 10 s leaves room while cutting a hung create
@@ -648,24 +664,6 @@ function isFreestyleExecNoExit(err: unknown): boolean {
     && err.status === 409
     && err.code === "VM_NON_RESPONSIVE"
     && /exec produced no exit/i.test(err.message);
-}
-
-/**
- * An exec failure that says the guest did not answer, not that the request
- * was refused: a client timeout or abort, a gateway 502/504 (a background
- * request polled past its limit), or the provider's VM_NON_RESPONSIVE. Early
- * refusals (401/403/404/429) and other 5xx keep their own provider error.
- */
-function isFreestyleGuestUnanswered(err: unknown): boolean {
-  let current = err;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof FreestyleApiError) {
-      return current.status === 502 || current.status === 504 || current.code === "VM_NON_RESPONSIVE";
-    }
-    if (current instanceof Error && (current.name === "TimeoutError" || current.name === "AbortError")) return true;
-    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
-  }
-  return false;
 }
 
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
@@ -1052,6 +1050,7 @@ export class FreestyleProvider implements VMProvider {
 
   readonly privateNetworking: VMPrivateNetworking;
   private readonly resourceStats: FreestyleResourceStatsReader;
+  readonly healthInventory: VmHealthInventory;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -1060,6 +1059,7 @@ export class FreestyleProvider implements VMProvider {
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
     this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
+    this.healthInventory = freestyleHealthInventory(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1075,7 +1075,7 @@ export class FreestyleProvider implements VMProvider {
           .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
       } catch (err) {
         // The command never ran or its answer was lost: nothing is known about sshd.
-        if (isFreestyleGuestUnanswered(err)) {
+        if (isProviderHangCause(err)) {
           throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
         }
         throw new ProviderError("freestyle", `prepareSCP(${vmId})`, err);
@@ -1124,9 +1124,13 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            ...(options.runtimeBudgetSeconds !== undefined ? {
-              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
-            } : {}),
+            // Be explicit even for normal machines: images created under an
+            // account default with automatic restart disabled must not remain
+            // unrecoverable after a provider/VMM failure.
+            automaticRestart: options.runtimeBudgetSeconds === undefined,
+            ...(options.runtimeBudgetSeconds !== undefined
+              ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
+              : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1267,6 +1271,30 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  /**
+   * The raw pause state: only `paused` is a finished pause. `pausing` and
+   * `starting` are transitions; `stopped` is powered off, which a pause does
+   * not produce (memory is lost), so it is not a finished pause.
+   */
+  async getPauseState(vmId: string): Promise<VmPauseState> {
+    return withVmSpan(
+      "cmux.vm.provider.get_pause_state",
+      "provider",
+      spanAttributes(vmId, "get_pause_state"),
+      async (span) => {
+        try {
+          const data = await this.deps.client().vms.get(vmId);
+          const state = freestylePauseState(data.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
+          return state;
+        } catch (err) {
+          if (isNotFound(err)) return "destroyed";
+          throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
+        }
+      },
+    );
+  }
+
   /** Pause freezes memory, so a later start resumes the daemon in place. */
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
@@ -1282,6 +1310,11 @@ export class FreestyleProvider implements VMProvider {
       },
     );
   }
+
+  // Hard restart is deliberately unavailable. The documented provider API
+  // can pause/start, which resumes the same memory and cannot recover a frozen
+  // guest. Do not advertise restart or call an undocumented endpoint until a
+  // memory-discarding operation with completion/retry semantics is available.
 
   async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
     const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
@@ -1365,7 +1398,13 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
+          // Public `vm exec` commands belong to the same account as Cloud
+          // terminals and coding agents. Leaving `linuxUser` unset asks the
+          // provider for its uid-1000 account (`cmux` on current images), while
+          // preserving the provider's legacy fallback to root on older images.
+          // Driver maintenance stays explicitly root below, as does cmux's own
+          // guest maintenance that asks for it.
+          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
@@ -1575,6 +1614,7 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
+            automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },

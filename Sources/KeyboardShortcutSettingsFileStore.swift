@@ -798,6 +798,14 @@ final class CmuxSettingsFileStore {
                 logInvalid("workspaceColors.brightenInDarkMode", sourcePath: sourcePath)
             }
         }
+        if section.keys.contains("unselectedFillOpacity") {
+            if let value = jsonDouble(section["unselectedFillOpacity"]), value.isFinite {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.unselectedFillOpacity.userDefaultsKey] =
+                    .double(min(max(value, 0), 1))
+            } else {
+                logInvalid("workspaceColors.unselectedFillOpacity", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("notificationBadgeColor") {
             guard let value = parseNullableHex(
                 section["notificationBadgeColor"],

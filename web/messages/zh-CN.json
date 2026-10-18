@@ -33,12 +33,27 @@
     "guestUnresponsive": {
       "title": "机器无响应",
       "message": "这台机器未能及时响应，因此请求无法完成。",
-      "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
+      "action": "创建新机器前，请携带跟踪 ID 联系支持团队。"
+    },
+    "inProgress": {
+      "title": "仍在进行中",
+      "message": "云服务提供商尚未完成此更改，它稍后仍可能完成。",
+      "action": "重试之前，请使用 cmux vm ls 或在机器列表中查看机器状态。"
     },
     "providerTimeout": {
       "title": "云服务提供商响应缓慢",
       "message": "云服务提供商未能及时响应。",
       "action": "请稍后重试。"
+    },
+    "providerCapacity": {
+      "title": "Cloud 当前没有可用容量",
+      "message": "Cloud 服务目前没有空间运行这台机器。没有做任何更改。",
+      "action": "请一分钟后重试。"
+    },
+    "stateConflict": {
+      "title": "机器正忙",
+      "message": "这台机器正在启动、暂停或未运行，因此现在无法执行此操作。",
+      "action": "请稍候再试。用 cmux vm ls 查看机器状态；如果已暂停，请先继续运行它。"
     },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
@@ -99,12 +114,27 @@
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} 计算额度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本计费周期的 {included} 计算小时。1 计算小时是 1 个 vCPU 搭配 2 GB 内存运行一小时。你的机器可在 {resetDate} 再次启动。",
+      "computeAction": "已暂停的机器会保留其文件。如需在 {resetDate} 之前获得更多计算资源，请联系支持团队。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁盘额度已用完",
+      "storageMessage": "你的 {plan} 方案为所有已保存的机器总共提供 {included} GB 磁盘。已保存的机器使用了 {used} GB，此请求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM 资源不足",
       "memoryMessage": "你的 VM 已使用 {pool} GB 内存中的 {used} GB。此 VM 需要 {requested} GB。",
       "vcpuMessage": "你的 VM 已使用 {pool} 个 vCPU 中的 {used} 个。此 VM 需要 {requested} 个 vCPU。",
       "upgradeAction": "暂停或删除一台 VM，或升级到 Max。",
       "action": "暂停或删除一台 VM。"
+    },
+    "activeLimit": {
+      "counted": "当前计入：{machines}。已暂停的机器不计入。",
+      "provisioning": "{name}（正在预配）",
+      "separator": "、"
     }
   },
   "billingRecovery": {
@@ -198,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "语言",
     "assets": "素材",
+    "art": "艺术",
     "openSource": "开源",
     "guides": "指南",
     "compare": "对比"
@@ -493,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "请先恢复套餐再进行更改。",
           "granted": "由 cmux 授予，没有可更改的内容。",
+          "grantedNoCancel": "由 cmux 授予，因此无需取消。",
+          "paymentFailed": "更改方案前，请先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
@@ -535,6 +569,7 @@
       "change": {
         "title": "切换到 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
         "confirm": "切换到 {plan}",
         "keep": "保留当前套餐",
@@ -547,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",
@@ -1132,7 +1169,7 @@
       "transferUnavailableError": "转移暂时不可用，或账号正在刷新。请稍后重试。",
       "shareWithTeam": "与团队共享",
       "makePrivate": "设为私有",
-      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "privateImportHint": "在组织中，新账号会与团队及其 Cloud VM 共享。在你的个人团队中，新账号仅你本人可用。可用“设为私有”或“与团队共享”更改某个账号。",
       "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
       "cancelAction": "取消",
       "apiKeysTitle": "API 密钥",
@@ -2220,6 +2257,13 @@
           "indentGuides": "在内置文件编辑器中，用一条细竖线标出每一级缩进。",
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3205,8 +3249,8 @@
       "cloudLink": "Cloud 机器上的代理是如何配置的",
       "teamsTitle": "团队与共享",
       "teamsScope": "账户属于你当前登录的团队。cr org list 显示你的团队，cr org switch 切换 cr 使用的团队。cmux coderouter 命令接受 --team '<id>'。",
-      "teamsPrivate": "新账户仅对添加它的人可见。在控制台中，“与团队共享”会让它对所有成员和团队的 Cloud 机器可用，“设为私有”则撤销共享。",
-      "teamsPersonal": "在你的个人团队中，你的私有账户也会为你自己的 Cloud 机器提供服务。组织的 Cloud 机器只使用共享账户，因此在希望机器使用某个账户之前，请先共享它。",
+      "teamsPrivate": "添加到组织的账号会与团队共享，所有成员和团队的 Cloud 机器都可以使用。在控制台中，“设为私有”会将其限制为添加者本人可用，“与团队共享”则恢复共享。",
+      "teamsPersonal": "在你的个人团队中，新账号是私有的，你的私有账号也供你自己的 Cloud 机器使用。组织的 Cloud 机器只使用共享账号，因此私有账号必须先共享，机器才能使用。",
       "teamsManage": "任何团队成员都可以添加、重命名、停用、转移和移除团队的共享账户。cr transfer 在你确认后将账户转移到另一个团队。",
       "usageTitle": "用量与限制",
       "usageLimits": "每个提供商按照处理请求的账户自身的套餐和限制进行计量。CodeRouter 会把工作分散到多个账户，但不会提高任何单个账户的上限。",
@@ -3246,12 +3290,13 @@
       "apiKeyScope": "组织的 API 密钥只使用团队的共享账户。个人团队中的密钥还可以使用你的私有账户。CodeRouter 提供的是 OpenAI Responses API，而不是 Chat Completions。",
       "apiKeyLogin": "在无法打开浏览器的机器上，cr login --api-key 使用密钥登录 cr，CODEROUTER_API_KEY 可为单条命令提供密钥。要吊销密钥，请在控制台中操作，或在使用该密钥的机器上运行 cr logout。",
       "cloudTitle": "在 cmux Cloud 机器上",
-      "cloudDesc": "Cloud 机器无需任何设置。机器环境会把 OPENAI_BASE_URL 和 ANTHROPIC_BASE_URL 指向 CodeRouter 的私有地址，cmux 会在 shell 或代理首次启动时写入每个代理的配置：",
-      "cloudClaude": "Claude Code 从环境中读取 ANTHROPIC_BASE_URL 和一个占位的 ANTHROPIC_API_KEY。它的首次运行提示已经预先回答。",
+      "cloudDesc": "Cloud 机器无需任何设置。每个代理通过 CodeRouter 的私有地址使用你团队的 CodeRouter 账户，cmux 会在 shell 或代理首次启动时写入它的配置：",
+      "cloudClaude": "Claude Code 在每次启动时获得 ANTHROPIC_BASE_URL 和一个占位的 ANTHROPIC_API_KEY，而不是从每个 shell 获得，因此它们永远不会覆盖你自己的登录。它的首次运行提示已经预先回答。",
       "cloudCodex": "Codex 会在 ~/.codex/config.toml 中获得一个 cmux 模型提供商。",
       "cloudPi": "Pi 会在 ~/.pi/agent/models.json 中获得一个提供商覆盖配置。",
-      "cloudOpencode": "OpenCode 首次启动时会从 CodeRouter 下载提供商列表，并保存到 ~/.config/opencode/opencode.json。",
+      "cloudOpencode": "OpenCode 首次启动时会从 CodeRouter 下载提供商列表，保存到 ~/.config/cmux/opencode-team.json，并在每次运行时将其添加到你自己的配置中。",
       "cloudYours": "cmux 只在文件不存在时写入，因此你的修改会被保留。已经指定其他模型提供商的 Codex 配置不会被改动。",
+      "cloudOwnLogin": "如果要改用你自己的账户，请在机器上运行 cr use own，然后按代理的常规方式登录：在 Claude Code 中使用 /login，或使用 codex login、opencode auth login。cr use team 切换回团队账户，cr use own codex 只更改一个代理，cr use 显示每个代理的登录方式。如果未做选择，你已在机器上登录的代理会使用你自己的账户，而你的团队没有对应账户的代理会显示其常规登录。更改会在代理下次启动时生效。",
       "cloudRun": "照常运行代理即可。cmux coderouter agent 会把单独的提示转换为代理的一次性运行形式；在机器内部，它在当前终端中运行；在 Mac 上，它会像 cmux vm agent 一样在你指定的机器上启动代理。",
       "cloudAccounts": "Cloud 机器使用其所属团队的账户。如果代理报告没有可用账户，请添加一个账户，或将现有账户共享给该团队。",
       "modelsTitle": "模型",
@@ -3325,6 +3370,23 @@
   "wallOfLove": {
     "title": "用户好评",
     "description": "大家对 cmux 的评价。"
+  },
+  "art": {
+    "metaTitle": "cmux 背景艺术",
+    "metaDescription": "浏览 cmux 提供的可用作窗口背景的公有领域画作：梵高、弗里德里希、戈雅、多雷等，附来源和许可信息。",
+    "title": "艺术",
+    "description": "可以放在终端背后的公有领域名画与版画。每件作品的作者均已去世 70 年以上，且作品发表于 1931 年之前。",
+    "howToUse": "即将登陆 cmux：可将其中任意作品设为终端背后的背景。",
+    "loading": "正在加载作品集…",
+    "unavailable": "无法加载作品集。请几分钟后再试。",
+    "collectionsLabel": "作品集",
+    "source": "公有领域 · 来源",
+    "collections": {
+      "darkArt": "暗黑艺术",
+      "museumIcons": "博物馆名作",
+      "calm": "宁静",
+      "dore": "多雷"
+    }
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
@@ -3437,7 +3499,10 @@
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他账号"
+    "switchAccountButton": "使用其他账号",
+    "rateLimitedTitle": "登录繁忙",
+    "rateLimitedBody": "我们的登录服务收到的请求过多。请等待几秒钟后继续。你无需重新登录。",
+    "retryButton": "继续登录"
   },
   "landing": {
     "bestTerminal": {
@@ -5472,6 +5537,9 @@
     "switchFailed": "无法退出登录，请重试。",
     "invalidTitle": "此邀请已失效",
     "invalidBody": "邀请已过期、被撤销或已被使用。请向团队管理员索取新的邀请。",
-    "goToTeams": "前往你的团队"
+    "goToTeams": "前往你的团队",
+    "unavailableTitle": "无法确认你的登录",
+    "unavailableBody": "我们的登录服务繁忙。请等待几秒钟后再次打开邀请。你无需重新登录。",
+    "retry": "重试"
   }
 }

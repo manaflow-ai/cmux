@@ -89,6 +89,19 @@ extension TerminalController {
         }
     }
 
+    /// A `feed.push` whose event carries a request id and a wait timeout holds
+    /// its connection until the user decides (up to 120 s), so it parks
+    /// outside the running slots.
+    private nonisolated static func feedPushWaitsForDecision(_ request: ControlRequest) -> Bool {
+        guard request.method == "feed.push",
+              case .object(let event)? = request.params["event"],
+              case .string? = event["_opencode_request_id"] else {
+            return false
+        }
+        let params = request.params.mapValues(\.foundationObject)
+        return (feedPushWaitTimeoutSeconds(params: params) ?? 0) > 0
+    }
+
     private nonisolated func processV2CommandUsingSocketExecutionPolicyAsync(
         _ request: ControlRequest
     ) async throws -> String? {
@@ -112,6 +125,18 @@ extension TerminalController {
             return v2Result(
                 id: authorizedRequest.id?.foundationObject,
                 workspaceParamError
+            )
+        }
+
+        if Self.feedPushWaitsForDecision(authorizedRequest),
+           await socketClientWorkerPool.parkCurrentJob() == .parkedJobsFull {
+            return v2Error(
+                id: authorizedRequest.id?.foundationObject,
+                code: ControlOverloadResponder.errorCode,
+                message: String(
+                    localized: "socket.overloaded.message",
+                    defaultValue: "cmux is handling too many control-socket requests right now, so this one was not run. Retry in a moment."
+                )
             )
         }
 
@@ -141,6 +166,16 @@ extension TerminalController {
                 // the REPL thread and main-actor driver without holding a
                 // socket worker thread.
                 if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    // In every socket access mode, also allowAll.
+                    guard SocketClientAuthorization().admitsMethod(
+                        authorizedRequest.method,
+                        peerHasSameUID: SocketCommandTaskPolicy.peerHasSameUID
+                    ) else {
+                        return self.v2Result(
+                            id: authorizedRequest.id?.foundationObject,
+                            .err(code: "access_denied", message: Self.browserReplOtherUserMessage, data: nil)
+                        )
+                    }
                     return await self.v2BrowserReplResponse(request: authorizedRequest)
                 }
                 // Agent hook completions arrive in bursts. Process identity

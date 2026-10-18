@@ -1,4 +1,5 @@
 import type { NetworkRulePlan } from "./networkPolicy";
+import type { ProviderTlsRuleInventory, ProviderVmInventory, VmControlProbe } from "./health/types";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -31,6 +32,7 @@ import {
   type VMVolumeInventory,
   type VMVolumeListOptions,
   type VMStatus,
+  type VmPauseState,
   type VMStats,
   type VMResourceStatsResult,
   type VMResizeOptions,
@@ -42,6 +44,7 @@ import {
   type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 import { VmProviderReadDeadline } from "./routeDeadline";
 import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
@@ -59,7 +62,24 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
+  /** Account-wide VM inventory for the read-only staff health sweep. */
+  readonly listAccountVms?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderVmInventory, VmProviderOperationError>;
+  /** Account-wide TLS rules, reduced to attribution ids, for the health sweep. */
+  readonly listAccountTlsRules?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderTlsRuleInventory, VmProviderOperationError>;
+  /** One bounded control-path probe of a running VM; never fails, a failure is an outcome. */
+  readonly probeVmControl?: (
+    provider: ProviderId,
+    vmId: string,
+    options: { readonly timeoutMs: number },
+  ) => Effect.Effect<VmControlProbe, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
@@ -112,6 +132,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
+  /** Force a provider-level reboot; unlike resume this does not probe the guest first. */
+  readonly restart?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -216,6 +238,15 @@ function privateNetworking(provider: ProviderId) {
   return impl;
 }
 
+/** The driver's health inventory, or a typed unsupported failure. */
+function healthInventory(provider: ProviderId) {
+  const impl = getProvider(provider).healthInventory;
+  if (!impl) {
+    throw new VmOperationUnsupportedError({ provider, operation: "healthInventory" });
+  }
+  return impl;
+}
+
 /**
  * A provider read a route may bound (routeDeadline.ts). Outside a bounded
  * route it is a plain provider call. Inside one, it gets the time left
@@ -261,8 +292,20 @@ function providerEffect<A>(
 }
 
 export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
+  // Bounded by the provider create deadline even when the SDK polls past it,
+  // so a create answered "in progress" (routeDeadline.ts) reaches createVm's
+  // failure path (credit refund, row failed) inside the route's reserve.
   create: (provider, options) =>
-    providerEffect(provider, "create", () => getProvider(provider).create(options)),
+    providerEffect(provider, "create", () => getProvider(provider).create(options)).pipe(
+      Effect.timeoutFail({
+        duration: VM_PROVIDER_CREATE_TIMEOUT_MS,
+        onTimeout: () => new VmProviderOperationError({
+          provider,
+          operation: "create",
+          cause: new Error(`provider create did not answer within ${VM_PROVIDER_CREATE_TIMEOUT_MS / 60_000} minutes`),
+        }),
+      }),
+    ),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
   deleteHomeVolume: (provider, volumeName) =>
@@ -276,6 +319,21 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       await impl.deleteHomeVolume(volumeName);
     }),
+  listAccountVms: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountVms({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountVms", cause }),
+    }),
+  listAccountTlsRules: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountTlsRules({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountTlsRules", cause }),
+    }),
+  probeVmControl: (provider, vmId, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).probeControl(vmId, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "probeVmControl", cause }),
+    }),
   listVolumes: (provider, options) =>
     providerEffect(provider, "listVolumes", async () => {
       const impl = getProvider(provider);
@@ -288,6 +346,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId, options);
+    }),
+  getPauseState: (provider, vmId) =>
+    providerEffect(provider, "getPauseState", async () => {
+      const driver = getProvider(provider);
+      return driver.getPauseState ? await driver.getPauseState(vmId) : null;
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
@@ -385,6 +448,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }
     return await impl.getResourceStats(vmId);
   }),
+  restart: (provider, vmId) => {
+    const impl = getProvider(provider);
+    if (!vmCapabilitiesFor(provider).restart || !impl.restart) {
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "restart" }));
+    }
+    return providerEffect(provider, "restart", () => impl.restart!(vmId));
+  },
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));

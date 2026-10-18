@@ -102,8 +102,8 @@ embedded mode when given launch-time config; this does not repair a shared
 daemon's authorization for direct `cmux notify` calls.
 
 `ssh-tmux` mirrored workspaces use tmux's control transport rather than the
-cmux-tui journal and currently have no agent-status subscription, so this
-wrapper does not add badges to those mirrors.
+cmux-tui journal. Native cmux mirrors now subscribe to that transport for
+agent badges; the cmux-tui wrapper itself does not provide those badges.
 
 ## Shell startup files can bypass the shim
 

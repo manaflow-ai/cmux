@@ -8,6 +8,23 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+/// Runs a just-written fake executable until the kernel lets it run. A test
+/// thread that forks while another still has the script open for writing
+/// keeps that handle until its child execs, and an exec in that window fails
+/// with ETXTBSY ("Text file busy"); the bootstrap would report that error.
+fn settle_executable(path: &std::path::Path) {
+    for _ in 0..200 {
+        match std::process::Command::new(path).stdin(std::process::Stdio::null()).output() {
+            Err(error) if error.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => panic!("could not run {}: {error}", path.display()),
+            Ok(_) => return,
+        }
+    }
+    panic!("{} stayed busy", path.display());
+}
+
 struct Fixture {
     _directory: tempfile::TempDir,
     config: SshBootstrapConfig,
@@ -70,6 +87,7 @@ esac
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&script);
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
@@ -206,6 +224,7 @@ esac
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&script);
         let mut config = SshBootstrapConfig::defaults(host);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
@@ -546,6 +565,7 @@ esac
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&script);
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();
@@ -677,6 +697,7 @@ tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
         )
         .unwrap();
         fs::set_permissions(fake_bin.join("npm"), fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&fake_bin.join("npm"));
 
         let rejected = root.join("rejected");
         let script = root.join("ssh");
@@ -713,6 +734,7 @@ exit 127
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&script);
 
         let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();

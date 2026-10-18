@@ -287,6 +287,10 @@ _cmux_restore_scrollback_once() {
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
+        # The saved scrollback can end with the prompt that was active when
+        # cmux quit. Clear that replayed line so the fresh startup prompt does
+        # not accumulate another copy on every relaunch.
+        builtin printf '\r\033[2K'
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
 
@@ -322,6 +326,7 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
+typeset -g _CMUX_MUSE_WRAPPER=""
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
 # without the subshell a command substitution would fork.
 _cmux_path_prepend_unique_directory_into_reply() {
@@ -594,6 +599,7 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
@@ -1111,6 +1117,20 @@ _cmux_reset_terminal_keyboard_protocols() {
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
     # prompt, return terminal input encoding to plain readline bytes.
     printf '\033[>m\033[<8u'
+}
+
+_cmux_reset_terminal_leftover_modes() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}" ]] || return 0
+    # A TUI killed mid-run (SIGKILL, a crash) leaves its modes on: mouse
+    # reporting types reports like 35;1;13M at the prompt. The shell is the
+    # foreground job here, before its line editor turns bracketed paste back
+    # on. A hidden cursor comes back. Cursor-key mode (?1) stays:
+    # zle sets it after this hook.
+    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h'
+    # Leaving the alternate screen restores a saved cursor; ESC 7 makes that
+    # the prompt's own spot on Ghostty's primary screen. tmux and screen keep
+    # the 1049 cursor apart from ESC 7, so there the prompt would jump.
+    [[ -n "${TMUX:-}${STY:-}" ]] || printf '\033\067\033[?1049l'
 }
 
 _cmux_ports_kick() {
@@ -2112,8 +2132,27 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+# True when a command line runs Claude Code. Claude reports its own cwd through
+# hooks while it runs (`claude --worktree` moves it to another checkout), so the
+# next prompt must re-report $PWD even though the shell never left it. Extra
+# matches only cost one redundant report_pwd.
+_cmux_command_runs_claude() {
+    [[ "$1" == *claude* ]] || return 1
+    local word
+    for word in ${(z)1}; do
+        case "${word:t}" in
+            claude|cmux-claude-wrapper) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 _cmux_preexec() {
     local cmd="${1## }"
+    # $3 is the alias-expanded command line.
+    if _cmux_command_runs_claude "$cmd" || _cmux_command_runs_claude "${3:-}"; then
+        _CMUX_PWD_LAST_PWD=""
+    fi
     _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0
@@ -2210,6 +2249,7 @@ _cmux_precmd() {
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_leftover_modes
         _cmux_reset_terminal_keyboard_protocols
     fi
     if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
@@ -2401,6 +2441,7 @@ _cmux_fix_path() {
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+    _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

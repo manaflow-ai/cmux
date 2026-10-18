@@ -2,6 +2,7 @@ import CmuxFoundation
 import Foundation
 import Darwin
 import Testing
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -63,8 +64,11 @@ struct AggregateMemoryRetentionTests {
             availableMemoryProvider: { nil }
         )
         let sample = await sampler.sample(at: .now)
-        #expect(sample.source == .unavailable)
+        #expect(sample.source == .descendantProcessTree)
+        #expect(sample.coverage == .lowerBound)
+        #expect(sample.aggregateBytes == 9_000)
         #expect(sample.missingProcessCount == 1)
+        #expect(sample.missingReason == .incompleteEnumeration)
         #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
     }
 

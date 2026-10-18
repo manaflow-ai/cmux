@@ -149,6 +149,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.beta.conversations.enabled",
         "sidebar.beta.workspaceTodos.controls.enabled",
         "sidebar.beta.workspaceTodos.checklistStyle",
+        "windowHints.beta.enabled",
         "sidebarAppearance.matchTerminalBackground",
         "shortcuts.showModifierHoldHints",
         "terminal.agentHibernation.enabled",
@@ -165,7 +166,6 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.confirmUnsafePaste",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
-        "terminal.showJumpToBottomButton",
         "terminal.predictiveLocalEcho",
         "terminal.textEditingGestures",
         "terminal.textEditingCommandMovesByWord",
@@ -184,6 +184,7 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
         "workspaceColors.subtleSelection",
+        "workspaceColors.unselectedFillOpacity",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`
@@ -210,6 +211,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:feed",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
+        "setting:betaFeatures:remoteTmuxNewWorkspaceOnHost",
         "setting:betaFeatures:remoteTmuxOriginColors",
         "setting:betaFeatures:remoteTmuxOriginHostTitles",
         "setting:customSidebars:enabled",

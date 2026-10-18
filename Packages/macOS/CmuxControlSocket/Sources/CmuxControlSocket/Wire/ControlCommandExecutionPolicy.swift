@@ -81,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // hop to the main actor.
         "session.agent_recovery.list",
         "session.agent_recovery.restore",
+        // Minting a hosted CodeRouter lease performs an authenticated HTTP
+        // request and must never block the main actor.
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -343,6 +346,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addinitscript",
         "browser.addscript",
         "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
+        // Offline mode compiles a content rule list before replying.
+        "browser.geolocation.set", "browser.offline.set",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so
