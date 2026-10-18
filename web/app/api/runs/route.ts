@@ -24,7 +24,8 @@ function safeError(error: unknown): string {
   const cause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
   const inner = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
   const code = cause && typeof cause === "object" && "code" in cause && typeof (cause as { code?: unknown }).code === "string" ? ` [${(cause as { code: string }).code}]` : "";
-  return `${outer}${inner && inner !== outer ? `: ${inner}` : ""}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
+  const detail = inner || outer;
+  return `${detail}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
 }
 
 function errorResponse(message: string, status = 400): Response {
