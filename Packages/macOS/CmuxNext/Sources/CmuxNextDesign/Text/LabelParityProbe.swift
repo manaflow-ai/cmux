@@ -16,6 +16,8 @@ public struct LabelParityProbe {
         public var checked = 0
         public var mismatches: [String] = []
         public var mismatchCount = 0
+        /// Every value of each pair (the first 2000 pairs).
+        public var rows: [[String: String]] = []
     }
 
     private enum Factory: String, CaseIterable { case label, wrapping, font }
@@ -92,44 +94,70 @@ public struct LabelParityProbe {
     }
 
     private func compare(_ stock: NSTextField, _ label: ChromeLabel, name: String, in root: NSView, into report: inout Report) {
+        var row: [String: String] = ["name": name]
         func differ(_ what: String, _ a: CGFloat, _ b: CGFloat, tolerance: CGFloat = 0.01) {
             report.checked += 1
+            row["\(what).stock"] = "\(a)"
+            row["\(what).label"] = "\(b)"
             guard abs(a - b) > tolerance else { return }
             note("\(name) \(what): stock \(a) label \(b)", into: &report)
         }
+        defer { if report.rows.count < 2000 { report.rows.append(row) } }
         let free = (stock.intrinsicContentSize, label.intrinsicContentSize)
         differ("intrinsic.w", free.0.width, free.1.width)
         differ("intrinsic.h", free.0.height, free.1.height)
+        let insets = (stock.alignmentRectInsets, label.alignmentRectInsets)
+        differ("insets.left", insets.0.left, insets.1.left)
+        differ("insets.right", insets.0.right, insets.1.right)
+        differ("insets.top", insets.0.top, insets.1.top)
+        differ("insets.bottom", insets.0.bottom, insets.1.bottom)
+        let fitting = (stock.fittingSize, label.fittingSize)
+        differ("fitting.w", fitting.0.width, fitting.1.width)
+        differ("fitting.h", fitting.0.height, fitting.1.height)
         root.addSubview(stock)
         root.addSubview(label)
         defer {
             stock.removeFromSuperview()
             label.removeFromSuperview()
         }
+        stock.sizeToFit()
+        label.sizeToFit()
+        differ("sizeToFit.w", stock.frame.width, label.frame.width)
+        differ("sizeToFit.h", stock.frame.height, label.frame.height)
         for width in Self.widths {
             let height = max(stock.fittingSize.height, free.0.height, 1)
             stock.frame = NSRect(x: 10, y: 10, width: width, height: height)
             label.frame = NSRect(x: 10, y: 150, width: width, height: height)
-            let at = "w=\(Int(width))"
-            differ("\(at) intrinsic.h", stock.intrinsicContentSize.height, label.intrinsicContentSize.height)
-            differ("\(at) baseline.first", stock.firstBaselineOffsetFromTop, label.firstBaselineOffsetFromTop)
-            differ("\(at) baseline.last", stock.lastBaselineOffsetFromBottom, label.lastBaselineOffsetFromBottom)
+            let at = "w\(Int(width))"
+            differ("\(at).intrinsic.w", stock.intrinsicContentSize.width, label.intrinsicContentSize.width)
+            differ("\(at).intrinsic.h", stock.intrinsicContentSize.height, label.intrinsicContentSize.height)
+            differ("\(at).baseline.first", stock.firstBaselineOffsetFromTop, label.firstBaselineOffsetFromTop)
+            differ("\(at).baseline.last", stock.lastBaselineOffsetFromBottom, label.lastBaselineOffsetFromBottom)
             let inks = (Self.ink(cached: stock), Self.ink(cached: label))
+            row["\(at).ink.stock"] = "\(inks.0)"
+            row["\(at).ink.label"] = "\(inks.1)"
             report.checked += 1
             if !Self.same(inks.0, inks.1) { note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report) }
             label.display()
             let layered = Self.ink(rendered: label)
+            row["\(at).layer.label"] = "\(layered)"
             report.checked += 1
             if (layered.amount > 0) != (inks.0.amount > 0) || inks.0.amount > 0 && abs(layered.amount / inks.0.amount - 1) > 0.2 {
                 note("\(name) \(at) layer render: stock \(inks.0) label layer \(layered)", into: &report)
             }
         }
+        // A label field is not an accessibility element itself: its cell is (AXStaticText).
+        let cell = stock.cell
+        let stockAX = cell.map { "\($0.accessibilityRole()?.rawValue ?? "-") \(String(describing: $0.accessibilityValue() ?? "-")) \($0.isAccessibilityElement())" }
+            ?? "no cell"
+        let labelAX = "\(label.accessibilityRole()?.rawValue ?? "-") \(String(describing: label.accessibilityValue() ?? "-")) \(label.isAccessibilityElement())"
+        row["ax.stock"] = stockAX
+        row["ax.label"] = labelAX
         report.checked += 1
-        let stockAX = "\(stock.accessibilityRole()?.rawValue ?? "-") \(String(describing: stock.accessibilityValue() ?? "-"))"
-        let labelAX = "\(label.accessibilityRole()?.rawValue ?? "-") \(String(describing: label.accessibilityValue() ?? "-"))"
-        if stockAX != labelAX || stock.isAccessibilityElement() != label.isAccessibilityElement() {
-            note("\(name) ax: stock \(stockAX) \(stock.isAccessibilityElement()) label \(labelAX) \(label.isAccessibilityElement())", into: &report)
-        }
+        if stockAX != labelAX { note("\(name) ax: stock \(stockAX) label \(labelAX)", into: &report) }
+        let frames = (cell?.accessibilityFrame() ?? .zero, label.accessibilityFrame())
+        differ("ax.frame.w", frames.0.width, frames.1.width)
+        differ("ax.frame.h", frames.0.height, frames.1.height)
     }
 
     private func note(_ line: String, into report: inout Report) {
