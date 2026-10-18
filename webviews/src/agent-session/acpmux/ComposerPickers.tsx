@@ -23,6 +23,7 @@ import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { Popover } from "../../ui/Popover";
+import { useHoverIntent } from "../../ui/hoverIntent";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -843,12 +844,16 @@ export function ContextRing({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const contextMeter = useLab("contextMeter");
+  const preview = useHoverIntent<"context">();
   const trigger = useRef<HTMLButtonElement>(null);
   // Whether the details were open when a press on the ring began. That press is also the
   // popover's outside press, which can close it before the click lands; the click then
   // toggles from the state the press saw, so the press that closed it does not reopen it.
   const openAtPress = useRef<boolean | null>(null);
   const known = used !== undefined && size !== undefined && size > 0;
+  const shown = open || (contextMeter && known && preview.shown !== null);
+  const Details = contextMeter ? "div" : React.Fragment;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
@@ -880,11 +885,16 @@ export function ContextRing({
         data-menu={t("context.title")}
         aria-label={label}
         aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
         disabled={!known}
+        onPointerEnter={contextMeter ? () => preview.hover("context") : undefined}
+        onPointerLeave={contextMeter ? () => preview.hover(null) : undefined}
+        onFocus={contextMeter ? () => preview.hover("context", 0) : undefined}
+        onBlur={contextMeter ? () => preview.hover(null) : undefined}
         onPointerDown={() => (openAtPress.current = open)}
         onClick={() => {
+          preview.dismiss();
           setOpen(!(openAtPress.current ?? open));
           openAtPress.current = null;
         }}
@@ -911,49 +921,65 @@ export function ContextRing({
         </svg>
       </button>
       <Popover
-        open={open}
-        onOpenChange={setOpen}
-        anchor={open ? trigger.current : null}
+        open={shown}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) preview.dismiss();
+        }}
+        anchor={shown ? trigger.current : null}
         label={t("context.title")}
         className={`acpmux-context-pop${full}`}
-        finalFocus={trigger}
+        finalFocus={contextMeter && !open ? false : trigger}
+        initialFocus={contextMeter ? false : undefined}
       >
-        <div className="acpmux-context-title">{t("context.title")}</div>
-        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        <div className="acpmux-context-bar" aria-hidden="true">
-          <span style={{ width: `${percent}%` }} />
-        </div>
-        {known && (
-          <div className="acpmux-context-tokens">
-            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+        <Details
+          {...(contextMeter
+            ? {
+                onPointerEnter: () => preview.hover("context", 0),
+                onPointerLeave: () => preview.hover(null),
+                onFocus: () => preview.hover("context", 0),
+                onBlur: () => preview.hover(null),
+              }
+            : {})}
+        >
+          <div className="acpmux-context-title">{t("context.title")}</div>
+          <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
+          <div className="acpmux-context-bar" aria-hidden="true">
+            <span style={{ width: `${percent}%` }} />
           </div>
-        )}
-        {known && setup !== undefined && setup <= used && (
-          <div className="acpmux-context-parts">
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.setup")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
-              <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
+          {known && (
+            <div className="acpmux-context-tokens">
+              {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
             </div>
-            <div className="acpmux-context-part">
-              <span className="acpmux-context-part-name">{t("context.conversation")}</span>
-              <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
+          )}
+          {known && setup !== undefined && setup <= used && (
+            <div className="acpmux-context-parts">
+              <div className="acpmux-context-part">
+                <span className="acpmux-context-part-name">{t("context.setup")}</span>
+                <span className="acpmux-context-part-tokens">{tokens.format(setup)}</span>
+                <span className="acpmux-context-part-detail">{t("context.setupDetail")}</span>
+              </div>
+              <div className="acpmux-context-part">
+                <span className="acpmux-context-part-name">{t("context.conversation")}</span>
+                <span className="acpmux-context-part-tokens">{tokens.format(used - setup)}</span>
+              </div>
             </div>
-          </div>
-        )}
-        {onCompact && (
-          <button
-            type="button"
-            className="acpmux-context-compact"
-            disabled={working}
-            onClick={() => {
-              setOpen(false);
-              onCompact();
-            }}
-          >
-            {t("context.compact")}
-          </button>
-        )}
+          )}
+          {onCompact && (
+            <button
+              type="button"
+              className="acpmux-context-compact"
+              disabled={working}
+              onClick={() => {
+                preview.dismiss();
+                setOpen(false);
+                onCompact();
+              }}
+            >
+              {t("context.compact")}
+            </button>
+          )}
+        </Details>
       </Popover>
     </span>
   );

@@ -169,7 +169,7 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { ChatSessionContext, TranscriptRowContext } from "./conversation/viewIdentity";
-import { usePromptRevision } from "./conversation/promptCollapse";
+import { PromptToggleAnchor, usePromptRevision } from "./conversation/promptCollapse";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -1181,6 +1181,11 @@ export function VirtualTranscript({
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
   const promptCollapse = useLab("promptCollapse");
+  const liveRender = useLab("liveRender");
+  const promptAnchor = useRef<{ button: HTMLButtonElement; top: number } | undefined>(undefined);
+  const anchorPrompt = useCallback((button: HTMLButtonElement) => {
+    promptAnchor.current = { button, top: button.getBoundingClientRect().top };
+  }, []);
   const promptRevision = usePromptRevision(sessionId ?? "");
   const collapseRevision = promptCollapse ? promptRevision : 0;
   // Folding changes estimates and DOM heights, including rows outside the mounted window.
@@ -1672,6 +1677,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      promptAnchor.current = undefined;
       didOpenAtLatest.current = false;
       endSeek();
       setSeeking(false);
@@ -1713,7 +1719,13 @@ export function VirtualTranscript({
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
-      if (didOpenAtLatest.current && atLatest) {
+      if (promptCollapse && promptAnchor.current?.button.isConnected) {
+        // Keep the clicked toggle in place through estimates and drawn heights (Lucas 2026-10-18).
+        const anchor = promptAnchor.current;
+        node.scrollTop += anchor.button.getBoundingClientRect().top - anchor.top;
+        follow(false);
+        setScroll((current) => (current.top === node.scrollTop ? current : { top: node.scrollTop, delta: 0 }));
+      } else if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
@@ -1838,6 +1850,7 @@ export function VirtualTranscript({
   const revealWindow = useRef(0);
   const revealWindows = useRef(0);
   useLayoutEffect(() => {
+    promptAnchor.current = undefined;
     revealing.current = targetKey;
     revealWindow.current = 0;
     const node = ref.current;
@@ -1986,6 +1999,7 @@ export function VirtualTranscript({
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
   const jumpToLatest = (focused: boolean) => {
+    promptAnchor.current = undefined;
     const node = ref.current;
     if (!node) return;
     follow(true);
@@ -2005,6 +2019,7 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     const reader = () => {
+      promptAnchor.current = undefined;
       readerAt.current = performance.now();
       followTrace.input();
       clearTimeout(settle.current);
@@ -2113,7 +2128,7 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={() => rowFocus(row.id)}
                       onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
-                      copyable={transcriptHasFloatingCopy(row)}
+                      copyable={!(liveRender && row.kind === "render") && transcriptHasFloatingCopy(row)}
                       onCopy={() =>
                         copyRows(
                           selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
@@ -2121,14 +2136,16 @@ export function VirtualTranscript({
                       }
                     >
                       <TranscriptRowContext.Provider value={row.id}>
-                        <Component
-                          row={row}
-                          onToggleActivity={onToggleActivity}
-                          onOpenDiff={onOpenDiff}
-                          expanded={isExpanded}
-                          controls={controls}
-                          githubRepository={githubRepository}
-                        />
+                        <PromptToggleAnchor.Provider value={anchorPrompt}>
+                          <Component
+                            row={row}
+                            onToggleActivity={onToggleActivity}
+                            onOpenDiff={onOpenDiff}
+                            expanded={isExpanded}
+                            controls={controls}
+                            githubRepository={githubRepository}
+                          />
+                        </PromptToggleAnchor.Provider>
                       </TranscriptRowContext.Provider>
                     </RowFrame>
                   );

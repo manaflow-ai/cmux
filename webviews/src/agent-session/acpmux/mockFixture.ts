@@ -6,6 +6,8 @@
 // pullRequest) are what the pane will read once the daemon reports them; acpmux does not send
 // them yet.
 
+import { translate } from "./i18n";
+
 export type MockSession = {
   sessionId: string;
   title: string;
@@ -624,25 +626,30 @@ export const workedTurn: SeedStep[] = [
 /// An extra worked turn for the live-render lab, added only by the mock's lab branch.
 export function liveRenderTurn(): SeedStep[] {
   const html = `<title>Choose an approach</title><style>
-.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--cmux-space-2)}
-.options button{display:flex;flex-direction:column;align-items:flex-start;gap:var(--cmux-space-2);padding:var(--cmux-space-3);text-align:left;background:var(--cmux-bg);border:1px solid var(--cmux-border);border-radius:var(--cmux-radius);color:var(--cmux-text)}
+.options{display:flex;flex-direction:column}
+.options button{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:var(--cmux-space-2);padding:var(--cmux-space-2);text-align:left;background:transparent;border:0;border-radius:0;box-shadow:none;color:var(--cmux-text)}
+.options button+button{border-top:0.5px solid var(--cmux-border)}
 .options button:hover{background:var(--cmux-control-hover)}
-.options button[aria-pressed=true]{background:var(--cmux-control);border-color:var(--cmux-muted)}
-.options span{color:var(--cmux-muted);font-size:var(--cmux-size-detail);line-height:1.4}
-.options small{padding:2px 6px;border-radius:var(--cmux-radius);background:var(--cmux-card);font-size:var(--cmux-size-caption);color:var(--cmux-muted)}
+.options button[aria-pressed=true]{background:var(--cmux-control)}
+.options svg{opacity:0}
+.options button[aria-pressed=true] svg{opacity:1}
+.options .copy{min-width:0}
+.options strong{display:block;font-size:var(--cmux-size-body);font-weight:600}
+.options .description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cmux-muted);font-size:var(--cmux-size-detail);line-height:1.4}
+.options small{background:transparent;font-size:var(--cmux-size-detail);color:var(--cmux-muted);white-space:nowrap}
 </style><div class="options">
-<button data-option="A" aria-pressed="false"><strong>Patch the caller</strong><span>Fastest fix, retry logic stays local.</span><small>Low effort</small></button>
-<button data-option="B" aria-pressed="false"><strong>Extract a retry policy</strong><span>One shared policy, easy to test.</span><small>Medium effort</small></button>
-<button data-option="C" aria-pressed="false"><strong>Add a job queue</strong><span>Durable retries, more moving parts.</span><small>High effort</small></button>
+<button data-option="A" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Patch the caller</strong><span class="description">Fastest fix, retry logic stays local.</span></span><small>Low effort</small></button>
+<button data-option="B" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Extract a retry policy</strong><span class="description">One shared policy, easy to test.</span></span><small>Medium effort</small></button>
+<button data-option="C" aria-pressed="false"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy"><strong>Add a job queue</strong><span class="description">Durable retries, more moving parts.</span></span><small>High effort</small></button>
 </div><script>
-const tiles = [...document.querySelectorAll('button')];
-function choose(option) { tiles.forEach(tile => tile.setAttribute('aria-pressed', String(tile.dataset.option === option))); }
+const rows = [...document.querySelectorAll('button')];
+function choose(option) { rows.forEach(row => row.setAttribute('aria-pressed', String(row.dataset.option === option))); }
 cmux.state.get().then(value => choose(value && value.chosen)).catch(() => {});
-tiles.forEach(tile => { tile.onclick = () => {
-  const option = tile.dataset.option;
+rows.forEach(row => { row.onclick = () => {
+  const option = row.dataset.option;
   choose(option);
   cmux.state.set({chosen: option}).catch(() => {});
-  cmux.sendPrompt('Go with option ' + option + ': ' + tile.querySelector('strong').textContent + '.').catch(() => {});
+  cmux.sendPrompt('Go with option ' + option + ': ' + row.querySelector('strong').textContent + '.').catch(() => {});
 }; });
 </script>`;
   const component = `// title: Retry backoff
@@ -665,7 +672,7 @@ function App() {
       </React.Fragment>)}
     </div>
     <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--cmux-space-2)'}}>
-      <small style={{color: 'var(--cmux-muted)'}}>Four attempts, exponential delay.</small>
+      <small style={{color: 'var(--cmux-muted)'}}>{${JSON.stringify(translate("render.demoBackoffFooter"))}}</small>
       <button onClick={() => cmux.prefill('Use exponential retry backoff with a base of ' + base + ' ms and delays of ' + delays.join(', ') + ' ms.').catch(() => {})}>Use these values</button>
     </div>
   </div>;
@@ -686,9 +693,7 @@ function App() {
     },
     {
       ago: 57_000,
-      update: text(
-        "Choose a direction, then adjust the delay before applying it.\n\n```cmux-react\n" + component + "\n```",
-      ),
+      update: text("```cmux-react\n" + component + "\n```"),
     },
     { ago: 56_000, mux: "turn_result", msg: { status: "completed" } },
   ];

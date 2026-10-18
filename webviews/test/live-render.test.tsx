@@ -168,7 +168,7 @@ test("sendPrompt waits for Send in the pane; Edit prefills without sending", asy
   expect(sent).toEqual(["Use sage"]);
   card = await draw();
   card.request("sendPrompt", { text: "Use amber" });
-  click("Edit");
+  click("Edit in prompt");
   expect(prefilled).toEqual(["Use amber"]);
   expect(sent).toEqual([]);
 });
@@ -595,7 +595,7 @@ test("the backoff demo slider updates its chart and prefills the chosen values",
     },
   });
   act(() => root!.render(<Demo />));
-  const bars = () => [...host.querySelectorAll("rect")].map((bar) => bar.getAttribute("height"));
+  const bars = () => [...host.querySelectorAll<HTMLElement>('[role="img"] span span')].map((bar) => bar.style.width);
   const before = bars();
   const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
   act(() => {
@@ -609,4 +609,66 @@ test("the backoff demo slider updates its chart and prefills the chosen values",
   expect(drafts).toEqual([
     "Use exponential retry backoff with a base of 600 ms and delays of 600, 1200, 2400, 4800 ms.",
   ]);
+});
+
+test("render confirmation labels the draft and Cancel or Escape rejects it without sending", async () => {
+  const card = await draw();
+  card.request("sendPrompt", { text: "A draft" }, undefined, "cancel-button");
+  expect(host.querySelector(".acpmux-render-confirm-label")?.textContent).toBe("Send to chat?");
+  click("Cancel");
+  expect(host.querySelector(".acpmux-render-confirm") === null).toBe(true);
+  expect(card.replies.at(-1)).toEqual({
+    type: "cmux-render-reply",
+    id: "cancel-button",
+    ok: false,
+    error: "cancelled",
+  });
+  card.request("sendPrompt", { text: "Another draft" }, undefined, "cancel-key");
+  const edit = [...host.querySelectorAll("button")].find((button) => button.textContent === "Edit in prompt")!;
+  act(() => {
+    edit.focus();
+    edit.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(host.querySelector(".acpmux-render-confirm") === null).toBe(true);
+  expect(card.replies.at(-1)?.error).toBe("cancelled");
+  expect(sent).toEqual([]);
+  expect(prefilled).toEqual([]);
+});
+
+test("a long confirmation expands fully and resets for the next draft", async () => {
+  const prototype = dom.window.HTMLElement.prototype;
+  const scrollHeight = Object.getOwnPropertyDescriptor(prototype, "scrollHeight");
+  const clientHeight = Object.getOwnPropertyDescriptor(prototype, "clientHeight");
+  Object.defineProperty(prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return this.classList.contains("acpmux-render-confirm-text") ? 240 : 0;
+    },
+  });
+  Object.defineProperty(prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return this.classList.contains("acpmux-render-confirm-text") ? 60 : 0;
+    },
+  });
+  try {
+    const card = await draw();
+    card.request("sendPrompt", { text: "Long draft\n".repeat(12) });
+    click("Show all");
+    expect(host.querySelector(".acpmux-render-confirm-text")?.classList.contains("is-expanded")).toBe(true);
+    expect(host.querySelector(".acpmux-render-confirm-text")?.textContent).toBe("Long draft\n".repeat(12));
+    click("Show less");
+    expect(host.querySelector(".acpmux-render-confirm-text")?.classList.contains("is-expanded")).toBe(false);
+    click("Show all");
+    card.request("sendPrompt", { text: "Replacement draft" });
+    expect(host.querySelector(".acpmux-render-confirm-text")?.classList.contains("is-expanded")).toBe(false);
+  } finally {
+    for (const [name, descriptor] of [
+      ["scrollHeight", scrollHeight],
+      ["clientHeight", clientHeight],
+    ] as const) {
+      if (descriptor) Object.defineProperty(prototype, name, descriptor);
+      else Reflect.deleteProperty(prototype, name);
+    }
+  }
 });

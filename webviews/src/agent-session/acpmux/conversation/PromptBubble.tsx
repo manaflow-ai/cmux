@@ -3,7 +3,7 @@ import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { usePromptFindReveal } from "./chatFind";
 import { MessageTime } from "./MessageTime";
-import { expandPrompt, PROMPT_LINES, usePromptExpanded } from "./promptCollapse";
+import { expandPrompt, PROMPT_LINES, PromptToggleAnchor, usePromptExpanded } from "./promptCollapse";
 import { ChatSessionContext } from "./viewIdentity";
 
 /// Lab bubble: eight lines until opened, measured again when its width changes (Lucas 2026-10-18).
@@ -20,6 +20,7 @@ export function PromptBubble({
 }) {
   const t = useT();
   const sessionId = useContext(ChatSessionContext);
+  const anchorToggle = useContext(PromptToggleAnchor);
   const open = usePromptExpanded(row.id, sessionId);
   const content = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
@@ -50,7 +51,10 @@ export function PromptBubble({
               className="cv-user__expand"
               aria-expanded={open}
               data-find-skip
-              onClick={() => expandPrompt(row.id, !open, sessionId)}
+              onClick={(event) => {
+                anchorToggle?.(event.currentTarget);
+                expandPrompt(row.id, !open, sessionId);
+              }}
             >
               {open ? t("shell.showLess") : t("sidebar.showMore")}
             </button>

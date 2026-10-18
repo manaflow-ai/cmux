@@ -1,4 +1,7 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useSyncExternalStore } from "react";
+
+/// A reader's toggle anchors the transcript to that button (Lucas 2026-10-18).
+export const PromptToggleAnchor = createContext<((button: HTMLButtonElement) => void) | undefined>(undefined);
 
 /// Open prompts survive virtual rows remounting (Lucas 2026-10-18).
 export const PROMPT_LINES = 8;

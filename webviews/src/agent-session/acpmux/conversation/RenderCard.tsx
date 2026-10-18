@@ -7,7 +7,7 @@
 // liveRender lab uses a srcdoc frame on the dev server and allows requests through a small bridge.
 // Outside the lab a dev call stays a plain tool row. Open hands the
 // page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
 import { ArtifactContext, documentName } from "./artifactPreview";
@@ -132,6 +132,7 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
           <button
             type="button"
             className="acpmux-review-changes acpmux-render-stop"
+            aria-label={t("render.stop")}
             onClick={() => {
               requests.cancel();
               ranRenders.delete(call.html);
@@ -155,7 +156,7 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
         {open && !panel && (
           <button
             type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
+            className={`cv-iconbtn cv-iconbtn--compact${live ? " acpmux-render-open" : ""}`}
             aria-label={t("artifact.open")}
             title={t("artifact.open")}
             onClick={() =>
@@ -183,21 +184,74 @@ export function RenderCard({ call, panel = false }: { call: RenderCall; panel?: 
           style={panel ? undefined : { height: expanded ? height : Math.min(height, COLLAPSED_MAX_HEIGHT) }}
         />
       )}
-      {live && running && requests.pending && (
-        <div className="acpmux-render-confirm">
-          <span>{requests.pending.text}</span>
-          <button type="button" className="acpmux-review-changes" onClick={() => requests.confirm(false)}>
-            {requests.pending.method === "openLink" ? t("render.open") : t("composer.send")}
-          </button>
-          {requests.pending.method === "sendPrompt" && (
-            <button type="button" className="acpmux-review-changes" onClick={() => requests.confirm(true)}>
-              {t("render.edit")}
-            </button>
-          )}
-        </div>
-      )}
+      {live && running && requests.pending && <RenderConfirm key={requests.pending.text} requests={requests} />}
       {live && requests.copied && <output className="acpmux-render-note">{t("turn.copied")}</output>}
     </div>
+  );
+}
+
+/// A page asks before sending; long drafts stay readable without filling the card (Lucas 2026-10-18).
+function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequests> }) {
+  const t = useT();
+  const text = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [long, setLong] = useState(false);
+  const pending = requests.pending!;
+  useLayoutEffect(() => {
+    const node = text.current;
+    if (!node || expanded) return;
+    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [pending.text, expanded]);
+  return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape cancels from the buttons inside, as in ArtifactPanel.
+    <section
+      aria-label={pending.method === "sendPrompt" ? t("render.sendToChat") : t("render.open")}
+      className="acpmux-render-confirm"
+      // ui-allow: Escape cancels this draft from any control in its confirmation strip.
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          event.preventDefault();
+          requests.cancel();
+        }
+      }}
+    >
+      <div className="acpmux-render-confirm-draft">
+        <span className="acpmux-render-confirm-label">
+          {pending.method === "sendPrompt" ? t("render.sendToChat") : t("render.open")}
+        </span>
+        <div ref={text} className={`acpmux-render-confirm-text${expanded ? " is-expanded" : ""}`}>
+          {pending.text}
+        </div>
+        {long && (
+          <button
+            type="button"
+            className="acpmux-review-changes"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? t("shell.showLess") : t("render.showAll")}
+          </button>
+        )}
+      </div>
+      <div className="acpmux-render-confirm-actions">
+        <button type="button" className="acpmux-ask-action is-primary" onClick={() => requests.confirm(false)}>
+          {pending.method === "openLink" ? t("render.open") : t("composer.send")}
+        </button>
+        {pending.method === "sendPrompt" && (
+          <button type="button" className="acpmux-review-changes" onClick={() => requests.confirm(true)}>
+            {t("render.edit")}
+          </button>
+        )}
+        <button type="button" className="acpmux-review-changes acpmux-render-cancel" onClick={requests.cancel}>
+          {t("edited.cancel")}
+        </button>
+      </div>
+    </section>
   );
 }
 

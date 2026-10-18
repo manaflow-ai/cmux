@@ -2042,9 +2042,17 @@ pre.cv-math-source {
   display: flex;
   flex-direction: column;
 }
-:root[data-lab-live-render="on"] .acpmux-render-confirm > span {
-  flex: 1;
+:root[data-lab-live-render="on"] .acpmux-render-confirm-draft {
+  flex: 1 1 180px;
   min-width: 0;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-label {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 600;
+  color: var(--agent-text);
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -2473,11 +2481,56 @@ pre.cv-math-source {
   margin-top: 0;
 }
 
-/* Stop stays reachable by keyboard while the live card's head rests quietly. */
-:root[data-lab-live-render="on"] .acpmux-render-stop {
-  opacity: 0;
+/* Live cards keep their controls quiet until the reader points or tabs in (Lucas 2026-10-18). */
+:root[data-lab-live-render="on"] .acpmux-render-card {
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
 }
-:root[data-lab-live-render="on"] .acpmux-render-card-head:hover .acpmux-render-stop,
-:root[data-lab-live-render="on"] .acpmux-render-card-head:focus-within .acpmux-render-stop {
+:root[data-lab-live-render="on"] .acpmux-render-card-head {
+  min-height: 28px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: none;
+}
+:root[data-lab-live-render="on"] .acpmux-render-card-title {
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+:root[data-lab-live-render="on"] .acpmux-render-stop,
+:root[data-lab-live-render="on"] .acpmux-render-open {
+  opacity: 0;
+  pointer-events: none;
+  min-width: 24px;
+  height: 24px;
+}
+:root[data-lab-live-render="on"] .acpmux-render-card:hover :is(.acpmux-render-stop, .acpmux-render-open),
+:root[data-lab-live-render="on"] .acpmux-render-card:focus-within :is(.acpmux-render-stop, .acpmux-render-open) {
   opacity: 1;
+  pointer-events: auto;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  border-top-width: var(--cmux-hairline, 0.5px);
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-text.is-expanded {
+  -webkit-line-clamp: unset;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions > button {
+  min-height: 24px;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm-actions .is-primary {
+  color: var(--agent-on-accent, var(--acpmux-base));
+}
+:root[data-lab-live-render="on"] .acpmux-render-cancel {
+  background: transparent;
+  box-shadow: none;
 }

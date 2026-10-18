@@ -236,9 +236,11 @@ test("codeWrap restores storage and shares changes across highlighted, streaming
   expect(toggles()).toHaveLength(3);
   expect(toggles().every((node) => node.getAttribute("aria-pressed") === "true")).toBe(true);
   expect(host.querySelectorAll("pre.is-wrapped")).toHaveLength(2);
+  expect(host.querySelector("diffs-container")?.getAttribute("data-wrap")).toBe("true");
   await act(async () => toggles()[0]!.click());
   expect(toggles().every((node) => node.getAttribute("aria-pressed") === "false")).toBe(true);
   expect(dom.window.localStorage.getItem("cmux.acpmux.codeWrap")).toBe("false");
+  expect(host.querySelector("diffs-container")?.getAttribute("data-wrap")).toBe("false");
   // A blocked write still updates every card in this pane.
   const storageSet = dom.window.Storage.prototype.setItem;
   dom.window.Storage.prototype.setItem = () => {
@@ -414,4 +416,100 @@ test("Find reopens a prompt for the next occurrence after the reader collapses i
   expect(host.querySelector(".is-clamped")).not.toBeNull();
   await act(async () => find.next());
   expect(host.querySelector(".is-clamped")).toBeNull();
+});
+
+test("live render rows leave the card head free of the floating Copy", async () => {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const rows: AcpmuxRow[] = [
+    {
+      ...prompt("render-copy", "card source"),
+      kind: "render",
+      items: [
+        {
+          kind: "tool",
+          text: "card source",
+          tool: {
+            id: "render-copy",
+            title: "render",
+            inputSummary: JSON.stringify({ html: "<p>Preview</p>" }),
+            status: "completed",
+          },
+        },
+      ],
+    },
+  ];
+  const transcript = (
+    <VirtualTranscript rows={rows} sessionId="render-copy" expanded={new Set()} onToggleActivity={() => {}} />
+  );
+  await draw(transcript);
+  expect(host.querySelector(".acpmux-row__copy")).not.toBeNull();
+  act(() => configureLabs({ labs: { liveRender: true } }));
+  expect(host.querySelector(".acpmux-render-card") !== null).toBe(true);
+  expect(host.querySelector(".acpmux-row__copy") === null).toBe(true);
+});
+
+test("context details open on hover and focus without moving focus, and still open on click", async () => {
+  const { ContextRing } = await import("../src/agent-session/acpmux/ComposerPickers");
+  act(() => configureLabs({ labs: { contextMeter: true } }));
+  await draw(<ContextRing used={40000} size={100000} />);
+  const ring = host.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  await act(async () => {
+    ring.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  });
+  expect(document.querySelector(".acpmux-context-tokens")?.textContent).toContain("40K");
+  expect(document.activeElement).not.toBe(document.querySelector(".acpmux-context-compact"));
+  await draw(null);
+  await draw(<ContextRing used={40000} size={100000} />);
+  const focused = host.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  await act(async () => focused.focus());
+  expect(document.querySelector(".acpmux-context-tokens")?.textContent).toContain("40K");
+  expect(document.activeElement).toBe(focused);
+});
+
+test("collapsing a prompt anchors its toggle through transcript layout", async () => {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { expandPrompt } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  act(() => configureLabs({ labs: { promptCollapse: true } }));
+  const text = Array.from({ length: 50 }, (_, n) => `line ${n}`).join("\n");
+  const rows = [
+    prompt("anchored", text),
+    ...Array.from({ length: 12 }, (_, n) => ({ ...prompt(`tail-${n}`, "Answer"), kind: "assistant" as const })),
+  ];
+  expandPrompt("anchored", true, "anchor-toggle");
+  const prototype = dom.window.HTMLElement.prototype;
+  const rect = prototype.getBoundingClientRect;
+  const viewport = Object.getOwnPropertyDescriptor(prototype, "clientHeight");
+  Object.defineProperty(prototype, "clientHeight", { configurable: true, get: () => 600 });
+  prototype.getBoundingClientRect = function () {
+    const bounds = rect.call(this);
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll");
+    const tall = host.querySelector('.cv-user__expand[aria-expanded="true"]') !== null;
+    if (this.matches(".cv-user__expand"))
+      return new dom.window.DOMRect(0, (tall ? 1100 : 250) - (scroller?.scrollTop ?? 0), 80, 24);
+    if (this.hasAttribute("data-row-id"))
+      return new dom.window.DOMRect(0, 0, 700, this.dataset.rowId === "anchored" ? (tall ? 1200 : 350) : 300);
+    return bounds;
+  };
+  try {
+    await draw(
+      <VirtualTranscript
+        rows={rows}
+        sessionId="anchor-toggle"
+        openAt={{ rowId: "anchored", offset: 900 }}
+        expanded={new Set()}
+        onToggleActivity={() => {}}
+      />,
+    );
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const toggle = button("Show less")!;
+    const before = toggle.getBoundingClientRect().top;
+    await act(async () => toggle.click());
+    expect(button("Show more")!.getBoundingClientRect().top).toBeCloseTo(before, 1);
+    expect(scroller.scrollTop).toBeCloseTo(50, 1);
+  } finally {
+    prototype.getBoundingClientRect = rect;
+    if (viewport) Object.defineProperty(prototype, "clientHeight", viewport);
+    else Reflect.deleteProperty(prototype, "clientHeight");
+  }
 });
