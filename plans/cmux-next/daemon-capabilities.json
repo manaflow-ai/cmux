@@ -131,6 +131,6 @@
     "workspace-registry-v1"
   ],
   "unservedByBundledDaemon" : [
-
+    "workspace-name-source-v1"
   ]
 }

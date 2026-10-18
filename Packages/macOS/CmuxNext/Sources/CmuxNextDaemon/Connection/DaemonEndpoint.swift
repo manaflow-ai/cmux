@@ -417,7 +417,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [] }
+    public var unservedByBundledDaemon: [String] { ["workspace-name-source-v1"] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.
