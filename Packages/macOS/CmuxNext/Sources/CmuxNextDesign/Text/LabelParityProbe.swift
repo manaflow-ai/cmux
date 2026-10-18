@@ -228,11 +228,12 @@ public struct LabelParityProbe {
         row["ax.label"] = labelAX
         report.checked += 1
         if stockAX != labelAX { note("\(name) ax: stock \(stockAX) label \(labelAX)", into: &report) }
-        // A label hidden from accessibility stays hidden, as a field does.
+        // A label hidden from accessibility stays hidden, as a field does (the field, which
+        // stands for its cell in the window's tree, reads the setter back).
         stock.setAccessibilityElement(false)
         label.setAccessibilityElement(false)
         report.checked += 1
-        let hidden = (cell?.isAccessibilityElement() ?? stock.isAccessibilityElement(), label.isAccessibilityElement())
+        let hidden = (stock.isAccessibilityElement(), label.isAccessibilityElement())
         if hidden.0 != hidden.1 { note("\(name) ax hidden: stock element \(hidden.0) label element \(hidden.1)", into: &report) }
         stock.setAccessibilityElement(true)
         label.setAccessibilityElement(true)
