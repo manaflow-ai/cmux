@@ -214,6 +214,25 @@ function assertEvidenceVerified(evidenceVerified: boolean): void {
   }
 }
 
+async function revalidatePromotionSource(input: {
+  readonly userId: string;
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly dependencies: AttemptPromotionDependencies;
+  readonly now: number;
+}): Promise<{ readonly source: AttemptPromotionSource; readonly handles: ReturnType<typeof assertPromotable> }> {
+  const source = await input.dependencies.source.find({ userId: input.userId, runId: input.runId, attemptId: input.attemptId });
+  if (!source || source.userId !== input.userId || source.runId !== input.runId || source.attemptId !== input.attemptId) {
+    throw new PromotionNotReadyError("the promotion source changed before adoption");
+  }
+  const handles = assertPromotable(source, input.now);
+  const evidenceVerified = input.dependencies.evidence
+    ? await input.dependencies.evidence.verify({ source })
+    : false;
+  assertEvidenceVerified(evidenceVerified);
+  return { source, handles };
+}
+
 function viewFromRuntime(input: {
   runId: string;
   attemptId: string;
@@ -316,24 +335,25 @@ export async function promoteRunAttempt(input: {
     ? await input.dependencies.evidence.verify({ source })
     : false;
   assertEvidenceVerified(evidenceVerified);
-  const handles = assertPromotable(source, input.now ?? Date.now());
+  assertPromotable(source, input.now ?? Date.now());
   const reserved = await input.dependencies.store.reserve({ userId: input.userId, runId: input.runId, attemptId: input.attemptId, requestKey });
   const outcome = reservationResult({ runId: input.runId, attemptId: input.attemptId, reserved });
   if (!("claimId" in outcome)) return outcome;
   try {
+    const current = await revalidatePromotionSource({ ...input, dependencies: input.dependencies, now: input.now ?? Date.now() });
     const runtime = await input.dependencies.runtime.promote({
       userId: input.userId,
-      billingTeamId: source.billingTeamId,
+      billingTeamId: current.source.billingTeamId,
       runId: input.runId,
       attemptId: input.attemptId,
-      provider: source.provider,
-      providerVmId: handles.providerVmId,
-      providerWorkspaceId: handles.providerWorkspaceId,
-      providerTerminalId: handles.providerTerminalId,
-      sessionId: handles.sessionId,
+      provider: current.source.provider,
+      providerVmId: current.handles.providerVmId,
+      providerWorkspaceId: current.handles.providerWorkspaceId,
+      providerTerminalId: current.handles.providerTerminalId,
+      sessionId: current.handles.sessionId,
       requestKey,
     });
-    if (runtime.sessionId !== handles.sessionId) throw new PromotionRuntimeUnavailableError("runtime promotion changed the terminal session identity");
+    if (runtime.sessionId !== current.handles.sessionId) throw new PromotionRuntimeUnavailableError("runtime promotion changed the terminal session identity");
     const promotion = viewFromRuntime({ runId: input.runId, attemptId: input.attemptId, runtime });
     return await input.dependencies.store.complete({ reservation: outcome, promotion });
   } catch (error) {

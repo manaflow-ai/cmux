@@ -85,7 +85,7 @@ export interface VmHostLeaseStore {
   reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation>;
   complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord>;
   /** Release an abandoned pending reservation so provider/validation failures can be retried. */
-  abort?(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void>;
+  abort(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void>;
 }
 
 export interface VmHostLeaseProviderClient {
@@ -283,12 +283,17 @@ export class VmHostLeaseTransport {
       throw new VmHostLeaseError("lease_conflict", "the same host lease effect is already in progress");
     }
     const adapter = this.adapters.get(provider);
-    if (!adapter || adapter.provider !== provider) throw new VmHostLeaseError("provider_mismatch", `no adapter configured for ${provider}`);
+    if (!adapter || adapter.provider !== provider) {
+      await this.abortReservation(input, provider, reservation.reservationToken);
+      throw new VmHostLeaseError("provider_mismatch", `no adapter configured for ${provider}`);
+    }
     let providerResult: VmHostLeaseProviderResult;
     try {
       providerResult = await adapter.execute(providerOperation(input));
     } catch (cause) {
-      await this.abortReservation(input, provider, reservation.reservationToken);
+      // The provider may have applied the effect before the transport saw the
+      // error. Keep the durable reservation fenced so a retry cannot duplicate
+      // an uncertain acquire/renew/release operation.
       if (cause instanceof VmHostLeaseError) throw cause;
       throw new VmHostLeaseError("provider_error", "host lease provider operation failed", cause);
     }
@@ -296,14 +301,16 @@ export class VmHostLeaseTransport {
     try {
       completed = recordFrom(input, provider, providerResult);
     } catch (cause) {
-      await this.abortReservation(input, provider, reservation.reservationToken);
+      // An invalid receipt follows provider I/O; retain the reservation until
+      // reconciliation rather than risking a duplicate provider effect.
       throw cause;
     }
     let stored: VmHostLeaseRecord;
     try {
       stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
     } catch (cause) {
-      await this.abortReservation(input, provider, reservation.reservationToken);
+      // Completion failure is also ambiguous after provider I/O. The durable
+      // reservation remains the replay/reconciliation fence.
       throw cause;
     }
     // The store is authoritative for fencing and dedupe. It may normalize
@@ -315,7 +322,6 @@ export class VmHostLeaseTransport {
   }
 
   private async abortReservation(input: Required<VmHostLeaseInput>, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
-    if (!this.store.abort) return;
     try {
       await this.store.abort(input, provider, reservationToken);
     } catch (cause) {

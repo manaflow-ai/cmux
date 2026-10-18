@@ -165,7 +165,7 @@ describe("VM host lease transport", () => {
     expect(calls).toEqual(["acquire"]);
   });
 
-  test("releases an abandoned reservation after provider failure", async () => {
+  test("fences an uncertain provider failure against duplicate effects", async () => {
     let attempts = 0;
     const client: VmHostLeaseProviderClient = {
       async acquire(input) {
@@ -179,8 +179,8 @@ describe("VM host lease transport", () => {
     const transport = transportFor("huge-blue", { ...client, calls: [] } as FakeClient);
     const input = { provider: "huge-blue" as const, leaseId: "lease-abort", hostId: "huge-blue:host", ownerId: "worker", generation: 1, effectKey: "abort", ttlMs: 1_000, nowMs: 0 };
     await expect(transport.acquire(input)).rejects.toMatchObject({ code: "provider_error" });
-    await expect(transport.acquire(input)).resolves.toMatchObject({ replayed: false, state: "active" });
-    expect(attempts).toBe(2);
+    await expect(transport.acquire(input)).rejects.toMatchObject({ code: "lease_conflict" });
+    expect(attempts).toBe(1);
   });
 
   test("Huge Blue HTTP factory sends fenced, idempotent lease requests without embedding credentials", async () => {
@@ -199,8 +199,13 @@ describe("VM host lease transport", () => {
   });
 
   test("fails closed when an adapter is absent", async () => {
-    const transport = new VmHostLeaseTransport(new MemoryVmHostLeaseStore(), new Map());
-    await expect(transport.acquire({ provider: "freestyle", leaseId: "lease-missing", hostId: "freestyle:host", ownerId: "worker", generation: 1, effectKey: "missing", ttlMs: 1_000, nowMs: 0 })).rejects.toMatchObject({ code: "provider_mismatch" });
+    const store = new MemoryVmHostLeaseStore();
+    const input = { provider: "freestyle" as const, leaseId: "lease-missing", hostId: "freestyle:host", ownerId: "worker", generation: 1, effectKey: "missing", ttlMs: 1_000, nowMs: 0 };
+    const transport = new VmHostLeaseTransport(store, new Map());
+    await expect(transport.acquire(input)).rejects.toMatchObject({ code: "provider_mismatch" });
+    const client = fakeClient();
+    const retry = new VmHostLeaseTransport(store, new Map([["freestyle", new FreestyleHostLeaseAdapter(client)]]));
+    await expect(retry.acquire(input)).resolves.toMatchObject({ state: "active", replayed: false });
   });
 
   test("builds only explicitly configured adapters and leaves future hosts open", () => {
