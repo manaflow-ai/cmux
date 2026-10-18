@@ -26,10 +26,11 @@ function validateHugeBlueRelayIdentity(
   hostId: string | undefined,
   session: string | undefined,
   ttlMs: number,
-): void {
+): { hostId: string; session: string; ttlMs: number } {
   if (!hostId || !session || !Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 300_000) {
     throw new Error("Huge Blue relay identity or TTL is invalid");
   }
+  return { hostId, session, ttlMs };
 }
 
 export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefined>> = process.env) {
@@ -46,8 +47,8 @@ export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefi
   // issuance until a per-tenant daemon namespace is configured explicitly.
   // Staging may opt into the shared carrier only with an explicit marker.
   validateHugeBlueRelayMode(production, relayMode);
-  validateHugeBlueRelayIdentity(hostId, session, ttlMs);
-  return { route, hostId, session, ttlMs, relayMode };
+  const identity = validateHugeBlueRelayIdentity(hostId, session, ttlMs);
+  return { route, ...identity, relayMode };
 }
 
 /** Serialize rotation with the workspace row, including concurrent attaches. */
