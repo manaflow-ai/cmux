@@ -85,9 +85,7 @@ describe("VM read deadlines through the real route path", () => {
     const run = await statsRoute("vm-ok", 5_000);
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    // Provider running state is not enough to claim the guest is healthy;
-    // this fixture has no resource reporter sample, so stats are unknown.
-    expect(run.value).toMatchObject({ state: "unknown", cpus: 2 });
+    expect(run.value).toMatchObject({ state: "unknown", health: "unknown", cpus: 2 });
     expect(fetches.find((entry) => entry.path === "/v5/vms/vm-ok")?.signal?.aborted).toBe(false);
   });
 

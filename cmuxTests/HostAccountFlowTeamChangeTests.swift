@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxCloud
 import CmuxAuthRuntime
 import Foundation
 import Testing
@@ -16,6 +17,31 @@ import Testing
 @MainActor
 @Suite("Host account flow team changes")
 struct HostAccountFlowTeamChangeTests {
+    @Test func successfulAuthCallbackRefreshesThePaidEntitlement() async throws {
+        let planClient = BillingPlanClient(
+            session: BillingPlanCallbackURLProtocol.session(body: """
+            {"authenticated":true,"billingAvailable":true,"planId":"pro",
+             "subscriptionPlanId":"pro","isPro":true,"billingManagement":"stripe",
+             "teamPlanId":"free","teamBillingManagement":"none"}
+            """
+            )
+        )
+        let client = TeamChangeAuthClient()
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(
+            client: client,
+            billingPlanClient: planClient
+        )
+
+        let callback = URL(string: "cmux://auth-callback?stack_refresh=refresh-1&stack_access=access-1")!
+        #expect(await flow.handleCallbackURL(callback, delivery: .trustedEmbeddedBrowser))
+        #expect(flow.billingPlanState == BillingPlanState(
+            accountID: "fixture",
+            isPro: true,
+            canManageBilling: true,
+            tier: .pro
+        ))
+    }
+
     @Test func switchDuringPendingCreateIsRefusedAndTheCreateCompletes() async throws {
         let client = TeamChangeAuthClient()
         let flow = try await makeFlow(client: client)
@@ -191,4 +217,34 @@ struct HostAccountFlowTeamChangeTests {
         }
         try #require(await condition(), "The fake client never held the request.")
     }
+}
+
+private final class BillingPlanCallbackURLProtocol: URLProtocol, @unchecked Sendable {
+    // The suite creates one stub session at a time, and each response body is
+    // immutable for the lifetime of that session.
+    nonisolated(unsafe) private static var responseBody = Data()
+
+    static func session(body: String) -> URLSession {
+        responseBody = Data(body.utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BillingPlanCallbackURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

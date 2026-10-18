@@ -16,7 +16,17 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_large_request_method_first.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_opencode_restore_environment_roots.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -102,6 +112,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_browser_input_files_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_todo_status_arguments.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -369,6 +384,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_claude_rereports_pwd.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_cli_shim_private_dir.py"
 lane = "macos-shell"
 
@@ -391,6 +410,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_claude_hook_clear_running_status.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_hook_reports_session_cwd.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
@@ -1730,6 +1754,11 @@ lane = "manual"
 reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture and is run by the OpenCode regression verification command."
 
 [[test]]
+path = "tests/test_opencode_server_entry.py"
+lane = "manual"
+reason = "Focused OpenCode server-entry Node harness; no workflow names it yet, so it is run by the OpenCode regression verification command."
+
+[[test]]
 path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 
@@ -1744,6 +1773,10 @@ reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned mac
 
 [[test]]
 path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1768,4 +1801,28 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_frame_pacing_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_engine_bench.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"

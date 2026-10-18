@@ -1583,9 +1583,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
              )
              ORDER BY start_sequence ASC",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     for segment_id in ids {
         let segment = load_journal_segment(connection, &segment_id)?;
@@ -1593,7 +1591,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             .records
             .into_iter()
             .map(|record| record.kind)
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<BTreeSet<_>>();
         for kind in kinds {
             connection.execute(
                 "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
@@ -1601,10 +1599,8 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             )?;
         }
     }
-    connection.execute(
-        "UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'",
-        [],
-    )?;
+    connection
+        .execute("UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'", [])?;
     Ok(())
 }
 
