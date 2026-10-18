@@ -135,3 +135,65 @@ test("a tab with a project folder, or a start folder from the host, keeps it", a
   expect(named.location).toContain("billing");
   expect(named.folder).toBeUndefined();
 });
+
+// Leo 2026-10-18 (ChatGPT and Claude Code screenshots): the project menu offers "Do not work in a
+// project". Picking it stops the most-recent-project start, and the chat starts in no project
+// (`chat.new` with `noProject`): the host's private folder, never the tab's or the start folder.
+test("Do not work in a project starts the chat in no project", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const calls: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat(sessions)}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        startCwd="/Users/you/src/billing"
+        projects={[{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
+        onAsk={(...args) => calls.push(args)}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const option = [...window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.textContent === "Do not work in a project",
+  );
+  expect(option).toBeDefined();
+  await act(async () => option!.click());
+  expect(host.querySelector(".nt-location")?.textContent).toContain("No project");
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "sketch a name for the app");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(calls[0]?.[2]).toBeUndefined();
+  expect(calls[0]?.[4]).toBe(true);
+});
+
+test("a no-project ask sends chat.new with noProject and no folder", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const sent: [string, unknown][] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => void sent.push([method, params]),
+    cwd: HOME,
+    chatCwd: "/Users/you/src/billing",
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "hi", undefined, undefined, true);
+  expect(sent.find(([method]) => method === "chat.new")?.[1]).toEqual({ harness: "claude", noProject: true });
+});
