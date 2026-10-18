@@ -7,10 +7,10 @@ make the reviewable MP4. The MP4 must show the real UI for the entire clip:
 2. Every recorded transition frame at the recorder cadence.
 3. A readable hold of the last captured frame labeled `AFTER` (1.8s by default).
 
-The labels are compact top-left pills. Do not use full-screen title cards, wide
-cards, or a stretched screenshot as a before/after substitute. Full state IDs belong in
-`receipt.json`; the video may show short prefixes so the interaction remains
-visible.
+The video is intentionally clean: do not burn labels, cards, state IDs, or
+debug colors into the app pixels. The phase labels, timing, and full state IDs
+belong in `receipt.json` and the PR comment. This keeps the motion itself
+reviewable instead of turning the clip into a debug slide.
 
 Before publishing, inspect at least three extracted frames: the before hold,
 the middle of the real transition, and the after hold. The after frame must be

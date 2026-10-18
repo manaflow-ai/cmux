@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -44,6 +45,19 @@ def short(value: str) -> str:
     return value[:8] if value else "?"
 
 
+def validate_frame_sequence(frames: list[Path]) -> None:
+    numbers = []
+    for frame in frames:
+        match = re.fullmatch(r"frame-(\d{5})\.jpg", frame.name)
+        if not match:
+            raise SystemExit(f"motion-receipt: invalid frame name: {frame.name}")
+        numbers.append(int(match.group(1)))
+    expected = list(range(len(numbers)))
+    if numbers != expected:
+        missing = sorted(set(expected) - set(numbers))
+        raise SystemExit(f"motion-receipt: frames must be contiguous from 00000; missing={missing[:8]}")
+
+
 def first_last(frames: list[Path]) -> tuple[Path, Path]:
     if len(frames) < 3:
         raise SystemExit("motion-receipt: need at least three real JPEG frames")
@@ -56,18 +70,16 @@ def first_last(frames: list[Path]) -> tuple[Path, Path]:
 
 
 def overlay_svg(path: Path, title: str, detail: str, timing: str) -> None:
-    # A small top-left pill leaves the UI and its geometry unobscured. This is
-    # deliberately not a full-width card: metadata should attach to the app,
-    # not replace the app as a title slide.
+    # A tiny neutral chip keeps the phase legible without turning the receipt
+    # into a presentation slide. Full state IDs stay in receipt.json.
     safe = lambda text: (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                          .replace('"', "&quot;"))
     # qlmanage flattens transparent SVGs onto white.  Use a chroma-key matte
     # so the rasterized overlay cannot replace the real UI with a white card.
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800">
       <rect width="1280" height="800" fill="#ff00ff"/>
-      <rect x="24" y="24" width="360" height="56" rx="12" fill="#0b1020" fill-opacity="0.86" stroke="#94a3b8" stroke-opacity="0.35"/>
-      <text x="42" y="49" font-family="Verdana, sans-serif" font-size="17" font-weight="bold" fill="white">{safe(title)}</text>
-      <text x="42" y="69" font-family="Verdana, sans-serif" font-size="12" fill="#dbeafe">{safe(detail)} · {safe(timing)}</text>
+      <rect x="20" y="20" width="220" height="34" rx="17" fill="#151515" fill-opacity="0.72" stroke="white" stroke-opacity="0.22"/>
+      <text x="36" y="42" font-family="Verdana, sans-serif" font-size="14" font-weight="bold" fill="white">{safe(title)} · {safe(timing)}</text>
     </svg>'''
     path.write_text(svg, encoding="utf-8")
 
@@ -82,21 +94,20 @@ def rasterize(svg: Path, into: Path) -> Path:
     return png
 
 
-def encode_hold(frame: Path, overlay: Path, seconds: float, out: Path, fps: int) -> None:
+def encode_hold(frame: Path, seconds: float, out: Path, fps: int) -> None:
+    # Keep the app pixels clean. Phase labels and IDs live in receipt.json and
+    # the PR comment; putting a generated SVG over the UI makes the evidence
+    # harder to judge and can tint the whole frame on macOS Quick Look.
     run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-loop", "1", "-i", str(frame),
-         "-loop", "1", "-i", str(overlay), "-t", f"{seconds:.3f}",
-         "-filter_complex", "[0:v]scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black[ui];[1:v]scale=1280:800,format=rgba,colorkey=0xff00ff:0.30:0.0[ov];[ui][ov]overlay=0:0",
-         "-shortest", "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
+         "-t", f"{seconds:.3f}", "-vf", "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black",
+         "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
 
 
-def encode_transition(frames: Path, overlay: Path, count: int, out: Path, fps: int) -> None:
-    # The transition badge is intentionally compact and stable; exact per-frame
-    # timestamps stay in receipt.json so the UI never gets covered by changing text.
+def encode_transition(frames: Path, count: int, out: Path, fps: int) -> None:
     run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-framerate", str(fps),
          "-i", str(frames / "frame-%05d.jpg"),
-         "-loop", "1", "-i", str(overlay),
          "-t", f"{count / fps:.3f}",
-         "-filter_complex", "[0:v]scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black[ui];[1:v]scale=1280:800,format=rgba,colorkey=0xff00ff:0.30:0.0[ov];[ui][ov]overlay=0:0",
+         "-vf", "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=black",
          "-r", str(fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
 
 
@@ -117,6 +128,7 @@ def main() -> int:
     if args.before_ms <= 0 or args.after_ms <= 0 or args.fps <= 0:
         raise SystemExit("motion-receipt: hold durations and fps must be positive")
     frames = sorted(args.frames.glob("frame-*.jpg"))
+    validate_frame_sequence(frames)
     first, last = first_last(frames)
     event = json.loads(args.metadata.read_text(encoding="utf-8"))
     before = event.get("before_state_id") or {}
@@ -128,23 +140,38 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="cmux-motion-receipt-") as scratch_name:
         scratch = Path(scratch_name)
-        before_svg = scratch / "before.svg"
-        transition_svg = scratch / "transition.svg"
-        after_svg = scratch / "after.svg"
-        overlay_svg(before_svg, "BEFORE  ·  real UI", f"ws {short(before.get('selected', [''])[0])} · pane {short(before_panes[0])}", "t=0ms")
-        overlay_svg(transition_svg, "TRANSITION  ·  splitRight", f"pane {short(before_panes[0])}→{short(after_panes[-1])} · {len(before_panes)}→{len(after_panes)}", "recorded")
-        overlay_svg(after_svg, "AFTER  ·  real UI", f"pane {short(before_panes[0])}→{short(after_panes[-1])}", "t=3,400ms")
-        before_png = rasterize(before_svg, scratch)
-        transition_png = rasterize(transition_svg, scratch)
-        after_png = rasterize(after_svg, scratch)
+        transition_ms = len(frames) / args.fps * 1000
+        after_start_ms = args.before_ms + transition_ms
+        total_ms = after_start_ms + args.after_ms
         before_mp4, transition_mp4, after_mp4 = (scratch / name for name in ("before.mp4", "transition.mp4", "after.mp4"))
-        encode_hold(first, before_png, args.before_ms / 1000, before_mp4, args.fps)
-        encode_transition(args.frames, transition_png, len(frames), transition_mp4, args.fps)
-        encode_hold(last, after_png, args.after_ms / 1000, after_mp4, args.fps)
+        encode_hold(first, args.before_ms / 1000, before_mp4, args.fps)
+        encode_transition(args.frames, len(frames), transition_mp4, args.fps)
+        encode_hold(last, args.after_ms / 1000, after_mp4, args.fps)
         concat = scratch / "concat.txt"
         concat.write_text("\n".join(f"file '{p}'" for p in (before_mp4, transition_mp4, after_mp4)) + "\n")
-        run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(concat), "-c", "copy", "-movflags", "+faststart", str(args.out)])
+        # Do not stream-copy the three independently encoded segments. Their
+        # time bases start at different offsets, and concat demuxer + ``-c
+        # copy`` can discard the final segment (the exact failure this receipt
+        # guard is meant to catch). Re-encode through the concat filter so the
+        # after hold is part of one continuous timeline.
+        run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+             "-i", str(before_mp4), "-i", str(transition_mp4), "-i", str(after_mp4),
+             "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0,format=yuv420p[v]",
+             "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-movflags", "+faststart", str(args.out)])
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                            "format=duration:stream=nb_frames", "-of", "json", str(args.out)],
+                           capture_output=True, text=True, check=False)
+    if probe.returncode:
+        raise SystemExit("motion-receipt: ffprobe could not inspect output")
+    inspected = json.loads(probe.stdout)
+    actual_duration = float((inspected.get("format") or {}).get("duration") or 0)
+    actual_frames = int(((inspected.get("streams") or [{}])[0]).get("nb_frames") or 0)
+    expected_duration = (args.before_ms + len(frames) / args.fps * 1000 + args.after_ms) / 1000
+    expected_frames = round(expected_duration * args.fps)
+    if actual_frames < expected_frames - 1 or abs(actual_duration - expected_duration) > 1 / args.fps:
+        raise SystemExit(f"motion-receipt: output shortened: expected={expected_duration:.3f}s/{expected_frames}f "
+                         f"actual={actual_duration:.3f}s/{actual_frames}f")
     receipt = {
         "source_head": args.head,
         "action": event.get("action", "unknown"),
@@ -153,6 +180,10 @@ def main() -> int:
         "transition_frames": len(frames),
         "transition_fps": args.fps,
         "after_hold_ms": args.after_ms,
+        "after_start_ms": args.before_ms + len(frames) / args.fps * 1000,
+        "labels": "sidecar-only; video intentionally contains clean app pixels",
+        "output_duration_s": actual_duration,
+        "output_frames": actual_frames,
         "before_state_id": before,
         "after_state_id": after,
         "first_frame": first.name,
