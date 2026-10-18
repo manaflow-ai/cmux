@@ -90,8 +90,14 @@ struct TabStripMove {
             }
             let size = layer.bounds.size
             var ds = CGSize(width: old.size.width - size.width, height: old.size.height - size.height)
-            // The start's own move (not its scroll part, which a wheel may end alone) is taken off the width.
-            if index == 0, pinsEnd { ds.width = -dp.x }
+            // The start's move is taken off the width, its scroll part under the scroll key, so a wheel
+            // that ends the scroll part ends both and the end stays put.
+            if index == 0, pinsEnd {
+                ds.width = -dp.x
+                if abs(scrolled) > 0.01 {
+                    add(motion.additive("bounds.size.width", from: NSNumber(value: Double(-scrolled)), to: NSNumber(value: 0)), to: layer, as: "size.scroll")
+                }
+            }
             if abs(ds.width) > 0.01 || abs(ds.height) > 0.01 {
                 add(move.additive("bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero)), to: layer, as: "size")
                 moved = true

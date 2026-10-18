@@ -49,11 +49,12 @@ public nonisolated struct WindowFrame: Sendable {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
             guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
             let at = elapsed(since: start)
-            let kept = crop.flatMap { unit in
+            // A frame the crop cannot cut is dropped, so every frame of a strip has one size.
+            let kept = crop.map { unit in
                 image.cropping(to: CGRect(x: unit.minX * Double(image.width), y: unit.minY * Double(image.height),
                                           width: unit.width * Double(image.width), height: unit.height * Double(image.height)).integral)
             } ?? image
-            if let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
+            if let kept, let frame = WindowFrame(kept, scale: scale, at: at) { frames.append(frame) }
         }
         return frames
     }
