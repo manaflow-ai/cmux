@@ -10,7 +10,7 @@ import migration2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw
 import { hashApiKey, generateApiKey } from "../../src/auth/credentials.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, sqlStoresLayer, type OwnedResource } from "../../src/db/stores.ts";
-import { newApiKeyId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
+import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
@@ -213,7 +213,7 @@ describe("S2 ownership queries", () => {
   });
 
   it("intersects creators with tenant, live rows, labels, allowlist and keyset before the limit", async () => {
-    const ids = Array.from({ length: 8 }, () => newVmId());
+    const ids = Array.from({ length: 8 }, (_, index) => index === 7 ? newSnapshotId() : newVmId());
     for (const [index, cmuxId] of ids.entries()) {
       await record(row({
         cmuxId, createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)),

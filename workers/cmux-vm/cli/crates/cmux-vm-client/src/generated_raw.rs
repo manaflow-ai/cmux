@@ -6571,6 +6571,53 @@ pub mod types {
                 })
         }
     }
+    ///Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum SnapshotsListSnapshotsCreatedBy {
+        #[serde(rename = "caller")]
+        Caller,
+    }
+    impl ::std::fmt::Display for SnapshotsListSnapshotsCreatedBy {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Caller => f.write_str("caller"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsListSnapshotsCreatedBy {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "caller" => Ok(Self::Caller),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsListSnapshotsCreatedBy {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsListSnapshotsCreatedBy {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
     ///a string at most 512 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -8275,6 +8322,53 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
+        }
+    }
+    ///Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmsListVmsCreatedBy {
+        #[serde(rename = "caller")]
+        Caller,
+    }
+    impl ::std::fmt::Display for VmsListVmsCreatedBy {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Caller => f.write_str("caller"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmsListVmsCreatedBy {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "caller" => Ok(Self::Caller),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsListVmsCreatedBy {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsListVmsCreatedBy {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
         }
     }
     ///a string at most 512 character(s) long
@@ -10198,6 +10292,7 @@ impl Client {
     Sends a `GET` request to `/v1/snapshots`
 
     Arguments:
+    - `created_by`: Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.
     - `cursor`: a string at most 512 character(s) long
     - `labels`: a string at most 2048 character(s) long
     - `limit`: a string to be decoded into a number
@@ -10206,6 +10301,7 @@ impl Client {
     */
     pub async fn snapshots_list_snapshots<'a>(
         &'a self,
+        created_by: Option<types::SnapshotsListSnapshotsCreatedBy>,
         cursor: Option<&'a types::SnapshotsListSnapshotsCursor>,
         labels: Option<&'a types::SnapshotsListSnapshotsLabels>,
         limit: Option<&'a str>,
@@ -10225,6 +10321,10 @@ impl Client {
         let mut request = self
             .client
             .get(url)
+            .query(&progenitor_client::QueryParam::new(
+                "createdBy",
+                &created_by,
+            ))
             .query(&progenitor_client::QueryParam::new("cursor", &cursor))
             .query(&progenitor_client::QueryParam::new("labels", &labels))
             .query(&progenitor_client::QueryParam::new("limit", &limit))
@@ -10444,6 +10544,7 @@ impl Client {
     Sends a `GET` request to `/v1/vms`
 
     Arguments:
+    - `created_by`: Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.
     - `cursor`: a string at most 512 character(s) long
     - `label`: `key=value`; repeat for several. Keeps only VMs that carry every given label.
     - `limit`: a string to be decoded into a number
@@ -10452,6 +10553,7 @@ impl Client {
     */
     pub async fn vms_list_vms<'a>(
         &'a self,
+        created_by: Option<types::VmsListVmsCreatedBy>,
         cursor: Option<&'a types::VmsListVmsCursor>,
         label: Option<&'a ::std::vec::Vec<types::VmsListVmsLabelItem>>,
         limit: Option<&'a str>,
@@ -10471,6 +10573,10 @@ impl Client {
         let mut request = self
             .client
             .get(url)
+            .query(&progenitor_client::QueryParam::new(
+                "createdBy",
+                &created_by,
+            ))
             .query(&progenitor_client::QueryParam::new("cursor", &cursor))
             .query(&progenitor_client::QueryParam::new("label", &label))
             .query(&progenitor_client::QueryParam::new("limit", &limit))
