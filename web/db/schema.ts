@@ -20,7 +20,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle", "huge-blue"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
@@ -3142,3 +3142,16 @@ export const catalogVersions = pgTable(
   },
   (table) => [index("catalog_versions_published_at_idx").on(table.publishedAt.desc())],
 );
+
+/** Opaque, rotating internal Huge Blue attach capabilities. Raw tokens never persist. */
+export const hugeBlueAttachTokens = pgTable("huge_blue_attach_tokens", {
+  tokenHash: text("token_hash").primaryKey(),
+  runtimeId: uuid("runtime_id").notNull().references(() => persistentWorkspaces.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  hostId: text("host_id").notNull(),
+  session: text("session").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("huge_blue_attach_tokens_runtime_idx").on(table.runtimeId)]);

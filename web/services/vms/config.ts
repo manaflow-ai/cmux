@@ -38,6 +38,8 @@ export function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
+    case "huge-blue":
+      return "CMUX_VM_HUGE_BLUE_ENABLED";
     default:
       return assertNever(provider);
   }

@@ -6,6 +6,8 @@ import {
 import {
   persistentWorkspaceService,
   PersistentWorkspaceError,
+  isPersistentWorkspaceProviderId,
+  type PersistentWorkspaceProviderId,
 } from "../../../services/vms/persistentWorkspace";
 import { requestScopedWorkspaceServiceFor } from "../../../services/runtimeComposition";
 import type { PersistentWorkspaceProviderInput } from "../../../services/vms/persistentWorkspace";
@@ -46,6 +48,11 @@ function providerInputFrom(value: unknown): PersistentWorkspaceProviderInput | u
   };
 }
 
+function providerFrom(value: unknown): PersistentWorkspaceProviderId | null | undefined {
+  if (value === undefined) return undefined;
+  return isPersistentWorkspaceProviderId(value) ? value : null;
+}
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -58,18 +65,21 @@ export async function POST(request: Request): Promise<Response> {
       let body: Record<string, unknown> | null = null;
       try { body = objectBody(await request.json()); } catch { /* malformed input handled below */ }
       if (!body) return jsonResponse({ error: "workspace_invalid_request", message: "Workspace body must be a JSON object." }, 400);
+      const provider = providerFrom(body.provider);
+      if (provider === null) return jsonResponse({ error: "workspace_provider_invalid", message: "provider must be freestyle or huge-blue." }, 400);
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
-      const service = persistentWorkspaceService() ?? requestScopedWorkspaceServiceFor({
-        userId: user.id,
-        entitlements: scope.entitlements,
-      });
+      const service = persistentWorkspaceService() ?? requestScopedWorkspaceServiceFor(
+        { userId: user.id, entitlements: scope.entitlements },
+        provider,
+      );
       if (!service) return jsonResponse({ error: "workspace_unavailable", message: "Persistent workspace provisioning is not configured." }, 503);
       try {
         const workspace = await service.create({
           tenantId: scope.entitlements.billingTeamId ?? user.billingTeamId,
           ownerId: user.id,
           idempotencyKey,
+          ...(provider !== undefined ? { provider } : {}),
           ...(typeof body.name === "string" ? { workspaceName: body.name } : {}),
           providerInput: providerInputFrom(body.providerInput ?? body),
         });

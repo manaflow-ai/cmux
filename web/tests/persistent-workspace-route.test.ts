@@ -115,4 +115,44 @@ describe("persistent workspace routes", () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({ lifecycle: "running", provider: "freestyle" });
   });
+
+  test("create route passes an explicit Huge Blue provider through authenticated composition", async () => {
+    configurePersistentWorkspaceService(null);
+    const rows = new Map<string, any>();
+    let selectedProvider: unknown;
+    configureRequestScopedWorkspaceInfrastructure({
+      workspaceStore: {
+        async createRuntime({ record }) {
+          rows.set(record.runtimeId, record);
+          return { record, created: true };
+        },
+        async getRuntime({ runtimeId }) { return rows.get(runtimeId) ?? null; },
+        async updateRuntime({ runtimeId, patch }) {
+          const next = { ...rows.get(runtimeId), ...patch, version: (rows.get(runtimeId)?.version ?? 1) + 1 };
+          rows.set(runtimeId, next);
+          return next;
+        },
+      },
+      providerFactory: (_context, provider) => {
+        selectedProvider = provider;
+        return {
+          providerId: "huge-blue",
+          async create() { return { providerVmId: "huge-blue-staging", providerWorkspaceId: "workspace-scoped" }; },
+          async resume() {},
+          async suspend() {},
+        };
+      },
+    });
+    const response = await collectionRoute.POST(responseRequest("/api/workspaces", { name: "huge-blue", provider: "huge-blue" }, { "idempotency-key": "huge-blue-key" }));
+    expect(response.status).toBe(201);
+    expect(selectedProvider).toBe("huge-blue");
+    expect(await response.json()).toMatchObject({ lifecycle: "running", provider: "huge-blue" });
+  });
+
+  test("create route rejects an unknown provider before composition", async () => {
+    configurePersistentWorkspaceService(null);
+    const response = await collectionRoute.POST(responseRequest("/api/workspaces", { provider: "unknown" }, { "idempotency-key": "unknown-provider-key" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "workspace_provider_invalid" });
+  });
 });
