@@ -1978,25 +1978,38 @@ export function VirtualTranscript({
   // reader's row in place as each page lands.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
+  const olderLoadInFlight = useRef(false);
+  const olderLoadSession = useRef(sessionKey);
+  const olderLoadGeneration = useRef(0);
   useEffect(() => {
-    const node = ref.current;
-    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
+    if (olderLoadSession.current !== sessionKey) {
+      olderLoadSession.current = sessionKey;
+      olderLoadGeneration.current += 1;
+      olderLoadInFlight.current = false;
       olderLoadRequested.current = undefined;
-      return;
     }
+    const node = ref.current;
+    if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) return;
     if (node.scrollTop >= node.clientHeight * 2) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
       return;
     }
-    if (olderLoadRequested.current === olderLoadKey) return;
+    if (olderLoadInFlight.current || olderLoadRequested.current === olderLoadKey) return;
     olderLoadRequested.current = olderLoadKey;
-    onLoadOlder().catch(() => {
-      // Keep transient transport failures retryable without turning every render into a request.
-      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
-    });
-  }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+    olderLoadInFlight.current = true;
+    const generation = olderLoadGeneration.current;
+    void Promise.resolve()
+      .then(onLoadOlder)
+      .catch(() => {
+        // Keep transient transport failures retryable without turning every render into a request.
+        if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
+      })
+      .finally(() => {
+        if (olderLoadGeneration.current === generation) olderLoadInFlight.current = false;
+      });
+  }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top, sessionKey]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
