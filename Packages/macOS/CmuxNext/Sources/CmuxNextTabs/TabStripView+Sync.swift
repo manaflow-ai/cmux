@@ -35,7 +35,7 @@ extension TabStripView {
         } else {
             // Same geometry: only what the selected tab draws over or hides changes.
             TabSeparatorVisibility.apply(to: self)
-            TabOcclusion.apply(cells: cells, selected: selected, in: tabsClip.layer, band: scrollMapping.band)
+            TabOcclusion.apply(cells: cells, selected: selected, in: tabsClip.layer, band: scrollMapping.band, skipping: { self.occlusionMoves[$0] != nil })
         }
         if let selected { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
@@ -108,8 +108,7 @@ extension TabStripView {
                 dying.insert(id)
                 let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
                 if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
-                motion[id]?.use(.tabClose)
-                motion[id]?.width.target = metrics.chrome.closeEndWidth
+                placed[id]?.width = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
                 removeTab(id)
@@ -120,13 +119,16 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
+                goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
-            } else if let from = handed[item.id], let place = motion[from] {
+            } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
-                motion[item.id] = place
+                placed[item.id] = place
+                // It shows where that cell shows now; `relayout` moves it on from there.
+                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -185,7 +187,7 @@ extension TabStripView {
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
         cells[id] = cell
         // Placed by `relayout` (Chrome: an opening tab never fades).
-        motion[id] = TabMotion(x: 0, width: 0, alpha: 1)
+        placed[id] = TabPlace(x: 0, width: 0)
         return id
     }
 
@@ -219,10 +221,18 @@ extension TabStripView {
         cells[id]?.layer.removeFromSuperlayer()
         if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
-        motion[id] = nil
-        dying.remove(id)
+        forgetPlace(id)
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
+    }
+
+    /// Drops `id`'s place and the moves that tracked it.
+    func forgetPlace(_ id: TabID) {
+        placed[id] = nil
+        dying.remove(id)
+        goesAt[id] = nil
+        occlusionMoves[id] = nil
+        clipMoves[id] = nil
     }
 }

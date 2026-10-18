@@ -164,9 +164,28 @@ function markReadyWhenStill(): void {
     clearTimeout(timer);
     timer = window.setTimeout(done, performance.now() - started > 4000 ? 0 : 250);
   };
+  const waitForImages = async () => {
+    const pending = [...document.images]
+      .filter((image) => !image.complete || image.naturalWidth === 0)
+      .map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            const finish = () => {
+              image.removeEventListener("load", finish);
+              image.removeEventListener("error", finish);
+              resolve();
+            };
+            image.addEventListener("load", finish, { once: true });
+            image.addEventListener("error", finish, { once: true });
+            window.setTimeout(finish, 2000);
+          }),
+      );
+    await Promise.all(pending);
+    arm();
+  };
   const observer = new MutationObserver(arm);
   observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
-  void document.fonts.ready.then(arm);
+  void document.fonts.ready.then(waitForImages);
 }
 
 async function mount(): Promise<void> {

@@ -44,6 +44,22 @@
   --acpmux-strip-pad: 1.5px;
 }
 .acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
+.acpmux-composer > .acpmux-composer-strip-placeholder {
+  /* The location strip leaves after the first send, but its former height remains reserved so the
+     bottom-anchored composer controls do not jump while the first transcript rows mount. A queue
+     replaces this slot below. */
+  flex: none;
+  height: 46px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip-placeholder { display: none; }
+:root[data-top-strip="bump"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
 .acpmux-composer > .acpmux-composer-strip::after {
   content: "";
   position: absolute;

@@ -142,7 +142,8 @@ step). It checks sections 2.5 and 2.6 (which include 2.1) on `InputObservationBu
 A violation seen once is checked again one settle later; only a violation present in both
 checks is reported, once until it clears. The check walks every window and pane, so it runs by
 itself only in debug builds; in any build `debug.desync` (`check`, `report: true`) runs it on
-demand.
+demand. Release builds keep the automatic check off (lead decision 2026-10-18, perf-focus cx-8w027.2):
+no scan of every window per input in a release build.
 
 A report is written to `~/Library/Logs/cmux-next/<tag or release>/desync/desync-<UTC>-<n>.json`
 (newest 50 kept, written off the main thread): the violations, the observation, the last 512

@@ -245,9 +245,15 @@ function Lanes({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
                       className="lane"
                       data-lane={lane.id}
                       data-state={lane.state}
+                      data-workspace={lane.workspaceId ?? undefined}
+                      data-priority-revision={
+                        state.priorityChangedSessionId === lane.id ? state.priorityRevision : undefined
+                      }
                       /* tooltip-allow: the lane shows its title; the tooltip is when it started */
                       title={lane.since ? new Date(lane.since).toLocaleString() : undefined}
-                      onClick={() => dispatch({ type: "jump", id: lane.id })}
+                      onClick={() =>
+                        dispatch({ type: "jump", id: lane.id, workspaceId: lane.workspaceId ?? undefined })
+                      }
                     >
                       <span className="lane-dot" />
                       <span className="lane-title">{lane.title}</span>

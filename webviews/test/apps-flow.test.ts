@@ -155,8 +155,10 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         const page = await open(engine, "empty");
         try {
           expect(await page.locator(".apps-card").count()).toBe(0);
+          await page.locator(".apps-state-empty").waitFor();
           expect(await page.locator(".apps-state-empty").innerText()).toContain("No apps match");
           await page.getByRole("tab", { name: "Installed" }).click();
+          await page.locator(".apps-empty").waitFor();
           expect(await page.locator(".apps-empty").innerText()).toContain("No apps installed");
         } finally {
           await page.close();

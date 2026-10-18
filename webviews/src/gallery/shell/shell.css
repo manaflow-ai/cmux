@@ -1,4 +1,4 @@
-/* The gallery shell's own chrome: neutral, so the stages carry the theme. */
+/* The gallery shell follows the selected app theme; stages use the same environment separately. */
 :root {
   color-scheme: light dark;
   --g-bg: light-dark(#f4f4f2, #161616);
@@ -46,6 +46,46 @@ body {
   color: var(--g-text);
   font: inherit;
 }
+.gallery-focus-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1px 6px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--g-current) 72%, transparent);
+}
+.gallery-focus-label {
+  grid-column: 1 / -1;
+  color: var(--g-muted);
+  font-size: var(--text-caption);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.gallery-focus-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-detail);
+}
+.gallery-focus-toggle {
+  justify-self: end;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.gallery-focus-toggle:hover {
+  background: var(--g-hover);
+}
 .gallery-browse-link {
   display: block;
   margin: 8px 2px 0;
@@ -86,6 +126,8 @@ body {
 }
 .gallery-entry {
   padding: 4px 10px 8px;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 56px;
 }
 .gallery-entry-title {
   display: flex;
@@ -177,6 +219,33 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.gallery-header-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.gallery-header-links a,
+.gallery-header-links button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-decoration: none;
+  cursor: pointer;
+}
+.gallery-header-links a:hover,
+.gallery-header-links button:hover {
+  background: var(--g-hover);
+  border-color: var(--g-muted);
 }
 .gallery-controls {
   display: flex;
@@ -499,6 +568,13 @@ body {
   flex: 0 0 auto;
   color: var(--g-muted);
   font-size: 11px;
+}
+.gallery-browse-card-note {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--g-muted);
+  font-size: var(--text-detail);
+  line-height: 1.4;
 }
 .gallery-browse-variants {
   display: flex;

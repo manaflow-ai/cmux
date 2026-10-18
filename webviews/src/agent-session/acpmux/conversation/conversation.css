@@ -755,6 +755,9 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+  /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
+     each streamed token compete with that correction and produces the one-pixel shake at rest. */
+  overflow-anchor: none;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
@@ -1669,13 +1672,6 @@ pre.cv-math-source {
   object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
-}
-/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
- * opacity so the image cannot introduce a second layout shift during decode. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-img--enter {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
 }
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {

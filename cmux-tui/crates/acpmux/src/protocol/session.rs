@@ -83,9 +83,28 @@ pub struct SessionSummary {
     pub indicator: Option<Indicator>,
     /// What it is doing and since when (`views::lane`); null for a closed session.
     pub lane: Option<Lane>,
+    /// An optional controller/daemon lifecycle receipt. It is absent until a
+    /// producer supplies a validated receipt; clients must not infer one from
+    /// status or placement fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_receipt: Option<LifecycleReceipt>,
     /// The peer daemon a remote session runs on; absent for this daemon's own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+}
+
+/// A durable lifecycle fact supplied by an explicit producer. This contract
+/// is intentionally optional and opaque to the session sidebar until a
+/// producer wires it to a real controller receipt.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct LifecycleReceipt {
+    pub id: String,
+    #[schemars(range(min = 1))]
+    pub sequence: u64,
+    pub state: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

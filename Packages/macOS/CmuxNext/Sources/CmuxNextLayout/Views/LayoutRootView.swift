@@ -342,7 +342,7 @@ public final class LayoutRootView: NSView {
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        if window != nil, let active = model.activeScreenID, let view = screenViews[active] {
+        if isLive, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
         }
@@ -365,8 +365,13 @@ public final class LayoutRootView: NSView {
 
     // MARK: Layout and window
 
+    /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
+    /// workspace only; a parked one keeps its frame until it shows again.
+    public static var layoutPasses: UInt64 = 0
+
     override public func layout() {
         super.layout()
+        Self.layoutPasses &+= 1
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
@@ -391,33 +396,56 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() || moved { setNeedsOverlaySync() }
     }
 
+    /// In a window and not hidden: the only state in which this root takes events, runs frames,
+    /// lends its overlay plane to the window and reports visible panes. A parked workspace stays in
+    /// its window, hidden (`WindowRootView.show`), so hiding is what parks it, as leaving did.
+    public private(set) var isLive = false
+
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
-        guard let planeHost, newWindow !== window else { return }
-        planeHost.releasePlane(overlayPlane)
-        self.planeHost = nil
-        returnPlaneHome()
+        if newWindow !== window { setLive(false) }
     }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let host = window as? any OverlayPlaneHosting, planeHost !== host {
-            planeHost = host
-            host.adoptPlane(overlayPlane)
-        }
+        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        setLive(false)
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+    }
+
+    /// One transition per park or show: O(1) registrations, then one visibility report (the panes
+    /// that hide or show), never per frame or per event.
+    private func setLive(_ live: Bool) {
+        guard live != isLive else { return }
+        isLive = live
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
         }
         driver.detach()
-        observeKeyWindow()
-        guard window != nil else {
-            updateVisibility()
-            return
+        if !live, let planeHost {
+            planeHost.releasePlane(overlayPlane)
+            self.planeHost = nil
+            returnPlaneHome()
         }
-        driver.attach(to: self)
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            self?.handleMonitored(event) ?? event
+        observeKeyWindow()
+        if live {
+            if let host = window as? any OverlayPlaneHosting, planeHost !== host {
+                planeHost = host
+                host.adoptPlane(overlayPlane)
+            }
+            driver.attach(to: self)
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                self?.handleMonitored(event) ?? event
+            }
         }
         updateVisibility()
     }

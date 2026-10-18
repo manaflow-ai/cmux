@@ -1,7 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
-use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
@@ -261,17 +260,10 @@ impl Hub {
             // Set from the summary's own fields by `decide`.
             indicator: None,
             lane: None,
+            lifecycle_receipt: None,
             peer: None,
         };
-        let receipt = SessionReceipt::new(
-            LOCAL_HOST_ID,
-            m.id.clone(),
-            m.agent_session_id.clone(),
-            self.started_at,
-        );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-        summary["sessionReceipt"] = receipt.to_value();
         decide(&mut summary);
         summary
     }

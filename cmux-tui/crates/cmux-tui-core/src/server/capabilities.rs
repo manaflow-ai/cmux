@@ -266,6 +266,7 @@ pub(super) fn advertised_capabilities(
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
+        conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,

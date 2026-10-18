@@ -46,6 +46,15 @@ export type AcpmuxSessionEntry = {
   turnCount?: number;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
+  lifecycleReceipt?: LifecycleReceipt;
+};
+
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  state: string;
+  source: string;
 };
 
 export type SessionPullRequest = {
@@ -145,7 +154,19 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     worked: session.lastTurn?.status === "completed",
+    lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
   };
+}
+
+function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const sequence = raw.sequence;
+  if (typeof raw.id !== "string" || !raw.id) return undefined;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) return undefined;
+  if (typeof raw.state !== "string" || !raw.state) return undefined;
+  if (typeof raw.source !== "string" || !raw.source) return undefined;
+  return { id: raw.id, sequence, state: raw.state, source: raw.source };
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {

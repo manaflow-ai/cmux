@@ -326,6 +326,10 @@ export function Composer({
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
+  // Once a new chat has shown its location strip, keep its layout slot through the first send.
+  // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
+  const locationSlotSession = useRef<string | undefined>(undefined);
+  const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
@@ -947,10 +951,28 @@ export function Composer({
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row. Only a new chat has it, before
-  // its first send (locationRow.ts): a started chat cannot change folder or machine, so it draws
-  // nothing there and the queue and the card close up (the strip's rules are `:has()` on it).
-  const context = showsLocationRow(snapshot) && (
+  // composer location strip), so the card holds one controls row. Only a new chat has the visible
+  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
+  // composer is bottom-anchored, so removing the slot in the same render would move every control
+  // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
+  // becomes the top strip.
+  const locationVisible = showsLocationRow(snapshot);
+  const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
+  // Do not let that transient visible strip reserve space for a different, already-started chat.
+  // A slot is meaningful only after the visible strip was observed for a known session identity.
+  const locationWasVisible =
+    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
+  if (locationVisible && locationKey !== undefined) {
+    locationSlotSession.current = locationKey;
+    locationSlotWasShown.current = true;
+  } else if (!locationWasVisible) {
+    locationSlotSession.current = undefined;
+    locationSlotWasShown.current = false;
+  }
+  const keepLocationSlot = !locationVisible && locationWasVisible && snapshot.queue.length === 0;
+  const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
@@ -970,7 +992,9 @@ export function Composer({
       localName={localName}
       onNewChat={onNewChat}
     />
-  );
+  ) : keepLocationSlot ? (
+    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+  ) : null;
   return (
     <form
       ref={form}
