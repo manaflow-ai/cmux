@@ -117,7 +117,7 @@ import Testing
         for mascot in ChiefPetMascot.allCases {
             #expect(mascot.image != nil, "\(mascot.rawValue) (\(mascot.resource))")
         }
-        #expect(ChiefPetMascot.standard == .orb, "the Chief Dock's default")
+        #expect(ChiefPetMascot.initial == .orb, "the Chief Dock's default")
         #expect(ChiefPetMascot.orbSpark.resource == "ChiefMascotOrbSpark")
     }
 

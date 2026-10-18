@@ -31,7 +31,7 @@ public final class ChiefPetController {
     private var expiries: [UInt64: DemandTimer] = [:]
     private var watch: Task<Void, Never>?
     private var isOn = false
-    private(set) var mascot = ChiefPetMascot.standard
+    private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
 
@@ -45,20 +45,16 @@ public final class ChiefPetController {
 
     var isShown: Bool { panel?.isVisible == true }
 
-    /// The notification service's hooks: arrivals and reads reach the feed.
-    public var hooks: ChiefPetHooks {
-        ChiefPetHooks(alerted: { [weak self] in self?.arrive($0) }, read: { [weak self] in self?.read(tab: $0) })
-    }
 
     /// Follows `enabled` (`home.chiefPetEnabled`) and `mascot` (`home.chiefPetMascot`, a
     /// `ChiefPetMascot` id), read under observation: shows the pet when it turns on, hides it when
     /// it turns off, and draws the chosen character.
     public func start(enabled: @escaping @MainActor @Sendable () -> Bool,
-                      mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.standard.rawValue }) {
+                      mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.initial.rawValue }) {
         // task-owner: lives as long as the app services; event-driven (Observation)
         watch = Task { [weak self] in
             for await (on, id) in ObservationStream({ (enabled(), mascot()) }) {
-                self?.setMascot(ChiefPetMascot(rawValue: id) ?? .standard)
+                self?.setMascot(ChiefPetMascot(rawValue: id) ?? .initial)
                 self?.sync(on)
             }
         }
@@ -87,14 +83,25 @@ public final class ChiefPetController {
         }
     }
 
-    func arrive(_ notice: ChiefPetNotice) {
+    /// An agent event that alerts here (the notification service's arrival).
+    public func arrive(_ notice: ChiefPetNotice) {
         guard isOn else { return }
         let change = feed.arrive(notice)
-        if !notice.kind.waits { scheduleExpiry(notice.id) }
+        // A finished notice that shows (newly, or as the newer id of the same content) leaves on its own.
+        if !notice.kind.waits, feed.notices.contains(where: { $0.id == notice.id }) { scheduleExpiry(notice.id) }
         render(animated: change == .arrived)
     }
 
-    func read(tab: String) {
+    /// Keeps only the notices whose tab `isUnread` says still holds one (a tab read anywhere else).
+    public func keepNotices(_ isUnread: (_ tab: String) -> Bool) {
+        let gone = Set(feed.notices.map(\.tab).filter { !isUnread($0) })
+        guard !gone.isEmpty else { return }
+        for tab in gone { feed.read(tab: tab) }
+        render(animated: false)
+    }
+
+    /// `tab` was read (opened, answered, dismissed): its notice goes.
+    public func read(tab: String) {
         guard feed.notices.contains(where: { $0.tab == tab }) else { return }
         feed.read(tab: tab)
         render(animated: false)
@@ -149,7 +156,7 @@ public final class ChiefPetController {
     private func panelOnce() -> ChiefPetPanel {
         if let panel { return panel }
         let made = makePanel()
-        if mascot != .standard { made.pet.image = mascot.image }
+        if mascot != .initial { made.pet.image = mascot.image }
         made.onClick = { [weak self] in self?.toggleReply() }
         // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in

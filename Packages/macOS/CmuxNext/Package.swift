@@ -259,7 +259,7 @@ let package = Package(
         // and feed) and the floating chat's per-display frames. Wiring stays in the App.
         .target(
             name: "CmuxNextFloating",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -267,7 +267,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
-            dependencies: ["CmuxNextFloating", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextFloating"],
             swiftSettings: uiSwiftSettings
         ),
         // The sidebar's Now Playing card source (cx-ouoxo): the playing browser tab,

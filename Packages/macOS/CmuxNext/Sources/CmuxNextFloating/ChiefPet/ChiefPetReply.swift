@@ -42,6 +42,15 @@ struct ChiefPetReply: Equatable {
         return trimmed.isEmpty ? .nothing : .send(target, trimmed)
     }
 
+    /// The same target across a refresh: the Chief, or a notice of the same tab (its id may be newer).
+    static func sameTarget(_ a: ChiefPetReplyTarget, _ b: ChiefPetReplyTarget) -> Bool {
+        switch (a, b) {
+        case (.chief, .chief): true
+        case (.notice(let x), .notice(let y)): x.tab == y.tab
+        default: false
+        }
+    }
+
     /// The field's placeholder for `target`.
     static func placeholder(_ target: ChiefPetReplyTarget) -> String {
         switch target {

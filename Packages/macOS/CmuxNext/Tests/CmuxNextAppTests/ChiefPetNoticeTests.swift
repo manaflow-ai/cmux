@@ -37,7 +37,7 @@ import Testing
             opened = { [weak self] target in
                 if case .notice(let notice) = target { self?.opened.append(notice.id) }
             }
-            service.chiefPet = controller.hooks
+            service.chiefPet = controller
             controller.sync(true)
         }
 
@@ -73,6 +73,18 @@ import Testing
         try harness.read(surface: 1)
         #expect(harness.titles == ["Codex finished"])
         #expect(harness.controller.panel?.pet.badge == 0)
+    }
+
+    @Test func noticeReadsAsTheBanner() throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        try harness.deliver(5, surface: 1, title: "Claude needs approval", level: "warning")
+        let notice = try #require(harness.controller.feed.front)
+        #expect(notice.title == "Claude needs approval")
+        #expect(notice.detail == "api-server", "no text, no subtitle: the workspace")
+        #expect(notice.kind == .needsYou)
+        #expect(notice.reply == .type, "a terminal takes a typed reply")
+        #expect(notice.surface == 1)
     }
 
     @Test func whatWouldNotAlertStaysOffThePet() throws {

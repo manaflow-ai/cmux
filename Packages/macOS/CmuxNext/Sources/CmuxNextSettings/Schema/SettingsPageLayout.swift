@@ -126,6 +126,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.

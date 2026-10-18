@@ -65,13 +65,23 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         targets.indices.contains(picker.indexOfSelectedItem) ? targets[picker.indexOfSelectedItem] : nil
     }
 
-    /// Lists `targets`, keeping the chosen one when it is still there, else the first.
+    /// Lists `targets`. The chosen one stays chosen while its tab is listed (a newer notice of the same
+    /// tab included); when it leaves, the box falls back to the Chief, never to another session. A
+    /// first list starts on its first target.
     func show(targets: [ChiefPetReplyTarget]) {
         let kept = target
         self.targets = targets
         picker.removeAllItems()
-        picker.addItems(withTitles: targets.map(ChiefPetReply.title))
-        if let kept, let index = targets.firstIndex(of: kept) { picker.selectItem(at: index) } else { picker.selectItem(at: 0) }
+        // Menu items, not addItems(withTitles:): two notices with the same title must stay two items.
+        for title in targets.map(ChiefPetReply.title) {
+            picker.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
+        }
+        if let kept {
+            let index = targets.firstIndex { ChiefPetReply.sameTarget($0, kept) } ?? targets.firstIndex(of: .chief)
+            picker.selectItem(at: index ?? 0)
+        } else {
+            picker.selectItem(at: 0)
+        }
         pick()
     }
 
@@ -115,6 +125,22 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
 
     override func cancelOperation(_ sender: Any?) {
         onClose?()
+    }
+
+    /// ⌘Return opens the target. The field gets every other key first; of the rest, editing keys go on
+    /// to the Edit menu and other command keys stop here, since the main menu would act on the cmux
+    /// window behind (Close Tab, New Tab, Quit), as Start Agent's panel does.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        if flags == .command, event.keyCode == 36 || event.keyCode == 76 {
+            if let target { onSubmit?(target, field.stringValue, true) }
+            return true
+        }
+        if super.performKeyEquivalent(with: event) { return true }
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let editing = (flags == .command && ["a", "c", "v", "x", "z"].contains(key)) || (flags == [.command, .shift] && key == "z")
+        return flags.contains(.command) && !editing
     }
 
     override func resignKey() {

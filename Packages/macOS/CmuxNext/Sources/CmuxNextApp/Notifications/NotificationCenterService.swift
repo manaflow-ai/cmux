@@ -46,7 +46,7 @@ final class NotificationCenterService {
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
-    @ObservationIgnored var chiefPet: ChiefPetHooks?
+    @ObservationIgnored var chiefPet: ChiefPetController?
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
@@ -121,6 +121,7 @@ final class NotificationCenterService {
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
+                self?.dropReadChiefPetNotices()
             }
         })
     }
@@ -134,6 +135,7 @@ final class NotificationCenterService {
                 self.updateDockBadge(self.currentUnreadCount())
             }
         })
+        followChiefPet(settings)
     }
 
     /// The source of `tab`'s retained marker, from the daemon
@@ -235,7 +237,7 @@ final class NotificationCenterService {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
-        chiefPet?.read(tab.id)
+        chiefPet?.read(tab: tab.id)
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver

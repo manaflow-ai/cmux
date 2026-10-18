@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The floating chat (cx-b9qi): once a started chat stays in the panel, it

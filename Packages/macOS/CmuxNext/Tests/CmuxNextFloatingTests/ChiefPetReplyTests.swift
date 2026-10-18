@@ -32,6 +32,29 @@ import Testing
         #expect(ChiefPetReply.submit(.chief, text: "hi", command: true) == .open(.chief))
     }
 
+    @Test func twoNoticesWithOneTitleStayTwoTargets() {
+        let panel = ChiefPetReplyPanel()
+        let a = Self.notice(1, tab: "a", reply: .type), b = ChiefPetNotice(id: 2, tab: "b", surface: nil, title: a.title, detail: "", kind: .needsYou, reply: .type)
+        panel.show(targets: [.notice(a), .notice(b), .chief])
+        #expect(panel.picker.numberOfItems == 3)
+        panel.picker.selectItem(at: 2)
+        #expect(panel.target == .chief, "the menu index still lines up with the targets")
+    }
+
+    @Test func aChosenSessionThatLeavesFallsBackToTheChiefNotAnotherSession() {
+        let panel = ChiefPetReplyPanel()
+        let a = Self.notice(1, tab: "a", reply: .type), b = Self.notice(2, tab: "b", reply: .type)
+        panel.show(targets: [.notice(a), .notice(b), .chief])
+        panel.picker.selectItem(at: 1)
+        // b's tab got a newer notice: still b.
+        let b2 = Self.notice(3, tab: "b", reply: .type)
+        panel.show(targets: [.notice(b2), .notice(a), .chief])
+        #expect(panel.target == .notice(b2))
+        // b's tab was read: the Chief, never a.
+        panel.show(targets: [.notice(a), .chief])
+        #expect(panel.target == .chief)
+    }
+
     @Test func placeholderNamesWhereItGoes() {
         #expect(ChiefPetReply.placeholder(.chief) == "Message Chief")
         #expect(ChiefPetReply.placeholder(.notice(Self.notice(1, tab: "a", reply: .type))) == "Reply to Claude a")

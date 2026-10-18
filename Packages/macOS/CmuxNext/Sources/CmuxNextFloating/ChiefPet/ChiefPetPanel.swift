@@ -23,7 +23,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
 
-    public init(mascot: ChiefPetMascot = .standard, defaults: UserDefaults = .standard) {
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         super.init(

@@ -8,7 +8,6 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
-import CmuxNextFloating
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport
@@ -191,8 +190,6 @@ final class AppServices {
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
-    /// The Chief pet floating over every app (`home.chiefPetEnabled`).
-    private(set) lazy var chiefPet = makeChiefPet()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.

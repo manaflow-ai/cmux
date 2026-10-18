@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextDaemon
 @testable import CmuxNextFloating
 import Foundation
 import Testing
@@ -43,6 +42,13 @@ import Testing
         #expect(feed.attention == 2)
     }
 
+    @Test func aFinishedTurnBehindThreeThatWaitShowsNothingNew() {
+        var feed = ChiefPetFeed()
+        for (id, tab) in [(1, "a"), (2, "b"), (3, "c")] { feed.arrive(Self.notice(UInt64(id), tab: tab, kind: .needsYou)) }
+        #expect(feed.arrive(Self.notice(4, tab: "d")) == .unchanged, "the newcomer is the one dropped")
+        #expect(feed.notices.map(\.id) == [3, 2, 1])
+    }
+
     @Test func readAndExpiry() {
         var feed = ChiefPetFeed()
         feed.arrive(Self.notice(1, tab: "a", kind: .needsYou))
@@ -54,20 +60,6 @@ import Testing
         feed.read(tab: "a")
         #expect(feed.notices.isEmpty)
         #expect(feed.attention == 0)
-    }
-
-    @Test func noticeReadsAsTheBanner() throws {
-        let wire = #"{"notification":7,"title":"","subtitle":"","body":"Allow edit?\nsrc/main.rs","level":"warning","surface":1,"source":"agent"}"#
-        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
-        let notice = ChiefPetNotice(notification, tab: "t", tabTitle: "Claude", workspace: "api",
-                                                              programTitle: nil, body: notification.body)
-        #expect(notice.title == "Claude", "no title: the tab's")
-        #expect(notice.detail == "Allow edit?", "one line of the text")
-        #expect(notice.kind == .needsYou)
-        let bare = ChiefPetNotice(notification, tab: "t", tabTitle: "Claude", workspace: "api",
-                                                            programTitle: "Build failed", body: "")
-        #expect(bare.title == "Build failed")
-        #expect(bare.detail == "api", "no text: the workspace")
     }
 
     @Test func bubbleRedrawsOnlyWhenWhatItShowsChanges() {
@@ -131,5 +123,9 @@ import Testing
         controller.panel?.onExpand?()
         #expect(!controller.expanded)
         #expect(opened == 1)
+        // Tab "a" was read on another client: its notice and badge go.
+        controller.keepNotices { $0 != "a" }
+        #expect(controller.feed.notices.map(\.tab) == ["b"])
+        #expect(controller.panel?.pet.badge == 1)
     }
 }

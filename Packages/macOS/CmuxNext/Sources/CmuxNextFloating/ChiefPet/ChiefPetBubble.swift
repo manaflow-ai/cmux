@@ -122,6 +122,9 @@ final class ChiefPetBubbleView: NSView {
         capsuleIndex(at: convert(point, from: superview)) == nil ? nil : self
     }
 
+    /// Taken here, so the release comes back to this view (AppKit sends mouseUp to the view that took the press).
+    override func mouseDown(with event: NSEvent) {}
+
     override func mouseUp(with event: NSEvent) {
         guard let index = capsuleIndex(at: convert(event.locationInWindow, from: nil)) else { return }
         onOpen?(index)

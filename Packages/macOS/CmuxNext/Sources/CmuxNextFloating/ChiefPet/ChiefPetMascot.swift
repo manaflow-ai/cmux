@@ -13,7 +13,7 @@ public enum ChiefPetMascot: String, CaseIterable, Sendable {
     case moonBlue = "moon-blue"
     case fox
 
-    public static let standard = ChiefPetMascot.orb
+    public static let initial = ChiefPetMascot.orb
 
     /// The bundled PNG's name.
     var resource: String {

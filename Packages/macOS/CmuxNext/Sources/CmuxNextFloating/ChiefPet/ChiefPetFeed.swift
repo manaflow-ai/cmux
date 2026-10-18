@@ -1,8 +1,8 @@
-public import CmuxNextDaemon
 import Foundation
 
 /// One agent event the Chief pet shows above itself: the notification a tab
-/// holds unread, as its banner would read.
+/// holds unread, as its banner would read. The App maps the daemon's
+/// notification into it (feature UI modules never import CmuxNextDaemon).
 public struct ChiefPetNotice: Equatable, Identifiable {
     public enum Kind: Equatable {
         /// An agent asks for input or approval (a warning).
@@ -12,16 +12,8 @@ public struct ChiefPetNotice: Equatable, Identifiable {
         /// A turn finished, or any other notice (info).
         case done
 
-        init(_ level: NotificationLevel) {
-            switch level {
-            case .warning: self = .needsYou
-            case .error: self = .failed
-            case .info: self = .done
-            }
-        }
-
         /// Waits for the user: stays up until its tab is read, and counts on the badge.
-        var waits: Bool { self != .done }
+        public var waits: Bool { self != .done }
     }
 
     /// How the pet's reply box answers it.
@@ -34,20 +26,17 @@ public struct ChiefPetNotice: Equatable, Identifiable {
         case openTab
     }
 
-    /// The daemon's notification id.
+    /// The daemon's notification id, and the tab's surface (`SurfaceID`'s raw value).
     public let id: UInt64
     /// The tab that holds it; one notice per tab.
     public let tab: String
-    public let surface: SurfaceID?
+    public let surface: UInt64?
     public let title: String
     public let detail: String
     public let kind: Kind
     public var reply: Reply = .openTab
-    /// The agent chat's session, for `openChat`.
-    public var session: String?
 
-    public init(id: UInt64, tab: String, surface: SurfaceID?, title: String, detail: String, kind: Kind,
-                reply: Reply = .openTab, session: String? = nil) {
+    public init(id: UInt64, tab: String, surface: UInt64?, title: String, detail: String, kind: Kind, reply: Reply = .openTab) {
         self.id = id
         self.tab = tab
         self.surface = surface
@@ -55,18 +44,6 @@ public struct ChiefPetNotice: Equatable, Identifiable {
         self.detail = detail
         self.kind = kind
         self.reply = reply
-        self.session = session
-    }
-
-    /// The notice as the banner reads: the program's or poster's title (else the tab's), and
-    /// one line of its text (else the subtitle, else the workspace).
-    public init(_ notification: DaemonNotification, tab: String, tabTitle: String, workspace: String?, programTitle: String?, body: String,
-                reply: Reply = .openTab, session: String? = nil) {
-        let line = body.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        self.init(id: notification.notification.rawValue, tab: tab, surface: notification.surface,
-                  title: programTitle ?? (notification.title.isEmpty ? tabTitle : notification.title),
-                  detail: line.isEmpty ? (notification.shownSubtitle ?? workspace ?? "") : line, kind: Kind(notification.level),
-                  reply: reply, session: session)
     }
 
     /// What the bubble draws: the same content shown again is not a new arrival.
@@ -108,6 +85,8 @@ struct ChiefPetFeed: Equatable {
             // A notice that waits outlives a finished one past the limit.
             let drop = notices.lastIndex { !$0.kind.waits } ?? notices.count - 1
             notices.remove(at: drop)
+            // The newcomer itself was the one to go (a finished turn behind three that wait): nothing new shows.
+            if drop == 0 { return .unchanged }
         }
         return .arrived
     }
@@ -125,10 +104,4 @@ struct ChiefPetFeed: Equatable {
     mutating func clear() {
         notices.removeAll()
     }
-}
-
-/// Where the Chief pet hears agent events: what alerts on this Mac, and which tabs were read.
-public struct ChiefPetHooks {
-    public var alerted: @MainActor (ChiefPetNotice) -> Void
-    public var read: @MainActor (_ tab: String) -> Void
 }

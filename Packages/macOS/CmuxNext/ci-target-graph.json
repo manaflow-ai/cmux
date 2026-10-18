@@ -554,7 +554,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFloating",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
@@ -565,7 +564,6 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
-        "CmuxNextDaemon",
         "CmuxNextFloating"
       ],
       "packages": [],
