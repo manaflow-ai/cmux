@@ -234,7 +234,13 @@ def pr_mode(args: argparse.Namespace) -> int:
     labels = {label["name"] for label in pr.get("labels", [])}
     grade = classify(files, lines)
     missing = missing_evidence(grade.tier, pr.get("body") or "", commits)
-    waiver = waived_by(args.repo, args.number) if WAIVED_LABEL in labels else None
+    # Only consulted when evidence is missing; a lookup that fails reads as no waiver.
+    waiver = None
+    if missing and WAIVED_LABEL in labels:
+        try:
+            waiver = waived_by(args.repo, args.number)
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            waiver = None
     waived = waiver is not None
     report = render(grade, missing, waived, waiver)
     print(report)
