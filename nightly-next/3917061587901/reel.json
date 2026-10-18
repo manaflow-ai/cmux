@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "build": "3917061587901",
+  "notes": "notes/3917061587901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21650,
+      "title": "fix(next): stop What's New repeating each title as its description",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21727,
+      "title": "cmux NEXT: lanes show each session's harness and current step (hq#2509)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20391,
+      "title": "Agent chat: readable queue, Steering vs Queued, steer landed state",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20391/r5-app-clip-after.mp4",
+      "source": "manual",
+      "note": "14 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 21745,
+      "title": "cmux-next media: tour uploads stop naming the PR as #N",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21681,
+      "title": "cmux-config: the settings schema as a JSON Schema for editors and agents",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21655,
+      "title": "cmux-next: terminals show background art through the glass, like the other panes",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21655/0f6f3cf7/next-glass-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "0f6f3cf7",
+      "tour": "glass"
+    },
+    {
+      "pr": 21670,
+      "title": "Daemon: stash-v1 ops to put web pages away and restore them (#20706 slice 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
