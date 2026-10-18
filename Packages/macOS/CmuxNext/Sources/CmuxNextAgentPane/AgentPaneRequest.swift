@@ -52,6 +52,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's style switch (`newTab.setTemplate`): the template to
     /// save as `tabs.newTabTemplate` (the App checks the value).
     case setNewTabTemplate(String)
+    /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
+    case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched

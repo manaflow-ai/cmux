@@ -39,6 +39,7 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -305,6 +306,8 @@ declare global {
       applyDeviceChats?(chats: unknown): void;
       /// The newest recently closed items for the New Tab page (newtab/recentlyClosed.ts).
       applyRecentlyClosed?(items: unknown): void;
+      /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
+      applyNowPlaying?(track: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -3580,6 +3583,9 @@ function AcpmuxPane() {
       },
       applyRecentlyClosed(items) {
         setRecentlyClosed(items);
+      },
+      applyNowPlaying(track) {
+        setNowPlaying(track);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
