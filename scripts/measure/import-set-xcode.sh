@@ -46,7 +46,7 @@ tool="${CMUX_CI_TOOL_CMUX_IMPORT_SET:-}"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 [[ -f "$leaf" && -f App/main.swift && -d Packages/macOS/CmuxNext ]] || { echo "import-set-xcode.sh: $leaf, App/main.swift or CmuxNext missing" >&2; exit 2; }
-if git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+$module([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' App; then
+if git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*((public|internal|package|private|fileprivate)[[:space:]]+)?import[[:space:]]+$module([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' App; then
   echo "import-set-xcode.sh: a macOS module of this graph imports $module already; choose another module=" >&2
   exit 2
 fi
@@ -92,6 +92,21 @@ let package = Package(
     ]
 )
 EOF
+# SwiftPM reads pins only from the root package: use the pins Xcode builds the
+# app with (CmuxNext's Package.resolved, the project's winning; as the Linux
+# pool's sbx-remote), not the newest versions in range.
+python3 -I - Packages/macOS/CmuxNext/Package.resolved \
+  cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$work/app-exe/Package.resolved" <<'PY'
+import json, os, sys
+pkg = json.load(open(sys.argv[1]))
+proj = {p["identity"]: p for p in json.load(open(sys.argv[2]))["pins"]} if os.path.exists(sys.argv[2]) else {}
+merged = {p["identity"]: p for p in pkg["pins"]}
+merged.update(proj)
+pkg["pins"] = sorted(merged.values(), key=lambda p: p["identity"])
+with open(sys.argv[3], "w") as f:
+    json.dump(pkg, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
 
 leaf_a="$work/leaf-A.swift" leaf_b="$work/leaf-B.swift"
 cp "$leaf" "$leaf_a"
@@ -103,7 +118,9 @@ lines.insert(k + 1, "import " + sys.argv[3])
 open(sys.argv[2], "w").write("\n".join(lines))
 PY
 at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
-trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true' EXIT
+# On exit: the leaf file back, and the DerivedData trees and packages removed
+# (about 20-30 GB); the logs stay.
+trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$work/spm"' EXIT
 
 xcb() {   # LABEL: one build in $D, the slot build's Swift settings
   local t0=$SECONDS
@@ -113,7 +130,7 @@ xcb() {   # LABEL: one build in $D, the slot build's Swift settings
       SWIFT_ENABLE_BATCH_MODE=YES DEBUG_INFORMATION_FORMAT= GCC_GENERATE_DEBUGGING_SYMBOLS=NO \
       'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1' \
       build >"$work/$1.log" 2>&1); then
-    grep -E 'error:|BUILD FAILED' "$work/$1.log" | head -20
+    grep -E 'error:|BUILD FAILED' "$work/$1.log" | head -20 || true
     tail -20 "$work/$1.log"
     echo "import-set-xcode.sh: build $1 failed" >&2
     exit 1
@@ -128,7 +145,12 @@ fixed() {   # LABEL: the slot recipe's sequence (check, build, done, one more bu
   check
   xcb "$1"
   done_ || rc=$?
-  if (( rc == 3 )); then xcb "$1-again"; done_; fi
+  if (( rc == 3 || rc == 4 )); then
+    xcb "$1-again"
+    rc=0
+    done_ || rc=$?
+  fi
+  (( rc == 0 )) || { result "$1 FAIL (done exit $rc after the rebuild)"; fails=$((fails + 1)); }
   result "$1 total_seconds=$(( SECONDS - t0 ))"
 }
 plain() { touch "$work/$1.start"; xcb "$1"; }
@@ -241,7 +263,7 @@ check >"$work/noop-check.txt"; cat "$work/noop-check.txt"
 t1=$(python3 -c 'import time; print(time.time())')
 plain noop
 t2=$(python3 -c 'import time; print(time.time())')
-done_
+done_ || { result "no-change FAIL (done exit $?)"; fails=$((fails + 1)); }
 t3=$(python3 -c 'import time; print(time.time())')
 result "no-change check_seconds=$(python3 -c "print(round($t1-$t0,2))") noop_build_seconds=$(python3 -c "print(round($t2-$t1,1))") done_seconds=$(python3 -c "print(round($t3-$t2,2))")"
 
