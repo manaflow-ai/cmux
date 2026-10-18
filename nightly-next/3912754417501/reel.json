@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "3912754417501",
+  "notes": "notes/3912754417501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21577,
+      "title": "ci(next): keep post-publication checks off the feed gate",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
