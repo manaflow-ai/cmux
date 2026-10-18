@@ -4839,12 +4839,13 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # cx-x7hwx: the build publish-nightly-identity-legacy copies, if any: the
+  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
+  # copies, if any: the
   # newest build on the cmux NEXT feed when it is newer than the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]
-    if: "!cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.publish-nightly.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
@@ -5001,7 +5002,8 @@ jobs:
   # in Apple's queue to recover-nightly-next-notarization) or a
   # nightly_next_continue_only run. A run that publishes nothing still catches
   # the old feed up to an earlier publication.
-  # After the cmux NEXT publication and its notes; no job needs this one, and
+  # This lane starts only after the cmux NEXT publication and its notes. No
+  # publication job needs it, and
   # continue-on-error keeps the run's result to cmux NEXT. A failure opens or
   # updates the "cmux NIGHTLY-identity publication failed" issue; the old feed
   # then keeps its previous build. Cost: the next nightly-next run waits for this
@@ -6245,7 +6247,8 @@ jobs:
               print(f"| #{pr['pr']} | {title} | {cell} |")
           PY
 
-  # The published NEXT DMG on macOS 15 (Sequoia), the oldest major a hosted
+  # Post-publication compatibility check: the published NEXT DMG on macOS 15
+  # (Sequoia), the oldest major a hosted
   # runner offers (GitHub retired macos-14; macOS 14 runs in the fleet's Tart
   # VMs, scripts/cmux-next/os-smoke/run.sh). The pre-notarization smoke runs
   # on macOS 26 only. This job downloads exactly what users get, checks every
