@@ -1,4 +1,4 @@
-// The paths, defaults and the choice enums (SessionKeepAwakeSetting, PhoneKeepAwakeSetting) are generated from
+// The paths, defaults and the choice enums (SessionKeepAwakeSetting, PhoneKeepAwakeSetting, PhoneNewDevicesSetting) are generated from
 // schemas/settings/source/sessions.json (Schema/SettingsSchema+Sessions*.generated.swift);
 // this file only parses.
 
@@ -13,6 +13,8 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
     public var promptSuggestions = SessionSettings.promptSuggestionsDefault
     /// `phone.allowConnections`: the phone listener runs.
     public var allowsPhone = SessionSettings.allowConnectionsDefault
+    /// `phone.newDevices`: a phone not on the allowed list asks, or the account check admits it.
+    public var phoneNewDevices = SessionSettings.newDevicesDefault
     /// `phone.startSessions`: phones may create workspaces and terminals.
     public var phoneStartsSessions = SessionSettings.startSessionsDefault
     /// `phone.keepAwake`: idle sleep stays off while phones can reach this Mac.
@@ -30,6 +32,7 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
         }
         if var reader = ConfigFieldReader(root, at: ["phone"], diagnostics: &diagnostics) {
             if let value = reader.bool("allowConnections") { settings.allowsPhone = value }
+            if let value = reader.choice("newDevices", PhoneNewDevicesSetting.self) { settings.phoneNewDevices = value }
             if let value = reader.bool("startSessions") { settings.phoneStartsSessions = value }
             if let value = reader.choice("keepAwake", PhoneKeepAwakeSetting.self) { settings.phoneKeepAwake = value }
             diagnostics += reader.diagnostics

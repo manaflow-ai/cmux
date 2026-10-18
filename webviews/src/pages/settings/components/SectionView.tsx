@@ -9,7 +9,7 @@ import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
-import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
+import { BrowserProfiles, MachinesSection, PhonesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { SectionActions } from "./SectionActions";
 import { APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -27,6 +27,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,
+  phones: () => <PhonesSection />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,

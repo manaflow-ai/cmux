@@ -279,6 +279,12 @@ export class SettingsStore {
     else await this.refresh();
   }
 
+  /** Removes an allowed phone (Settings > Accounts > Phone Access); the list is read again. */
+  async removePhone(id: string): Promise<void> {
+    const reply = await this.request("cmux.settings.phones.remove", { id });
+    if (reply.ok) await this.refreshHost();
+  }
+
   /** Opens the cmux picker for an image of the person's own; the host copies it into the
    * backgrounds folder and sets it as the background. */
   async chooseBackdropImage(): Promise<void> {

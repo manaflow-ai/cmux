@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextMobile
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -16,6 +17,7 @@ extension SettingsWindowService {
         return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
+            "phones": .array(phones.map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -90,6 +92,16 @@ extension SettingsWindowService {
         if let selection = input.selectionBackground { object["selectionBackground"] = .string(AppTheme.hex(selection)) }
         if let selected = input.selectionForeground { object["selectionForeground"] = .string(AppTheme.hex(selected)) }
         return .object(object)
+    }
+
+    /// The phones allowed to use this Mac (Settings > Accounts > Phone Access), the most recently
+    /// seen first, each with when it last connected.
+    var phones: [SettingsListRow] {
+        let devices = services.mobile.admission?.devices ?? []
+        return devices.sorted { ($0.lastSeenAt ?? $0.approvedAt) > ($1.lastSeenAt ?? $1.approvedAt) }.map { device in
+            SettingsListRow(id: device.id, title: device.name,
+                            subtitle: (device.lastSeenAt ?? device.approvedAt).formatted(.relative(presentation: .named)), symbol: "iphone")
+        }
     }
 
     /// One list row; `icon` is its wire icon (the page draws an emoji, or an asset from `icon/<ref>`).

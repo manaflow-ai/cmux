@@ -17,6 +17,9 @@ extension SessionSettings {
     /// `phone.allowConnections`: Off: the phone listener does not run and no phone reaches this Mac. Off on a fresh install; a Mac that already served phones keeps it on (PhoneAccessMigration).
     public nonisolated static let allowConnectionsPath = ["phone", "allowConnections"]
     public nonisolated static let allowConnectionsDefault = false
+    /// `phone.newDevices`: How a phone on the account that is not on this Mac's allowed list (PhoneDeviceStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.
+    public nonisolated static let newDevicesPath = ["phone", "newDevices"]
+    public nonisolated static let newDevicesDefault: PhoneNewDevicesSetting = .ask
     /// `phone.startSessions`: Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).
     public nonisolated static let startSessionsPath = ["phone", "startSessions"]
     public nonisolated static let startSessionsDefault = true
@@ -81,6 +84,19 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.allowConnectionsDefault),
                 keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
+            ),
+            SettingDescriptor(
+                SessionSettings.newDevicesPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.phone.newDevices", "New Phones"),
+                help: SettingsText.keyed("settings.phone.newDevices.help", "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."),
+                kind: .choice([
+                    SettingChoice(PhoneNewDevicesSetting.ask.rawValue, SettingsText.keyed("settings.choice.phoneNewDevicesAsk", "Ask on This Mac")),
+                    SettingChoice(PhoneNewDevicesSetting.account.rawValue, SettingsText.keyed("settings.choice.phoneNewDevicesAccount", "Any Phone on My Account")),
+                ]),
+                default: .string(SessionSettings.newDevicesDefault.rawValue),
+                keywords: ["iphone", "pair", "approve", "device", "trust", "remove"]
             ),
             SettingDescriptor(
                 SessionSettings.startSessionsPath,

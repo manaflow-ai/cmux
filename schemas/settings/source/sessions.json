@@ -141,6 +141,47 @@
           ]
         },
         {
+          "key": "phone.newDevices",
+          "name": "newDevices",
+          "note": "How a phone on the account that is not on this Mac's allowed list (PhoneDeviceStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.",
+          "title": {
+            "key": "settings.phone.newDevices",
+            "text": "New Phones"
+          },
+          "help": {
+            "key": "settings.phone.newDevices.help",
+            "text": "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "ask",
+              "title": {
+                "key": "settings.choice.phoneNewDevicesAsk",
+                "text": "Ask on This Mac"
+              },
+              "note": "One question per new phone; the answer is remembered."
+            },
+            {
+              "value": "account",
+              "title": {
+                "key": "settings.choice.phoneNewDevicesAccount",
+                "text": "Any Phone on My Account"
+              },
+              "note": "No question: every phone signed in to the same account and team gets in."
+            }
+          ],
+          "default": "ask",
+          "keywords": [
+            "iphone",
+            "pair",
+            "approve",
+            "device",
+            "trust",
+            "remove"
+          ]
+        },
+        {
           "key": "phone.startSessions",
           "name": "startSessions",
           "note": "Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).",

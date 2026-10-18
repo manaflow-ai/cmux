@@ -149,13 +149,21 @@ extension MobileIrxHost {
                            admission: V2InboundAdmissionAuthority, registry: IrxServerSessionRegistry) async {
         guard let (peer, control, sessionID) = await IrxAdmission().performServer(
             connection: irx, judgment: judgment, journal: journal) else { return }
-        let isMac = cachedState?.directory?.inboundPeers?.first {
+        let descriptor = cachedState?.directory?.inboundPeers?.first {
             $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
-        }?.device.descriptor.metadata.platform == .mac
-        guard !isMac, let backend, let macDeviceID else {
+        }?.device.descriptor
+        guard descriptor?.metadata.platform != .mac, let backend, let macDeviceID else {
             await irx.close(code: .revoked, origin: .local)
             return
         }
+        // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now.
+        let device = PhoneDevice(id: peer.deviceID, name: descriptor?.metadata.displayName ?? peer.deviceID)
+        guard await access.admits(device) else {
+            journal.record("next-host", "phone-not-allowed", ["session": sessionID])
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        phoneEndpoints[peer.deviceID] = peer.endpointIDHex
         let recheck = admission.recheck(peer)
         guard await registry.admit(deviceID: peer.bindingID, sessionID: sessionID, connection: irx,
                                    stillAuthorized: recheck) else {
@@ -175,6 +183,12 @@ extension MobileIrxHost {
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
         journal.record("next-host", "phone-closed", ["session": sessionID])
+    }
+
+    /// Closes the open sessions of a phone the person removed from the allowed list.
+    public func disconnect(deviceID: String) async {
+        guard let endpoint = phoneEndpoints.removeValue(forKey: deviceID), let registry else { return }
+        await registry.closeAll(code: .revoked, matching: { $0.caseInsensitiveCompare(endpoint) == .orderedSame })
     }
 
     /// Closes sessions whose v2 permission lapsed or was revoked.
