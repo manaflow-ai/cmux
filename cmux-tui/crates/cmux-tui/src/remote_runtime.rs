@@ -2153,6 +2153,10 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         let workspace = WorkspaceService::new();
+        // The admin proof and service forwarding must use the same resolved
+        // destination, including when the configured path is a symlink.
+        let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
+        let mux_socket = mux_binding.mux_socket.clone();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let preliminary_runtime = persist_runtime_info(
@@ -2334,7 +2338,7 @@ async fn run_daemon(
                 routes.clone(),
                 Some(lifecycle_id.clone()),
                 Some(owner_shutdown),
-                Some(MuxBinding::new(&mux_socket, &link_socket)?),
+                Some(mux_binding.clone()),
             )
             .await?;
             let info = DaemonRuntimeInfo {
