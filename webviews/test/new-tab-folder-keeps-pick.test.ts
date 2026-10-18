@@ -5,7 +5,8 @@
 import { expect, test } from "bun:test";
 import { applySwitch } from "../src/agent-session/acpmux/harnessSwitch";
 import { newTabStart } from "../src/agent-session/acpmux/newtab/chipDefaults";
-import { withDraftFolder } from "../src/agent-session/acpmux/newtab/draftFolder";
+import { heldPick, withDraftFolder } from "../src/agent-session/acpmux/newtab/draftFolder";
+import { HarnessSwitch } from "../src/agent-session/acpmux/harnessSwitch";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const effort = (value: string) => ({
@@ -70,4 +71,54 @@ test("a model and effort picked on a New Tab hold when a folder is picked after 
 
 test("with nothing picked, a folder pick names what the next chat starts on there", () => {
   expect(chips(empty, "/Users/dev/proj-b").model).toBe("claude-sonnet-5-5");
+});
+
+test("a failed switch holds no pick: a folder pick names the folder's start again", () => {
+  const failed = applySwitch(
+    empty,
+    {
+      intent: {
+        harness: "claude",
+        cwd: "/Users/dev",
+        shown: false,
+        phase: "failed",
+        config: { model: "claude-haiku-5-5", options: {} },
+        queued: [],
+      },
+    } as never,
+    catalog,
+    profiles,
+  );
+  expect(heldPick(failed)).toEqual({});
+  expect(chips(failed, "/Users/dev/proj-b").model).toBe("claude-sonnet-5-5");
+});
+
+// The review of #21688: Send's chat.new in the picked folder named no harness, so the switch holding
+// the pick was cancelled and the chat started on the default. With the held harness and model it
+// starts on the pick, its effort too.
+test("the chat a send starts in the picked folder runs the held model and effort", () => {
+  const store = new HarnessSwitch();
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    // The session is still starting when the folder is picked.
+    create: () => new Promise<string | undefined>(() => undefined),
+    leave: () => undefined,
+    open: async (sessionId) => sessionId,
+    send: async () => undefined,
+    setModel: async () => undefined,
+    setMode: async () => undefined,
+    setConfig: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  } as never);
+  void store.switchTo("claude", "/Users/dev", { deferred: true, model: "claude-haiku-5-5" });
+  store.pickConfig("effort", "low");
+  const held = heldPick(applySwitch(empty, store.view(), catalog, profiles));
+  expect(held).toEqual({ harness: "claude", model: "claude-haiku-5-5" });
+  void store.switchTo(held.harness!, "/Users/dev/proj-b", { model: held.model });
+  const started = applySwitch(empty, store.view(), catalog, profiles).summary;
+  expect(started?.model).toBe("claude-haiku-5-5");
+  expect(started?.configOptions?.find((option) => option.id === "effort")?.currentValue).toBe("low");
 });
