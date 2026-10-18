@@ -2417,7 +2417,7 @@
     "use": "Agent-waiting pulse cycle (easeInEaseOut)"
    },
    "flash": {
-    "value": 0.6,
+    "value": 1.0,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:51 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Pane attention flash, two blinks"
@@ -3392,7 +3392,7 @@
     },
     "attention": {
      "ring": {
-      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 0.6 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
+      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 1.0 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneOverlayView.swift:200-228 (PaneOverlayView.applyAttention); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-29 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:32-40 (Motion.attentionAnimation)"
      }
     },
