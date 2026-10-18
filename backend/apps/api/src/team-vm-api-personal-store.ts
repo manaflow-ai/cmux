@@ -36,7 +36,7 @@ export class PersonalTenantStore {
     const row = this.sql.exec<{ marker: string; phase: string; tenant: string | null; attempts: number; created_at: number; next_at: number | null }>("SELECT marker, phase, tenant, attempts, created_at, next_at FROM team_vm_api_personal WHERE id=1")[0]
     if (!row) throw new Error("personal tenant ledger is empty")
     const marker: unknown = JSON.parse(row.marker)
-    if (!isPersonalMarker(marker) || !["prepared", "creating", "ready"].includes(row.phase) || !Number.isSafeInteger(Number(row.attempts)) || Number(row.attempts) < 0 || !Number.isSafeInteger(Number(row.created_at)) || (row.next_at !== null && !Number.isSafeInteger(Number(row.next_at))) || (row.phase === "ready" && !validTenantId(row.tenant))) throw new Error("personal tenant ledger is invalid")
+    if (!isPersonalMarker(marker) || !["prepared", "creating", "ready"].includes(row.phase) || !Number.isSafeInteger(Number(row.attempts)) || Number(row.attempts) < 0 || !Number.isSafeInteger(Number(row.created_at)) || (row.next_at !== null && !Number.isSafeInteger(Number(row.next_at))) || (row.phase === "ready" ? !validTenantId(row.tenant) || row.next_at !== null : row.tenant !== null)) throw new Error("personal tenant ledger is invalid")
     return { marker, phase: row.phase as PersonalTenantIntent["phase"], tenant: row.tenant, attempts: Number(row.attempts), createdAt: Number(row.created_at), nextAt: row.next_at === null ? null : Number(row.next_at) }
   }
   reserve(marker: PersonalTenantMarker, now: number): PersonalTenantIntent {
@@ -49,10 +49,14 @@ export class PersonalTenantStore {
     })
   }
   sent(intent: PersonalTenantIntent, now: number): PersonalTenantIntent {
-    this.sql.exec("UPDATE team_vm_api_personal SET phase='creating', attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase='prepared'", now + 5000, JSON.stringify(intent.marker))
-    const row = this.read()
-    if (!row || row.phase !== "creating" || !samePersonalMarker(row.marker, intent.marker)) throw new Error("personal tenant send conflict")
-    return row
+    return this.sql.transaction(() => {
+      const before = this.read()
+      if (!before || before.phase !== "prepared" || before.attempts !== intent.attempts || !samePersonalMarker(before.marker, intent.marker)) throw new Error("personal tenant send conflict")
+      this.sql.exec("UPDATE team_vm_api_personal SET phase='creating', attempts=attempts+1, next_at=? WHERE id=1", now + 5000)
+      const row = this.read()
+      if (!row || row.phase !== "creating") throw new Error("personal tenant send conflict")
+      return row
+    })
   }
   ready(intent: PersonalTenantIntent, tenant: string): void {
     if (!validTenantId(tenant)) throw new Error("invalid personal tenant")
@@ -62,6 +66,7 @@ export class PersonalTenantStore {
   }
   retry(intent: PersonalTenantIntent, now: number, definitelyUnsent = false): void {
     const next = now - intent.createdAt >= 24 * 3600_000 ? null : now + Math.min(3600_000, 5000 * 2 ** Math.min(intent.attempts, 10))
-    this.sql.exec("UPDATE team_vm_api_personal SET phase=?, attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase<>'ready'", definitelyUnsent ? "prepared" : intent.phase, next, JSON.stringify(intent.marker))
+    this.sql.exec("UPDATE team_vm_api_personal SET phase=?, attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase=? AND attempts=? AND phase<>'ready'", definitelyUnsent ? "prepared" : intent.phase, next, JSON.stringify(intent.marker), intent.phase, intent.attempts)
   }
+  parkPrepared(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase='prepared'") }
 }

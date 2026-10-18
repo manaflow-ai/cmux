@@ -2,6 +2,12 @@ import { expect, it } from "vitest"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
+import { env } from "cloudflare:workers"
+import type { Env } from "../src/env.ts"
+import { TeamDO } from "../src/team-do.ts"
+import { PersonalTenantIdentityError } from "../src/team-vm-api-personal-stack.ts"
+import { PersonalTenantStore } from "../src/team-vm-api-personal-store.ts"
+import { PROJECT } from "./team-stack-support.ts"
 
 interface Marker { readonly version: number; readonly project: string; readonly team: string; readonly user: string; readonly stack_user: string; readonly nonce: string }
 const STACK_TEAM = "cb48f8e3-5ebf-4a16-918b-9adb7d6948a7"
@@ -54,7 +60,11 @@ it("recovers a lost create answer from trusted server metadata without resending
   expect(await ensure(t.personal)).toMatchObject({ status: "pending" })
   expect(t.creates()).toBe(1)
   t.visible(true)
-  expect(await ensure(t.personal)).toMatchObject({ status: "ready", target: { tenant: STACK_TEAM } })
+  expect(await inDO(teamStub(t.personal), async (_instance, state) => {
+    const restarted = new TeamDO(state, env as Env)
+    restarted.personalStack = t.stack
+    return restarted.ensureVmApiTenant(t.personal)
+  })).toMatchObject({ status: "ready", target: { tenant: STACK_TEAM } })
   expect(t.creates()).toBe(1)
 })
 
@@ -82,10 +92,42 @@ it("refuses a team that has another member instead of treating it as a solo tena
   expect(await read(t.personal)).toBeNull()
 })
 
+it("refuses ambiguous identity matches without creating another team", async () => {
+  const t = await fixture()
+  t.stack.find = async (marker) => [{ id: STACK_TEAM, marker }, { id: "another-team", marker }]
+  expect(await ensure(t.personal)).toHaveProperty("status", "unavailable")
+  expect(t.creates()).toBe(0)
+})
+
 it("keeps the provisioning intent and Stack mapping private in every subscriber projection", async () => {
   const t = await fixture()
   expect(await ensure(t.personal)).toHaveProperty("status", "ready")
   const views = await inDO(teamStub(t.personal), async (instance) => [t.user, "other-user"].map((user) => instance.subscriberView(instance.boundEngine.currentState, { identity: `user:${user}`, kind: "session", user, team: t.personal })))
   expect(JSON.stringify(views)).not.toContain(STACK_TEAM)
   expect(JSON.stringify(views)).not.toContain(t.marker()?.nonce)
+})
+
+it("does not resend a successful create when its membership confirmation fails", async () => {
+  const t = await fixture()
+  t.stack.members = async () => { throw new PersonalTenantIdentityError(true) }
+  expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+  t.visible(false)
+  expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+  expect(t.creates()).toBe(1)
+})
+
+it("keeps stale retries from reopening an already-sent or completed reservation", async () => {
+  const t = await fixture()
+  await inDO(teamStub(t.personal), async (instance) => {
+    const store = new PersonalTenantStore(instance.sqlStore)
+    const prepared = store.reserve({ version: 1, project: PROJECT, team: t.personal, user: t.user, stack_user: t.stackUser, nonce: crypto.randomUUID() }, 1000)
+    const sent = store.sent(prepared, 2000)
+    store.retry(prepared, 3000, true)
+    expect(store.read()).toMatchObject({ phase: "creating", attempts: sent.attempts })
+    expect(() => store.sent(prepared, 4000)).toThrow("send conflict")
+    store.ready(sent, STACK_TEAM)
+    store.retry(sent, 5000, true)
+    expect(() => store.ready(sent, "other-team")).toThrow("receipt conflict")
+    expect(store.read()).toMatchObject({ phase: "ready", tenant: STACK_TEAM })
+  })
 })

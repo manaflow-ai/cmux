@@ -4,13 +4,23 @@ import { expect, it, vi } from "vitest"
 import { CloudDO } from "../src/cloud-do.ts"
 import type { Env } from "../src/env.ts"
 import type { SubmitResult } from "../src/owner-do.ts"
-import { mirroredTeam } from "./team-stack-support.ts"
+import { mirroredTeam, teamStub } from "./team-stack-support.ts"
+import { personalTeamIdFor } from "../src/domains/user.ts"
+import type { PersonalTenantMarker } from "../src/team-vm-api-personal-store.ts"
 import { inDO } from "./team-ssh-support.ts"
 import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /** Real Cloud owner, reducers, ledger and bind registration; only the HTTP VM service is fake. */
-it("runs a mixed Cloud lifecycle through recorded transports after deployment defaults change", async () => {
-  const t = await mirroredTeam("VM API owner lifecycle")
+it.each(["shared", "personal"] as const)("runs a mixed %s Cloud lifecycle through recorded transports after deployment defaults change", async (kind) => {
+  const original = await mirroredTeam("VM API owner lifecycle")
+  const t = { ...original, team: kind === "personal" ? personalTeamIdFor(original.user) : original.team, stackTeam: kind === "personal" ? "e6fb9d09-d951-4a65-9d21-e1d132dfe671" : original.stackTeam }
+  let identityCreates = 0
+  if (kind === "personal") {
+    let found: Array<{ id: string; marker: PersonalTenantMarker }> = []
+    await inDO(teamStub(t.team), async (instance) => {
+      instance.personalStack = { find: async () => found, members: async () => [t.stackUser], create: async (marker: PersonalTenantMarker) => { identityCreates++; const receipt = { id: t.stackTeam, marker }; found = [receipt]; return receipt } }
+    })
+  }
   const e = { ...(env as Env), CLOUD_ALLOWED_TEAMS: t.team, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-owner-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
   const vms = new Map<string, Vm>(), snapshots = new Map<string, { id: string; sourceVmId: string; displayName: string; labels: Record<string, string>; createdAt: string }>()
   const binds = new Map<string, { team: string; machine: string; bind_token: string }>()
@@ -66,6 +76,8 @@ it("runs a mixed Cloud lifecycle through recorded transports after deployment de
         if (answer?.t !== "result") throw new Error(`owner refused ${op}: ${answer?.t === "reject" ? answer.code : "no answer"}`)
         return answer.value as { machine?: { id: string }; snapshot?: { id: string } }
       }
+      expect((await owner.readOp(t.team, principal, "cloud.machine.list", {})).ok).toBe(true)
+      expect(identityCreates).toBe(0)
       const first = await submit("cloud.machine.create", { size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
       const apiMachine = first.machine!.id
       const bind = [...binds.values()].find((b) => b.machine === apiMachine)
@@ -84,6 +96,7 @@ it("runs a mixed Cloud lifecycle through recorded transports after deployment de
       await submit("cloud.machine.delete", { machine: legacy.machine!.id })
       return owner.fakeControl({})
     })
+    expect(identityCreates).toBe(kind === "personal" ? 1 : 0)
     expect(result).toMatchObject({ creates: 1, deletes: 1, pending: 0 })
     expect(vms.size).toBe(0)
     expect(snapshots.size).toBe(0)

@@ -53,10 +53,12 @@ export const ensurePersonalTenant = async (deps: PersonalTenantDeps): Promise<En
       if (reply.status !== "ready") store.retry(current, now)
       return reply
     }
-    if (current.phase === "creating" || !deps.allowCreate || (current.nextAt !== null && current.nextAt > now)) {
+    if (current.phase === "creating") {
       store.retry(current, now)
       return { status: "pending" }
     }
+    if (current.nextAt !== null && current.nextAt > now) return { status: "pending" }
+    if (!deps.allowCreate) { store.parkPrepared(); return { status: "pending" } }
     if (deps.owner() !== owner) return { status: "unavailable" }
     const sent = store.sent(current, now)
     let receipt: PersonalTenantReceipt
