@@ -3,17 +3,24 @@
 // transcript-received-message-expanded.png in cmux-design-references). The cmux-tui pump sends
 // each one as a prompt with `_meta.provenance.kind: "agent_message"` (cx-55d27). The pane shows it
 // as "Received message from <sender>", not as the person's bubble, and the line opens to the
-// message's own words. A message waiting behind a busy turn draws its line at once, not as a
-// queued prompt. Several lines in a row fold into "Received N messages".
+// message's own words. A message waiting behind a busy turn stays in the composer's queue, where
+// it can be removed or sent now. Several lines in a row fold into "Received N messages". Find,
+// copy, retry and Edit treat the message as its words, never the envelope or the person's prompt.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   RECEIVED_GROUP,
+  RECEIVED_MESSAGE,
+  drawnKind,
   groupReceived,
   receivedMessage,
 } from "../src/agent-session/acpmux/conversation/receivedMessages";
+import { findMatches } from "../src/agent-session/acpmux/conversation/chatFind";
+import { transcriptCopyText } from "../src/agent-session/acpmux/conversation/transcriptCopy";
+import { editableTurns } from "../src/agent-session/acpmux/conversation/editPrompt";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { ReceivedGroup, ReceivedMessage } from "../src/agent-session/acpmux/conversation/ReceivedMessage";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c1";
@@ -183,7 +190,7 @@ test("a message from another session draws as a received line with its own words
   expect(open).not.toContain("end of message");
 });
 
-test("a message waiting behind a busy turn draws its line once, never as a queued prompt", async () => {
+test("a message waiting behind a busy turn stays in the composer queue, then lands as one line", async () => {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { text: "first" }],
@@ -196,12 +203,8 @@ test("a message waiting behind a busy turn draws its line once, never as a queue
     ]),
   );
   const { rows, queue } = await connect(daemon);
-  expect(queue()).toEqual([]);
-  expect(
-    rows()
-      .filter((entry) => receivedMessage(entry))
-      .map((entry) => receivedMessage(entry)!.body),
-  ).toEqual(["Rebased on main."]);
+  expect(queue().map((entry) => entry.id)).toEqual(["m2"]);
+  expect(rows().filter((entry) => receivedMessage(entry)).length).toBe(0);
   daemon.push(
     record(
       [
@@ -216,7 +219,51 @@ test("a message waiting behind a busy turn draws its line once, never as a queue
       4,
     ),
   );
-  expect(rows().filter((entry) => receivedMessage(entry)).length).toBe(1);
+  expect(queue()).toEqual([]);
+  expect(
+    rows()
+      .filter((entry) => receivedMessage(entry))
+      .map((entry) => receivedMessage(entry)!.body),
+  ).toEqual(["Rebased on main."]);
+});
+
+test("a landed message draws through its own row kind, so opening it redraws the row", () => {
+  const row: AcpmuxRow = {
+    id: "user-1",
+    kind: "user",
+    version: 1,
+    at: 1,
+    text: rendered("m1", "Hi"),
+    message: { msgId: "m1", title: "Lane A", body: "Hi" },
+  };
+  expect(drawnKind(row)).toBe(RECEIVED_MESSAGE);
+  expect(drawnKind({ ...row, message: undefined })).toBe("user");
+});
+
+test("Find, copy, retry and Edit see the sender's words, never the envelope", () => {
+  const user: AcpmuxRow = {
+    id: "user-1",
+    kind: "user",
+    version: 1,
+    at: 1,
+    text: rendered("m1", "The build is green."),
+    message: { msgId: "m1", title: "Lane A", body: "The build is green." },
+  };
+  expect(findMatches([user], "green").length).toBe(1);
+  expect(findMatches([user], "operator").length).toBe(0);
+  expect(transcriptCopyText(user)).toBe("The build is green.");
+  const turn: AcpmuxRow[] = [
+    { id: "u0", kind: "user", version: 1, at: 0, text: "first" },
+    { id: "s0", kind: "turnSummary", version: 1, at: 0, seq: 3, status: "completed" },
+    user,
+    { id: "a1", kind: "assistant", version: 1, at: 2, text: "Thanks." },
+    { id: "s1", kind: "turnSummary", version: 1, at: 3, seq: 6, status: "completed" },
+  ];
+  const footer = turnView(turn, new Set())
+    .filter((row) => row.kind === "turnSummary")
+    .at(-1)!;
+  expect(footer.prompt).toBeUndefined();
+  expect(editableTurns(turn, "claude").has("user-1")).toBe(false);
 });
 
 test("received lines in a row fold into one group that opens to each line", () => {
@@ -240,6 +287,7 @@ test("received lines in a row fold into one group that opens to each line", () =
   expect(renderToStaticMarkup(<ReceivedGroup row={group} open={false} onToggle={() => {}} />)).toContain(
     "Received 3 messages",
   );
+  expect(group.lines).toEqual(["m1", "m2", "m3"]);
   const open = groupReceived(rows, new Set([group.id]));
   expect(open.map((row) => row.id)).toEqual(["a", group.id, "m1", "m2", "m3"]);
   // One line alone stays a line.
