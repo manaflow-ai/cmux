@@ -105,7 +105,9 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { useSessionRail } from "./summary/SessionRail";
-import { pendingToolCalls } from "./summary/SubagentStatusList";
+import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
+import { AgentsPill } from "./subagents/AgentsPill";
+import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatGallery } from "./summary/chatGallery";
 import {
@@ -205,7 +207,14 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
+import {
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  type SubagentRows,
+  childView,
+  subagentRowsFrom,
+  subagentsIn,
+} from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -215,6 +224,7 @@ import {
   SubagentOfRow,
   SubagentPaneContext,
   SubagentStopContext,
+  running,
 } from "./subagents/SubagentGroup";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -3216,6 +3226,23 @@ function AcpmuxPane() {
     (id) => showSubagent(id, false),
     snapshot.clockOffsetMs ?? 0,
   );
+  // The agents pill (subagents/AgentsPill.tsx) and each subagent's color (agentTones.ts), which
+  // the pill's list and the transcript's subagent rows share. The tones change only as agents
+  // start, so a snapshot that streams text redraws no subagent row.
+  const chatAgents = useMemo(
+    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+    [snapshot.rows, snapshot.subagentViews],
+  );
+  const agentIds = chatAgents.map((agent) => agent.id).join(" ");
+  const chatTones = useMemo(
+    () => (shownSessionId && chatAgents.length > 0 ? agentTones(shownSessionId, chatAgents) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- new tones only when an agent starts
+    [shownSessionId, agentIds],
+  );
+  const waitingAgents = useMemo(
+    () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
+    [chatAgents, askedToolCalls, snapshot.subagentViews],
+  );
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -5091,6 +5118,10 @@ function AcpmuxPane() {
           }}
         />
       )}
+      {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer. */}
+      {!quick && !freshView && chatTones && (
+        <AgentsPill agents={chatAgents} waiting={waitingAgents} tones={chatTones} onOpen={showSubagent} />
+      )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
         <Composer
@@ -5604,7 +5635,7 @@ function AcpmuxPane() {
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
-                  transcript
+                  <AgentTonesContext.Provider value={chatTones}>{transcript}</AgentTonesContext.Provider>
                 )}
                 {inspectorOpen && (
                   <Inspector

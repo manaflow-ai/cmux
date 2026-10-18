@@ -249,3 +249,152 @@ button.cv-subagent > :last-child {
 .cv-subagent-of__parent::before {
   content: "· ";
 }
+/* Each subagent's color (agentTones.ts): its dot in the agents list and its name in the
+   transcript. The theme's terminal colors, so a theme recolors them. Red stays for failure and
+   blue for the accent. */
+[data-agent-tone="0"] {
+  --agent-tone: var(--agent-ansi-2, #3fb950);
+}
+[data-agent-tone="1"] {
+  --agent-tone: var(--agent-ansi-5, #a371f7);
+}
+[data-agent-tone="2"] {
+  --agent-tone: var(--agent-ansi-3, #d29922);
+}
+[data-agent-tone="3"] {
+  --agent-tone: var(--agent-ansi-6, #39c5cf);
+}
+[data-agent-tone="4"] {
+  --agent-tone: var(--agent-ansi-13, #db61a2);
+}
+.cv-subagent[data-agent-tone] .cv-subagent__name {
+  color: var(--agent-tone);
+}
+/* The agents pill (AgentsPill.tsx): a part of the bottom stack (bottomStack.css), right above the
+   composer at the column's leading edge, so it never lies over the latest row. Its list opens
+   upward over the transcript, as a popover does. */
+.acpmux-main > .acpmux-agents-pill-anchor {
+  position: relative;
+  flex: none;
+  display: flex;
+  padding: 0 var(--cv-inset) 8px;
+}
+.acpmux-agents-pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--agent-page-bg) 82%, var(--agent-text) 6%);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent),
+    var(--elevation-2);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.acpmux-agents-pill:hover,
+.acpmux-agents-pill[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-page-bg) 70%, var(--agent-text) 10%);
+}
+.acpmux-agents-pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+/* The list opens above the pill (Codex's card): Active, then Completed. */
+.acpmux-agents-list {
+  position: absolute;
+  left: var(--cv-inset);
+  bottom: 100%;
+  z-index: var(--layer-sticky);
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 2 * var(--cv-edge)));
+  max-height: min(360px, 60vh);
+  margin: 0 0 8px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: var(--ui-popup-radius);
+  background: var(--surface-popup);
+  box-shadow: var(--acpmux-popup-elevation);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+.acpmux-agents-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-agents-list__section + .acpmux-agents-list__section {
+  margin-top: 6px;
+}
+.acpmux-agents-list__heading {
+  margin: 0;
+  padding: 6px 8px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+.acpmux-agents-list__row {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-agents-list__row:hover {
+  background: var(--agent-control-hover);
+}
+.acpmux-agents-list__row:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-agents-list__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--agent-tone, var(--agent-muted));
+}
+.acpmux-agents-list__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-agents-list__name,
+.acpmux-agents-list__state {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-agents-list__name {
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-agents-list__state {
+  font-size: var(--text-detail);
+}
+.acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
+  color: var(--agent-danger);
+}
+.acpmux-agents-list__time {
+  flex: none;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
