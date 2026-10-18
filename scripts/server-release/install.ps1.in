@@ -1,0 +1,78 @@
+# Generated release bootstrap. Archive hashes are pinned; Rust owns installation.
+@@KEYS@@
+function Invoke-CmuxServerInstall {
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version Latest
+    $installArguments = @($args)
+    $system = $false
+    $expectValue = $false
+    foreach ($argument in $installArguments) {
+        if ($expectValue) {
+            if (!$argument -or $argument.StartsWith('-')) { throw 'cmux-server-bootstrap: invalid_argument' }
+            $expectValue = $false
+            continue
+        }
+        switch -Exact ($argument) {
+            '--system' { $system = $true }
+            '--channel' { $expectValue = $true }
+            '--version' { $expectValue = $true }
+            '--json' {}
+            default { throw 'cmux-server-bootstrap: invalid_argument' }
+        }
+    }
+    if ($expectValue) { throw 'cmux-server-bootstrap: missing_argument' }
+    $architecture = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITEW6432')
+    if (!$architecture) { $architecture = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE') }
+    switch -Exact ($architecture) {
+        'AMD64' { $target = 'x86_64-windows' }
+        'ARM64' { $target = 'aarch64-windows' }
+        default { throw 'cmux-server-bootstrap: unsupported_platform' }
+    }
+    switch -Exact ($target) {
+@@WINDOWS_CASES@@
+    }
+    $tempDir = Join-Path ([IO.Path]::GetTempPath()) ('cmux-server-bootstrap-' + [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $tempDir
+    try {
+        # Protect the downloaded executable against replacement by other users.
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        $acl.SetOwner($identity.User)
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity.User, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+        $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $tempDir -AclObject $acl
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $archive = Join-Path $tempDir 'bootstrap.zip'
+        # Disable redirects: a release URL must directly serve this pinned object.
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive -MaximumRedirection 0 -TimeoutSec 300
+        if ((Get-Item -LiteralPath $archive).Length -ne $expectedSize) { throw 'cmux-server-bootstrap: package_size_mismatch' }
+        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) { throw 'cmux-server-bootstrap: package_digest_mismatch' }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+        try {
+            if ($zip.Entries.Count -ne 1 -or $zip.Entries[0].FullName -cne 'bin/cmux.exe') { throw 'cmux-server-bootstrap: archive_invalid' }
+            $binary = Join-Path $tempDir 'cmux.exe'
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.Entries[0], $binary, $false)
+        } finally { $zip.Dispose() }
+        $signature = Get-AuthenticodeSignature -LiteralPath $binary
+        $publishers = @(@@PUBLISHERS@@)
+        if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $publishers -cnotcontains $signature.SignerCertificate.Thumbprint) { throw 'cmux-server-bootstrap: authenticode_publisher_mismatch' }
+        # The installer decides whether explicit system mode needs elevation.
+        # Do not forward user-controlled mode or reexec environment overrides.
+        $names = @('CMUX_SERVER_MODE', 'CMUX_SERVER_APP_BUNDLE', 'CMUX_SERVER_REEXEC')
+        $saved = @{}
+        foreach ($name in $names) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+            [Environment]::SetEnvironmentVariable($name, $null)
+        }
+        try {
+            & $binary server install @installArguments
+            if ($LASTEXITCODE -ne 0) { throw "cmux-server-bootstrap: installer_exit_$LASTEXITCODE" }
+        } finally {
+            foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+        }
+    } finally { Remove-Item -LiteralPath $tempDir -Recurse -Force }
+}
+# A partial final invocation remains an incomplete script block.
+if ($true) { Invoke-CmuxServerInstall @args }
