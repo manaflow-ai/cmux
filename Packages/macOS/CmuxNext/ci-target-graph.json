@@ -568,7 +568,8 @@
         "CmuxNextDaemon",
         "CmuxNextFloating"
       ],
-      "packages": []
+      "packages": [],
+      "reads": []
     },
     "CmuxNextFocus": {
       "kind": "regular",
