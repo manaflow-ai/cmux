@@ -39,4 +39,26 @@ struct WorkspacePresenceSessionTests {
         await opened.connection.disconnect()
         #expect(await PresenceTestTransport.next(snapshots) == [])
     }
+
+    @Test("receiving an authoritative snapshot resets reconnect backoff and closes old socket on reconnect")
+    func snapshotResetsBackoffAndClosesOldSocketOnReconnect() async throws {
+        let scope = try #require(WorkspacePresenceScope(kind: .cloud, ownerID: "vm", workspaceID: "one", teamID: "team"))
+        let transport = PresenceTestTransport()
+        let session = WorkspacePresenceSession(transport: transport)
+        let snapshots = session.snapshots()
+        let run = Task { await session.run(scope: scope, accessToken: { "test" }, isCurrent: { true }) }
+        defer { run.cancel(); session.stop() }
+
+        let firstOpened = try #require(await PresenceTestTransport.next(transport.connections))
+        let ada = WorkspacePresenceParticipant(id: "ada", displayName: "Ada")
+        await firstOpened.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: [ada]))
+        #expect(await PresenceTestTransport.next(snapshots, matching: { !$0.isEmpty }) == [ada])
+
+        await firstOpened.connection.disconnect()
+        #expect(await PresenceTestTransport.next(snapshots) == [])
+
+        let secondOpened = try #require(await PresenceTestTransport.next(transport.connections))
+        #expect(secondOpened.scope == scope)
+        #expect(await firstOpened.connection.isEnded)
+    }
 }

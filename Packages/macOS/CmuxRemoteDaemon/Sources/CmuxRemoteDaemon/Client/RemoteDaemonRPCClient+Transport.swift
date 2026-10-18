@@ -211,12 +211,13 @@ extension RemoteDaemonRPCClient {
         }
 
         let delegate = RemoteDaemonWebSocketDelegate()
-        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        let session = Self.sharedWebSocketSession
         let task = session.webSocketTask(with: request)
+        Self.sharedWebSocketMultiplexer.register(delegate: delegate, for: task)
         task.resume()
         guard delegate.waitForOpen(timeout: 15.0) else {
+            Self.sharedWebSocketMultiplexer.unregister(task: task)
             task.cancel(with: .goingAway, reason: nil)
-            session.invalidateAndCancel()
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "timed out opening daemon websocket",
             ])

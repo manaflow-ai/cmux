@@ -74,6 +74,14 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Package-owned NSError metadata key for the daemon's structured RPC error code.
     static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
     static let maxCloudCLIRequestsInFlight = 4
+    static let sharedWebSocketMultiplexer = RemoteDaemonWebSocketMultiplexer()
+    static let sharedWebSocketSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration, delegate: sharedWebSocketMultiplexer, delegateQueue: nil)
+    }()
 
     /// Returns the daemon's structured RPC error code preserved on `error`.
     ///
@@ -179,6 +187,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         self.keepaliveInterval = keepaliveInterval
         self.keepaliveTimeout = keepaliveTimeout
         self.onUnexpectedTermination = onUnexpectedTermination
+    }
+
+    deinit {
+        stop()
     }
 
     /// Starts the transport for `configuration` and performs the `hello`
@@ -333,8 +345,13 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         if let process = captured.0, process.isRunning {
             process.terminate()
         }
-        captured.4?.cancel(with: .normalClosure, reason: nil)
-        captured.5?.invalidateAndCancel()
+        if let task = captured.4 {
+            Self.sharedWebSocketMultiplexer.unregister(task: task)
+            task.cancel(with: .normalClosure, reason: nil)
+        }
+        if let session = captured.5, session !== Self.sharedWebSocketSession {
+            session.invalidateAndCancel()
+        }
         if captured.6 {
             onUnexpectedTermination(captured.7)
         }

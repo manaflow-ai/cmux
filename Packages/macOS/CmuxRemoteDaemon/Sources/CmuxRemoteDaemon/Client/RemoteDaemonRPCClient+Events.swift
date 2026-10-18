@@ -351,8 +351,13 @@ extension RemoteDaemonRPCClient {
         streamSubscriptions.removeAll(keepingCapacity: false)
         failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
-        capturedTask?.cancel(with: .normalClosure, reason: nil)
-        capturedSession?.invalidateAndCancel()
+        if let capturedTask {
+            Self.sharedWebSocketMultiplexer.unregister(task: capturedTask)
+            capturedTask.cancel(with: .normalClosure, reason: nil)
+        }
+        if let capturedSession, capturedSession !== Self.sharedWebSocketSession {
+            capturedSession.invalidateAndCancel()
+        }
 
         guard shouldNotify else { return }
         onUnexpectedTermination(detail)

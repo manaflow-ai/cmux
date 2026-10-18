@@ -2,18 +2,18 @@ import Foundation
 
 /// Holds one WebSocket and serializes viewing revisions across timer/UI callers.
 actor WorkspacePresenceSocket: WorkspacePresenceConnection {
-    // URLSession and URLSessionWebSocketTask are Sendable Foundation handles.
-    private nonisolated let session: URLSession
-    private nonisolated let socket: URLSessionWebSocketTask
-    private var revision: UInt64 = 0
-
-    init(request: URLRequest) {
+    static let sharedSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: WorkspacePresenceRedirectDelegate(), delegateQueue: nil)
-        self.session = session
+        return URLSession(configuration: configuration, delegate: WorkspacePresenceRedirectDelegate(), delegateQueue: nil)
+    }()
+
+    private nonisolated let socket: URLSessionWebSocketTask
+    private var revision: UInt64 = 0
+
+    init(request: URLRequest, session: URLSession = WorkspacePresenceSocket.sharedSession) {
         let socket = session.webSocketTask(with: request)
         socket.maximumMessageSize = 512 * 1024
         self.socket = socket
@@ -35,6 +35,7 @@ actor WorkspacePresenceSocket: WorkspacePresenceConnection {
                 return try JSONDecoder().decode(WorkspacePresenceSnapshot.self, from: data)
             } onCancel: { close() }
         } catch {
+            close()
             if let response = socket.response as? HTTPURLResponse, response.statusCode == 429 {
                 let delay = Double(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 15
                 throw WorkspacePresenceError.retryAfter(min(max(delay, 1), 300))
@@ -51,6 +52,5 @@ actor WorkspacePresenceSocket: WorkspacePresenceConnection {
 
     nonisolated func close() {
         socket.cancel(with: .goingAway, reason: nil)
-        session.invalidateAndCancel()
     }
 }

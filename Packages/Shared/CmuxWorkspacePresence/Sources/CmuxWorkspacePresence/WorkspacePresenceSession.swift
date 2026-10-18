@@ -122,6 +122,7 @@ public final class WorkspacePresenceSession {
                         continuation.yield(participants)
                     }
                     phase = .available
+                    backoff = 1
                 }
             } catch is CancellationError { return }
             catch WorkspacePresenceError.retryAfter(let delay) { retryDelay = max(retryDelay, delay) }

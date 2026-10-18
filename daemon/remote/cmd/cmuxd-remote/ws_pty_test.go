@@ -3305,3 +3305,59 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 	}
 	return int(size.Cols), int(size.Rows), true, nil
 }
+
+func TestWebSocketPTYReconnectCancelsOldAttachmentAndCleansSessionState(t *testing.T) {
+	hub, session, oldAttachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-reconnect-cleanup", "att-reconnect", false)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+
+	hub.mu.Lock()
+	if len(session.attachments) != 1 {
+		hub.mu.Unlock()
+		t.Fatalf("expected 1 attachment before reconnect, got %d", len(session.attachments))
+	}
+	hub.mu.Unlock()
+
+	newAttachment, newCtx, _, err := hub.prepareAttachment(
+		context.Background(),
+		nil,
+		session.id,
+		oldAttachment.id,
+		90,
+		30,
+		true,
+		"",
+		"new-token",
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("prepare replacement attachment failed: %v", err)
+	}
+
+	hub.mu.Lock()
+	currentAtt := session.attachments[oldAttachment.id]
+	attCount := len(session.attachments)
+	hub.mu.Unlock()
+
+	if attCount != 1 {
+		t.Fatalf("expected exactly 1 attachment after reconnect, got %d", attCount)
+	}
+	if currentAtt != newAttachment {
+		t.Fatalf("current attachment in map is not the new attachment")
+	}
+
+	if !hub.detach(newAttachment) {
+		t.Fatal("detach replacement attachment failed")
+	}
+
+	hub.mu.Lock()
+	finalCount := len(session.attachments)
+	hub.mu.Unlock()
+
+	if finalCount != 0 {
+		t.Fatalf("expected 0 attachments after detach, got %d", finalCount)
+	}
+	_ = newCtx
+}

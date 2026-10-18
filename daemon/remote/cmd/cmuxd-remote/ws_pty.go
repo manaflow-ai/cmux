@@ -1567,6 +1567,9 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if attachment == nil {
 		return false
 	}
+	if attachment.cancel != nil {
+		attachment.cancel()
+	}
 	h.mu.Lock()
 
 	session := h.sessions[attachment.sessionKey]
@@ -1580,7 +1583,6 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 		return false
 	}
 	delete(session.attachments, attachment.id)
-	attachment.cancel()
 	shouldApplySize := h.recomputeSessionSizeLocked(session)
 	h.mu.Unlock()
 
@@ -1613,6 +1615,9 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 	if attachment == nil {
 		return
 	}
+	if attachment.cancel != nil {
+		attachment.cancel()
+	}
 	h.mu.Lock()
 	session := h.sessions[attachment.sessionKey]
 	if session == nil || session.attachments[attachment.id] != attachment {
@@ -1622,7 +1627,6 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 	delete(h.sessions, session.key)
 	delete(session.attachments, attachment.id)
 	h.cancelIdleReapLocked(session)
-	attachment.cancel()
 	h.mu.Unlock()
 
 	session.terminateProcesses()

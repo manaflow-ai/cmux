@@ -76,6 +76,10 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         self.onFatalError = onFatalError
     }
 
+    deinit {
+        stop()
+    }
+
     /// Starts the RPC client and the loopback listener; throws when either
     /// fails (the tunnel is then stopped and unusable).
     public func start() throws {
@@ -102,6 +106,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                         self.failLocked("Remote daemon transport failed: \(detail)")
                     }
                 }
+                self.rpcClient = client
                 try client.start()
 
                 let listener = try Self.makeLoopbackListener(port: localPort)
@@ -121,7 +126,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                     }
                 }
 
-                self.rpcClient = client
                 self.listener = listener
                 listener.start(queue: queue)
             } catch {

@@ -45,6 +45,8 @@ actor PresenceTestConnection: WorkspacePresenceConnection {
         viewContinuation.finish()
     }
 
+    var isEnded: Bool { ended }
+
     nonisolated func close() {
         Task { await disconnect() }
     }

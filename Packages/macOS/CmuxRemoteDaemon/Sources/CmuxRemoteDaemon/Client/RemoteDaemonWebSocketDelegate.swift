@@ -47,6 +47,18 @@ final class RemoteDaemonWebSocketDelegate: NSObject, URLSessionWebSocketDelegate
         openSemaphore.signal()
     }
 
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: (any Error)?
+    ) {
+        guard error != nil else { return }
+        lock.lock()
+        closed = true
+        lock.unlock()
+        openSemaphore.signal()
+    }
+
     /// Blocks until the socket reports open or closed (or `timeout` elapses);
     /// `true` only when it opened and has not closed.
     func waitForOpen(timeout: TimeInterval) -> Bool {
@@ -63,5 +75,62 @@ final class RemoteDaemonWebSocketDelegate: NSObject, URLSessionWebSocketDelegate
         lock.lock()
         defer { lock.unlock() }
         return closed
+    }
+}
+
+/// Multiplexes delegate callbacks from a shared URLSession across concurrently
+/// active or sequential WebSocket tasks.
+final class RemoteDaemonWebSocketMultiplexer: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var delegates: [Int: RemoteDaemonWebSocketDelegate] = [:]
+
+    func register(delegate: RemoteDaemonWebSocketDelegate, for task: URLSessionWebSocketTask) {
+        lock.lock()
+        delegates[task.taskIdentifier] = delegate
+        lock.unlock()
+    }
+
+    @discardableResult
+    func unregister(task: URLSessionWebSocketTask) -> RemoteDaemonWebSocketDelegate? {
+        lock.lock()
+        defer { lock.unlock() }
+        return delegates.removeValue(forKey: task.taskIdentifier)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        let delegate: RemoteDaemonWebSocketDelegate? = {
+            lock.lock()
+            defer { lock.unlock() }
+            return delegates[webSocketTask.taskIdentifier]
+        }()
+        delegate?.urlSession(session, webSocketTask: webSocketTask, didOpenWithProtocol: `protocol`)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        let delegate = unregister(task: webSocketTask)
+        delegate?.urlSession(session, webSocketTask: webSocketTask, didCloseWith: closeCode, reason: reason)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: (any Error)?
+    ) {
+        guard let wsTask = task as? URLSessionWebSocketTask else { return }
+        let delegate: RemoteDaemonWebSocketDelegate? = error != nil ? unregister(task: wsTask) : {
+            lock.lock()
+            defer { lock.unlock() }
+            return delegates[wsTask.taskIdentifier]
+        }()
+        delegate?.urlSession(session, task: task, didCompleteWithError: error)
     }
 }

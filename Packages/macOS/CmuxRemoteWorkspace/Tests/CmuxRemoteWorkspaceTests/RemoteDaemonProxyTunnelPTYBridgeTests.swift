@@ -15,6 +15,16 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         #expect(key.lifecycleID == uppercaseUUID.lowercased())
     }
 
+    @Test("tunnel deinit stops rpc client and cleans state")
+    func tunnelDeinitStopsTunnel() {
+        let rpc = TestPTYLifecycleRPCClient()
+        do {
+            let tunnel = makeTunnel(rpc: rpc)
+            _ = tunnel
+        }
+        #expect(rpc.stopCount == 1)
+    }
+
     @Test("cleanup during a reconnect gap blocks both bridge start modes")
     func cleanupDuringReconnectGapBlocksRespawn() throws {
         let rpc = TestPTYLifecycleRPCClient()
