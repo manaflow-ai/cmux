@@ -373,7 +373,7 @@ function Layout() {
               key={state.path}
               state={state}
               loading={<p className="gallery-empty">Loading {state.path}</p>}
-              render={(entry) => <EntryView entry={entry} address={address} />}
+              render={(entry) => <EntryView entry={entry} address={address} status={status} />}
             />
           ) : states.length === 0 ? (
             <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
@@ -450,7 +450,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
 }
 
 /** One entry's header and stages. */
-function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
+function EntryView({ entry, address, status }: { entry: GalleryEntry; address: Address; status: LiveStatus }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
@@ -542,6 +542,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             env={env}
             tune={search.tune}
             sourcePath={address.sourcePath}
+            revisionSha={status.sha}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
