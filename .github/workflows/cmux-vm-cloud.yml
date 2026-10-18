@@ -1,0 +1,45 @@
+# Check-only coverage for the CloudDO migration to the tenant VM API.
+# No live environments, migrations or deployments run from this workflow.
+name: cmux VM Cloud adapter
+on:
+  push:
+    branches: ["codex/vm-api-cloud-*"]
+    paths: ["backend/**", "workers/cmux-vm/sdk/**", ".github/workflows/cmux-vm-cloud.yml"]
+  pull_request:
+    paths: ["backend/apps/api/src/cloud-vm-api*", "backend/apps/api/src/team-vm-api*", "backend/apps/api/test/cloud-vm-api*", "backend/apps/api/test/team-vm-api*", ".github/workflows/cmux-vm-cloud.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: vm-api-cloud-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend/apps/api
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        id: install
+        working-directory: backend
+        run: bun install --frozen-lockfile
+      - name: API typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+      - name: Cloud tenant and adapter behavior
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-vm-api-tenant.test.ts test/cloud-vm-api
+      - name: Backend source size
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: backend
+        run: bun run lint:size
