@@ -43,6 +43,6 @@ struct PhoneAccessSettingTests {
         #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake"])
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))
         #expect(toggle.defaultValue == .bool(false))
-        #expect(toggle.help?.contains("never uploaded") == true)
+        #expect(toggle.help?.contains("is sent to cmux servers") == true)
     }
 }

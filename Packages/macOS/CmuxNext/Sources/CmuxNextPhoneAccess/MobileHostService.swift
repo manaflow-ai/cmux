@@ -1,8 +1,9 @@
-import AppKit
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextMobile
-import CmuxNextSettings
+public import CmuxNextDaemonService
+import CmuxNextKeepAwake
+public import CmuxNextMobile
+public import CmuxNextSettings
 import Foundation
 import os
 
@@ -13,43 +14,49 @@ import os
 /// (`phone.allowConnections`, `setAllowed`); the host itself never reads
 /// tokens from disk. This and `MobileIrxHost` are the only Iroh-aware parts:
 /// the settings and their rules (`PhoneAccessGate`) name no transport.
-final class MobileHostService {
-    private(set) var host: MobileIrxHost?
+public final class MobileHostService {
+    public private(set) var host: MobileIrxHost?
     private var starting: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile")
     /// Where usable phone connections are reported (`mobile.rpc.ready` on
     /// the control socket's event stream); set once the socket starts.
-    let readiness = MobileReadinessRelay()
+    public let readiness = MobileReadinessRelay()
+    /// This Mac's user-visible name, read off the main actor (the App's `MacName`).
+    private let displayName: @Sendable () async -> String
 
     /// What phones may do here; the host reads it per request (`phone.startSessions`).
-    let access = PhoneAccessGate()
+    public let access = PhoneAccessGate()
     /// `phone.allowConnections`: the listener runs only while this is on.
-    private(set) var allowed = false
+    public private(set) var allowed = false
     /// The signed-in account the listener registers under, while there is one.
     private var account: (auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService)?
     private var follower: PhoneAccessFollower?
     /// Phones can reach this Mac: signed in and allowed (the phone keep-awake reason).
     var isServing: Bool { allowed && account != nil }
 
+    public init(displayName: @escaping @Sendable () async -> String) {
+        self.displayName = displayName
+    }
+
     /// The account to serve phones for (sign-in, or a user or team switch). The
     /// listener starts now when phone access is on, else when it is turned on.
-    func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
+    public func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         account = (auth, launch, daemon)
         allowed ? startHost(auth: auth, launch: launch, daemon: daemon) : stopHost()
         servingChanged()
     }
 
     /// Signed out, or the app quits: no account, no listener.
-    func stop() {
+    public func stop() {
         account = nil
         stopHost()
         servingChanged()
     }
 
     /// Settings > Accounts > Phone Access turned the listener on or off.
-    func setAllowed(_ on: Bool) {
+    public func setAllowed(_ on: Bool) {
         guard on != allowed else { return }
         allowed = on
         if on, let account {
@@ -61,7 +68,7 @@ final class MobileHostService {
     }
 
     /// Follows Settings > Accounts > Phone Access from now on (once).
-    func follow(_ settings: SettingsController, launch: LaunchIdentity) {
+    public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
         guard follower == nil else { return }
         follower = PhoneAccessFollower(mobile: self, settings: settings,
                                        history: MobileHostHistory(stateDirectory: Self.stateDirectory(namespace: Self.namespace(launch))))
@@ -73,7 +80,7 @@ final class MobileHostService {
     }
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's
-    /// display name is read off the main actor first (`MacName`).
+    /// display name is read off the main actor first (`displayName`).
     private func startHost(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         generation += 1
         let current = generation
@@ -83,7 +90,7 @@ final class MobileHostService {
         let access = access
         starting = Task { [weak self, logger] in
             await previous?.stop()
-            let displayName = await MacName.computerName()
+            let displayName = await self?.displayName() ?? "Mac"
             guard let self, self.generation == current, !Task.isCancelled else { return }
             guard let configuration = Self.configuration(launch: launch, daemon: daemon, displayName: displayName) else {
                 logger.error("phone access disabled: no v2 control-plane URL for this environment")

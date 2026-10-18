@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -388,15 +389,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a
-    /// window closes when its last workspace closes, and the daemon keeps
-    /// every terminal regardless.
+    /// The app stays running with no windows (standard macOS behavior): a window closes when its
+    /// last workspace closes, and the daemon keeps every terminal regardless.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows, let windows = services?.windows else { return true }
         windows.reopenOrCreateWindow()
