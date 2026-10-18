@@ -179,6 +179,21 @@ measurements.
 
 - **Lazy-stage follow-up (`ad73781dff67`):** the stage loader now keeps the full browse registry cold
   and imports the canonical New Tab entry directly, so a frame does not settle every gallery module.
-  Focused gallery-play checks pass. A fresh local Vite smoke run still spent its bounded window in
-  dependency optimization before `galleryReady`; therefore no new PNG hashes are claimed here.
-  The previously captured four receipts remain the valid visual evidence for the pre-follow-up head.
+  Focused gallery-play checks pass. The local Vite smoke remains slow during dependency optimization,
+  so the authoritative rerun uses the managed hosted runner below.
+- **Managed post-fix rerun:** **PASS** — GitHub Actions run
+  [39086652622](https://github.com/manaflow-ai/cmux/actions/runs/39086652622), artifact
+  [workspace-switch-f4eb922-final](https://github.com/manaflow-ai/cmux/actions/artifacts/12120697637),
+  rendered the exact final head `f4eb922a2e6a7298e4d64fb1cf96e5071b55e632` on
+  `github-actions/ubuntu-24.04` with Chromium. All four stages reported `ready=1`, the type and
+  option-click plays passed with no long frames, and `tab.jump(target="workspace", id="workspace-release")`
+  completed for every state. The downloaded evidence is in
+  `/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/managed-39086652622/managed-receipt.json`
+  with JSON SHA256 `fa60582dcdec597278aaa2f097db446b2e24ecfd51f2438302ead3ccfa01ca93`.
+
+  | state | viewport | theme | play | PNG SHA256 |
+  | --- | ---: | --- | --- | --- |
+  | normal-dark | 760x560 | Apple System Colors | `pass` | `f41fb13893790ab66ac8c00a92d06c4c7d53b6034bf83b9e431bd9659231bca6` |
+  | normal-light | 760x560 | Apple System Colors Light | `pass` | `4c306ea8878efb09168fd1d3b25f32d7e8332a916cbd6af62363c3bf92020c4d` |
+  | narrow-dark | 420x560 | Apple System Colors | `pass` | `d8e1b0f36bffa33faf28ae29cbae221fba734f01f5c51bf23012e9cd37be1613` |
+  | narrow-light | 420x560 | Apple System Colors Light | `pass` | `df66e46490ad9347a2807e56c33840b91b2e1d180232043630d87e8ccdc7e31d` |
