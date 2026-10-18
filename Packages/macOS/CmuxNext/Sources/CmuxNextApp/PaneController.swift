@@ -125,37 +125,38 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
-        let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
+        let ownWorkspace = probe("workspace") { workspace?.workspace ?? store.workspace(containing: pane.handle) }
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
-        let hidden = pendingClosed.union(dockBound)
+        let hidden = probe("hidden") { pendingClosed.union(dockBound) }
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
         let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
-        var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
+        var items = probe("pane.tabs") { pane.tabs }.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
-            let isNewTabPage = titles.isNewTabPage(tab)
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage)
+            let isNewTabPage = probe("isNewTabPage") { titles.isNewTabPage(tab) }
+            let untitled = probe("untitled") { titles.untitled(tab, fallback: fallback) }
+            var item = probe("mapping") { TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage) }
             // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
             // content, when the app becomes available after the tree arrived.
             // An app or page tab names and badges itself like the page it shows.
-            if let page = titles.page(tab) {
+            if let page = probe("page", { titles.page(tab) }) {
                 item.title = page.title
                 item.icon = page.icon
             }
-            item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
-            if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
-            item.isDormant = services.cache.dormantTabs.contains(tab.id)
+            item.groupID = probe("tabGroup") { tab.tabGroup.map { TabGroupID($0.rawValue) } }
+            if !probe("attention", { DesignSettings.shared.attention.showsOnTab }) { item.isUnread = false }
+            item.isDormant = probe("dormant") { services.cache.dormantTabs.contains(tab.id) }
             if tab.kind == .remoteTerminal {
                 // Its terminal runs on another machine: that machine's name.
                 item.machineBadge = services.remoteTerminals.badge(for: tab)
                 item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
-                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
+                item.themeBadge = probe("themeBadge") { services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab)) }
             } else {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-                let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+                let badge = probe("remoteLocalhost") { services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine) }
                 (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
                 // Incognito tabs have only a placeholder record in the daemon.
                 let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
@@ -163,16 +164,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
                 } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id)
+                    item.profileBadge = probe("profileBadge") { services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id) }
                     if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
                 item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
             }
-            TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+            let asset = probe("iconAsset") { IconAssetImages.shared.tabIcon(owner: daemon) }
+            probe("userIcon") { TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: asset) }
             return item
         }
-        for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
+        for local in probe("localBrowserTabs", { state?.localBrowserTabs[paneKey] ?? [] }) where !hidden.contains(local.id) {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
@@ -181,16 +183,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        items += services.localTabItems(in: paneKey, hiding: hidden)
+        items += probe("localTabItems") { services.localTabItems(in: paneKey, hiding: hidden) }
         let groupAsset = IconAssetImages.shared.tabIcon(owner: daemon)
-        let groups = pane.tabGroups.map { group in
+        let groups = probe("tabGroups") { pane.tabGroups }.map { group in
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
-        let connected = if case .connected = store.connectionState { true } else { false }
+        let connected = probe("connection") { if case .connected = store.connectionState { true } else { false } }
+        let generation = probe("generation") { store.generation?.rawValue }
+        let surfaces = probe("surfaces") { pane.tabs.map(\.surface.rawValue) }
+        let hidesStrip = probe("hidesStrip") { hidesTabBar || ownWorkspace?.app != nil }
         let result = Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                              generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                              // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                              hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+                              generation: generation, surfaces: surfaces, hidesStrip: hidesStrip)
         #if DEBUG
         debugSnapshotRuns += 1
         let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
@@ -198,6 +201,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         debugLastSnapshot = result
         #endif
         return result
+    }
+
+    /// PROBE (side branch only, cx-8w027.23): counts each later change of what `read` read.
+    private func probe<T>(_ group: String, _ read: () -> T) -> T {
+        #if DEBUG
+        DebugLayoutCounters.probe(group, owner: ObjectIdentifier(self), run: debugSnapshotRuns + 1, read)
+        #else
+        read()
+        #endif
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
