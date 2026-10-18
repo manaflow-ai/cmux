@@ -61,7 +61,7 @@ import Testing
     // MARK: The panel
 
     /// Fleet hosts with no display drop layer animations (a window with no screen).
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+    static func hasDisplay() -> Bool { VisualTestSupport.hasAnimatableDisplay() }
 
     private static func toolbar(clock: ManualClock) throws -> (NSWindow, [ChromeIconButton], TooltipPresenter, ThemeScope) {
         _ = NSApplication.shared
@@ -182,7 +182,7 @@ import Testing
         return abs(fade.duration - on) < 0.0001
     }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an onscreen display where AppKit motion advances") { await Self.hasDisplay() })
     func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
         // Another suite's window mid-resize would drop the rise (`Motion.isLiveResizing`).
@@ -250,7 +250,7 @@ import Testing
         #expect(!presenter.panel.isFadingOut)
     }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an onscreen display where AppKit motion advances") { await Self.hasDisplay() })
     func underReduceMotionTheTooltipFadesWithNoRise() async throws {
         Motion.reduceMotionOverride = true
         let watch = OverrideWatch(Motion.reduceMotionDidChange)
@@ -277,7 +277,8 @@ import Testing
                 "the rise does not follow Reduce Motion (read \(reduced ? "on" : "off"))")
     }
 
-    @Test func theSurfaceIsFrostedGlassOrOpaqueUnderReduceTransparency() async throws {
+    @Test(.enabled("needs an onscreen display") { await VisualTestSupport.hasVisibleDisplay() })
+    func theSurfaceIsFrostedGlassOrOpaqueUnderReduceTransparency() async throws {
         defer { ReduceTransparency.shared.override = nil }
         for reduce in [false, true] {
             ReduceTransparency.shared.override = reduce
@@ -289,6 +290,7 @@ import Testing
             }
             try await Self.rest(on: buttons[0], presenter, clock)
             let panel = presenter.panel
+            guard Motion.canAnimate(in: panel.surface) else { return }
             let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
             let fill = try #require(panel.tint.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
             let want = (reduce ? surface.fill : surface.tint).nsColor.usingColorSpace(.sRGB)

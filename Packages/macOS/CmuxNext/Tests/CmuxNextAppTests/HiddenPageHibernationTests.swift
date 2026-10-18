@@ -14,9 +14,13 @@ import Testing
 /// placeholder's own full-size snapshot, outside the 32 MB preview cache. Real WebKit pages,
 /// hidden from a pane, through the app's hibernation.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
-    @Test func aPageWhoseScriptFillsItsFormHibernates() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageWhoseScriptFillsItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
+        guard rig.window.screen != nil else { return }
         let key = try await rig.hide(rig.page("scripted", body: """
             <select id="engine"><option>Car</option><option>Bike</option></select>
             <input type="radio" name="size" value="small"><input type="radio" name="size" value="large">
@@ -38,7 +42,10 @@ import Testing
         #expect(rig.isHibernated(key), "the hidden page kept its engine page")
     }
 
-    @Test func aPageThePersonTypedIntoKeepsItsPage() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageThePersonTypedIntoKeepsItsPage() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("typed", body: "<input id='note'>")
@@ -58,7 +65,10 @@ import Testing
     /// The 2026-10-14 audit rerun: `debug.surfaces` listed hibernated Chromium tabs as kept for
     /// audio. A probe that keeps a page records why; when a later probe lets the page hibernate,
     /// that reason has to go with it, or the report says a hibernated page was kept.
-    @Test func aPageKeptOnceThenHibernatedIsNoLongerReportedAsKept() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageKeptOnceThenHibernatedIsNoLongerReportedAsKept() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("cleared", body: "<input id='note'>")
@@ -84,7 +94,10 @@ import Testing
     /// #20866 review: a person who used the page and then let a widget or the page's script set a
     /// field (a date picker, a Select2 menu, a draft re-rendered through `.value`) still has edits
     /// there, though no trusted input event touched the field.
-    @Test func aPageThePersonUsedWhoseScriptThenSetAFieldKeepsItsPage() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageThePersonUsedWhoseScriptThenSetAFieldKeepsItsPage() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("used", body: """
@@ -102,7 +115,10 @@ import Testing
 
     /// #20866 second review: selecting text or pressing a key on a docs page is use, but the fields
     /// its script filled at load are not the person's: the page still hibernates.
-    @Test func aPageThePersonOnlyUsedWhoseScriptFilledItsFormHibernates() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageThePersonOnlyUsedWhoseScriptFilledItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("browsed", body: """
@@ -132,7 +148,10 @@ import Testing
 
     /// #20866 second review: a composer the person typed in and then sent (a chat app clears it)
     /// holds nothing to lose: the page hibernates.
-    @Test func aRichEditorThePersonClearedLetsThePageHibernate() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aRichEditorThePersonClearedLetsThePageHibernate() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("sent", body: "<div id='editor' contenteditable style='height: 200px'></div>")
@@ -146,7 +165,10 @@ import Testing
     }
 
     /// #20866 review: a rich text editor (a mail compose, a comment box) is no form field.
-    @Test func aPageThePersonTypedIntoARichEditorKeepsItsPage() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageThePersonTypedIntoARichEditorKeepsItsPage() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let page = try await rig.page("editor", body: "<div id='editor' contenteditable style='height: 200px'></div>")
@@ -159,7 +181,10 @@ import Testing
 
     /// #20866 review: a 2560 x 1600 pt pane at 2x is about 65 MB, more than the whole 32 MB cache,
     /// which never took it: the tab woke blank.
-    @Test func aLargePaneStillHasASnapshotAfterHibernating() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aLargePaneStillHasASnapshotAfterHibernating() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
@@ -176,7 +201,10 @@ import Testing
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
-    @Test func aPageThatHibernatesAgainShowsItsNewSnapshot() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func aPageThatHibernatesAgainShowsItsNewSnapshot() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let first = try Self.picture(shade: 0.2, width: 1000, height: 700)
@@ -195,7 +223,10 @@ import Testing
         #expect(snapshot?.width == 900, "the page showed the picture of its first sleep")
     }
 
-    @Test func hibernatedPagesKeepNoMoreSnapshotsThanThePreviewCache() async throws {
+    @Test(.enabled("needs an onscreen display for WebKit hibernation probes") {
+        await VisualTestSupport.hasVisibleDisplay()
+    })
+    func hibernatedPagesKeepNoMoreSnapshotsThanThePreviewCache() async throws {
         let rig = try Rig()
         defer { rig.close() }
         var keys: [String] = []
