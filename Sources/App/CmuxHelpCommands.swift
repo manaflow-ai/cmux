@@ -27,8 +27,10 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
-            Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
-                ProUpgradePresenter.present(source: .helpMenu)
+            if let offer = ProUpgradePresenter.currentUpgradeOffer {
+                Button(ProUpgradePresenter.upgradeMenuTitle(for: offer)) {
+                    ProUpgradePresenter.present(source: .helpMenu)
+                }
             }
             #if DEBUG
             Button(String(localized: "menu.help.previewNativePricing", defaultValue: "Preview Native Pro Pricing…")) {
@@ -37,9 +39,7 @@ extension cmuxApp {
             Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
                 AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
             }
-            Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
-            }
+            cloudWelcomeDebugMenuItems
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }

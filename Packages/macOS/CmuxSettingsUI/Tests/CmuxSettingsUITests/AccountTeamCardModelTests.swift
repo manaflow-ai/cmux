@@ -73,6 +73,31 @@ struct AccountTeamCardModelTests {
         #expect(model.errorMessage == nil)
     }
 
+    @Test func rosterWaitsForSignInToSettleBeforeLoading() async {
+        let flow = TeamCardFlow()
+        flow.isWorkingOnAuth = true
+        let model = AccountTeamCardModel(flow: flow)
+
+        // Sign-in publishes the team before its token handoff finishes. A
+        // fetch in that window is refused locally and used to leave
+        // "cmux Cloud is unreachable" on the card.
+        model.reload()
+
+        #expect(flow.detailRequests == 0)
+        #expect(model.isLoading)
+        #expect(model.errorMessage == nil)
+
+        flow.isWorkingOnAuth = false
+        model.reloadIfNeeded()
+
+        await waitUntil { flow.detailReply != nil }
+        #expect(flow.detailRequests == 1)
+        flow.finishReload(role: .member)
+        await waitUntil { !model.isLoading }
+        #expect(model.detail?.teamID == "team")
+        #expect(model.errorMessage == nil)
+    }
+
     private func waitUntil(_ predicate: () -> Bool) async {
         while !predicate() {
             let (changes, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -101,7 +126,7 @@ private final class TeamCardFlow: AccountFlow {
     var currentIdentity: AccountIdentity? { nil }
     var availableTeams: [AccountTeamSummary] { [] }
     var selectedTeamID: String? = "team"
-    var isWorkingOnAuth: Bool { false }
+    var isWorkingOnAuth = false
     var signInIsSlow: Bool { false }
     var isProUpgradeAvailable: Bool { false }
     var isProActive: Bool { false }
@@ -110,6 +135,7 @@ private final class TeamCardFlow: AccountFlow {
     var roleReply: CheckedContinuation<Void, any Error>?
     var detailReply: CheckedContinuation<AccountTeamDetail, any Error>?
     var roleRequests: [AccountTeamRole] = []
+    var detailRequests = 0
 
     var member: AccountTeamMember { roster.members[1] }
     var roster: AccountTeamDetail { makeRoster(role: .member) }
@@ -132,7 +158,8 @@ private final class TeamCardFlow: AccountFlow {
     }
 
     func loadTeamDetail() async throws -> AccountTeamDetail {
-        try await withCheckedThrowingContinuation { detailReply = $0 }
+        detailRequests += 1
+        return try await withCheckedThrowingContinuation { detailReply = $0 }
     }
 
     func finishRoleChange(error: (any Error)? = nil) {

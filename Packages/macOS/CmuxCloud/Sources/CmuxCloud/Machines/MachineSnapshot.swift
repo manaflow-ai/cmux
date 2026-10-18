@@ -8,7 +8,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         provider: String,
         image: String,
         isDesktop: Bool,
-        capabilities: VMCapabilities = .all,
+        capabilities: VMCapabilities = .legacy,
         activity: Activity,
         createdAt: Date? = nil,
         createdBy: VMCreator? = nil,
@@ -16,6 +16,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         slug: String? = nil,
         freeAccess: FreeAccessState = .unrestricted,
         stats: VMStats? = nil,
+        resourceReservation: CloudVMResourceReservation? = nil,
+        resourcePoolClaim: CloudVMResourceReservation? = nil,
+        usesResourcePool: Bool = true,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
         isPinned: Bool = false
@@ -32,6 +35,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.slug = slug
         self.freeAccess = freeAccess
         self.stats = stats
+        self.resourceReservation = resourceReservation
+        self.resourcePoolClaim = resourcePoolClaim
+        self.usesResourcePool = usesResourcePool
         self.usage = usage
         self.privateAddress = privateAddress
         self.isPinned = isPinned
@@ -65,7 +71,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public let image: String
     public let isDesktop: Bool
     /// Verbs the provider can honor; menus omit Checkpoint/Fork when unsupported.
-    public var capabilities: VMCapabilities = .all
+    public var capabilities: VMCapabilities = .legacy
     public let activity: Activity
     public let createdAt: Date?
     /// Who made this machine; nil for machines the surface catalog discovered
@@ -80,6 +86,17 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
     public var stats: VMStats?
+    /// The server-recorded compute share used for subscription pool decisions.
+    /// Guest stats remain the display fallback while this value is unavailable.
+    public var resourceReservation: CloudVMResourceReservation?
+    /// The pool claim charged to the plan's aggregate usage counters. Legacy
+    /// rows can claim the provider maximum until reconciliation; this is kept
+    /// separate from the live grow-only shape above.
+    public var resourcePoolClaim: CloudVMResourceReservation?
+    /// Whether the list status says this machine currently draws from the
+    /// shared pool. Paused/stopped machines must fit as a new allocation when
+    /// a resize wakes them.
+    public var usesResourcePool: Bool
     /// Coderouter spend over the usage window; nil until the team usage
     /// payload names this machine (and nil forever on backends without it).
     public var usage: MachineUsageSnapshot?

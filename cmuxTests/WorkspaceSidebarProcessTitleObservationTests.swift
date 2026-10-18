@@ -186,6 +186,33 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(observationStream) {}
     }
 
+    @Test func singlePanelTitleChurnSkipsImmediatePublisher() throws {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+        let observationStream = model.changes()
+        let panelId = try #require(workspace.focusedPanelId)
+        var immediatePublishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            immediatePublishCount += 1
+        }
+        defer { cancellable.cancel() }
+        immediatePublishCount = 0
+
+        // Terminal title animation arrives through updatePanelTitle. Those
+        // frames belong to the settle model; the immediate publisher would
+        // otherwise wake the row on every frame.
+        for frame in 0..<6 {
+            _ = workspace.updatePanelTitle(panelId: panelId, title: "Agent frame \(frame)")
+        }
+
+        #expect(workspace.title == "Agent frame 5")
+        #expect(immediatePublishCount == 0)
+        scheduler.fireAll()
+        #expect(model.changeGeneration == 1)
+        withExtendedLifetime(observationStream) {}
+    }
+
     @Test func changeBeforeSubscriptionReplaysToNewObserver() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))

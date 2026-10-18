@@ -67,8 +67,16 @@ elif name == 'xcrun':
         ]))
         print(json.dumps({'id': 'fixture-submission', 'status': 'In Progress'}))
     elif args[:2] == ['notarytool', 'wait']:
+        if os.environ.get('FIXTURE_NOTARY_WAIT_TIMEOUT'):
+            print('Timeout of 25m reached before processing completed.', file=sys.stderr)
+            sys.exit(124)
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_NOTARY_STATUS', 'Accepted')}))
+    elif args[:2] == ['notarytool', 'info']:
+        print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_INFO_STATUS', 'In Progress')}))
     elif args[:2] == ['notarytool', 'log']:
+        if os.environ.get('FIXTURE_LOG_TIMEOUT'):
+            import time
+            time.sleep(float(os.environ['FIXTURE_LOG_TIMEOUT']))
         entries = json.loads((root / 'submitted.json').read_text())
         entries = [e for e in entries if e['arch'] != os.environ.get('FIXTURE_LOG_OMIT')]
         print(json.dumps({'status': 'Accepted', 'ticketContents': entries}))
@@ -192,6 +200,39 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertFalse(self.calls('xcrun', 'stapler'))
         self.assertTrue(self.calls('xcrun', 'notarytool', 'log'))
 
+    def test_helper_wait_timeout_retains_state_and_signed_app_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper('--finish', self.state, success=False, FIXTURE_NOTARY_WAIT_TIMEOUT='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(self.state.exists())
+        evidence = Path(str(self.state) + '.log')
+        self.assertTrue(evidence.exists())
+        self.assertIn('Timeout of 25m reached', evidence.read_text())
+        self.assertIn('status=In Progress', self.state.read_text())
+        self.assertIn('pending=true', self.state.read_text())
+        self.assertEqual(result.returncode, 75)
+        self.assertIn('wait_exit=124', self.state.read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
+    def test_helper_log_timeout_retains_accepted_state_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper(
+            '--finish', self.state,
+            success=False,
+            FIXTURE_LOG_TIMEOUT='2',
+            CMUX_HELPER_LOG_TIMEOUT_SECONDS='1',
+        )
+        self.assertEqual(result.returncode, 75)
+        self.assertTrue(self.state.exists())
+        state = self.state.read_text()
+        self.assertIn('status=Accepted', state)
+        self.assertIn('post_wait_pending=true', state)
+        self.assertIn('pending=true', state)
+        self.assertIn('command timed out after 1s', (self.state.with_suffix('.state.log')).read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
     def test_invalid_signature_or_ticket_cannot_reseal_host(self):
         for env in ({'FIXTURE_VERIFY_FAIL': '1'}, {'FIXTURE_VALIDATE_FAIL': '1'}):
             with self.subTest(env=env):
@@ -207,6 +248,16 @@ class HelperNotarizationTests(unittest.TestCase):
         self.run_helper(success=False, FIXTURE_REJECTS='5')
         self.assertEqual(len(self.calls('spctl')), 3)
         self.assertFalse(self.calls('sign-bundle'))
+
+    def test_published_continuation_can_defer_gatekeeper_assessment(self):
+        # The continuation re-runs this assessment after the outer Apple wait.
+        # Deferral must retain every deterministic helper gate and only skip the
+        # CDN-backed check on the signing lane.
+        self.run_helper(CMUX_DEFER_GATEKEEPER_ASSESSMENT='true')
+        self.assertFalse(self.calls('spctl'))
+        validations = self.calls('xcrun', 'stapler', 'validate')
+        self.assertTrue(any(call[-1].endswith('/standalone/cmux Computer Use.app') for call in validations))
+        self.assertTrue(self.calls('sign-bundle'))
 
     def notary_auth(self):
         path = self.root / 'notary-auth'

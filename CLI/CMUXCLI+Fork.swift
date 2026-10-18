@@ -138,7 +138,8 @@ extension CMUXCLI {
             return
         }
 
-        let legacyCommand = legacyForkCommand(for: record)
+        let legacyCommand = AgentRestorePlanner.allowsLegacyFallback(kind: record.kind, mode: .forkAgent)
+            ? legacyForkCommand(for: record) : nil
         var environment = processEnvironment
         if let capturedEnvironment = record.launchCommand?.environment {
             environment.merge(capturedEnvironment) { _, captured in captured }

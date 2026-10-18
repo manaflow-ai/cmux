@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -57,11 +58,16 @@ struct ClaudeBackgroundSessionRestoreTests {
                     .appendingPathComponent("\(processID).json"))
         }
 
+        @MainActor
         func cleanup() {
             if daemonProcess.isRunning {
                 daemonProcess.terminate()
                 daemonProcess.waitUntilExit()
             }
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "claude",
+                sessionId: "884a7be7-5a7c-4d54-838e-423426a31aaf"
+            )
             defaults.removePersistentDomain(forName: defaultsName)
             try? FileManager.default.removeItem(at: root)
         }
@@ -120,13 +126,18 @@ struct ClaudeBackgroundSessionRestoreTests {
     }
 
     /// The panel exactly as cmux NIGHTLY saved it for session 884a7be7.
-    private func hookBinding(_ fixture: Fixture, autoResume: Bool) -> SurfaceResumeBindingSnapshot {
-        SurfaceResumeBindingSnapshot(
+    private func hookBinding(
+        _ fixture: Fixture,
+        autoResume: Bool,
+        checkpointID: String? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        let checkpointID = checkpointID ?? sessionID
+        return SurfaceResumeBindingSnapshot(
             name: "Claude Code",
             kind: "claude",
-            command: "claude --resume \(sessionID) --permission-mode auto",
+            command: "claude --resume \(checkpointID) --permission-mode auto",
             cwd: fixture.workingDirectory.path,
-            checkpointId: sessionID,
+            checkpointId: checkpointID,
             source: "agent-hook",
             environment: environment(fixture),
             launchCommand: launchCommand(fixture),
@@ -137,13 +148,18 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
     }
 
-    private func agent(_ fixture: Fixture) -> SessionRestorableAgentSnapshot {
-        SessionRestorableAgentSnapshot(
+    private func agent(
+        _ fixture: Fixture,
+        hadActivePromptTurn: Bool? = nil
+    ) -> SessionRestorableAgentSnapshot {
+        var snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: sessionID,
             workingDirectory: fixture.workingDirectory.path,
             launchCommand: launchCommand(fixture)
         )
+        snapshot.hadActivePromptTurn = hadActivePromptTurn
+        return snapshot
     }
 
     private func viewer(_ fixture: Fixture) -> ClaudeBackgroundSessionViewer {
@@ -160,13 +176,19 @@ struct ClaudeBackgroundSessionRestoreTests {
     private struct Restored {
         let input: String?
         let binding: SurfaceResumeBindingSnapshot?
+        let record: ControlSurfaceRestoreRecord?
     }
 
     private func restore(
         _ fixture: Fixture,
+        roundTrip: Bool = false,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
         mutate: (inout SessionTerminalPanelSnapshot) -> Void
     ) throws -> Restored {
-        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let source = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
         var snapshot = source.sessionSnapshot(includeScrollback: false)
@@ -175,15 +197,31 @@ struct ClaudeBackgroundSessionRestoreTests {
         terminal.workingDirectory = fixture.workingDirectory.path
         mutate(&terminal)
         snapshot.panels[panelIndex].terminal = terminal
+        if roundTrip {
+            let data = try JSONEncoder().encode(snapshot)
+            snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+        }
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: restorableAgentIndexProvider
+        )
         defer { restored.teardownAllPanels() }
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
         let panel = try #require(restored.terminalPanel(for: restoredPanelID))
         let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
         let binding = restoredSnapshot.panels.first { $0.id == restoredPanelID }?.terminal?.resumeBinding
-        return Restored(input: panel.surface.debugInitialInputForTesting(), binding: binding)
+        let record = restored.restoredAgentSnapshotsByPanelId[restoredPanelID].map { agent in
+            TerminalController.shared.controlSurfaceAgentContinuationRecord(
+                agent: agent,
+                source: "session-snapshot",
+                restoredWorkingDirectory: fixture.workingDirectory.path,
+                binding: binding,
+                compatibilityBinding: binding
+            )
+        }
+        return Restored(input: panel.surface.debugInitialInputForTesting(), binding: binding, record: record)
     }
 
     @Test("A claude attach pane restores as an attach with the binding's environment")
@@ -227,6 +265,244 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(restored.binding?.checkpointId == sessionID)
     }
 
+    @Test("A normally completed Claude session resumes through the cmux restore admission boundary")
+    func normallyCompletedSessionUsesNativeResumeFallback() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input == " cmux restore claude \(sessionID)\n", Comment(rawValue: input))
+        // The CLI must be able to take the launch claim immediately before exec.
+        let canClaimAtExecution = AgentResumeLaunchGuard.shared.claimResumeLaunch(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(canClaimAtExecution)
+        let record = try #require(restored.record)
+        #expect(record.modeRawValue == "resumeAgent")
+        #expect(record.checkpointID == sessionID)
+        #expect(record.preparedArguments == ["claude", "--resume", sessionID, "--permission-mode", "auto"])
+
+    }
+
+    @Test("Completed panes leave ownership admission to cmux restore", arguments: [false, true])
+    func completedRestoresLeaveClaimsToExecution(indexUnavailable: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let paneID = try #require(source.bonsplitController.allPaneIds.first)
+        _ = try #require(source.newTerminalSurface(inPane: paneID, focus: false)).id
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.workingDirectory = fixture.workingDirectory.path
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+            snapshot.panels[index].terminal = terminal
+        }
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { indexUnavailable ? .unavailable : .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        #expect(restored.deferredAgentResumeRestoresByPanelId.isEmpty)
+        let inputs = snapshot.panels.compactMap { panel in
+            restoredIDs[panel.id].flatMap { panelID in
+                restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
+            }
+        }
+        #expect(inputs.count == 2)
+        #expect(inputs.allSatisfy { $0 == " cmux restore claude \(sessionID)\n" })
+        let firstClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(firstClaim != nil)
+        let competingClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+            kind: "claude", sessionId: sessionID
+        )
+        #expect(competingClaim == nil)
+    }
+
+    @Test("Completed resume eligibility does not change process liveness")
+    func completedSessionIsNotPersistedAsRunning() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let workspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelID))
+        let snapshot = agent(fixture, hadActivePromptTurn: false)
+        let binding = hookBinding(fixture, autoResume: true)
+        #expect(workspace.sessionAgentWasRunning(
+            panelId: panelID,
+            restorableAgent: snapshot,
+            resumeBinding: binding,
+            terminal: terminal,
+            observation: nil
+        ) == false)
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        #expect(dock.sessionAgentWasRunning(
+            restorableAgent: snapshot,
+            resumeBinding: binding,
+            managedResumeBinding: binding,
+            terminal: terminal,
+            transfer: nil,
+            observation: nil
+        ) == false)
+    }
+
+    @Test("A hook refresh cannot inherit a stale prompt marker", arguments: [false, true])
+    func refreshedBindingDropsPreviousPromptMarker(hadActivePromptTurn: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let previous = agent(fixture, hadActivePromptTurn: hadActivePromptTurn)
+        let refreshed = try #require(hookBinding(fixture, autoResume: true)
+            .managedRestorableAgentSnapshot(replacing: previous))
+        #expect(refreshed.hadActivePromptTurn == nil)
+        let replacement = try #require(hookBinding(fixture, autoResume: true, checkpointID: "new-session")
+            .managedRestorableAgentSnapshot(replacing: previous))
+        #expect(replacement.hadActivePromptTurn == nil)
+    }
+
+    @Test("Remote Claude terminals cannot select the local completed-session fallback")
+    func remoteCompletedSessionStaysManual() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let restored = try restore(fixture, restorableAgentIndexProvider: { .empty }) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+            terminal.isRemoteTerminal = true
+        }
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+    }
+
+    @Test("A normally completed Claude session owned by the daemon reattaches")
+    func normallyCompletedLiveBackgroundSessionAttaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains("'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A Claude session with an active prompt keeps deferred restore admission")
+    func deferredCompletionKeepsRestoreAdmission() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A legacy Claude snapshot keeps its original restore admission", arguments: [true, false])
+    func missingPromptMarkerKeepsRestoreAdmission(wasAgentRunning: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture, roundTrip: true) { terminal in
+            // Encoding omits the nil marker, as older snapshots did.
+            terminal.agent = agent(fixture)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = wasAgentRunning
+        }
+
+        if wasAgentRunning {
+            let input = try #require(restored.input)
+            #expect(input.contains(" restore claude "), Comment(rawValue: input))
+            #expect(!input.contains("--resume"), Comment(rawValue: input))
+        } else {
+            let input = try #require(restored.input)
+            #expect(input == " cmux restore claude \(sessionID)\n", Comment(rawValue: input))
+            let record = try #require(restored.record)
+            #expect(record.preparedArguments == [
+                "claude", "--resume", sessionID, "--permission-mode", "auto"
+            ])
+        }
+    }
+
+    @Test("A stale or missing Claude binding never synthesizes a resume")
+    func staleOrMissingBindingStaysManual() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let stale = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(
+                fixture,
+                autoResume: true,
+                checkpointID: "stale-claude-session"
+            )
+            terminal.wasAgentRunning = false
+        }
+        #expect(stale.input == nil, Comment(rawValue: stale.input ?? ""))
+
+        let missing = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = false
+        }
+        #expect(missing.input == nil, Comment(rawValue: missing.input ?? ""))
+    }
+
+    @Test("A running Claude snapshot without a binding keeps local restore admission")
+    func missingBindingDoesNotSelectNativeResumeForRunningSnapshot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("Disabled automatic resume keeps completed Claude sessions manual", arguments: [false, true])
+    func completedSessionRespectsAutomaticResumeConsent(disableGlobalSetting: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        if disableGlobalSetting {
+            fixture.defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        }
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: disableGlobalSetting)
+            terminal.wasAgentRunning = false
+        }
+        #expect(restored.input == nil)
+        #expect(restored.binding?.checkpointId == sessionID)
+    }
+
     @Test("A stale registry record on a reused PID does not block the resume fallback")
     func reusedPIDKeepsResumeFallback() throws {
         let fixture = try makeFixture()
@@ -240,7 +516,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         )
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }
@@ -332,27 +608,293 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(!input.contains("--resume"), Comment(rawValue: input))
     }
 
-    @Test("A Dock panel restored through its workspace reattaches the background session")
+    /// The PID a Dock pane reports for its `claude attach` foreground process.
+    private let viewerProcessID = 4242
+
+    /// `claude attach <job>` as the pane's foreground process reports its argv
+    /// and environment.
+    private func viewerProcess(_ fixture: Fixture) -> CmuxTopProcessArguments {
+        CmuxTopProcessArguments(
+            arguments: [executable, "attach", jobID],
+            environment: [
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415",
+                "CLAUDE_CONFIG_DIR": fixture.configDirectory.path,
+                "HOME": "/Users/me",
+            ]
+        )
+    }
+
+    /// A Dock whose terminals report `foreground` as their foreground process.
+    private func makeDock(_ fixture: Fixture, foreground: CmuxTopProcessArguments? = nil) -> DockSplitStore {
+        let viewerProcessID = viewerProcessID
+        return DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { fixture.workingDirectory.path },
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { .empty },
+            foregroundProcessIDProvider: { _ in foreground == nil ? nil : viewerProcessID },
+            processArgumentsProvider: { $0 == viewerProcessID ? foreground : nil }
+        )
+    }
+
+    private func dockTerminalPanel(
+        id: UUID = UUID(),
+        _ terminal: SessionTerminalPanelSnapshot
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Claude Code",
+            customTitle: nil,
+            directory: terminal.workingDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: terminal,
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+    }
+
+    private func dockContainer(_ panels: [SessionPanelSnapshot]) -> SessionSplitContainerSnapshot {
+        SessionSplitContainerSnapshot(
+            focusedPanelId: panels.first?.id,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: panels.map(\.id),
+                selectedPanelId: panels.first?.id
+            )),
+            panels: panels,
+            sourceWorkspaceIdsByPanelId: nil
+        )
+    }
+
+    private func dockInput(_ dock: DockSplitStore, panelID: UUID) -> String? {
+        (dock.panels[panelID] as? TerminalPanel)?.surface.debugInitialInputForTesting()
+    }
+
+    @Test("Completed Dock sessions use cmux restore or attach to a live daemon", arguments: [false, true])
+    func completedDockSessionUsesSafeRestore(hasLiveDaemon: Bool) throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        if hasLiveDaemon {
+            try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+        }
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let panel = dockTerminalPanel(SessionTerminalPanelSnapshot(
+            workingDirectory: fixture.workingDirectory.path,
+            agent: agent(fixture, hadActivePromptTurn: false),
+            resumeBinding: hookBinding(fixture, autoResume: true),
+            wasAgentRunning: false
+        ))
+        let restoredIDs = dock.restoreSessionSnapshot(dockContainer([panel]))
+        let restoredID = try #require(restoredIDs[panel.id])
+        let input = try #require(dockInput(dock, panelID: restoredID))
+        #expect(input.contains(" restore claude \(sessionID)") == !hasLiveDaemon, Comment(rawValue: input))
+        #expect(input.contains("'attach' '\(jobID)'") == hasLiveDaemon, Comment(rawValue: input))
+    }
+
+    @Test("A Dock panel moved from a workspace records its viewer and reattaches after relaunch")
     func dockRestoredPaneReattaches() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
 
-        let workspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
-        defer { workspace.teardownAllPanels() }
-        let panel = try viewerPanelSnapshot(fixture, in: workspace)
+        // Before quit: a workspace terminal moved into the Dock runs `claude attach`.
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let movedPanelID = try #require(source.newTerminalSurface(inPane: sourcePane, focus: false)).id
+        let detached = try #require(source.detachSurface(panelId: movedPanelID))
+        let dock = makeDock(fixture, foreground: viewerProcess(fixture))
+        defer { dock.closeAllPanels() }
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        _ = try #require(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false))
+        // Shell integration reports the running `claude attach` command.
+        dock.updatePanelShellActivityState(panelId: movedPanelID, state: .commandRunning)
+        let snapshot = dock.sessionSnapshot(includeScrollback: false)
+        let saved = try #require(snapshot.panels.first { $0.id == movedPanelID })
+        let viewer = try #require(saved.terminal?.claudeBackgroundViewer)
+        #expect(viewer.reference == jobID)
+        #expect(viewer.environment?["CLAUDE_CONFIG_DIR"] == fixture.configDirectory.path)
+        #expect(snapshot.sourceWorkspaceIdsByPanelId?[movedPanelID] == source.id)
 
-        let detached = try #require(workspace.detachedSurfaceForDockSessionRestore(
-            panel,
-            snapshotWorkspaceId: workspace.id,
-            excludingStableIdentities: [],
-            restorableAgentIndex: nil
-        ))
-        let terminal = try #require(detached.panel as? TerminalPanel)
-        defer { terminal.close() }
-        let input = try #require(terminal.surface.debugInitialInputForTesting())
+        // After relaunch: the Dock restores the panel through its workspace.
+        let relaunchedWorkspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { relaunchedWorkspace.teardownAllPanels() }
+        let relaunchedDock = makeDock(fixture)
+        defer { relaunchedDock.closeAllPanels() }
+        let restoredIDs = relaunchedDock.restoreSessionSnapshot(
+            snapshot,
+            sourceWorkspaceResolver: { $0 == source.id ? relaunchedWorkspace : nil }
+        )
+        let restoredID = try #require(restoredIDs[movedPanelID])
+        let input = try #require(dockInput(relaunchedDock, panelID: restoredID))
         #expect(input.contains("'\(executable)' 'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(input.contains("'CLAUDE_CONFIG_DIR=\(fixture.configDirectory.path)'"), Comment(rawValue: input))
         #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A Dock-native claude attach pane records its viewer and reattaches after relaunch")
+    func dockNativeViewerPaneReattaches() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let dock = makeDock(fixture, foreground: viewerProcess(fixture))
+        defer { dock.closeAllPanels() }
+        let panelID = UUID()
+        let liveIDs = dock.restoreSessionSnapshot(dockContainer([
+            dockTerminalPanel(id: panelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path
+            )),
+        ]))
+        let livePanelID = try #require(liveIDs[panelID])
+        // Shell integration reports the running `claude attach` command.
+        dock.updatePanelShellActivityState(panelId: livePanelID, state: .commandRunning)
+        let snapshot = dock.sessionSnapshot(includeScrollback: false)
+        let saved = try #require(snapshot.panels.first)
+        let viewer = try #require(saved.terminal?.claudeBackgroundViewer)
+        #expect(viewer.reference == jobID)
+        #expect(viewer.launchArguments == [executable])
+
+        let relaunched = makeDock(fixture)
+        defer { relaunched.closeAllPanels() }
+        let restoredIDs = relaunched.restoreSessionSnapshot(snapshot)
+        let restoredID = try #require(restoredIDs[saved.id])
+        let input = try #require(dockInput(relaunched, panelID: restoredID))
+        #expect(input.contains("'\(executable)' 'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(input.contains("'CLAUDE_CONFIG_DIR=\(fixture.configDirectory.path)'"), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("A Dock-native hook-bound pane on a live background session attaches instead of resuming")
+    func dockNativeHookPaneNeverResumes() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let panelID = UUID()
+        let restoredIDs = dock.restoreSessionSnapshot(dockContainer([
+            dockTerminalPanel(id: panelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                agent: agent(fixture),
+                resumeBinding: hookBinding(fixture, autoResume: true),
+                wasAgentRunning: true
+            )),
+        ]))
+
+        let restoredID = try #require(restoredIDs[panelID])
+        let input = try #require(dockInput(dock, panelID: restoredID))
+        #expect(input.contains("'attach' '\(jobID)'"), Comment(rawValue: input))
+        #expect(!input.contains(" restore "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
+    }
+
+    @Test("Two Dock panes on one background session: only the viewer pane attaches, neither resumes")
+    func dockAttachesOncePerSession() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let spawningPanelID = UUID()
+        let viewerPanelID = UUID()
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        // The viewer pane comes last so a first-come choice would pick the wrong pane.
+        let restoredIDs = dock.restoreSessionSnapshot(dockContainer([
+            dockTerminalPanel(id: spawningPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                agent: agent(fixture),
+                resumeBinding: hookBinding(fixture, autoResume: true),
+                wasAgentRunning: true
+            )),
+            dockTerminalPanel(id: viewerPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                agent: agent(fixture),
+                resumeBinding: hookBinding(fixture, autoResume: true),
+                wasAgentRunning: true,
+                claudeBackgroundViewer: viewer(fixture)
+            )),
+        ]))
+
+        let restoredViewerID = try #require(restoredIDs[viewerPanelID])
+        let restoredSpawningID = try #require(restoredIDs[spawningPanelID])
+        let viewerInput = try #require(dockInput(dock, panelID: restoredViewerID))
+        let spawningInput = dockInput(dock, panelID: restoredSpawningID)
+        #expect(viewerInput.contains("'attach' '\(jobID)'"), Comment(rawValue: viewerInput))
+        #expect(spawningInput == nil, Comment(rawValue: spawningInput ?? ""))
+    }
+
+    @Test("A moved Dock pane and a Dock-native viewer on one session: only the viewer attaches")
+    func dockMovedPaneDefersToNativeViewer() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+
+        let movedPanelID = UUID()
+        let viewerPanelID = UUID()
+        let sourceWorkspaceID = UUID()
+        // The moved pane comes first so a first-come choice would pick it.
+        var snapshot = dockContainer([
+            dockTerminalPanel(id: movedPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                agent: agent(fixture),
+                resumeBinding: hookBinding(fixture, autoResume: true),
+                isRemoteTerminal: false,
+                wasAgentRunning: true
+            )),
+            dockTerminalPanel(id: viewerPanelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                claudeBackgroundViewer: viewer(fixture)
+            )),
+        ])
+        snapshot.sourceWorkspaceIdsByPanelId = [movedPanelID: sourceWorkspaceID]
+
+        let relaunchedWorkspace = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { relaunchedWorkspace.teardownAllPanels() }
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let restoredIDs = dock.restoreSessionSnapshot(
+            snapshot,
+            sourceWorkspaceResolver: { $0 == sourceWorkspaceID ? relaunchedWorkspace : nil }
+        )
+
+        let restoredMovedID = try #require(restoredIDs[movedPanelID])
+        let restoredViewerID = try #require(restoredIDs[viewerPanelID])
+        let viewerInput = try #require(dockInput(dock, panelID: restoredViewerID))
+        let movedInput = dockInput(dock, panelID: restoredMovedID)
+        #expect(viewerInput.contains("'attach' '\(jobID)'"), Comment(rawValue: viewerInput))
+        #expect(movedInput == nil, Comment(rawValue: movedInput ?? ""))
+    }
+
+    @Test("With agent auto-resume off a Dock viewer pane restores as a plain shell")
+    func dockAutoResumeOffDoesNotAttach() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        try fixture.registerSession(kind: "bg", sessionID: sessionID, jobID: jobID, processID: fixture.daemonProcessID)
+        fixture.defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let dock = makeDock(fixture)
+        defer { dock.closeAllPanels() }
+        let panelID = UUID()
+        let restoredIDs = dock.restoreSessionSnapshot(dockContainer([
+            dockTerminalPanel(id: panelID, SessionTerminalPanelSnapshot(
+                workingDirectory: fixture.workingDirectory.path,
+                claudeBackgroundViewer: viewer(fixture)
+            )),
+        ]))
+
+        let restoredID = try #require(restoredIDs[panelID])
+        let input = dockInput(dock, panelID: restoredID)
+        #expect(input == nil, Comment(rawValue: input ?? ""))
     }
 
     @Test("A running background session never resumes as a second writer")
@@ -381,7 +923,7 @@ struct ClaudeBackgroundSessionRestoreTests {
         try fixture.registerSession(kind: "interactive", sessionID: sessionID, jobID: nil, processID: fixture.daemonProcessID)
 
         let restored = try restore(fixture) { terminal in
-            terminal.agent = agent(fixture)
+            terminal.agent = agent(fixture, hadActivePromptTurn: true)
             terminal.resumeBinding = hookBinding(fixture, autoResume: true)
             terminal.wasAgentRunning = true
         }

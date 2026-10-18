@@ -313,7 +313,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
             quote: quote
         )
         let joined = rendered.joined(separator: " ")
-        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
+        let executableIndex = Self.managedExecutableIndex(in: parts)
+        let fallbackExecutable = descriptor.supportsCapturedExecutableFallback && executableIndex < parts.count
+            ? parts[executableIndex]
+            : nil
+        let wrapperToken = descriptor.wrapperShellExecutableToken(
+            fallbackExecutable: fallbackExecutable.flatMap { descriptor.isBareExecutable($0) ? nil : $0 }
+        )
+        guard rendered.contains(wrapperToken) else { return joined }
         return descriptor.portableShellCommand(posixCommand: joined)
     }
 
@@ -332,8 +339,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> [String: String] {
         guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind),
               let executable = normalizedManagedExecutable(executablePath ?? arguments.first),
-              (executable as NSString).lastPathComponent == descriptor.executableName,
-              executable != descriptor.executableName else {
+              descriptor.matchesCapturedExecutable(executable),
+              !descriptor.isBareExecutable(executable) else {
             return [:]
         }
         return [descriptor.customExecutablePathEnvironmentKey: executable]
@@ -347,6 +354,20 @@ public struct AgentResumeArgv: Sendable, Equatable {
         // The executable position is the first token, or the first
         // non-assignment after an `env` prefix. A nested subcommand such as
         // `sr codex resume` is not the managed executable and stays quoted.
+        let executableIndex = Self.managedExecutableIndex(in: parts)
+        return parts.enumerated().map { index, part in
+            let matchesExecutable = descriptor.matchesExecutable(part)
+            return index == executableIndex && matchesExecutable
+                ? descriptor.wrapperShellExecutableToken(
+                    fallbackExecutable: descriptor.supportsCapturedExecutableFallback && !descriptor.isBareExecutable(part)
+                        ? part
+                        : nil
+                )
+                : quote(part)
+        }
+    }
+
+    private static func managedExecutableIndex(in parts: [String]) -> Int {
         var executableIndex = 0
         if let first = parts.first, (first as NSString).lastPathComponent == "env" {
             executableIndex = 1
@@ -355,11 +376,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 executableIndex += 1
             }
         }
-        return parts.enumerated().map { index, part in
-            index == executableIndex && part == descriptor.executableName
-                ? descriptor.wrapperShellExecutableToken
-                : quote(part)
-        }
+        return executableIndex
     }
 
     private func normalizedManagedExecutable(_ value: String?) -> String? {
@@ -535,6 +552,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "muse":
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: MuseExecutableName.launcher)
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "muse", args: parts.tail) else { return nil }
+            return [MuseExecutableName(parts.executable).resumeExecutable, "resume", sessionId] + preserved
         default:
             return nil
         }

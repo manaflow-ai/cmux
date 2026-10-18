@@ -69,6 +69,29 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
+    /// Selects the pane for a mirrored hook from the terminal's catalog projections.
+    ///
+    /// `remoteWorkspaceIDs` are the remote workspaces the accepted daemon graph
+    /// shows the terminal in, in graph order. A projection in one of them wins;
+    /// otherwise a projection with no workspace identity (a legacy or restored
+    /// record) does. A terminal whose projections all name other workspaces
+    /// fails closed rather than sending the hook to an adjacent local pane.
+    nonisolated static func mirroredAgentHookProjection(
+        projections: [SurfaceProjection],
+        remoteWorkspaceIDs: [String]
+    ) -> SurfaceProjection? {
+        let remoteWorkspaceIDs = remoteWorkspaceIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !remoteWorkspaceIDs.isEmpty else { return projections.first }
+        for remoteWorkspaceID in remoteWorkspaceIDs {
+            if let projection = projections.first(where: { $0.remoteWorkspaceID == remoteWorkspaceID }) {
+                return projection
+            }
+        }
+        return projections.first { $0.remoteWorkspaceID == nil }
+    }
+
     /// Replays the session identity of Claude agents in `cmux ssh` panes into
     /// the local hook queue, so the Mac's hook pipeline knows the remote
     /// agent's session. Runs with every accepted state and every catalog
@@ -79,8 +102,19 @@ extension CmuxTuiSurfaceProvider {
         guard machine.isSSH else { return }
         let machine = self.machine
         let catalog = self.catalog
+        func remoteWorkspaceIDs(for terminalID: String) -> [String] {
+            state.tabs.compactMap { tab in
+                guard tab.contentID == terminalID,
+                      let pane = state.lookupIndex.pane(id: tab.paneID),
+                      let screen = state.lookupIndex.screen(id: pane.screenID) else { return nil }
+                return screen.workspaceID
+            }
+        }
         func panel(for terminalID: String) -> SurfaceProjection? {
-            catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)).first
+            Self.mirroredAgentHookProjection(
+                projections: catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)),
+                remoteWorkspaceIDs: remoteWorkspaceIDs(for: terminalID)
+            )
         }
         let routable = Set(state.agents.map(\.terminalID).filter { panel(for: $0) != nil })
         let events = agentHookMirror.reconcile(agents: state.agents, routableTerminalIDs: routable)
