@@ -44,6 +44,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "app",
     "action",
     "settings",
+    "config",
     "window",
     "events",
     "history",
@@ -105,6 +106,16 @@ pub(super) enum AppCommand {
     Screenshot {
         params: Value,
         out: Option<String>,
+    },
+    /// An answer this CLI has without the app (`settings schema|validate`):
+    /// printed as a success, or as an error with exit 1.
+    Local(Result<Value, Value>),
+    /// A JSON document this CLI has without the app (`settings schema`):
+    /// printed as indented JSON in every output mode, so `> file` works.
+    Document(Value),
+    /// `settings list`: the app's settings (`settings.get`) as schema rows.
+    SettingsList {
+        section: Option<String>,
     },
 }
 
@@ -209,7 +220,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
+        (
+            "settings" | "config",
+            Some("get" | "set" | "reset" | "unset" | "list" | "schema" | "validate"),
+        ) => settings::parse(rest)?,
         // The app's AI provider accounts, no secrets (`accounts.list`); the
         // other `accounts` verbs are app actions.
         ("accounts", Some("list")) => {
@@ -488,6 +502,12 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let Some(refusal) = command_refusal(&command) {
         return Ran::Done(super::wire::print_operation_error(&refusal, global.output));
     }
+    // A local answer needs no app.
+    match command {
+        AppCommand::Local(answer) => return Ran::Done(print_local(answer, global.output)),
+        AppCommand::Document(document) => return Ran::Done(print_document(&document)),
+        _ => {}
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -575,6 +595,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
+        }
+        AppCommand::Local(answer) => return Ran::Done(print_local(answer, global.output)),
+        AppCommand::Document(document) => return Ran::Done(print_document(&document)),
+        AppCommand::SettingsList { section } => {
+            return Ran::Done(settings_list(global, stream, section.as_deref()));
         }
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
@@ -666,6 +691,37 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             report.finish(global.output);
             Ran::Done(code)
         }
+    }
+}
+
+fn print_local(answer: Result<Value, Value>, output: OutputMode) -> i32 {
+    match answer {
+        Ok(value) => super::wire::print_local_success(&value, output),
+        Err(error) => super::wire::print_local_error(&error, output, 1),
+    }
+}
+
+fn print_document(document: &Value) -> i32 {
+    use std::io::Write as _;
+    let text = serde_json::to_string_pretty(document).unwrap_or_default();
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{text}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+/// `settings list`: one `settings.get` of the whole file, shown as rows.
+fn settings_list(global: &GlobalArgs, stream: &mut UnixStream, section: Option<&str>) -> i32 {
+    match wait::request(global, stream, "settings.get", &json!({}), Some(READ_TIMEOUT)) {
+        Ok(Ok(result)) => {
+            let rows = settings::list_rows(&result, section);
+            let shown =
+                if global.output == OutputMode::Human { settings::human_rows(&rows) } else { rows };
+            super::wire::print_local_success(&shown, global.output)
+        }
+        Ok(Err(error)) => super::wire::print_local_error(&error, global.output, 1),
+        Err(error) => super::wire::print_local_error(&error, global.output, 3),
     }
 }
 
