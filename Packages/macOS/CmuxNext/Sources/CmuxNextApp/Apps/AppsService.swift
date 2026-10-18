@@ -75,7 +75,11 @@ final class AppsService {
         let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
             machines?.agentInventoryRoutes() ?? []
         }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control), inventory]))
+        let actionControl: @Sendable (String, [String: JSONValue], String) async throws(AppHostCapabilityError) -> JSONValue
+        actionControl = { method, params, app throws(AppHostCapabilityError) in
+            try await router.appControl(method, params, callerApp: app)
+        }
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

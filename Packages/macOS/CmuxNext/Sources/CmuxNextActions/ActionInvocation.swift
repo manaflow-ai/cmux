@@ -51,6 +51,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The calling app preserved by the native provider, even during its user gesture.
+    /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
+    public var callerApp: String?
     /// The run asked to change this client's view (`action.run` `focus: true`).
     public var focusRequested: Bool
     /// The context of the window whose key-down runs this (the key
