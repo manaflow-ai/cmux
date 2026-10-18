@@ -679,7 +679,7 @@ class InstalledHelperRegression(unittest.TestCase):
                   exit 0
                 fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/rules/branches/'; then
-                  printf '%s\n' '{"status":404}'
+                  printf '%s\n' '[]'
                   exit 0
                 fi
                 exit 2
