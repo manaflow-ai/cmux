@@ -719,10 +719,10 @@ class Gate:
                             + (f": {[(round(r['apply_ms'], 1), round(r['commit_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
                                "(apply ms, commit ms, frames missed)" if late else "") + ")", scenario)
             # The commit's own end (the encode and AppKit's window-server transaction) past the next vsync: reported.
-            over = [row for row in switches if row["late_end_vsyncs"] > 0]
-            if over:
-                warn(f"{len(over)} of {ops} tab switch commits ended a frame late: "
-                     f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in over][:6]} (commit ms, end ms)", scenario)
+            overrun = [row for row in switches if row["late_end_vsyncs"] > 0]
+            if overrun:
+                warn(f"{len(overrun)} of {ops} tab switch commits ended a frame late: "
+                     f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in overrun][:6]} (commit ms, end ms)", scenario)
 
     def split(self, scenario="split"):
         app = self.app
