@@ -1030,7 +1030,7 @@ check_no_github_hosted_runners() {
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] [(]?('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)[)]?"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   local -a exceptions=(
@@ -1052,6 +1052,8 @@ check_no_github_hosted_runners() {
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # pull_request_target with a write token (test_ci_fork_runner_routing).
     "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # Advisory pull_request_target review has a write token and must remain on a hosted runner.
+    "intent-familiar-review.yml:    runs-on: ubuntu-24.04"
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
@@ -1217,6 +1219,11 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The cmux-next GUI suites need a foregrounded logged-in mini when the
+  # picker cannot return a route. Their six exact fallback expressions are the
+  # only workflow-level owned GUI label; the picker branch still owns normal
+  # routing and this narrow exception preserves that behavior.
+  local cmux_next_gui_fallback="'glaeda-gui-std-xcode-26.6'"
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1230,6 +1237,9 @@ check_no_self_hosted_fleet_runners() {
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
+    elif [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/cmux-next.yml" && "$content" == *"$cmux_next_gui_fallback"* ]]; then
+      # This exact fallback is reached only after the GUI picker fails.
+      content="${content/"$cmux_next_gui_fallback"/}"
     fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
@@ -1574,6 +1584,11 @@ CASES
   for file in "$ROOT_DIR"/.github/workflows/*.yml "$ROOT_DIR"/.github/workflows/*.yaml; do
     [ -f "$file" ] || continue
     grep -qE 'runs-on:.*(macos|MACOS_RUNNER)' "$file" || continue
+    # The cmux-next batch queue intentionally keeps pull-request debounce
+    # runs alive; its controller coalesces superseded events inside the job.
+    # The workflow has a dedicated shape guard for that no-cancellation
+    # contract, so do not apply the generic macOS cancellation rule here.
+    [ "$(basename "$file")" = "cmux-next-batch.yml" ] && continue
     if [ -z "$(pr_workflow_events "$file")" ]; then
       # A quoted "on" key, flow mapping or other indentation is not read
       # above. Fail instead of skipping a workflow that may run on pull requests.
