@@ -87,7 +87,8 @@ enum LabelText {
         container.lineFragmentPadding = padding
         // A wrapping label stops at its line count; any other label shows every line it has.
         container.maximumNumberOfLines = shape.wraps ? max(shape.lines, 0) : 0
-        container.lineBreakMode = shape.wraps ? shape.lineBreak : .byClipping
+        // A wrapping label whose last visible line truncates ends it in an ellipsis.
+        container.lineBreakMode = !shape.wraps ? .byClipping : shape.truncatesLastVisibleLine && isWrapping(shape.lineBreak) ? .byTruncatingTail : shape.lineBreak
         let size = NSSize(width: width ?? .greatestFiniteMagnitude, height: height ?? .greatestFiniteMagnitude)
         if container.size != size { container.size = size }
     }
@@ -95,8 +96,10 @@ enum LabelText {
     /// The height a drawing at `size` lays out in: the frame for a label whose last visible line
     /// truncates, else unbounded (the view clips).
     static func layoutHeight(_ shape: Shape, size: NSSize) -> CGFloat? {
-        shape.isMultiline && shape.truncatesLastVisibleLine ? size.height : nil
+        shape.wraps && shape.truncatesLastVisibleLine ? size.height : nil
     }
+
+    private static func isWrapping(_ mode: NSLineBreakMode) -> Bool { mode == .byWordWrapping || mode == .byCharWrapping }
 
     /// The layout of `text` (font set, no paragraph settings yet) with `width` points for the
     /// text (nil: unbounded), at `scale` pixels per point.

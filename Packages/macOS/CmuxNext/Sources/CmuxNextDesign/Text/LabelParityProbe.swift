@@ -10,7 +10,10 @@ public import AppKit
 /// drawn through `cacheDisplay` as a drag image is), the layer drawing (`CALayer.render(in:)`,
 /// the other drag image path) and the accessibility role and value.
 public struct LabelParityProbe {
-    public init() {}
+    /// Where the images of the first pairs whose ink differs go (nil: none written).
+    public let imageDirectory: URL?
+
+    public init(imageDirectory: URL? = nil) { self.imageDirectory = imageDirectory }
 
     public struct Report: Sendable {
         public var checked = 0
@@ -18,6 +21,7 @@ public struct LabelParityProbe {
         public var mismatchCount = 0
         /// Every value of each pair (the first 2000 pairs).
         public var rows: [[String: String]] = []
+        public var imagesWritten = 0
         /// The shared layout's line numbers per probe font.
         public var lines: [String] = []
     }
@@ -147,7 +151,18 @@ public struct LabelParityProbe {
             row["\(at).ink.stock"] = "\(inks.0)"
             row["\(at).ink.label"] = "\(inks.1)"
             report.checked += 1
-            if !Self.placed(inks.0, inks.1) { note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report) }
+            if !Self.placed(inks.0, inks.1) {
+                note("\(name) \(at) ink: stock \(inks.0) label \(inks.1)", into: &report)
+                if let imageDirectory, report.imagesWritten < 16 {
+                    report.imagesWritten += 1
+                    for (view, kind) in [(stock as NSView, "stock"), (label, "label")] {
+                        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                        view.cacheDisplay(in: view.bounds, to: rep)
+                        try? rep.representation(using: .png, properties: [:])?
+                            .write(to: imageDirectory.appendingPathComponent("parity-\(report.imagesWritten)-\(kind).png"))
+                    }
+                }
+            }
             label.display()
             let layered = Self.ink(rendered: label)
             row["\(at).layer.label"] = "\(layered)"

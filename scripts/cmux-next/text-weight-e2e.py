@@ -96,7 +96,7 @@ try:
             check(abs(ratio - 1) <= opts.tolerance, f"{theme} {key}: {ratio * 100 - 100:+.2f}% vs stock NSTextField")
     # ChromeLabel is its own view (cx-8w027.26): it must lay out, draw (cacheDisplay and layer
     # render, the drag image paths) and read to VoiceOver as the stock label it replaced.
-    parity = rpc("debug.label_parity", timeout=180)
+    parity = rpc("debug.label_parity", {"dir": opts.out}, timeout=180)
     report["label_parity"] = parity
     if not isinstance(parity, dict) or "error" in parity:
         check(False, f"debug.label_parity answered ({parity})")
