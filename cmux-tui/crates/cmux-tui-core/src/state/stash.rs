@@ -28,6 +28,7 @@ use rusqlite::OptionalExtension;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
 use crate::state::closed_history::{REOPEN, Reopened};
@@ -245,8 +246,7 @@ impl Mux {
         match target {
             RestoreTarget::Here => {
                 for member in &restore {
-                    let member = self.placed_in(member, pane);
-                    self.reopen_closed_tab(&mutation.actor, &member, &mut reopened)?;
+                    self.restore_member_here(&mutation.actor, member, pane, &mut reopened)?;
                 }
             }
             RestoreTarget::NewWorkspace => {
@@ -284,6 +284,19 @@ impl Mux {
                 ))
             },
         )
+    }
+
+    /// Restore one member `here`: in its own pane while that is live, else
+    /// in `pane` (at its end) when the user acted from one.
+    pub(super) fn restore_member_here(
+        self: &Arc<Self>,
+        actor: &Actor,
+        member: &Value,
+        pane: Option<&str>,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let member = self.placed_in(member, pane);
+        self.reopen_closed_tab(actor, &member, reopened)
     }
 
     /// `member` as `here` restores it: in its own pane while that is live,
