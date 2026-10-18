@@ -31,7 +31,7 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Agents > Harnesses (cx-mg91, `SettingsHarnesses`): its state, and one gesture;
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
-    var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -121,7 +121,7 @@ final class SettingsPageProvider: PageProvider {
             return harnessesState()
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return try await harnessesRun(params)
+            return try await harnessesRun(params, nil)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
