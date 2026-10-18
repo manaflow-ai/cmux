@@ -125,6 +125,9 @@ final class TabCell {
     init(item: TabItem) {
         self.item = item
         layer.actions = Self.noActions
+        // Anchored at the leading edge: a strip move of the width never moves the tab's x, so a
+        // dragged tab whose width still moves keeps its edge under the pointer.
+        layer.anchorPoint = .zero
         buildLayers()
         applyItem(previous: nil)
     }

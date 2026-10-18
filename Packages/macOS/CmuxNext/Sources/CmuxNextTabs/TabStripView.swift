@@ -91,6 +91,14 @@ public final class TabStripView: NSView {
     var goesAt: [TabID: CFTimeInterval] = [:]
     /// Moves of a reveal's scroll spring still in flight (`settleScroll`).
     var scrollMoves: Set<Int> = []
+    /// Takes every reveal's scroll spring and nothing else: what the springs add now is its
+    /// presentation x minus its model x (`settleScroll`).
+    let scrollProbe: CALayer = {
+        let probe = CALayer()
+        probe.actions = ["position": NSNull(), "bounds": NSNull()]
+        probe.opacity = 0
+        return probe
+    }()
     /// Tabs whose occlusion mask a move animates, by generation: the mask comes off when it ends.
     var occlusionMoves: [TabID: Int] = [:]
     /// Widening tabs clipped for a move, by generation.

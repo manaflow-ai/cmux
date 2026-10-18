@@ -134,7 +134,7 @@ extension TabStripView {
         scrollMoves.remove(generation)
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
-        for id in dying where (goesAt[id] ?? .infinity) <= now + 0.05 { removeTab(id) }
+        for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
         for (id, move) in occlusionMoves where move == generation {
             occlusionMoves[id] = nil
             cells[id]?.occlude(by: nil)
@@ -161,22 +161,35 @@ extension TabStripView {
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil)
+            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
             scrollMoves.insert(moveGeneration)
         }
+        let probeFrom = scrollProbe.position
         applyFrames(move: move)
+        if let move {
+            if scrollProbe.superlayer == nil { tabsClip.layer?.addSublayer(scrollProbe) }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
+            move.add(move.motion.additive("position", from: NSValue(point: CGPoint(x: probeFrom.x - scrollProbe.position.x, y: 0)),
+                                          to: NSValue(point: .zero)), to: scrollProbe, as: "position")
+            CATransaction.commit()
+        } else {
+            scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
+        }
     }
 
     /// A wheel or a drag's autoscroll takes the scroll over: a reveal's spring still in flight ends
     /// where it shows now (the scroll offset becomes that), so nothing drifts against the gesture.
     func settleScroll() {
         guard !scrollMoves.isEmpty else { return }
-        // What the spring adds now, read off one unpinned cell (it moves every unpinned cell alike).
-        if let cell = cells.values.first(where: { !$0.item.isPinned }), let shown = cell.layer.presentation() {
-            scrollOffset = TabScrollMath.clamp(scrollOffset - (shown.frame.minX - cell.frame.minX), contentWidth: result.contentWidth,
+        // What the springs add now (a view x is the content x minus the offset): the probe takes only them.
+        if let shown = scrollProbe.presentation() {
+            scrollOffset = TabScrollMath.clamp(scrollOffset - (shown.position.x - scrollProbe.position.x), contentWidth: result.contentWidth,
                                                viewportWidth: viewportWidth)
         }
-        var layers = cells.values.map(\.layer) + groups.chips.values.map(\.layer)
+        scrollProbe.position = CGPoint(x: -scrollOffset, y: 0)
+        var layers = [scrollProbe] + cells.values.map(\.layer) + groups.chips.values.map(\.layer)
         layers += groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
         if let button = newTabButton.layer { layers.append(button) }
         TabStripMove.cancel(scrollMoves, on: layers)
@@ -186,7 +199,8 @@ extension TabStripView {
     /// A closing tab or chip in `move` (`moved`: it animated in it) goes when its last move ends; one
     /// the change did not move goes when this change ends.
     func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
-        guard dying.contains(id) else { return }
+        // A reveal's spring only scrolls it; the close it began with decides when it goes.
+        guard dying.contains(id), !move.isScroll || goesAt[id] == nil else { return }
         let end = CACurrentMediaTime() + (moved ? move.duration(closing: id.chipGroupID == nil) : 0)
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
@@ -237,6 +251,8 @@ extension TabStripView {
         CATransaction.setDisableActions(true)
         for (id, place) in places {
             if let cell = cells[id] {
+                // A tab dropped back may still carry its lift's moves.
+                TabStripMove.cancel(cell.layer)
                 cell.frame = cellFrame(place, isPinned: cell.item.isPinned, mapping: mapping)
             } else if let group = id.chipGroupID, let chip = groups.chips[group] {
                 chip.frame = cellFrame(place, isPinned: false, mapping: mapping)

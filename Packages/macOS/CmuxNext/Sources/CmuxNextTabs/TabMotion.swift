@@ -27,6 +27,8 @@ struct TabStripMove {
     let motion: MotionMove
     /// A closing tab's move (`tabClose`), when it differs from `motion`.
     let closing: MotionMove?
+    /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
+    var isScroll = false
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."
@@ -88,6 +90,13 @@ struct TabStripMove {
     /// Adds `animation` (a keyframe path) under this move's key.
     func add(_ animation: CAAnimation, to layer: CALayer, as name: String) {
         layer.add(animation, forKey: key + name)
+    }
+
+    /// Ends every strip move on `root`'s tree at once (a tab dropped back starts where the drop gap is).
+    static func cancel(_ root: CALayer) {
+        for old in snapshot(root).layers {
+            for key in old.layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) { old.layer.removeAnimation(forKey: key) }
+        }
     }
 
     /// Ends every strip move of `root`'s position at once: direct manipulation (a dragged tab sits

@@ -107,7 +107,8 @@ extension TabStripView {
             let end = memberMaxX[group] ?? chipMaxX
             let members = max(0, end - chipMaxX)
             // A band a dragged tab or block stretches follows it exactly; a new band is where it starts.
-            let bandMoves = !direct && drag?.targetGroup != group && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
+            let dragSetsEnd = drag.map { $0.targetGroup == group && (placed[$0.id]?.maxX ?? -.infinity) >= end - 0.5 } ?? false
+            let bandMoves = !direct && !dragSetsEnd && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
             let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer) : nil }
             let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer) : nil }
             band.apply(
