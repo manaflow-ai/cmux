@@ -75,3 +75,13 @@ test("a chat whose first prompt waits is still a recent chat", () => {
   const ids = recentSessions([queued, asking, waiting, starting], 10, false).map((session) => session.sessionId);
   expect(ids.sort()).toEqual(["asking", "queued", "starting", "waiting"]);
 });
+
+// Review of #21733: an unsent chat whose agent went away (disconnected, closed) is still unsent.
+test("an unsent chat whose agent went away stays off the recent chats too", () => {
+  const base = { lastPrompt: null, turnCount: 0, updatedAt: 1 };
+  const gone = [
+    { ...base, sessionId: "disconnected", status: "disconnected" },
+    { ...base, sessionId: "closed", status: "closed" },
+  ];
+  expect(recentSessions(gone, 10, false)).toEqual([]);
+});
