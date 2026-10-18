@@ -137,16 +137,9 @@ function handleHostAndMachineRoutes(
     return NextResponse.rewrite(url);
   }
 
-  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
-  // localized page. Keep this explicit in addition to the matcher exclusion
-  // so direct middleware tests and future matcher edits fail safely.
-  if (pathname === "/v1/responses" || pathname === "/v1/codex/responses") {
-    return NextResponse.next();
-  }
-
-  // Server downloads and their 404s are machine responses, independent of
-  // language, sign-in cookies and page canonicalization.
-  if (pathname === "/server" || pathname.startsWith("/server/")) {
+  // Machine endpoints retain their own validation and authentication, outside
+  // locale, sign-in page and browser-navigation handling.
+  if (isMachineEndpointPath(pathname)) {
     return NextResponse.next();
   }
 
@@ -652,6 +645,12 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
 /** coderouter's one hostname-independent landing page (see the note in `middleware`). */
 function isCoderouterLandingPath(pathname: string): boolean {
   return pathname === "/coderouter" || pathname === "/coderouter/";
+}
+
+function isMachineEndpointPath(pathname: string): boolean {
+  return pathname === "/v1/responses" ||
+    pathname === "/v1/codex/responses" ||
+    pathname === "/server" || pathname.startsWith("/server/");
 }
 
 export const config = {
