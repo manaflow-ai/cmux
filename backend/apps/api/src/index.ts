@@ -70,12 +70,12 @@ const gateUnreachable = (e: unknown) => {
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocol
  * `cmux.wire.v1`. The credential is the Authorization header (native clients), a `ticket.<ticket>`
- * subprotocol from POST /v1/wire/ticket (browsers), or the legacy `bearer.<token>` subprotocol
- * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
+ * subprotocol from POST /v1/wire/ticket (browsers); the legacy `bearer.<token>` subprotocol is
+ * retired (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
  * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
 const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const credential = await wireCredential(request, env, scope, spent)
+  const credential = await wireCredential(request, env, spent)
   if (!credential.ok) return credential.response
   const { principal: authenticatedToken, protocols } = credential
   if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()

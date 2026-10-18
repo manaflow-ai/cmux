@@ -4435,6 +4435,10 @@ jobs:
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
               --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+            # The GitHub release body lists the same span's PRs (the two release
+            # metadata steps below append it), so a nightly names what it contains.
+            python3 scripts/cmux-next/release-notes.py prs --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+              --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/nightly-prs.md"
           fi
 
       - name: Upload branch nightly artifacts
@@ -4691,6 +4695,11 @@ jobs:
             printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
             printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
             printf '%s\n' "$DOWNLOADS"
+            # nightly-next only: the PRs since the previous published build (notes step).
+            if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then
+              printf '\n'
+              cat "$RUNNER_TEMP/nightly-prs.md"
+            fi
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
           names=()
@@ -4781,6 +4790,11 @@ jobs:
             printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
             printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
             printf '%s\n' "$DOWNLOADS"
+            # nightly-next only: the PRs since the previous published build (notes step).
+            if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then
+              printf '\n'
+              cat "$RUNNER_TEMP/nightly-prs.md"
+            fi
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
           names=()

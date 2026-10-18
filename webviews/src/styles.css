@@ -461,9 +461,10 @@ body {
     transform: rotate(360deg);
   }
 }
+/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
   .base-picker-spinner {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
 .base-picker-popover {

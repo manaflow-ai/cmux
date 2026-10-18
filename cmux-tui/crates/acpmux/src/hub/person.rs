@@ -82,6 +82,28 @@
 //! table does not list; a spawn env). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending.
 //!
+//! (c) A pending prompt reaches every app that sees the session: a peer's
+//! `_acpmux/permission_pending` reaches the watchers of this daemon that
+//! did not attach the session (`hub/peers.rs`), with the peer's
+//! `decisionNonce` and `personInstance`; an answer still goes to the peer,
+//! which counts an allow only with its own person's proof (above). The
+//! proof covers the prompt's ids, not the text the app shows, so a peer
+//! that re-sends a real prompt with other text could get the person's
+//! allow of that text counted for the real one. A peer's prompt is
+//! therefore relayed only for a session that peer listed as its own and
+//! that is not this daemon's, in the run the peer named at its handshake,
+//! which is neither this daemon's run nor one another peer named; and only
+//! to unix socket and app watchers, never to a Web client or on to
+//! another peer daemon. The app holds the key of the daemons it enrolled,
+//! so this daemon's prompts (whose proofs it can make) never arrive with
+//! a peer's text. Binding the proof to the prompt's text would need the
+//! app to hash what it shows; not done.
+//! Residual: the run a peer names at its handshake is a claim. A peer can
+//! name a third daemon's run (one the app enrolled directly, say over
+//! ssh) and re-send that daemon's prompt with other text; this daemon
+//! cannot tell. The app has to refuse to prove a `via: "peer"` prompt whose
+//! `personInstance` is a daemon it enrolled directly (an app follow-up).
+//!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
 //! stored family-default or preset policy, no write of the `handoffKey`
