@@ -103,6 +103,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Additional observers (the Priority route) receive in-place row patches
+    /// after the list has refreshed its realized rows.
+    var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
@@ -116,7 +119,10 @@ final class SidebarListView: NSView {
         inlineRename.list = self
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
-        model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        model.onRowsPatched = { [weak self] rows in
+            self?.patchRows(rows)
+            self?.onRowsPatched?(rows)
+        }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {

@@ -29,6 +29,7 @@ public final class SidebarView: NSView {
     public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
+    let priorityView: SidebarPriorityView
     let scrollView = SidebarScrollView()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
@@ -54,6 +55,8 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    private let priorityButton = SidebarIconButton(icon: .agentActivity, label: Strings.priorityView)
+    private(set) var showsPriority = false
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// The pointer over the sidebar now (cx-3wu5).
@@ -88,6 +91,7 @@ public final class SidebarView: NSView {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        priorityView = SidebarPriorityView(model: model)
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
@@ -95,6 +99,8 @@ public final class SidebarView: NSView {
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
+        list.onRowsPatched = { [weak self] _ in self?.priorityView.reload() }
+        priorityView.onSelect = { [weak self] id in self?.model.select(id) }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -135,7 +141,22 @@ public final class SidebarView: NSView {
 
     /// Focuses the workspace list for keyboard navigation.
     public func focusList() {
-        window?.makeFirstResponder(list)
+        window?.makeFirstResponder(showsPriority ? priorityView : list)
+    }
+
+    /// Whether the sidebar is currently showing the live attention projection.
+    public var isPriorityViewPresented: Bool { showsPriority }
+
+    /// Switches between the regular workspace tree and the compact Priority
+    /// projection. Both routes use the same model and selection intent.
+    public func togglePriorityView() {
+        showsPriority.toggle()
+        priorityButton.label = showsPriority ? Strings.showWorkspaces : Strings.priorityView
+        priorityView.reload()
+        scrollView.documentView = showsPriority ? priorityView : list
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        needsLayout = true
     }
 
     /// Draws the sections apps contribute (`SectionContent.app`); the App
@@ -194,8 +215,11 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }; newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        priorityButton.onPress = { [weak self] in self?.togglePriorityView() }
         newButton.alphaValue = 0
+        priorityButton.alphaValue = 0
         addSubview(newButton)
+        addSubview(priorityButton)
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -236,7 +260,13 @@ public final class SidebarView: NSView {
     }
 
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
-    private func syncListSize() { list.fitToClip() }
+    private func syncListSize() {
+        if showsPriority {
+            priorityView.fitToWidth(scrollView.contentView.bounds.width)
+        } else {
+            list.fitToClip()
+        }
+    }
 
     override public func layout() {
         super.layout()
@@ -251,6 +281,7 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
+        priorityButton.frame = NSRect(x: newButton.frame.minX - Metrics.space2 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
@@ -322,7 +353,7 @@ extension SidebarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
         guard point.y < titlebarHeight else { return .staysPut }
-        let controls = [newButton as NSView?, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        let controls = [newButton as NSView?, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
         return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }
