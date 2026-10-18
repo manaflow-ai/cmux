@@ -47,10 +47,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// When its window parked it (`WindowController.mountedContents` order).
+    private(set) var parkedSerial: UInt64 = 0
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
-    func park() {
+    func park(serial: UInt64) {
+        parkedSerial = serial
         isParked = true
         attentionObservation?.cancel()
     }
