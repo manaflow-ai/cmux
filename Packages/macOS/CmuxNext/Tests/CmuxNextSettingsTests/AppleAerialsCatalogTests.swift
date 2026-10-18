@@ -36,4 +36,20 @@ struct AppleAerialsCatalogTests {
         #expect(AppleWallpapers(desktopPictures: pictures, aerials: aerials).videos().contains(missing))
         #expect(!AppleWallpapers.isPending(movies.appendingPathComponent("B2.mov").path))
     }
+
+    /// The review's case (#21784): an id from entries.json names a file, so one that is not
+    /// letters, digits and dashes is dropped; an asset without an id or a name drops only itself.
+    @Test func unsafeOrBrokenAssetsAreDroppedOneByOne() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-aerials-\(UUID().uuidString)", isDirectory: true)
+        let aerials = root.appendingPathComponent("Customer", isDirectory: true)
+        try FileManager.default.createDirectory(at: aerials, withIntermediateDirectories: true)
+        try Data(#"{"assets":[{"id":"../../../etc/hosts","accessibilityLabel":"Escape"},{"id":"a/b","accessibilityLabel":"Slash"},{"accessibilityLabel":"No id"},{"id":"C3"},{"id":"D4-E5","accessibilityLabel":"Iceland Dusk"},"junk"]}"#.utf8)
+            .write(to: aerials.appendingPathComponent("entries.json"))
+        let wallpapers = AppleWallpapers(desktopPictures: root.appendingPathComponent("Desktop Pictures"), aerials: aerials)
+        #expect(wallpapers.aerialNames() == ["D4-E5": "Iceland Dusk"])
+        let videos = wallpapers.videos()
+        #expect(videos.count == 1)
+        guard case .system(let path) = videos.first else { return Issue.record("no aerial listed") }
+        #expect(path.hasPrefix(aerials.path + "/"), "an aerial path left the Customer folder: \(path)")
+    }
 }
