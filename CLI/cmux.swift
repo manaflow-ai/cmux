@@ -36492,6 +36492,7 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      parent: false,
       lastStopKind: null,
       updatedAt: Date.now(),
     });
@@ -36688,6 +36689,18 @@ function hookEnvironment(cwd) {
   return env;
 }
 
+// A child (sub-agent) shares its parent's surface, so cmux's process-ancestry
+// check cannot see it. Track the parent from the session info so the dispatch
+// can be tagged as a nested subagent.
+function markSessionParent(event, props) {
+  const info = props && props.info;
+  const sessionId = sessionIdFor(event);
+  if (!sessionId || !info) return;
+  if (firstString(info.parentID, info.parentId, info.parent)) {
+    sessionState(sessionId).parent = true;
+  }
+}
+
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
@@ -36710,7 +36723,11 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
     const child = spawn(cmux, ["hooks", "enqueue", "opencode", subcommand], {
-      env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
+      env: {
+        ...hookEnvironment(cwd),
+        CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1",
+        ...(state.parent === true ? { CMUX_AGENT_MANAGED_SUBAGENT: "1" } : {}),
+      },
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });
@@ -36788,6 +36805,7 @@ const createCMUXSessionRestore = async (ctx) => {
       switch (event && event.type) {
         case "session.created":
           beginTurn(sessionIdFor(event));
+          markSessionParent(event, props);
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
