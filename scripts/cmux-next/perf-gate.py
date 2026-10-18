@@ -693,7 +693,7 @@ class Gate:
         phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
         for record in phase["hangs"][:8]:
             print(f"  main-thread stall {record.get('duration_ms', 0):.1f} ms ({record.get('kind')}): "
-                  + " < ".join(str(f)[:90] for f in (record.get("frames") or [])[:14]), flush=True)
+                  + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:40]), flush=True)
         if scenario == "tabs":
             phase["no_wait_ms"] = [timed(lambda: app.rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True,
                                                                          "origin": "script", "wait": False})) for _ in range(20)]
@@ -707,9 +707,9 @@ class Gate:
             return
         col = lambda name: sorted(row[name] for row in switches)
         p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
-        applies, commits, vsyncs = col("apply_ms"), col("commit_ms"), col("vsync_ms")
+        applies, commits, ends = col("apply_ms"), col("commit_ms"), col("commit_end_ms")
         print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, commit p50 {commits[ops // 2]:.2f} / "
-              f"p99 {p99(commits):.2f} ms, first vsync after it p99 {p99(vsyncs):.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
+              f"p99 {p99(commits):.2f} ms, commit end p99 {p99(ends):.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
               f"reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
         if p99(applies) > TAB_APPLY_BUDGET_MS:
             warn(f"tab switch apply p99 {p99(applies):.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
@@ -718,6 +718,11 @@ class Gate:
             check(not late, f"every tab switch commits in the first frame after it shows ({len(late)} later"
                             + (f": {[(round(r['apply_ms'], 1), round(r['commit_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
                                "(apply ms, commit ms, frames missed)" if late else "") + ")", scenario)
+            # The commit's own end (the encode and AppKit's window-server transaction) past the next vsync: reported.
+            over = [row for row in switches if row["late_end_vsyncs"] > 0]
+            if over:
+                warn(f"{len(over)} of {ops} tab switch commits ended a frame late: "
+                     f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in over][:6]} (commit ms, end ms)", scenario)
 
     def split(self, scenario="split"):
         app = self.app

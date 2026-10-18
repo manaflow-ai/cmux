@@ -1,21 +1,22 @@
 public import QuartzCore
 
-/// When the Core Animation commit that carries a change ends (debug timing; macOS has no
+/// When the Core Animation commit that carries a change runs (debug timing; macOS has no
 /// `CATransaction` commit handler). An empty 1-point layer in `host` (drawn nowhere): ``mark()``
 /// asks for its display, so Core Animation displays it inside the commit of the current
-/// transaction, and the run loop block queued from there runs once that commit's run loop source
-/// returns: `onCommit` gets that time (`CACurrentMediaTime`). On macOS 26 the update cycle commits
-/// once per frame from its own run loop source, not at the run loop's idle (cx-8w027.25).
+/// transaction, after AppKit's layout and display of the window and before the encode and the
+/// window-server transaction; the run loop block queued from there runs once that commit's run
+/// loop source returns. `onCommit` gets both times (`CACurrentMediaTime`). On macOS 26 the update
+/// cycle commits once per frame from its own run loop source, not at the run loop's idle (cx-8w027.25).
 @MainActor
 public final class CommitProbe {
     private nonisolated final class Layer: CALayer {
-        var onCommit: (@MainActor (CFTimeInterval) -> Void)?
+        var onCommit: (@MainActor (_ displayed: CFTimeInterval, _ ended: CFTimeInterval) -> Void)?
 
         override func display() {
-            let onCommit = onCommit
+            let onCommit = onCommit, displayed = CACurrentMediaTime()
             // wakeup-allow: one block per probe display, only while a debug probe records
             CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-                MainActor.assumeIsolated { onCommit?(CACurrentMediaTime()) } // main-proof: queued on the main run loop
+                MainActor.assumeIsolated { onCommit?(displayed, CACurrentMediaTime()) } // main-proof: queued on the main run loop
             }
             CFRunLoopWakeUp(CFRunLoopGetMain())
         }
@@ -23,7 +24,7 @@ public final class CommitProbe {
 
     private let layer = Layer()
 
-    public init(host: CALayer, onCommit: @escaping @MainActor (CFTimeInterval) -> Void) {
+    public init(host: CALayer, onCommit: @escaping @MainActor (_ displayed: CFTimeInterval, _ ended: CFTimeInterval) -> Void) {
         layer.onCommit = onCommit
         layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         host.addSublayer(layer)

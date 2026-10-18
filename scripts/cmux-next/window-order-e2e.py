@@ -7,7 +7,7 @@ restore order; a save never asks the window server (NSApp.orderedWindows). This 
 record matches the real stacking and that a relaunch restores it:
 
   1. Three windows (New Window twice), then two re-orders that take no key under no-activate
-     (Go to Workspace of a back window raises it without making it key).
+     (Select Previous / Next Window order a window front without making it key).
   2. After each step: the open windows' recency equals the window server's z-order of the shown
      windows (debug.windows z_order, a debug read).
   3. Quit and relaunch on the same tag: the three windows come back in the same z-order, and the
@@ -69,13 +69,13 @@ def run(app):
                       f"three windows show ({windows(app)['visible']})", "windows"):
         return
     state = order_matches(app, "three new windows")
-    selected = {w["id"]: w.get("selected") for w in state["rows"]}
-    # Raise the back window, then the middle one: orders without key under no-activate.
-    for _ in range(2):
-        back = windows(app)["z"][-1]
-        app.action("goToWorkspace", {"workspace": selected[back]})
-        state = order_matches(app, f"raised {back}")
-        gate.check(state["z"][0] == back, f"{back} is in front after Go to Workspace ({state['z']})", "windows")
+    # Select Previous Window raises the back window, Select Next Window the second one: under no-activate
+    # each orders a window front without making it key (WindowActivation .focus).
+    for action, pick in (("selectPreviousWindow", -1), ("selectNextWindow", 1)):
+        raised = windows(app)["z"][pick]
+        app.action(action)
+        state = order_matches(app, f"{action} raised {raised}")
+        gate.check(state["z"][0] == raised, f"{raised} is in front after {action} ({state['z']})", "windows")
     before = state["z"]
     app.relaunch()
     order_matches(app, "after the relaunch", want=before)

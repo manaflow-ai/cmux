@@ -7,14 +7,14 @@ import QuartzCore
 
 /// `debug.tab_switch`: the app's own time per tab switch, apart from the socket reply (which waits
 /// for the daemon's confirm): `apply_ms` from the intent (`PaneController.select`) to the shown
-/// selection, `commit_ms` to the end of the Core Animation commit that carries it (`CommitProbe`: on
-/// macOS 26 the update cycle commits once per frame from its own run loop source, not at the run
-/// loop's idle, and macOS has no commit handler API), `vsync_ms` to the first vsync after it, and `late_vsyncs`, the frames the
-/// commit missed (a switch commits after the next vsync at the earliest; 0: the first frame it could).
-/// The vsync grid is a display-link tick after the commit (cx-8w027.25). Records between `start` and `stop`.
+/// selection, `commit_ms` to the Core Animation commit that carries it (after AppKit's layout and
+/// display, `CommitProbe`) and `commit_end_ms` to its end (the encode and the window-server
+/// transaction), `late_vsyncs` / `late_end_vsyncs`: the frames each missed. The update cycle commits
+/// once per frame, so a switch commits after the next vsync at the earliest (0: the first frame it
+/// could). The vsync grid is a display-link tick after the commit (cx-8w027.25). Records between `start` and `stop`.
 @MainActor
 enum DebugTabSwitch {
-    private struct Pending { var start: CFTimeInterval, applied: CFTimeInterval, commit: CFTimeInterval? = nil }
+    private struct Pending { var start: CFTimeInterval, applied: CFTimeInterval, commit: (CFTimeInterval, CFTimeInterval)? = nil }
 
     private(set) static var isRecording = false
     private static var started: [ObjectIdentifier: CFTimeInterval] = [:]
@@ -30,13 +30,13 @@ enum DebugTabSwitch {
             tick.timestamp + ((time - tick.timestamp) / refresh).rounded(.up) * refresh
         }
         pending.removeAll { switched in
-            guard let commit = switched.commit, commit <= tick.timestamp else { return false }
+            guard let times = switched.commit, times.1 <= tick.timestamp else { return false }
+            let (commit, end) = times
+            let late = { (time: CFTimeInterval) in max(0, ((vsync(after: time) - vsync(after: switched.applied)) / refresh).rounded() - 1) }
             if samples.count < capacity {
-                let frames = ((vsync(after: commit) - vsync(after: switched.applied)) / refresh).rounded()
                 samples.append(["apply_ms": .number((switched.applied - switched.start) * 1_000),
-                                "commit_ms": .number((commit - switched.start) * 1_000),
-                                "vsync_ms": .number((vsync(after: commit) - switched.start) * 1_000),
-                                "late_vsyncs": .number(max(0, frames - 1)), "refresh_ms": .number(refresh * 1_000)])
+                                "commit_ms": .number((commit - switched.start) * 1_000), "commit_end_ms": .number((end - switched.start) * 1_000),
+                                "late_vsyncs": .number(late(commit)), "late_end_vsyncs": .number(late(end)), "refresh_ms": .number(refresh * 1_000)])
             }
             return true
         }
@@ -53,7 +53,7 @@ enum DebugTabSwitch {
         guard isRecording, let start = started.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         pending.append(Pending(start: start, applied: CACurrentMediaTime()))
         if let host = window?.contentView?.layer {
-            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host) { committed(at: $0) }
+            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host) { committed(at: ($0, $1)) }
             probes[ObjectIdentifier(host)] = probe
             probe.mark()
         }
@@ -61,8 +61,8 @@ enum DebugTabSwitch {
     }
 
     /// The commit that displayed a probe ended: it carried every switch shown before it.
-    private static func committed(at time: CFTimeInterval) {
-        for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time { pending[index].commit = time }
+    private static func committed(at time: (CFTimeInterval, CFTimeInterval)) {
+        for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time.0 { pending[index].commit = time }
     }
 
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
