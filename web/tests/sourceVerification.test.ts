@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { normalizeRunSpec, type RunSpec } from "../services/runs/spec";
 import {
   assertFreestyleSource,
@@ -15,6 +17,7 @@ import {
 
 const digest = "sha256:" + "a".repeat(64);
 const commit = "0123456789abcdef0123456789abcdef01234567";
+const execFileAsync = promisify(execFile);
 
 function spec(overrides: Partial<RunSpec["source"]> = {}): RunSpec {
   return normalizeRunSpec({
@@ -43,17 +46,18 @@ describe("Freestyle source verification", () => {
   test("builds a bounded immutable checkout and setup digest check", () => {
     const command = sourceVerificationCommand(spec(), "run-id:attempt-id:completed");
     expect(command).toContain("fetch -q --depth=1 origin '0123456789abcdef0123456789abcdef01234567'");
-    expect(command).toContain("workspace=$(mktemp -d");
-    expect(command).toContain("trap 'rm -rf -- \"$workspace\"' EXIT");
+    expect(command).toContain("workspace=$(mktemp -d \"${HOME:-/home/cmux}/.cmux-run-XXXXXX\")");
+    expect(command).toContain("trap 'if [ \"$cleanup\" -eq 1 ]; then rm -rf -- \"$workspace\"; fi' EXIT");
     expect(command).toContain("node - \"$workspace/.cmux/setup.json\" \"$workspace\"");
-    expect(command).toContain("printf 'cmux-source-verified commit=%s setup=%s\\n'");
+    expect(command).toContain("# CMUX_VARIANT_EXECUTION");
+    expect(command).toContain("printf 'cmux-source-verified commit=%s setup=%s workspace=%s\\n'");
     expect(command).toContain("cmux-run:run-id:attempt-id:completed");
   });
 
   test("accepts an exact guest receipt and rejects mismatches", () => {
     const runSpec = spec();
-    const stdout = `cmux-setup-completed steps=0\ncmux-source-verified commit=${commit} setup=${digest}\ncmux-run:run:attempt:completed\n`;
-    expect(parseSourceVerificationReceipt(stdout, runSpec)).toEqual({ commit, setupManifestDigest: digest, setupStepCount: 0 });
+    const stdout = `cmux-setup-completed steps=0\ncmux-source-verified commit=${commit} setup=${digest} workspace=/home/cmux/.cmux-run-test\ncmux-run:run:attempt:completed\n`;
+    expect(parseSourceVerificationReceipt(stdout, runSpec)).toEqual({ commit, setupManifestDigest: digest, setupStepCount: 0, workspacePath: "/home/cmux/.cmux-run-test" });
     expect(() => parseSourceVerificationReceipt(stdout.replace(commit, "f".repeat(40)), runSpec)).toThrow(/checkout commit/);
     expect(() => parseSourceVerificationReceipt(stdout.replace(digest, "sha256:" + "b".repeat(64)), runSpec)).toThrow(/setup manifest/);
   });
@@ -63,11 +67,9 @@ describe("Freestyle source verification", () => {
     await mkdir(join(workspace, ".cmux"));
     const manifest = `${JSON.stringify({ schema: "cmux.setup/v1", version: 1, steps: [{ id: "fixture", command: "printf ready > setup-receipt.txt" }] })}\n`;
     const manifestPath = join(workspace, ".cmux", "setup.json");
-    await Bun.write(manifestPath, manifest);
+    await writeFile(manifestPath, manifest);
     const setupDigest = `sha256:${createHash("sha256").update(manifest).digest("hex")}`;
-    const process = Bun.spawn(["/bin/sh", "-eu", "-c", setupExecutionCommand(workspace, setupDigest).join("\n")], { stdout: "pipe", stderr: "pipe" });
-    const stdout = await new Response(process.stdout).text();
-    expect(await process.exited).toBe(0);
+    const { stdout } = await execFileAsync("/bin/sh", ["-eu", "-c", setupExecutionCommand(workspace, setupDigest).join("\n")]);
     expect(stdout).toContain("cmux-setup-completed steps=1");
     expect(await readFile(join(workspace, "setup-receipt.txt"), "utf8")).toBe("ready");
   });

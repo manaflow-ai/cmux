@@ -6,6 +6,8 @@ name: Cloud VM dogfood journey
 # carries every step's time; the artifact carries the JSON and the terminal
 # screens. A throwaway smoke user owns the VM and is deleted afterwards.
 on:
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -31,14 +33,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-vm-dogfood-${{ inputs.target }}
+  group: cloud-vm-dogfood-${{ inputs.target || 'staging' }}
   cancel-in-progress: false
 
 jobs:
   journey:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
-    environment: cloud-vm-${{ inputs.target }}
+    environment: cloud-vm-${{ inputs.target || 'staging' }}
     defaults:
       run:
         working-directory: web
@@ -64,7 +66,7 @@ jobs:
 
       - name: Guard
         env:
-          TARGET: ${{ inputs.target }}
+          TARGET: ${{ inputs.target || 'staging' }}
           CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
         run: |
           set -euo pipefail
@@ -84,8 +86,8 @@ jobs:
 
       - name: Journey
         env:
-          TARGET: ${{ inputs.target }}
-          SKIP_SLEEP: ${{ inputs.skip_sleep }}
+          TARGET: ${{ inputs.target || 'staging' }}
+          SKIP_SLEEP: ${{ inputs.skip_sleep || false }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood/screens"

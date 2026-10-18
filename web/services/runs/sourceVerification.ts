@@ -94,8 +94,9 @@ export function sourceVerificationCommand(spec: RunSpec, marker: string): string
   const setupLines = setupExecutionCommand("$workspace", setupDigest);
   return [
     "set -eu",
-    "workspace=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-run-XXXXXX\")",
-    "trap 'rm -rf -- \"$workspace\"' EXIT",
+    "workspace=$(mktemp -d \"${HOME:-/home/cmux}/.cmux-run-XXXXXX\")",
+    "cleanup=1",
+    "trap 'if [ \"$cleanup\" -eq 1 ]; then rm -rf -- \"$workspace\"; fi' EXIT",
     `git init -q "$workspace"`,
     `git -C "$workspace" remote add origin ${shellQuote(repository)}`,
     `git -C "$workspace" fetch -q --depth=1 origin ${shellQuote(commit)}`,
@@ -103,7 +104,10 @@ export function sourceVerificationCommand(spec: RunSpec, marker: string): string
     `actual_commit=$(git -C "$workspace" rev-parse HEAD)`,
     `test "$actual_commit" = ${shellQuote(commit)}`,
     ...setupLines,
-    `printf 'cmux-source-verified commit=%s setup=%s\\n' "$actual_commit" "$actual_setup"`,
+    'cd "$workspace"',
+    '# CMUX_VARIANT_EXECUTION',
+    'cleanup=0',
+    `printf 'cmux-source-verified commit=%s setup=%s workspace=%s\\n' "$actual_commit" "$actual_setup" "$workspace"`,
     `printf '%s\\n' ${shellQuote(`cmux-run:${marker}`)}`,
   ].join("\n");
 }
@@ -112,19 +116,22 @@ export type SourceVerificationReceipt = {
   readonly commit: string;
   readonly setupManifestDigest: string;
   readonly setupStepCount: number;
+  readonly workspacePath: string;
 };
 
 /** Parse and re-check both source and setup execution receipts. */
 export function parseSourceVerificationReceipt(stdout: string, spec: RunSpec): SourceVerificationReceipt {
-  const source = /cmux-source-verified commit=([0-9a-f]{40}) setup=(sha256:[0-9a-f]{64})/i.exec(stdout);
+  const source = /cmux-source-verified commit=([0-9a-f]{40}) setup=(sha256:[0-9a-f]{64}) workspace=(\/[^\s]+)/i.exec(stdout);
   const setup = /cmux-setup-completed steps=([0-9]{1,2})/i.exec(stdout);
-  if (!source?.[1] || !source[2]) throw new SourceVerificationError("guest did not emit a source verification receipt");
+  if (!source?.[1] || !source[2] || !source[3]) throw new SourceVerificationError("guest did not emit a source verification receipt");
   if (!setup?.[1]) throw new SourceVerificationError("guest did not emit a setup execution receipt");
   const commit = source[1].toLowerCase();
   const setupManifestDigest = source[2].toLowerCase();
   const setupStepCount = Number(setup[1]);
+  const workspacePath = source[3];
   if (commit !== spec.source.commit?.toLowerCase()) throw new SourceVerificationError("guest checkout commit did not match RunSpec");
   if (setupManifestDigest !== spec.source.setupManifestDigest?.toLowerCase()) throw new SourceVerificationError("guest setup manifest digest did not match RunSpec");
   if (!Number.isSafeInteger(setupStepCount) || setupStepCount > 32) throw new SourceVerificationError("guest setup step count was invalid");
-  return { commit, setupManifestDigest, setupStepCount };
+  if (!/^\/(?:home\/cmux|root)\/\.cmux-run-[A-Za-z0-9]+$/.test(workspacePath)) throw new SourceVerificationError("guest workspace path was outside the managed home");
+  return { commit, setupManifestDigest, setupStepCount, workspacePath };
 }
