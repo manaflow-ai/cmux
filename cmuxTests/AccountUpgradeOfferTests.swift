@@ -37,7 +37,7 @@ struct AccountUpgradeOfferTests {
         let offer = CmuxPlanTier.upgradeOffer(isSignedIn: true, knownTier: tier)
         context.setString(
             CommandPaletteContextKeys.accountUpgradeOffer,
-            offer.map(ContentView.commandPaletteUpgradeOfferValue)
+            ContentView.commandPaletteUpgradeOfferValue(offer)
         )
         #expect(command.when(context) == (expected != nil))
         if let expected {
@@ -52,7 +52,7 @@ struct AccountUpgradeOfferTests {
         var context = CommandPaletteContextSnapshot()
         context.setString(
             CommandPaletteContextKeys.accountUpgradeOffer,
-            CmuxPlanTier.upgradeOffer(isSignedIn: true, knownTier: nil).map(ContentView.commandPaletteUpgradeOfferValue)
+            ContentView.commandPaletteUpgradeOfferValue(CmuxPlanTier.upgradeOffer(isSignedIn: true, knownTier: nil))
         )
         #expect(!command.when(context))
     }

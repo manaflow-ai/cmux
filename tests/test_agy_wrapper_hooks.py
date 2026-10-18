@@ -21,10 +21,17 @@ def executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def run_case(root: Path, args: tuple[str, ...], *, in_cmux: bool = True) -> dict[str, object]:
+def run_case(
+    root: Path,
+    args: tuple[str, ...],
+    *,
+    in_cmux: bool = True,
+    custom_real_path: bool = False,
+) -> dict[str, object]:
     bin_dir = root / "bin"
     bin_dir.mkdir()
-    real_agy = bin_dir / "agy"
+    real_agy = (root / "custom" / "agy") if custom_real_path else (bin_dir / "agy")
+    real_agy.parent.mkdir(parents=True, exist_ok=True)
     real_result = root / "agy-result.json"
     executable(
         real_agy,
@@ -53,6 +60,8 @@ def run_case(root: Path, args: tuple[str, ...], *, in_cmux: bool = True) -> dict
             "AGY_RESULT": str(real_result),
             "CMUX_LOG": str(cmux_log),
         }
+        if custom_real_path:
+            environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = str(real_agy)
         if in_cmux:
             environment["CMUX_SURFACE_ID"] = "surface-agy"
         subprocess.run([str(WRAPPER), *args], env=environment, check=True, timeout=5)
@@ -111,7 +120,18 @@ def main() -> int:
         if "CMUX_AGENT_LAUNCH_KIND" in result["real"]["env"]:
             raise AssertionError(f"outside-cmux agy unexpectedly captured metadata: {result}")
 
-    print("PASS: agy wrapper installs hooks and captures resumable launch metadata")
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-custom-") as directory:
+        result = run_case(
+            Path(directory),
+            ("--prompt-interactive", "hello"),
+            custom_real_path=True,
+        )
+        if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
+            raise AssertionError(f"custom agy executable did not run: {result}")
+        if "CMUX_AGENT_LAUNCH_KIND" not in result["real"]["env"]:
+            raise AssertionError(f"custom agy executable lost launch metadata: {result}")
+
+    print("PASS: agy wrapper installs hooks, captures metadata, and preserves custom executables")
     return 0
 
 

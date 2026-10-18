@@ -209,7 +209,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | --- | --- | --- |
 | Codex | `CODEX_HOME` | `CMUX_CODEX_HOOKS_DISABLED=1` |
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
-| OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
+| OpenCode | `OPENCODE_CONFIG_DIR`, then `XDG_CONFIG_HOME`; `OPENCODE_DB`, then `XDG_DATA_HOME`, for the sessions database. A restored session replays these, `OPENCODE_CONFIG` and `XDG_STATE_HOME` when they are absolute paths | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |
 | OMP | `OMP_AGENT_DIR` for the full agent directory, then `PI_CODING_AGENT_DIR`; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
 | Campfire | `CAMPFIRE_CODING_AGENT_DIR` | `CMUX_CAMPFIRE_HOOKS_DISABLED=1` |
