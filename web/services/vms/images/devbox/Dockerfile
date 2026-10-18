@@ -11,10 +11,10 @@
 # noVNC on 6901), the same stack on every provider.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
-# driver installs the pinned files.cmux.com build (sha256-verified) at create
-# time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
-# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: the
+# Freestyle bake installs the pinned files.cmux.com build (sha256-verified,
+# web/services/vms/drivers/cmuxTuiDaemon.ts), and the driver installs nothing
+# at create or attach. The image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
 # for the binary and restarts the daemon, and (without systemd) runs the
 # desktop supervisor as the work user. The Freestyle public-platform bake
 # (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
@@ -32,7 +32,7 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-10-r2
+ENV CMUX_IMAGE_EPOCH=2026-10-14-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -230,11 +230,11 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 # ride the same toolchain users get. `bun run devbox:pins:check` (web/)
 # compares these with the npm registry and `--write` rewrites them; a pin is
 # always an exact release, never a range or a tag.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
-ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
-ARG CMUX_IMAGE_PI_VERSION=0.85.1
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.299
+ARG CMUX_IMAGE_CODEX_VERSION=0.162.1
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.19.0
+ARG CMUX_IMAGE_PI_VERSION=1.2.0
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.39.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \

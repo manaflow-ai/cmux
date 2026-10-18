@@ -1057,6 +1057,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
+        let stableSurfaceId: UUID?
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
@@ -1078,6 +1079,7 @@ struct RestorableAgentSessionIndex: Sendable {
         /// have persisted PID evidence can opt in explicitly.
         init(
             snapshot: SessionRestorableAgentSnapshot,
+            stableSurfaceId: UUID? = nil,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
@@ -1092,6 +1094,7 @@ struct RestorableAgentSessionIndex: Sendable {
             containsUnrelatedProcess: Bool
         ) {
             self.snapshot = snapshot
+            self.stableSurfaceId = stableSurfaceId
             self.lifecycle = lifecycle
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
@@ -1189,7 +1192,16 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Whether truncation left additional Codex panels without a retained
     /// per-panel marker. Such panels are incomplete unless explicitly verified.
     private let hasUnboundedCodexIncompleteness: Bool
+    /// Claude sessions whose hook records were read in this load but whose
+    /// transcript was not on disk in any config root, keyed to the paths where
+    /// Claude would write it. Claude only writes the transcript after the first
+    /// message, so these cannot be resumed. Consumers re-check the paths
+    /// because the first prompt may land after this load, which also keeps
+    /// the map safe to carry into a cached copy marked incomplete.
+    let claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]]
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
+    private let candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]]
+    private let boundedAmbiguousStableSurfaceIds: Set<UUID>
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
@@ -1331,7 +1343,11 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness,
+            // Consumers re-check the expected transcript paths, so evidence
+            // from an older load cannot drop a session that wrote one since.
+            claudeTranscriptPathsBySessionWithoutTranscript:
+                claudeTranscriptPathsBySessionWithoutTranscript
         )
     }
 
@@ -1546,6 +1562,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func entryForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1556,9 +1573,21 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Entry? {
-        let candidates = candidatesByPanelId[panelId] ?? []
-        guard !candidates.isEmpty else { return nil }
+        // Current runtime evidence wins. Consult durable stable ownership only
+        // when the restored runtime panel has no matching hook record.
         guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        let runtimeCandidates = (candidatesByPanelId[panelId] ?? []).filter { _, entry in
+            stableSurfaceId == nil || entry.stableSurfaceId == nil || entry.stableSurfaceId == stableSurfaceId
+        }
+        let usesStableIdentity = runtimeCandidates.isEmpty && stableSurfaceId != nil
+        let candidates = usesStableIdentity
+            ? (stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] } ?? [])
+            : runtimeCandidates
+        guard !candidates.isEmpty else { return nil }
+        if usesStableIdentity {
+            guard let stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else { return nil }
+        }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -1584,7 +1613,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
         }
         guard !hasUncertainCandidate else { return nil }
-        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+        if let exact = liveCandidates.first(where: {
+            $0.key == PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }) {
             return exact.entry
         }
         if liveCandidates.count == 1 {
@@ -1592,17 +1623,27 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
-        guard liveCandidates.isEmpty,
-              !ambiguousPanelIds.contains(panelId),
-              !equalRankAmbiguousPanelIds.contains(panelId) else {
+        guard liveCandidates.isEmpty else { return nil }
+        if !usesStableIdentity,
+           ambiguousPanelIds.contains(panelId) || equalRankAmbiguousPanelIds.contains(panelId) {
             return nil
         }
-
-        return candidates
-            .map(\.1)
-            .max { lhs, rhs in
-                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
-            }
+        guard let selected = candidates.map(\.1).max(by: { lhs, rhs in
+            Self.shouldPreferStablePanelEntry(rhs, over: lhs)
+        }) else { return nil }
+        // Equal-ranked durable owners are ambiguous; dictionary iteration must
+        // never choose a random checkpoint after an app restart. The session
+        // identity tie-breaker is not a rank, so compare ranking fields only.
+        let selectedLivenessRank = Self.stablePanelLivenessRank(selected)
+        let selectedHasLiveProcess = Self.entryHasLiveProcess(selected)
+        guard candidates.filter({ _, entry in
+            Self.stablePanelLivenessRank(entry) == selectedLivenessRank &&
+                Self.entryHasLiveProcess(entry) == selectedHasLiveProcess &&
+                entry.updatedAt == selected.updatedAt
+        }).count == 1 else {
+            return nil
+        }
+        return selected
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1758,6 +1799,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
             revalidatedEntries[key] = Entry(
                 snapshot: entry.snapshot,
+                stableSurfaceId: entry.stableSurfaceId,
                 lifecycle: entry.lifecycle,
                 updatedAt: entry.updatedAt,
                 processLiveness: processLiveness,
@@ -1787,7 +1829,9 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: self.inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness,
+            claudeTranscriptPathsBySessionWithoutTranscript:
+                self.claudeTranscriptPathsBySessionWithoutTranscript
         )
     }
 
@@ -1865,6 +1909,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var hasUnboundedCodexIncompleteness = false
         var codexIndexedStoreByHome: [String: Bool] = [:]
         var codexHookRecordsForIndex: [RestorableAgentHookSessionRecord]?
+        var claudeSessionIDsWithTranscript = Set<String>()
+        var claudeTranscriptPathsBySessionMissingTranscript: [String: [String]] = [:]
 
         func codexPanelKey(
             for record: RestorableAgentHookSessionRecord
@@ -2193,6 +2239,28 @@ struct RestorableAgentSessionIndex: Sendable {
                     // only the rejected checkpoint.
                     incompleteCodexPanelKeys.insert(panelKey)
                 }
+                if kind == .claude {
+                    if codexOwnerIsAdmitted {
+                        claudeSessionIDsWithTranscript.insert(normalizedSessionId)
+                        if let originalSessionId = normalizedNonEmptyValue(record.sessionId) {
+                            claudeSessionIDsWithTranscript.insert(originalSessionId)
+                        }
+                    } else if claudeRecordNamesTranscriptLocation(record),
+                              !claudeTranscriptExists(
+                                  for: record,
+                                  fileManager: fileManager,
+                                  lookup: claudeTranscriptLookup
+                              ) {
+                        // The trusted record found nothing; the raw record can
+                        // still name a CLAUDE_CONFIG_DIR its launch capture lost.
+                        claudeTranscriptPathsBySessionMissingTranscript[normalizedSessionId, default: []]
+                            .append(contentsOf: claudeExpectedTranscriptPaths(
+                                for: record,
+                                sessionId: normalizedSessionId,
+                                lookup: claudeTranscriptLookup
+                            ))
+                    }
+                }
                 guard codexOwnerIsAdmitted else {
                     continue
                 }
@@ -2316,6 +2384,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     let processIDs = hookScope.processIDs.union([liveProcessID])
                     entry = Entry(
                         snapshot: snapshot,
+                        stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
@@ -2338,6 +2407,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 } else {
                     entry = Entry(
                         snapshot: snapshot,
+                        stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
@@ -2399,6 +2469,7 @@ struct RestorableAgentSessionIndex: Sendable {
         func processDetectedEntry(
             key: PanelKey,
             snapshot: SessionRestorableAgentSnapshot,
+            hookStableSurfaceId: UUID?,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             detected: ProcessDetectedSnapshotEntry
@@ -2414,7 +2485,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             )
             return Entry(
-                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                snapshot: snapshot,
+                // The live process environment wins; a reused hook entry keeps
+                // its verified ID when that environment does not carry one.
+                stableSurfaceId: snapshot.launchCommand?.environment?["CMUX_STABLE_SURFACE_ID"]
+                    .flatMap(UUID.init(uuidString:)) ?? hookStableSurfaceId,
+                lifecycle: lifecycle, updatedAt: updatedAt,
                 processLiveness: .running,
                 hasRecordedProcessID: true,
                 processIDs: detected.processIDs,
@@ -2466,7 +2542,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -2478,7 +2554,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -2487,9 +2563,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: existing.stableSurfaceId, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: nil, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 
@@ -2523,7 +2599,9 @@ struct RestorableAgentSessionIndex: Sendable {
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             inconclusiveCodexPanelKeys: inconclusiveCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
-            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness,
+            claudeTranscriptPathsBySessionWithoutTranscript: claudeTranscriptPathsBySessionMissingTranscript
+                .filter { !claudeSessionIDsWithTranscript.contains($0.key) }
         )
     }
 
@@ -2888,6 +2966,46 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    /// Whether a Claude record says where Claude writes its transcript: the
+    /// SessionStart `transcript_path`, or an explicit config directory. Older
+    /// records without either may live in a root the lookup cannot see, so a
+    /// miss there is not evidence that the conversation is empty.
+    private static func claudeRecordNamesTranscriptLocation(
+        _ record: RestorableAgentHookSessionRecord
+    ) -> Bool {
+        normalizedNonEmptyValue(record.transcriptPath) != nil
+            || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil
+    }
+
+    /// Where Claude writes this session's transcript: the reported
+    /// `transcript_path`, then `<root>/projects/<cwd slug>/<id>.jsonl` for each
+    /// config root and recorded cwd. A later save re-checks these paths.
+    private static func claudeExpectedTranscriptPaths(
+        for record: RestorableAgentHookSessionRecord,
+        sessionId: String,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> [String] {
+        var paths: [String] = []
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            paths.append((transcriptPath as NSString).expandingTildeInPath)
+        }
+        guard claudeSessionIdIsSafeFilename(sessionId) else { return paths }
+        let cwdCandidates = [
+            normalizedWorkingDirectory(record.cwd),
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+        ].compactMap { $0 }
+        for root in lookup.configRoots(for: record) {
+            let projectsRoot = (root as NSString).appendingPathComponent("projects")
+            for cwd in cwdCandidates {
+                let projectRoot = (projectsRoot as NSString)
+                    .appendingPathComponent(encodeClaudeProjectDir(cwd))
+                paths.append((projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl"))
+            }
+        }
+        var seen: Set<String> = []
+        return paths.filter { seen.insert(($0 as NSString).standardizingPath).inserted }
     }
 
     private static func codexLegacyLaunchHasPositiveEvidence(
@@ -3742,7 +3860,8 @@ struct RestorableAgentSessionIndex: Sendable {
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         inconclusiveCodexPanelKeys: Set<PanelKey>? = nil,
         verifiedCodexPanelKeys: Set<PanelKey> = [],
-        hasUnboundedCodexIncompleteness: Bool = false
+        hasUnboundedCodexIncompleteness: Bool = false,
+        claudeTranscriptPathsBySessionWithoutTranscript: [String: [String]] = [:]
     ) {
         self.entriesByPanel = entriesByPanel
         self.liveSessionOwners = liveSessionOwners
@@ -3758,6 +3877,8 @@ struct RestorableAgentSessionIndex: Sendable {
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
         self.verifiedCodexPanelIds = Set(verifiedCodexPanelKeys.map(\.panelId))
         self.hasUnboundedCodexIncompleteness = hasUnboundedCodexIncompleteness
+        self.claudeTranscriptPathsBySessionWithoutTranscript =
+            claudeTranscriptPathsBySessionWithoutTranscript
         // Keep only the bounded candidate prefix while indexing. Exact owner
         // lookups still use `entriesByPanel`, but stable-panel resolution must
         // never retain or sort an unbounded owner history a second time.
@@ -3811,6 +3932,24 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         self.candidatesByPanelId = candidatesByPanelId
+        var candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousStableSurfaceIds: Set<UUID> = []
+        for (key, entry) in entriesByPanel {
+            guard let stableSurfaceId = entry.stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else {
+                continue
+            }
+            var candidates = candidatesByStableSurfaceId[stableSurfaceId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousStableSurfaceIds.insert(stableSurfaceId)
+                candidatesByStableSurfaceId.removeValue(forKey: stableSurfaceId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByStableSurfaceId[stableSurfaceId] = candidates
+        }
+        self.candidatesByStableSurfaceId = candidatesByStableSurfaceId
+        self.boundedAmbiguousStableSurfaceIds = boundedAmbiguousStableSurfaceIds
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds

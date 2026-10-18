@@ -487,6 +487,7 @@ private enum CloudSidebarDebugFixture {
         openGroupAsWorkspace: { _, _, _ in },
         newWorkspace: { _ in },
         closeTerminal: { _ in },
+        closeRemoteTab: { _, _ in },
         closeWorkspace: { _, _ in },
         renameWorkspace: { _, _ in },
         renameTerminal: { _, _ in },

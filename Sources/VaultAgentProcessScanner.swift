@@ -25,6 +25,11 @@ extension AgentLaunchCommandSnapshot {
            !path.isEmpty {
             selectedEnvironment["PATH"] = path
         }
+        if let stableSurfaceId = environment["CMUX_STABLE_SURFACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: stableSurfaceId) != nil {
+            selectedEnvironment["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId
+        }
         self.init(
             launcher: launcher,
             executablePath: executablePath,

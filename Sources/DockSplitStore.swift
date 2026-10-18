@@ -444,6 +444,18 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             ?? false
     }
 
+    /// The live browser a browser automation command drives, materializing a
+    /// restore placeholder in place without changing focus. Nil when the
+    /// panel is not a browser or restore is still in progress.
+    func browserPanelForAutomation(_ panelId: UUID) -> BrowserPanel? {
+        if let browserPanel = panels[panelId] as? BrowserPanel { return browserPanel }
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
+              sessionRestoreDepth == 0 else {
+            return nil
+        }
+        return materializeDeferredBrowserPanel(deferredPanel)
+    }
+
     /// Requests a deferred browser transition from the Dock owner.
     @discardableResult
     func requestDeferredBrowserMaterialization(

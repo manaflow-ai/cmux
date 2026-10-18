@@ -31,6 +31,7 @@ const { batch, createSignal } = await import("solid-js");
 const mod = await import(path.join(packageDir, "tui.js"));
 const serverMod = await import(path.join(packageDir, "index.js"));
 if (typeof serverMod.default?.server !== "function") throw new Error("missing inert V2 server entrypoint");
+if (serverMod.default.id !== "cmux.server") throw new Error(`unexpected V2 server plugin ID: ${serverMod.default.id}`);
 const serverCleanup = await serverMod.default.setup({});
 if (typeof serverCleanup !== "function") throw new Error("legacy server setup did not return a cleanup function");
 serverCleanup();
@@ -48,7 +49,9 @@ if (!mod.sessionBelongsToTUI(makeContext("a"), "child-a")) throw new Error("TUI 
 if (mod.sessionBelongsToTUI(makeContext("a"), "child-b")) throw new Error("TUI A claimed TUI B session");
 const closed = { ui: { router: { current: () => fixture.starterClosed.route }, tabs: { enabled: () => true, list: () => [] } }, data: { session: { root: (id) => fixture.roots[id] || id } } };
 if (mod.sessionBelongsToTUI(closed, "child-a")) throw new Error("closed starter surface retained ownership");
-const dispatchEnvironment = { CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "" };
+// A parent OpenCode's capture is inherited by an OpenCode it starts.
+const parentLaunchArgv = Buffer.from("/parent/opencode\0-s\0parent-session\0", "utf8").toString("base64");
+const dispatchEnvironment = { CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "", CMUX_AGENT_LAUNCH_KIND: "opencode", CMUX_AGENT_LAUNCH_EXECUTABLE: "/parent/opencode", CMUX_AGENT_LAUNCH_ARGV_B64: parentLaunchArgv };
 let spawnCalls = 0;
 let spawnOptions;
 const fakeSpawn = (_command, _args, options) => {
@@ -62,6 +65,7 @@ if (source.includes("spawnSync")) throw new Error("shared bridge still uses sync
 if (spawnOptions?.env?.CMUX_AGENT_LAUNCH_KIND !== "opencode") throw new Error("session admission dropped launch kind");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_EXECUTABLE) throw new Error("session admission dropped launch executable");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session admission dropped launch argv");
+if (spawnOptions.env.CMUX_AGENT_LAUNCH_ARGV_B64 === parentLaunchArgv) throw new Error("session admission reused a parent OpenCode launch capture");
 
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
@@ -194,6 +198,12 @@ await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event
 if (observed.some((event) => event.session_id === "opencode-child-stale" && event.hook_event_name === "SessionStart")) throw new Error("ended queued session-start was replayed");
 liveA.setRoute(routeA);
 liveA.setTabs(tabsA);
+liveA.emit({ details: { type: "session.updated", data: { sessionID: "child-a", info: { id: "child-a", time: { archived: false } } } } });
+// OpenCode 1.19 reports a failure before the idle status and idle marker.
+// The failure must win the lifecycle race; the later idle forms are duplicates.
+liveA.emit({ details: { type: "session.error", data: { sessionID: "child-a", error: { name: "UnknownError", data: { message: "provider failed" } } } } });
+liveA.emit({ details: { type: "session.status", data: { sessionID: "child-a", status: "idle" } } });
+liveA.emit({ details: { type: "session.idle", data: { sessionID: "child-a" } } });
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
@@ -254,7 +264,12 @@ if (observed.length !== beforeClosed) throw new Error("closed starter surface re
 await waitForObserved((event) => event.hook_event_name === "SessionStart");
 await waitForObserved((event) => event.hook_event_name === "Stop");
 const sessionStart = observed.find((event) => event.hook_event_name === "SessionStart");
-const stop = observed.find((event) => event.hook_event_name === "Stop");
+const stop = observed.find((event) => event.hook_event_name === "Stop" && event.session_id === "opencode-child-b");
+const childALifecycle = observed.filter((event) => event.session_id === "opencode-child-a"
+  && ["SessionStart", "Stop"].includes(event.hook_event_name));
+if (childALifecycle.filter((event) => event.hook_event_name === "SessionStart").length !== 1) throw new Error("session.updated reopened the OpenCode session");
+if (childALifecycle.filter((event) => event.hook_event_name === "Stop").length !== 1) throw new Error("OpenCode failure-first lifecycle event was lost or duplicated");
+if (!childALifecycle.some((event) => event.hook_event_name === "Stop" && event.is_error === true && event.error === "provider failed")) throw new Error("OpenCode session.error did not preserve an error completion");
 if (sessionStart?.surface_id !== "surface-a" || sessionStart?.workspace_id !== "workspace-a") throw new Error("Feed event was routed to the wrong surface");
 if (sessionStart?.cwd !== "/tmp/a") throw new Error("V2 session location was dropped from Feed telemetry");
 if (stop?.surface_id !== "surface-b" || stop?.workspace_id !== "workspace-b") throw new Error("second TUI Feed event was routed to the first surface");
@@ -266,6 +281,28 @@ if (!sessionEnd) {
 }
 if (observed.find((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-b")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");
+
+// A prompt queued during a running turn is admitted mid-turn and promoted
+// after the stop. Both turns publish exactly one Stop; the repeated idle
+// forms, a late failure and a shutdown interruption publish none.
+liveA.setRoute({ type: "session", sessionID: "child-queue" });
+const queueEvents = [
+  ["session.status", { sessionID: "child-queue", status: { type: "busy" } }],
+  ["session.next.prompt.admitted", { sessionID: "child-queue", messageID: "queued-m2" }],
+  ["session.status", { sessionID: "child-queue", status: "idle" }],
+  ["session.idle", { sessionID: "child-queue" }],
+  ["session.error", { sessionID: "child-queue", error: { message: "late failure" } }],
+  ["session.next.prompted", { sessionID: "child-queue", messageID: "queued-m2" }],
+  ["session.execution.succeeded", { sessionID: "child-queue" }],
+  ["session.status", { sessionID: "child-queue", status: { type: "busy" } }],
+  ["session.execution.interrupted", { sessionID: "child-queue", reason: "shutdown" }],
+  ["session.deleted", { sessionID: "child-queue" }],
+];
+for (const [type, data] of queueEvents) liveA.emit({ details: { type, data } });
+await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-queue");
+const queueStops = observed.filter((event) => event.session_id === "opencode-child-queue" && event.hook_event_name === "Stop");
+if (queueStops.length !== 2 || queueStops.some((event) => event.is_error)) throw new Error(`queued prompt turns published ${JSON.stringify(queueStops)}`);
+liveA.setRoute(routeA);
 
 // A bridge that never owns a queued session must release its expiry timer on
 // disposal, rather than retaining the entire TUI context until the TTL elapses.
@@ -288,7 +325,8 @@ console.log("PASS");
 '''
     with tempfile.TemporaryDirectory(prefix="cmux-opencode-v2-package-") as package:
         package_dir = Path(package)
-        (package_dir / "index.js").write_text((ROOT / "Resources/opencode-plugin.js").read_text())
+        feed_source = (ROOT / "Resources/opencode-plugin.js").read_text()
+        (package_dir / "index.js").write_text(feed_source.replace('id: "cmux.feed"', 'id: "cmux.server"'))
         (package_dir / "tui.js").write_text((ROOT / "Resources/opencode-tui-plugin.js").read_text())
         (package_dir / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         (package_dir / "harness.mjs").write_text(source)

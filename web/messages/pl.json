@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maszyna nie odpowiada",
       "message": "Ta maszyna nie odpowiedziała na czas, więc nie udało się ukończyć żądania.",
-      "action": "Wstrzymaj maszynę, potem ją wznów i spróbuj ponownie. W aplikacji na Maca wybierz Wstrzymaj maszynę, a potem Wznów maszynę. W terminalu uruchom cmux vm pause '<machine>', a potem cmux vm resume '<machine>'."
+      "action": "Skontaktuj się z pomocą techniczną z identyfikatorem śledzenia przed utworzeniem nowej maszyny."
     },
     "inProgress": {
       "title": "Nadal w toku",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Limit obliczeń planu {plan} wyczerpany",
+      "computeMessage": "Twój plan {plan} wykorzystał {included} godzin obliczeniowych w tym okresie rozliczeniowym. Godzina obliczeniowa to 1 vCPU z 2 GB pamięci przez jedną godzinę. Maszyny będzie można ponownie uruchomić {resetDate}.",
+      "computeAction": "Wstrzymane maszyny zachowują swoje pliki. Skontaktuj się z pomocą techniczną, jeśli potrzebujesz więcej mocy obliczeniowej przed {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Limit dysku planu {plan} wyczerpany",
+      "storageMessage": "Twój plan {plan} obejmuje łącznie {included} GB dysku dla wszystkich zapisanych maszyn. Zapisane maszyny zajmują {used} GB, a to żądanie wymaga {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Za mało zasobów Cloud VM",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Wznów plan, aby go zmienić.",
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
+          "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
+          "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
+          "foundersLifetime": "Founder's Edition obejmuje Pro dożywotnio.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Zmienić na {plan}?",
         "upgradeBody": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} miesięcznie.",
+        "upgradeBodyYearly": "{plan} zaczyna działać teraz. Dziś płacisz {amount} za resztę tego okresu rozliczeniowego. Od {date} płacisz {price} rocznie.",
         "downgradeBody": "{plan} zaczyna działać teraz. Niewykorzystana część obecnego planu, {credit}, zostanie zaliczona na poczet kolejnych faktur. Następna faktura, {date}, wyniesie {amount}.",
         "confirm": "Zmień na {plan}",
         "keep": "Zachowaj obecny plan",
@@ -568,6 +582,8 @@
         "title": "Anulować {plan}?",
         "body": "Zachowujesz {plan} do {date}. Potem tracisz:",
         "bodyNoDate": "Zachowujesz {plan} do końca tego okresu rozliczeniowego. Potem tracisz:",
+        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
+        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
         "reasonLabel": "Dlaczego anulujesz? (opcjonalnie)",
         "otherPlaceholder": "Powiedz nam więcej (opcjonalnie)",
         "confirm": "Anuluj plan",

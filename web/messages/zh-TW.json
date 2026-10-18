@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "機器沒有回應",
       "message": "這台機器未能及時回應，因此無法完成請求。",
-      "action": "先暫停機器，再繼續執行，然後重試。在 Mac App 中，先選擇「暫停機器」，再選擇「繼續執行機器」。在終端機中，先執行 cmux vm pause '<machine>'，再執行 cmux vm resume '<machine>'。"
+      "action": "建立新機器前，請附上追蹤 ID 聯絡支援團隊。"
     },
     "inProgress": {
       "title": "仍在進行中",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} 運算額度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
+      "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁碟額度已用完",
+      "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Cloud VM 資源不足",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",
@@ -568,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
         "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "foundersBody": "你的 {plan} 訂閱將於 {date} 結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 訂閱將在本計費週期結束時結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "為什麼取消？（選填）",
         "otherPlaceholder": "告訴我們更多（選填）",
         "confirm": "取消方案",
