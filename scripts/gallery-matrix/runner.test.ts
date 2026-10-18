@@ -55,6 +55,22 @@ test("matrix index marks mixed-head cards as provenance-failed", () => {
   expect(html).toContain("provenance-failed");
 });
 
+test("matrix index marks mixed-source cards as provenance-failed", () => {
+  const html = renderIndex(
+    [{ id: "mixed-source", engine: "chromium", screenshot: "mixed.png", ready: "1", revision: { sha: "head-a", source: "src/other.gallery.tsx" } }],
+    {
+      schemaVersion: 1,
+      captureId: "capture-source",
+      capturedAt: "2026-10-18T00:00:00.000Z",
+      scenario: { count: 1, fingerprint: "0".repeat(64) },
+      results: { count: 1, expected: 1, status: "complete" },
+      quality: "fail",
+      revisions: { shas: ["head-a"], sources: ["src/expected.gallery.tsx"] },
+    },
+  );
+  expect(html).toContain("provenance-failed");
+});
+
 test("matrix index pages large result sets instead of mounting every card", () => {
   const results = Array.from({ length: 49 }, (_, index) => ({
     id: `case-${index}`,
