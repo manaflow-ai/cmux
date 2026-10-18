@@ -339,7 +339,7 @@ pub mod types {
             deserialize_with = "::std::option::Option::deserialize"
         )]
         pub revoked_at: ::std::option::Option<::std::string::String>,
-        pub scopes: ::std::vec::Vec<::std::string::String>,
+        pub scopes: ::std::vec::Vec<ReportedScope>,
     }
     ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1512,7 +1512,7 @@ pub mod types {
             deserialize_with = "::std::option::Option::deserialize"
         )]
         pub resource_allowlist: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
-        pub scopes: ::std::vec::Vec<::std::string::String>,
+        pub scopes: ::std::vec::Vec<ReportedScope>,
     }
     ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -2878,7 +2878,7 @@ pub mod types {
             rename = "missingScope",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        pub missing_scope: ::std::option::Option<::std::string::String>,
+        pub missing_scope: ::std::option::Option<ReportedScope>,
         #[serde(rename = "_tag")]
         pub tag: ForbiddenTag,
     }
@@ -5398,6 +5398,39 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///`ReportedScope`
+    #[derive(
+        ::serde::Deserialize, ::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd,
+    )]
+    #[serde(transparent)]
+    pub struct ReportedScope(pub ::std::string::String);
+    impl ::std::ops::Deref for ReportedScope {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ReportedScope> for ::std::string::String {
+        fn from(value: ReportedScope) -> Self {
+            value.0
+        }
+    }
+    impl ::std::convert::From<::std::string::String> for ReportedScope {
+        fn from(value: ::std::string::String) -> Self {
+            Self(value)
+        }
+    }
+    impl ::std::fmt::Display for ReportedScope {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+    impl ::std::str::FromStr for ReportedScope {
+        type Err = ::std::convert::Infallible;
+        fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+            Ok(Self(value.to_string()))
         }
     }
     ///Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.
