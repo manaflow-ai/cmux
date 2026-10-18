@@ -6798,7 +6798,13 @@ describe("VM Effect workflows", () => {
         'unexpectedWakeClaimAtMs', (provider_metadata->>'unexpectedWakeClaimAtMs')::bigint - ${ms}::bigint)
       where id = ${vm.id}
     `;
+    await sql`update cloud_vms set updated_at = now() - interval '1 hour' where id = ${vm.id}`;
     expect(await claim()).toBe(true);
+    // A claim moves the row to the back of the oldest-first reconcile order.
+    const [claimedRow] = await sql<{ fresh: boolean }[]>`
+      select updated_at > now() - interval '1 minute' as fresh from cloud_vms where id = ${vm.id}
+    `;
+    expect(claimedRow?.fresh).toBe(true);
     expect(await claim()).toBe(false);
     await ageClaim(299_000);
     expect(await claim()).toBe(false);
