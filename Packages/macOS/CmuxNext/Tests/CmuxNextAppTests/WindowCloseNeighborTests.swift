@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+@testable import CmuxNextDesign
 import Testing
 
 /// Leo 2026-10-18 (NEXT nightly): closing the bottom workspace selected the top one instead of
@@ -11,22 +12,20 @@ struct WindowCloseNeighborTests {
     private let rows = ["a", "b", "c"]
 
     @Test func closingTheBottomRowSelectsTheRowAboveIt() {
-        let old = WindowRegistry.sidebarOrdered(joined, rows: rows, current: "c")
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: old, members: ["a", "b"])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], rows: rows)
         #expect(pick == "b")
     }
 
     @Test func closingAMiddleRowSelectsTheRowBelowIt() {
-        let old = WindowRegistry.sidebarOrdered(joined, rows: rows, current: "b")
-        let pick = WindowRegistry.repairedSelection(current: "b", previous: old, members: ["c", "a"])
+        let pick = WindowRegistry.repairedSelection(current: "b", previous: joined, members: ["c", "a"], rows: rows)
         #expect(pick == "c")
     }
 
     @Test func aSelectionTheSidebarNoLongerListsKeepsTheRegistryOrder() {
-        #expect(WindowRegistry.sidebarOrdered(joined, rows: ["a", "b"], current: "c") == joined)
+        #expect(FocusAfterClose.inRowOrder(joined, rows: ["a", "b"], current: "c") == joined)
     }
 
     @Test func membersTheSidebarDoesNotListStayAtTheEnd() {
-        #expect(WindowRegistry.sidebarOrdered(["x", "c", "a", "b"], rows: rows, current: "c") == ["a", "b", "c", "x"])
+        #expect(FocusAfterClose.inRowOrder(["x", "c", "a", "b"], rows: rows, current: "c") == ["a", "b", "c", "x"])
     }
 }
