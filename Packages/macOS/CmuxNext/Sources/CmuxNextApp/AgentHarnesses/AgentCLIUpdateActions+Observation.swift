@@ -7,7 +7,7 @@ extension AgentCLIUpdateActions {
     /// Events invalidate a projection; only a bounded read of the retained receipt supplies an outcome.
     func follow(_ intent: Intent) {
         guard intent.following == nil, !intent.receipts.isEmpty, intent.route.isCurrent(),
-              let changes = intent.route.changes else { return }
+              intent.inputs.contains(where: { !settled.contains($0.key) }), let changes = intent.route.changes else { return }
         let route = intent.route
         let events = changes() // Subscribe before the first read so an exit during it stays queued.
         // task-owner: the intent; cancellation retires observation, never the owner's process.
@@ -41,6 +41,10 @@ extension AgentCLIUpdateActions {
                     settled.insert(key)
                 }
                 intent.jobs[index] = .object(job)
+                if intent.inputs.allSatisfy({ settled.contains($0.key) }) {
+                    // A completed batch no longer subscribes to unrelated terminal changes.
+                    intent.following?.cancel()
+                }
             } catch {
                 // Keep the original receipt; a failed observation establishes no completion.
             }

@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
