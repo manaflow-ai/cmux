@@ -206,8 +206,10 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
-        // A peer from before `indicator` or `lane` sends none: decide them here.
-        if summary.get("indicator").is_none() || summary.get("lane").is_none() {
+        // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
+        // sends none: decide them here.
+        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
         summary
@@ -551,5 +553,26 @@ mod tests {
         assert_eq!(summary["qualifiedSessionId"], "builder/mux-1");
         assert_eq!(summary["sessionReceipt"]["hostId"], "builder");
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
+    }
+
+    /// hq#2509: a peer from before the lane's step and title sends a lane without them;
+    /// this daemon decides the lane again so the peer's lanes show a masked step.
+    #[test]
+    fn a_lane_from_an_older_peer_is_decided_again_with_its_masked_step() {
+        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "mux-1",
+                "name": "review",
+                "status": "running",
+                "indicator": "working",
+                "turnCount": 1,
+                "updatedAt": 9,
+                "turn": {"prompt": format!("push {token}"), "startedAt": 5},
+                "lane": {"state": "working", "since": 5, "error": null},
+            }),
+        );
+        assert_eq!(summary["lane"]["step"], "push [github token]", "{summary}");
     }
 }
