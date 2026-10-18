@@ -223,6 +223,12 @@ public final class SidebarModel {
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
 
+    /// What a close of `id` from its menu or a key closes: the whole selection, in row order,
+    /// when `id` is one of two or more selected rows; otherwise `id` alone.
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+        selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
+    }
+
     // MARK: Intents
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.

@@ -90,7 +90,9 @@ extension TerminalSession {
             renderCounters: surface.surface.map { surface in
                 let counters = ghostty_surface_render_counters(surface)
                 return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
-                                              blendFrames: counters.blend_frames)
+                                              blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
+                                              fullPalette: counters.full_palette, fullConfig: counters.full_config,
+                                              fullFont: counters.full_font, fullOther: counters.full_other)
             },
             windowFraction: surface.window.flatMap { window in
                 let frame = window.frame
@@ -106,6 +108,15 @@ extension TerminalSession {
 /// Ghostty's frame counters for one surface (``TerminalSurfaceDiagnostics/renderCounters``).
 public struct TerminalRenderCounters: Sendable, Equatable {
     public var frames: UInt64
+    /// Frame updates that rebuilt at least one row of cells.
     public var cellRebuilds: UInt64
     public var blendFrames: UInt64
+    /// Frame updates, with or without rebuilt rows.
+    public var frameUpdates: UInt64
+    /// Rebuilds of every row by cause: the terminal's palette (OSC 4, a restore), a config change
+    /// of what cells hold (not only colors), a new font grid, anything else (resize, clear).
+    public var fullPalette: UInt64
+    public var fullConfig: UInt64
+    public var fullFont: UInt64
+    public var fullOther: UInt64
 }
