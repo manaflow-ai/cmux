@@ -47,14 +47,23 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-  const signature = keys.join("\n");
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  const signature = JSON.stringify(keys);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
+  useLayoutEffect(
+    () => () => {
+      observed.current?.observer.disconnect();
+      observed.current = null;
+    },
+    [],
+  );
   // The key signature is the invalidation boundary for list motion. The callers derive `keys`
   // from their snapshots and may allocate a fresh array on every render; depending on that array
   // would put the measurement work back on every render. ResizeObserver remains responsible for
   // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
+    const currentKeys = keysRef.current;
     const root = list.current;
     if (observed.current?.root !== root) {
       observed.current?.observer.disconnect();
@@ -70,29 +79,32 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== keys.length) {
+    if (!root || elements.length !== currentKeys.length) {
+      for (const animation of running.current) animation.cancel();
+      running.current = [];
       places.current = new Map();
       shown.current = "";
+      shownKeys.current = [];
       return;
     }
     if (isAgentMotionOff()) {
       for (const animation of running.current) animation.cancel();
       running.current = [];
-      places.current = measure(root, elements, keys);
+      places.current = measure(root, elements, currentKeys);
       shown.current = signature;
-      shownKeys.current = keys;
+      shownKeys.current = currentKeys;
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [keys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const after = measure(root, elements, keys);
+    const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = keys;
+    shownKeys.current = currentKeys;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -105,7 +117,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = keys[index];
+      const key = currentKeys[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
