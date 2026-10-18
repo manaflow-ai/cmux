@@ -22,8 +22,8 @@ warnings only.
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
                  snapshots, 0 sidebar list reloads (I6).
-  split          split right + close pane 10 times in the 16 panes: per pair at most 3 applies,
-                 3 topology sends, 4 pane snapshots (lower after cx-8w027.14).
+  split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
+                 3 topology sends, 3 pane snapshots (sources name the snapshot fields that changed).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -57,8 +57,10 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair; 2/2/1 after cx-8w027.14 (perf-split).
-    "split": {"workspace_applies": 3, "topology_sends": 3, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-2.9): the new pane's mount snapshot,
+    # one re-run that changes nothing (open), the shell's first title; the new tab's surface
+    # change sends one topology (FocusTopology keys tabs by surface). Bound 2 / 2 / 1.
+    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
 }
