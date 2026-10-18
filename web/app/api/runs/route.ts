@@ -1,4 +1,6 @@
 import { POST as createVm } from "../vm/route";
+import { POST as execVmRoute } from "../vm/[id]/exec/route";
+import { DELETE as deleteVm } from "../vm/[id]/route";
 import {
   jsonResponse,
   vmErrorResponse,
@@ -143,6 +145,38 @@ export async function POST(request: Request): Promise<Response> {
         image: typeof vm?.image === "string" ? vm.image : undefined,
         createdAt: typeof vm?.createdAt === "string" ? vm.createdAt : undefined,
       } satisfies Record<string, unknown>;
+      // The first Cloud Run slice owns a bounded command lifecycle: create the
+      // provider VM through the existing authenticated route, execute one
+      // receipt-producing command through the same tenant-scoped route, then
+      // destroy it before declaring the attempt terminal. This keeps provider
+      // credentials and cleanup policy inside cmux Cloud.
+      const command = `printf 'cmux-run:${created.snapshot.run.id}:${attempt.id}:completed\\n'`;
+      const execHeaders = new Headers(request.headers);
+      execHeaders.delete("content-length");
+      execHeaders.delete("transfer-encoding");
+      execHeaders.set("content-type", "application/json");
+      const execRequest = new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}/exec`, request.url), {
+        method: "POST",
+        headers: execHeaders,
+        body: JSON.stringify({ command, timeoutMs: 60_000 }),
+      });
+      const execResponse = await execVmRoute(execRequest, { params: Promise.resolve({ id: providerVmId }) });
+      let execBody: unknown = null;
+      try { execBody = await execResponse.clone().json(); } catch { /* Preserve a stable error below. */ }
+      const execOutput = bodyObject(execBody);
+      if (!execResponse.ok || typeof execOutput?.stdout !== "string" || !execOutput.stdout.includes(`${created.snapshot.run.id}:${attempt.id}:completed`)) {
+        const message = typeof execOutput?.message === "string" ? execOutput.message : `Cloud Run command failed (${execResponse.status}).`;
+        await markAttemptFailed({ runId: created.snapshot.run.id, attemptId: attempt.id, error: message });
+        await deleteVm(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }), { params: Promise.resolve({ id: providerVmId }) }).catch(() => undefined);
+        return jsonResponse(receipt(await readRunSnapshot(created.snapshot.run.id, user.id)), 502);
+      }
+      const cleanupResponse = await deleteVm(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }), { params: Promise.resolve({ id: providerVmId }) });
+      if (!cleanupResponse.ok) {
+        const message = `Cloud Run cleanup failed (${cleanupResponse.status}).`;
+        await markAttemptFailed({ runId: created.snapshot.run.id, attemptId: attempt.id, error: message });
+        return jsonResponse(receipt(await readRunSnapshot(created.snapshot.run.id, user.id)), 502);
+      }
+      result.commandReceipt = { commandDigest: runSpecDigest(spec), stdout: execOutput.stdout };
       await markAttemptSucceeded({ runId: created.snapshot.run.id, attemptId: attempt.id, providerVmId, result });
       const finalSnapshot = await readRunSnapshot(created.snapshot.run.id, user.id);
       return jsonResponse({
