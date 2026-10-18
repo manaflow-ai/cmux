@@ -73,7 +73,7 @@ pub(super) struct CutTurn<'a> {
 
 /// The cut turn each chat's waiting continuation answers for. Stop and close remove it.
 #[derive(Default)]
-pub(super) struct Pending(Mutex<HashMap<String, String>>);
+pub(crate) struct Pending(Mutex<HashMap<String, String>>);
 
 impl Pending {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
