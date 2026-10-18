@@ -235,6 +235,56 @@ public struct UITestConfig {
     ///
     /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
     /// Unknown or absent values return `nil` so normal root routing continues.
+    /// DEBUG-only: open the Messages-style conversation lab connected to a
+    /// `services/conversation-sim` WebSocket URL instead of the normal shell.
+    ///
+    /// A lab launch is remembered, so tapping the app's icon afterwards opens
+    /// the lab again instead of sign-in; launching with
+    /// `CMUX_UITEST_CONVERSATION_LAB=off` forgets it.
+    public static var conversationLabURL: String? {
+        #if DEBUG
+        let defaults = UserDefaults.standard
+        let lab = conversationLab(
+            environment: ProcessInfo.processInfo.environment,
+            remembered: defaults.string(forKey: rememberedConversationLabKey)
+        )
+        if let remember = lab.remember {
+            defaults.set(remember, forKey: rememberedConversationLabKey)
+        }
+        return lab.url
+        #else
+        return nil
+        #endif
+    }
+
+    private static let rememberedConversationLabKey = "cmux.debug.conversationLabURL"
+
+    /// The lab server for this launch, and what to remember for the next
+    /// (`nil` keeps the remembered value; `.some(nil)` forgets it).
+    public static func conversationLab(
+        environment env: [String: String],
+        remembered: String?
+    ) -> (url: String?, remember: String??) {
+        #if DEBUG
+        guard let raw = env["CMUX_UITEST_CONVERSATION_LAB"], !raw.isEmpty else {
+            return (remembered, nil)
+        }
+        if raw == "off" { return (nil, .some(nil)) }
+        return (raw, .some(raw))
+        #else
+        return (nil, nil)
+        #endif
+    }
+
+    public static func conversationLabURL(from env: [String: String]) -> String? {
+        #if DEBUG
+        guard let raw = env["CMUX_UITEST_CONVERSATION_LAB"], !raw.isEmpty else { return nil }
+        return raw
+        #else
+        return nil
+        #endif
+    }
+
     public static var changesPreviewMode: String? {
         changesPreviewMode(
             from: ProcessInfo.processInfo.environment,
