@@ -70,6 +70,13 @@ import Testing
         #expect(panel.pet.acceptsFirstMouse(for: nil))
     }
 
+    @Test func bundledChiefIsTheDefaultCharacter() {
+        let image = ChiefPetPanel.defaultImage
+        #expect(image != nil)
+        // The full-body character, taller than wide like the pet's frame (not the round avatar).
+        #expect((image?.size.height ?? 0) > (image?.size.width ?? 0))
+    }
+
     /// One press through the view: down at `from`, dragged through `path`, up.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint]) {
         var pointer = from
