@@ -57,7 +57,29 @@ public final class CEFEngine: BrowserEngine {
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         try await CEFRuntime.shared.start(layout: layout)
+        recordTabOpened()
         return makeReadyTab(configuration)
+    }
+
+    /// The last-used record (`ChromiumUseRecord`) of this app's Chromium storage.
+    public var useRecord: ChromiumUseRecord { ChromiumUseRecord(storageRoot: storageRoot) }
+
+    /// Writes the last-used record once per process, off the main thread.
+    private func recordTabOpened() {
+        guard !Self.recordedTabOpen else { return }
+        Self.recordedTabOpen = true
+        let record = useRecord
+        // task-owner: one small atomic file write per process; nothing waits for it
+        Task.detached(priority: .utility) { record.recordTabOpened(at: Date()) }
+    }
+
+    private static var recordedTabOpen = false
+
+    /// True when this app opened a Chromium tab within `window` (read off
+    /// the main thread).
+    public func usedRecently(within window: TimeInterval) async -> Bool {
+        let record = useRecord
+        return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
     }
 
     /// Maps the Chromium framework on a background thread without starting

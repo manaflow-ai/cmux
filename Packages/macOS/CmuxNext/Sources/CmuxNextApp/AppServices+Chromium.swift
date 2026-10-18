@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextTabs
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs, the palette's
@@ -9,17 +10,12 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
-    static let chromiumPaletteRows: Set<String> = ["action:openBrowser.chromium", "action:browser.openInChromium"]
-    /// Rows that open a tab on the default engine.
-    static let defaultBrowserPaletteRows: Set<String> = [
-        "action:openBrowser", "action:splitBrowserRight", "action:splitBrowserDown", "action:newBrowserWorkspace",
-    ]
-
     /// Starts the launch preload and the likelihood observers.
     func startChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
-        chromiumWarmup.start(atLaunch: preference.defaultEngine == .chromium)
+        chromiumWarmup.start { preference.defaultEngine == .chromium }
+        TabStripSignals.shared.onNewTabButtonHover = { [weak self] in self?.chromiumWarmup.tabSignal(.newTabButton) }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere, or
             // any browser tab while new tabs default to Chromium.
@@ -29,15 +25,7 @@ extension AppServices {
                 return
             }
         })
-        let model = palette.model
-        chromiumLikelyObservations.append(Task { [weak self] in
-            for await rows in ObservationStream({ [model.selectedRowID, model.hoveredRowID] }) {
-                let likely = Self.chromiumPaletteRows.union(preference.defaultEngine == .chromium ? Self.defaultBrowserPaletteRows : [])
-                guard rows.contains(where: { $0.map(likely.contains) ?? false }) else { continue }
-                self?.chromiumWarmup.chromiumLikely(.palette)
-                return
-            }
-        })
+        chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, preference: preference, warmup: chromiumWarmup))
     }
 }
 

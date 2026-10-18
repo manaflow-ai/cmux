@@ -7,8 +7,9 @@ import CmuxNextWakeups
 /// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
-/// - A few seconds after launch the framework is mapped on a background
-///   thread (`CEFEngine.preload`, no Chromium code runs).
+/// - A few seconds after launch, for a user who opened a Chromium tab in the
+///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a
+///   background thread (`CEFEngine.preload`, no Chromium code runs).
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
 ///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
@@ -18,10 +19,11 @@ import CmuxNextWakeups
 ///   is the default engine (`browser.defaultEngine`) also any browser tab in
 ///   any window, the palette's default browser entries (New Browser Tab,
 ///   Split Browser, New Browser Workspace), or switching the default to
-///   Chromium. While new browser tabs default to Chromium, launch itself is
-///   the signal (`Reason.launch`, after the launch preload). Otherwise CEF
-///   stays lazy: a user who never browses never pays for it
-///   (AppServices+Chromium).
+///   Chromium. While new browser tabs default to Chromium, the pointer on
+///   the "+" button, a New Tab key (Cmd-T) and the palette opening are
+///   signals too (`tabSignal`), and so is launch itself for a user who opened
+///   a Chromium tab in the last 7 days (`Reason.launch`). Otherwise CEF stays
+///   lazy: a user who never browses never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, the next idle moment builds a spare Chromium window
 ///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
 ///   In a macOS 26 VM `CefInitialize` and the first window each held the main
@@ -37,9 +39,16 @@ final class ChromiumWarmup {
         case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
-        /// New browser tabs default to Chromium: start it after launch,
-        /// before any tab asks (`startsAtLaunch`).
+        /// New browser tabs default to Chromium and this app opened a
+        /// Chromium tab within `Policy.recentUse`: start it after launch,
+        /// before any tab asks.
         case launch
+        /// First-tab signals while new browser tabs default to Chromium
+        /// (`tabSignal`): the pointer on the "+" button, a New Tab key
+        /// (Cmd-T) before its tab opens, the palette opening.
+        case newTabButton
+        case newTabKey
+        case paletteOpen
     }
 
     struct Policy: Sendable {
@@ -47,6 +56,9 @@ final class ChromiumWarmup {
         var idleInput: Duration = .milliseconds(750)
         /// Give up (stay lazy) when the app never goes idle this long.
         var maxWait: Duration = .seconds(60)
+        /// A Chromium tab opened this recently (`ChromiumUseRecord`) makes
+        /// launch itself the warm-start signal.
+        var recentUse: TimeInterval = 7 * 24 * 60 * 60
     }
 
     private let engine: CEFEngine
@@ -63,8 +75,8 @@ final class ChromiumWarmup {
     private(set) var reason: Reason?
     /// What the next idle moment runs: `CefInitialize`, then the spare window.
     private var idleAction: (@MainActor () -> Void)?
-    /// Warm up after the launch preload with no other signal (`start(atLaunch:)`).
-    private var startsAtLaunch = false
+    /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
+    private var defaultIsChromium: @MainActor () -> Bool = { false }
     private var stopped = false
 
     init(
@@ -85,17 +97,30 @@ final class ChromiumWarmup {
 
     private var isAvailable: Bool { engine.availability == .available }
 
-    /// Maps the framework `launchPreloadDelay` after launch. `atLaunch`: new
-    /// browser tabs open in Chromium, so Chromium starts then too (CefInitialize
-    /// and the spare window at idle moments), before any tab asks.
-    func start(atLaunch: Bool = false) {
+    /// `launchPreloadDelay` after launch, for a user who opened a Chromium
+    /// tab within `Policy.recentUse`: maps the framework, and while new tabs
+    /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
+    /// the spare window, at idle moments). Anyone else pays nothing until a
+    /// signal (`chromiumLikely`, `tabSignal`).
+    func start(defaultIsChromium: @escaping @MainActor () -> Bool) {
         guard !launchTimer.isScheduled, isAvailable else { return }
-        startsAtLaunch = atLaunch
+        self.defaultIsChromium = defaultIsChromium
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
             guard let self else { return }
-            engine.preload()
-            if startsAtLaunch { chromiumLikely(.launch) }
+            // task-owner: one launch check per process; reads one small file off the main thread
+            Task { [weak self] in
+                guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
+                engine.preload()
+                if self.defaultIsChromium() { chromiumLikely(.launch) }
+            }
         }
+    }
+
+    /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
+    /// `.paletteOpen`): warm up while new tabs open in Chromium.
+    func tabSignal(_ reason: Reason) {
+        guard defaultIsChromium() else { return }
+        chromiumLikely(reason)
     }
 
     /// A Chromium tab is likely soon: map the framework now and run
