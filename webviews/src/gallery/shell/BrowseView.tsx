@@ -22,6 +22,7 @@ export function BrowseView({
   onBrowseChange,
   onOpen,
   hrefFor,
+  sourceFor,
 }: {
   entries: readonly GalleryEntry[];
   env: GalleryEnv;
@@ -30,7 +31,9 @@ export function BrowseView({
   onBrowseChange: (browse: BrowseState, replace?: boolean) => void;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  sourceFor: (entry: GalleryEntry) => string | undefined;
 }) {
+  const PAGE_SIZE = 24;
   const items = useMemo(
     () => filterBrowseItems(entries, browse.filter, browse.kind, browse.mode, browse.picks),
     [entries, browse.filter, browse.kind, browse.mode, browse.picks],
@@ -40,6 +43,13 @@ export function BrowseView({
     [entries, browse.kind, browse.mode, browse.picks],
   );
   const allVariants = browse.mode === "variants";
+  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, browse.page), pageCount);
+  const visibleItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    if (browse.page !== page) onBrowseChange({ ...browse, page }, true);
+  }, [browse, onBrowseChange, page]);
+  const resetPage = (next: BrowseState): BrowseState => ({ ...next, page: 1 });
   return (
     <section className="gallery-browse" aria-labelledby="gallery-browse-title">
       <header className="gallery-browse-header">
@@ -58,7 +68,7 @@ export function BrowseView({
               value={browse.filter}
               placeholder={`Filter ${allCount} previews`}
               aria-label="Filter gallery previews"
-              onChange={(event) => onBrowseChange({ ...browse, filter: event.target.value }, true)}
+              onChange={(event) => onBrowseChange(resetPage({ ...browse, filter: event.target.value }), true)}
             />
           </label>
           <fieldset className="gallery-browse-kind-filter">
@@ -75,7 +85,7 @@ export function BrowseView({
                 type="button"
                 aria-label={`Show ${label.toLowerCase()} previews`}
                 aria-pressed={browse.kind === value}
-                onClick={() => onBrowseChange({ ...browse, kind: value }, true)}
+                onClick={() => onBrowseChange(resetPage({ ...browse, kind: value }), true)}
               >
                 {label}
               </button>
@@ -95,7 +105,10 @@ export function BrowseView({
                 aria-label={`Show ${label.toLowerCase()}`}
                 aria-pressed={browse.mode === value}
                 onClick={() => {
-                  onBrowseChange({ ...browse, mode: value, cycle: value === "variants" ? false : browse.cycle }, true);
+                  onBrowseChange(
+                    resetPage({ ...browse, mode: value, cycle: value === "variants" ? false : browse.cycle }),
+                    true,
+                  );
                 }}
               >
                 {label}
@@ -116,7 +129,7 @@ export function BrowseView({
       </header>
       {items.length ? (
         <div className="gallery-browse-grid">
-          {items.map(({ entry, variant }) => (
+          {visibleItems.map(({ entry, variant }) => (
             <BrowseCard
               key={`${entry.id}:${variant}`}
               entry={entry}
@@ -127,6 +140,7 @@ export function BrowseView({
               tune={tune}
               onOpen={onOpen}
               hrefFor={hrefFor}
+              sourcePath={sourceFor(entry)}
               onPick={(entryId, variant) =>
                 onBrowseChange({ ...browse, picks: { ...browse.picks, [entryId]: variant } }, true)
               }
@@ -147,6 +161,29 @@ export function BrowseView({
           )}
         </div>
       )}
+      {items.length > PAGE_SIZE && (
+        <nav className="gallery-browse-pagination" aria-label="Gallery preview pages">
+          <button
+            type="button"
+            aria-label="Previous gallery preview page"
+            disabled={page === 1}
+            onClick={() => onBrowseChange({ ...browse, page: page - 1 })}
+          >
+            Previous
+          </button>
+          <span aria-live="polite">
+            Page {page} of {pageCount} · showing {visibleItems.length} previews
+          </span>
+          <button
+            type="button"
+            aria-label="Next gallery preview page"
+            disabled={page === pageCount}
+            onClick={() => onBrowseChange({ ...browse, page: page + 1 })}
+          >
+            Next
+          </button>
+        </nav>
+      )}
     </section>
   );
 }
@@ -160,6 +197,7 @@ function BrowseCard({
   tune,
   onOpen,
   hrefFor,
+  sourcePath,
   onPick,
   cycle,
   variantOnly,
@@ -172,6 +210,7 @@ function BrowseCard({
   tune: string;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  sourcePath?: string;
   onPick: (entryId: string, variant: string) => void;
   cycle: boolean;
   variantOnly: boolean;
@@ -259,6 +298,7 @@ function BrowseCard({
             state={selectedVariant}
             env={env}
             tune={tune}
+            sourcePath={sourcePath}
             available={{ width, height: Number.POSITIVE_INFINITY }}
             thumbnail
           />
@@ -276,7 +316,11 @@ function BrowseCard({
         >
           Open full view
         </a>
-        <a href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune)} target="_blank" rel="noreferrer">
+        <a
+          href={browseFrameHref(entry, selectedVariant ?? initialVariant, env, tune, sourcePath)}
+          target="_blank"
+          rel="noreferrer"
+        >
           Open frame
         </a>
       </footer>

@@ -107,9 +107,11 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
+        nameDaemonSplits()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
             intentSettlements.append((intent.transaction, .applied))
         }
+        releaseSettledProvisionalPanes()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
@@ -133,12 +135,43 @@ extension DaemonStore {
         return !ProvisionalSplit.daemonPlaces(provisional, in: self)
     }
 
+    /// A pending split whose pane the daemon's layout now places names the daemon's split after
+    /// its own, before the intent can settle.
+    private func nameDaemonSplits() {
+        for entry in intentLog.entries {
+            if case .splitPane(let target, _, _, let provisional) = entry.kind {
+                ProvisionalSplit.nameDaemonSplit(provisional, target: target, in: self)
+            }
+        }
+    }
+
+    /// The pane model of a split that left the log (settled or refused) is no longer provisional.
+    private func releaseSettledProvisionalPanes() {
+        guard !provisionalPanes.isEmpty else { return }
+        let pending = Set(intentLog.entries.compactMap { entry -> String? in
+            if case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
+            return nil
+        })
+        provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
+    }
+
+    /// The record of a pane the daemon reports: the provisional pane's own model when a pending
+    /// split shows it under the same public id, updated in place, so its observers keep their
+    /// object and see only the fields that changed (perf I3); else a new model.
+    func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
+        guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
+        model.update(snapshot)
+        return model
+    }
+
     /// A new connection replaces the last one (`run(connection:)`): its
     /// event sequences restart from its own serial, so the store's
     /// sequences reset, and intents whose reply came settle with its first
     /// snapshot.
     func beginConnection() {
         snapshotBarrier = 0
+        // A new daemon generation numbers its splits anew: no split keeps an old name.
+        for screen in screensByHandle.values { screen.clearSplitNames() }
         if appliedSequence != 0 { appliedSequence = 0 }
         intentLog.connectionReplaced()
     }

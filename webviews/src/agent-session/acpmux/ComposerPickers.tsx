@@ -181,7 +181,7 @@ export function ComposerPickers({
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
   // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
-  const { showContextUsage, reasoningSlider } = useComposerSettings();
+  const { showContextUsage, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -542,7 +542,7 @@ export function ComposerPickers({
 
   const chips = (
     <div className="acpmux-chips">
-      {models.length > 0 || snapshot.catalog.length > 0 || harness ? (
+      {snapshot.catalog.length > 0 || harness || Boolean(pickerCatalog?.harnesses.length && !harnessesListed) ? (
         <ModelPicker
           catalog={pickerEntries}
           harness={harness}
@@ -605,6 +605,7 @@ export function ComposerPickers({
           }
           chevron={<ChevronIcon />}
           slider={reasoningSlider}
+          sliderStyle={reasoningSliderStyle}
           onPick={(value) => {
             pending.current = undefined;
             onEffort(effort.id, value);

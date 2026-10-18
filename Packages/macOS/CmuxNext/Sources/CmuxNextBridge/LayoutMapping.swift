@@ -39,25 +39,25 @@ public struct LayoutMapping {
             return .splits(.leaf(id))
         }
         if !screen.columns.isEmpty {
-            let columns = screen.columns.compactMap { self.column($0, paneIDs: paneIDs, handles: &handles) }
+            let columns = screen.columns.compactMap { self.column($0, paneIDs: paneIDs, handles: &handles, names: screen.splitNames) }
             return columns.isEmpty ? nil : .columns(columns)
         }
-        return node(screen.layout, paneIDs: paneIDs, handles: &handles).map(ScreenLayout.splits)
+        return node(screen.layout, paneIDs: paneIDs, handles: &handles, names: screen.splitNames).map(ScreenLayout.splits)
     }
 
     /// One daemon column. Its rows (`rows-v1`) map with their trees; a row
     /// with nothing to show drops out, and one row left is a column
     /// without rows. `root` stays the compat chain.
     public func column(_ column: ColumnSnapshot, paneIDs: [DaemonPaneID: LayoutPaneID],
-                       handles: inout LayoutHandleMap) -> LayoutColumn? {
-        guard let root = node(column.layout, paneIDs: paneIDs, handles: &handles) else { return nil }
+                       handles: inout LayoutHandleMap, names: [DaemonSplitID: DaemonSplitID] = [:]) -> LayoutColumn? {
+        guard let root = node(column.layout, paneIDs: paneIDs, handles: &handles, names: names) else { return nil }
         let id = LayoutHandleMap.columnID(column.id)
         handles.columns[id] = column.id
         let width = min(max(column.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         var rows: [LayoutRow] = []
         var rowHandles: [LayoutRowID: DaemonRowID] = [:]
         for row in column.rows {
-            guard let tree = node(row.layout, paneIDs: paneIDs, handles: &handles) else { continue }
+            guard let tree = node(row.layout, paneIDs: paneIDs, handles: &handles, names: names) else { continue }
             let rowID = LayoutHandleMap.rowID(row.id)
             rowHandles[rowID] = row.id
             let height = min(max(row.height, LayoutRow.heightRange.lowerBound), LayoutRow.heightRange.upperBound)
@@ -97,9 +97,10 @@ public struct LayoutMapping {
                             role: dock.role.map { _ in .agentChat })
     }
 
-    /// Converts one daemon layout node. Nil when nothing in it can be shown.
+    /// Converts one daemon layout node. Nil when nothing in it can be shown. `names`: the
+    /// screen's split names (`ScreenModel.splitNames`); a named split takes its name's layout id.
     public func node(_ node: LayoutNode, paneIDs: [DaemonPaneID: LayoutPaneID],
-                            handles: inout LayoutHandleMap) -> SplitNode? {
+                     handles: inout LayoutHandleMap, names: [DaemonSplitID: DaemonSplitID] = [:]) -> SplitNode? {
         switch node {
         case .leaf(let pane):
             return paneIDs[pane].map(SplitNode.leaf)
@@ -107,12 +108,13 @@ public struct LayoutMapping {
             let shown = paneIDs[expanded] ?? panes.lazy.compactMap { paneIDs[$0] }.first
             return shown.map(SplitNode.leaf)
         case .split(let splitHandle, let direction, let ratio, let a, let b):
-            let first = self.node(a, paneIDs: paneIDs, handles: &handles)
-            let second = self.node(b, paneIDs: paneIDs, handles: &handles)
+            let first = self.node(a, paneIDs: paneIDs, handles: &handles, names: names)
+            let second = self.node(b, paneIDs: paneIDs, handles: &handles, names: names)
             guard let first else { return second }
             guard let second else { return first }
-            let id = LayoutHandleMap.splitID(splitHandle, firstPane: first.panes.first)
-            if let splitHandle { handles.splits[id] = splitHandle }
+            let id = LayoutHandleMap.splitID(splitHandle.map { names[$0] ?? $0 }, firstPane: first.panes.first)
+            // A provisional split's divider sends nothing: no daemon split has its id yet.
+            if let splitHandle, !ProvisionalPane.isProvisional(split: splitHandle) { handles.splits[id] = splitHandle }
             let axis: SplitAxis = direction == .right ? .horizontal : .vertical
             let clamped = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
             return .split(id, axis: axis, ratio: clamped, a: first, b: second)

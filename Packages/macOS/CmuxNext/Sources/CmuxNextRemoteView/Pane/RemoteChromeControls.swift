@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// borderless text button with a hover fill, and a pill badge.
 enum RemoteChrome {
     static func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, mono: Bool = false) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
+        let field = ChromeLabel(labelWithString: text)
         field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -16,7 +16,7 @@ enum RemoteChrome {
     }
 
     static func wrapping(_ text: String, size: CGFloat, width: CGFloat) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: text)
+        let field = ChromeLabel(wrappingLabelWithString: text)
         field.font = .systemFont(ofSize: size)
         field.alignment = .center
         field.preferredMaxLayoutWidth = width

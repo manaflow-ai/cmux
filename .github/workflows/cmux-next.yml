@@ -172,6 +172,24 @@ on:
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
+      # Keep the workflow eligible for every cmux-next product and CI input.
+      # The router still selects the exact tier; this list only decides whether
+      # the workflow starts at all.
+      - Packages/macOS/**
+      - scripts/cmux-next/**
+      - scripts/whats-new/**
+      - tests/**
+      - .github/workflows/**
+      - .github/actions/**
+      - Native/**
+      - TunnelExtension/**
+      - cmuxTests/**
+      - cmuxUITests/**
+      - CLI/**
+      - daemon/**
+      - cmux-tui/**
+      - Assets.xcassets/**
+      - Resources/**
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -1100,6 +1118,7 @@ jobs:
           bash tests/test_strip_release_bundle.sh
           python3 tests/test_app_symbol_map.py
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
@@ -1143,6 +1162,8 @@ jobs:
           bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-state-roots.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
+          python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
+          bash scripts/cmux-next/tests/check-app-size.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
           bash scripts/cmux-next/tests/pr-autofix.test.sh
@@ -1163,6 +1184,8 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_herdr_sync.py
           # The restore journey names a DEV build's socket and acpmux home by the app's rule.
           python3 -I scripts/cmux-next/tests/test_build_names.py
+          # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
+          python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
           bash scripts/cef/tests/test-embedder-step.test.sh
 
       # The app's Ghostty shell integration comes from ghostty-next (the
@@ -2242,6 +2265,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -2580,6 +2604,10 @@ jobs:
     # what changed; Blacksmith builds it cold. A change inside the CmuxNext
     # package skips it: the Release compile builds CmuxNextApp and all it links.
     timeout-minutes: 60
+    # The perf gate step's outcome, for the perf-gate job (that job is the red check, so a perf
+    # breach never fails the app-producing job the dogfood and daily publishers read).
+    outputs:
+      perf_gate: ${{ steps.perf-gate.outcome }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -2795,6 +2823,42 @@ jobs:
           python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
             --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
 
+      # Perf counter gate (I8, cx-8w027.7): one launch of this build, every
+      # scenario (workspace switch at 20 workspaces, theme switch, divider drag,
+      # tab switch at 16 panes x 3 tabs, split+close, status ticks) against a
+      # work budget per action from the app's debug counters. Counters do not
+      # depend on the host, so they block on any host load; timing is a warning.
+      # A console that draws no frames skips the drag lag and theme blend checks
+      # with a warning; lanes run those on the GUI host with --frames required.
+      # The step does not fail this job: the perf-gate job below reads its outcome.
+      - name: Perf counter gate
+        id: perf-gate
+        if: inputs.dev_daily != true
+        # The perf-gate job reports the result.
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          tag="ci-perf-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/perf-gate/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/perf-gate/out"
+          /bin/cp -R "$built" "$app"
+          # perf-gate.py quits the app and ends the tag's daemons by exact PID;
+          # tag_teardown.py again is the backstop when the step is stopped.
+          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          python3 scripts/cmux-next/perf-gate.py --app "$app" --out "$RUNNER_TEMP/perf-gate/out" --frames auto
+
+      - name: Upload the perf gate report
+        if: ${{ always() && steps.perf-gate.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-gate/out
+          if-no-files-found: ignore
+          retention-days: 3
+
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
       # the existing dev-build label; the publisher repeats this trust check
@@ -2832,6 +2896,34 @@ jobs:
           retention-days: 2
           compression-level: 0
 
+  # The perf counter gate (I8, cx-8w027.7) runs in cmux-scheme-compile on the
+  # app that job built (one compile, one launch). This job is its check: red
+  # when a counter budget broke. A scheme compile that failed before the gate
+  # ran is that job's own red, so this job passes then.
+  perf-gate:
+    needs: [cmux-scheme-compile]
+    if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
+    name: cmux-next perf gate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - name: Read the perf gate result
+        env:
+          OUTCOME: ${{ needs.cmux-scheme-compile.outputs.perf_gate }}
+          COMPILE: ${{ needs.cmux-scheme-compile.result }}
+          REPORT: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          case "$OUTCOME" in
+            success) echo "perf gate: every counter budget held (report artifact $REPORT)" ;;
+            failure) echo "::error::perf gate: a counter budget broke; the failures are in the cmux-scheme-compile log, step Perf counter gate, and the artifact $REPORT"; exit 1 ;;
+            *)
+              if [[ "$COMPILE" == success ]]; then
+                echo "::error::perf gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
+              fi
+              echo "perf gate: not run, the scheme compile ended $COMPILE before it" ;;
+          esac
+
   # The post-merge backstop: every feat-cmux-next push runs every tier (a
   # superseded push skips its Mac jobs, so a burst of merges is checked once,
   # at its newest commit). When a check job fails, this comments on each pull
@@ -2859,7 +2951,7 @@ jobs:
             || echo "::warning::could not post the $CONTEXT status"
 
   push-attribution:
-    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
+    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}

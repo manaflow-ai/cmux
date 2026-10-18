@@ -1527,7 +1527,6 @@ body[data-loading="true"] #status::before {
   --agent-input-bg: var(--cmux-diff-solid-bg);
   --agent-accent: var(--cmux-diff-accent);
   --agent-danger: var(--cmux-diff-deletion-fg);
-  --acpmux-motion-hover: 80ms;
   --acpmux-motion-ease: ease-out;
   --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
 }

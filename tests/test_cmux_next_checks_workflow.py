@@ -318,6 +318,21 @@ class GodfilePullRequestScope(unittest.TestCase):
         swift, rust = self.both()
         self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
 
+    def test_base_as_self_excuses_inherited_debt(self):
+        swift, rust = self.both("--base", "HEAD")
+        for result in (swift, rust):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("over budget on the base", result.stdout)
+
+    def test_base_as_self_without_optional_rust_tree_excuses_inherited_debt(self):
+        # A Swift-only checkout must not let the optional cmux-tui archive path
+        # erase the base tree and turn inherited debt into a new failure.
+        self.git("rm", "-q", "-r", "cmux-tui")
+        self.commit("swift-only base")
+        result = self.run_check("--only", "swift", "--base", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("over budget on the base", result.stdout)
+
     def test_an_unrelated_change_passes_over_base_reds(self):
         (self.rust / "small.rs").write_text("fn f() {}\n")
         (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
@@ -457,6 +472,15 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
+
+    def test_generated_files_use_cached_web_bundles_without_rebuilding(self):
+        """A cache hit must install the keyed bundles and skip the source build."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["generated-files"]["steps"]
+        build = next(step for step in steps if step.get("name") == "Build the web bundles")
+        self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+        install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
+        self.assertEqual(install["if"], "steps.web-bundle-cache.outputs.cache-hit == 'true'")
 
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix

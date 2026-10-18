@@ -35,8 +35,8 @@ public final class BrowserFitFrameView: NSView {
     private var presented: CGRect = .zero
     private var tabID: String?
     private var value = ""
-    private let label = NSTextField(labelWithString: "")
-    private let note = NSTextField(labelWithString: Strings.explain)
+    private let label = ChromeLabel(labelWithString: "")
+    private let note = ChromeLabel(labelWithString: Strings.explain)
     private let choose = NSButton(title: "", target: nil, action: nil)
     private let off = NSButton(title: Strings.turnOff, target: nil, action: nil)
 

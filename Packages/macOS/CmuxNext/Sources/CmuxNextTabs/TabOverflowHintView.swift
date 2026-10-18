@@ -19,7 +19,7 @@ public final class TabOverflowHintView: NSView {
     /// Runs after a button: `true` for Use Scrolling Tabs.
     var onAnswer: ((_ usesScrolling: Bool) -> Void)?
 
-    let label = NSTextField(labelWithString: Strings.overflowHint)
+    let label = ChromeLabel(labelWithString: Strings.overflowHint)
     let useButton = NSButton(title: Strings.overflowHintUse, target: nil, action: nil)
     let dismissButton = NSButton(title: "", target: nil, action: nil)
 

@@ -1,5 +1,7 @@
 import CmuxNextControl
+import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextTerminal
 
 /// `debug.layout_counters` (DEBUG builds): how much work the app does per
 /// layout change, for scripts/cmux-next/bench_pane_scale.py. The bench reads
@@ -9,6 +11,10 @@ import CmuxNextSettings
 /// - `pane_snapshots`: PaneController.snapshot runs (tab strip rebuilds).
 /// - `workspace_applies`: WorkspaceContentController.apply runs (tree maps).
 /// - `topology_sends`: focus topology rebuilds (O(N) each).
+/// - `workspace_window_entries`: workspace content views entering a window (a mount; a switch to a
+///   parked workspace unhides it in place and adds none).
+/// - `layout_root_layouts`: `LayoutRootView.layout()` passes, all windows (a resize: shown roots only).
+/// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
 /// - `pane_count_changes`: each workspace view's shown pane count, appended when an apply changes
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
@@ -17,6 +23,7 @@ enum DebugLayoutCounters {
     static var paneSnapshots: UInt64 = 0
     static var workspaceApplies: UInt64 = 0
     static var topologySends: UInt64 = 0
+    static var workspaceWindowEntries: UInt64 = 0
     static var paneCountChanges: [Int] = []
     /// Each counted call by kind and call site (`sources`), so a budget breach names its caller.
     static var sources: [String: Int] = [:]
@@ -36,6 +43,9 @@ enum DebugLayoutCounters {
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
             "topology_sends": JSONValue(Int(truncatingIfNeeded: topologySends)),
+            "workspace_window_entries": JSONValue(Int(truncatingIfNeeded: workspaceWindowEntries)),
+            "layout_root_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.layoutPasses)),
+            "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
@@ -43,6 +53,9 @@ enum DebugLayoutCounters {
             paneSnapshots = 0
             workspaceApplies = 0
             topologySends = 0
+            workspaceWindowEntries = 0
+            LayoutRootView.layoutPasses = 0
+            TerminalSurfaceView.windowStateUpdates = 0
             paneCountChanges.removeAll()
             sources.removeAll()
         }

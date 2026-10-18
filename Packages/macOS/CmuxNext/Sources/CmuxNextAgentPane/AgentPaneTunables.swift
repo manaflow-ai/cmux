@@ -38,6 +38,38 @@ public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIte
     }
 }
 
+/// Visual treatment of the opt-in reasoning slider. The default keeps the current tokenized
+/// accent thumb; `minimal` is a quieter outlined treatment for comparing composer density.
+public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIterable, TunableChoice {
+    case accent
+    case minimal
+
+    public var tunableTitle: String {
+        switch self {
+        case .accent: "Accent (current)"
+        case .minimal: "Minimal (quiet fill, outlined thumb)"
+        }
+    }
+}
+
+/// Visual treatments for the session sidebar's latest-reply hover preview.
+public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
+    /// The elevated card used by the current sidebar.
+    case card
+    /// A quieter, flatter preview card.
+    case quiet
+    /// A preview card distinguished by an outline instead of elevation.
+    case outline
+
+    public var tunableTitle: String {
+        switch self {
+        case .card: "Card (current)"
+        case .quiet: "Quiet (flatter)"
+        case .outline: "Outline (rim, no shadow)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -173,5 +205,20 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    /// The slider treatment to compare while `reasoningSlider` is on. The default is today's
+    /// tokenized accent thumb; this remains a Debug Settings choice and never changes the
+    /// slider's availability.
+    public static let reasoningSliderStyle = Tunable<AgentPaneReasoningSliderStyle>.choice(
+        "agent.reasoningSliderStyle", PageTunables.section, "Reasoning slider style",
+        help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
+        default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
+
+    /// The session sidebar's latest-reply hover preview treatment. User layout customization may
+    /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
+    public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
+        "agentPane.debug.sidebarPreviewVariant", PageTunables.section, "Sidebar preview variant",
+        help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
+        default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

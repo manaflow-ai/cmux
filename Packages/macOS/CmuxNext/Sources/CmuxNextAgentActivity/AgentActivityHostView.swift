@@ -10,6 +10,10 @@ public final class AgentActivityHostView: NSView {
     private let source: any AgentActivitySource
     /// The theme payload the loaded page last got, so a repaint with the same colors is free.
     private var appliedTheme: String?
+    /// Coalesces bursts of model updates into one web-view state transfer per main-queue turn.
+    /// Activity events can arrive as a batch, and serializing the full projection for every
+    /// element makes the main actor and WebKit do redundant work while the page is catching up.
+    private var statePushScheduled = false
 
     /// Makes an Activity web view for a model and its native data source.
     public init(model: AgentActivityModel, source: any AgentActivitySource) {
@@ -39,7 +43,7 @@ public final class AgentActivityHostView: NSView {
         webView.isInspectable = true
         #endif
         bridge.view = self
-        model.onChange = { [weak self] in self?.pushState() }
+        model.onChange = { [weak self] in self?.scheduleStatePush() }
         addSubview(webView)
         if let page = Self.bundledPage { webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent()) }
     }
@@ -81,6 +85,16 @@ public final class AgentActivityHostView: NSView {
     private static func theme(_ scope: ThemeScope) -> WebTheme {
         WebTheme(scope.tokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
                  surface: .internalPage)
+    }
+
+    private func scheduleStatePush() {
+        guard !statePushScheduled else { return }
+        statePushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            statePushScheduled = false
+            pushState()
+        }
     }
 
     private func pushState() {

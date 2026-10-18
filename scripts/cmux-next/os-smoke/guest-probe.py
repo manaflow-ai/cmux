@@ -27,9 +27,20 @@ TITLE = "cmux-os-smoke"
 result = {"steps": {}, "notes": []}
 
 
+STALLS_SEEN = [0]
+
+
 def step(name, ok, detail=None):
     result["steps"][name] = {"ok": bool(ok), **({"detail": detail} if detail is not None else {})}
     print("%-9s %s %s" % (name, "ok" if ok else "FAIL", "" if detail is None else json.dumps(detail)[:400]), flush=True)
+    if not ok and "did not finish within" in json.dumps(detail) and DEBUG_ROUTER:
+        # A control deadline passed: the main-thread stalls since the last report say what held it.
+        records = (rpc("debug.hangs", {"after": STALLS_SEEN[0]}) or {}).get("records") or []
+        STALLS_SEEN[0] = max([STALLS_SEEN[0]] + [r.get("sequence", 0) for r in records])
+        stalls = [{"ms": round(r.get("duration_ms", 0)), "cpu_ms": round(r.get("cpu_ms", 0)), "top": (r.get("frames") or [])[:4]}
+                  for r in records if r.get("duration_ms", 0) >= 300]
+        result["steps"][name]["stalls_300ms"] = stalls
+        print("stalls    %s %s" % (name, json.dumps(stalls)[:1500]), flush=True)
 
 
 def version_tuple(text):
@@ -178,6 +189,57 @@ def snap(name, file, kind="main"):
     return os.path.exists(path) and os.path.getsize(path) > 0
 
 
+def heaviest_main_path(sample_file, keep=14):
+    """The main thread's busiest call path in a `sample` report (samples in the run loop's
+    idle wait left out): each frame as "busy samples, frame", deepest last, so a long
+    main-thread step names the call that held it."""
+    try:
+        lines = open(sample_file, errors="replace").read().split("Call graph:", 1)[1].splitlines()
+    except (OSError, IndexError):
+        return None
+    root, stack = None, []
+    for line in lines:
+        m = re.match(r"^    ([ +!:|]*)(\d+) (.*)$", line)
+        if not m:
+            if root:
+                break
+            continue
+        depth, count, text = len(m.group(1)), int(m.group(2)), m.group(3)
+        if depth == 0:
+            if root:
+                break  # the first thread of the graph is the main thread
+            root = {"count": count, "text": text, "children": []}
+            stack = [(0, root)]
+            continue
+        text = re.sub(r"\s+\[0x[0-9a-f,]+\]", "", text)
+        text = re.sub(r"\s+\(in ([^)]*)\)", lambda g: " (" + g.group(1).replace("Chromium Embedded Framework", "CEF") + ")", text)
+        node = {"count": count, "text": text.strip(), "children": []}
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        if not stack:
+            break
+        stack[-1][1]["children"].append(node)
+        stack.append((depth, node))
+    if not root:
+        return None
+
+    def busy(node):
+        if "__CFRunLoopServiceMachPort" in node["text"]:
+            return 0
+        if "busy" not in node:
+            idle = sum(c["count"] - busy(c) for c in node["children"])
+            node["busy"] = node["count"] - idle
+        return node["busy"]
+    path, node = [], root
+    while node["children"]:
+        node = max(node["children"], key=busy)
+        if busy(node) == 0:
+            break
+        path.append("%d/%d %s" % (busy(node), node["count"], node["text"]))
+    # The app's own frames on the path (which cmux call led there) and the deepest frames.
+    app_frames = [f for f in path[:-keep] if "CmuxNext" in f or "CEFRuntime" in f][-4:]
+    return {"samples": root["count"], "busy": busy(root), "app": app_frames, "path": path[-keep:]}
+
 def windows_now():
     if not os.path.exists(SOCKET):
         return None
@@ -296,9 +358,29 @@ try:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         page = "http://127.0.0.1:%d/" % server.server_address[1]
+        # The first Chromium tab starts Chromium (CefInitialize runs on the main thread): sample the
+        # app across it, so a slow start names the call that held the main thread.
+        sample_file = os.path.join(OUT, "first-tab-sample.txt")
+        sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), "8", "2", "-mayDie", "-file", sample_file],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        sampler.stdout.readline()  # "Sampling process N for 8 seconds ...": sampling has begun
+        hangs_before = (rpc("debug.hangs", {"limit": 0}) or {}).get("count", 0) if debug_router() else 0
         opened = rpc("action.run", {"action": "openBrowser", "args": {"url": page}, "focus": True})
         state = wait(lambda: (lambda s: s if isinstance(s, dict) and s.get("title") == TITLE else None)(rpc("browser.page.state")),
                      TAB_DEADLINE, alive)
+        try:
+            sampler.communicate(timeout=90)
+        except subprocess.TimeoutExpired:
+            sampler.kill()
+            sampler.communicate()
+        cef = rpc("debug.cef") if debug_router() else {}
+        stalls = [{"ms": round(r.get("duration_ms", 0)), "cpu_ms": round(r.get("cpu_ms", 0)), "top": (r.get("frames") or [])[:6]}
+                  for r in ((rpc("debug.hangs") or {}).get("records") or []) if r.get("duration_ms", 0) >= 500] if debug_router() else []
+        result["first_tab"] = {"initialize_ms": (cef or {}).get("initialize_ms"), "load_ms": (cef or {}).get("load_ms"),
+                               "trigger": (cef or {}).get("trigger"), "hangs_before": hangs_before, "stalls_500ms": stalls,
+                               "main_path": heaviest_main_path(sample_file)}
+        print("firsttab  %s" % json.dumps({k: v for k, v in result["first_tab"].items() if k != "main_path"})[:1500], flush=True)
+        print("mainpath  %s" % json.dumps(result["first_tab"]["main_path"])[:2500], flush=True)
         step("browser", bool(state) and "error" not in (opened or {}),
              {"run": opened, "state": state or rpc("browser.page.state"),
               "cef": rpc("debug.cef") if debug_router() else None})

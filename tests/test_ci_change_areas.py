@@ -2874,7 +2874,7 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
-WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "diff-sidecar-check")
+WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "react-doctor", "diff-sidecar-check")
 
 
 def _setup_bun_versions(text: str) -> list[str]:
@@ -2910,9 +2910,19 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
 
 def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, react-apps-check-shard]" in block
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
     assert "react-apps-check-shard" in block
+    assert "react-doctor" in block
     assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+
+
+def test_react_doctor_runs_as_an_independent_required_lane() -> None:
+    block = workflow_job_block("react-doctor", WEB_WORKFLOW)
+    assert "needs: web-subarea-scope" in block
+    assert "react-apps-check-shard" not in block
+    assert "bun run react-doctor:ci" in block
+    assert "hashFiles('webviews/bun.lock')" in block
+    assert "blacksmith-4vcpu-ubuntu-2404" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:

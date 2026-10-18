@@ -57,6 +57,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
+    private var appliedContentScale: NSSize?
+    private var appliedDisplayID: UInt32?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -151,12 +153,49 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Window, scale, and size
 
+    /// Window notifications reach only a shown terminal: a hidden one (a parked tab or workspace,
+    /// still in its window) has no observers, so a key, occlusion or screen change of the window
+    /// does no work per hidden terminal. Showing it again catches up (`syncWindowState`).
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
-        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-        windowObservers.removeAll()
-        guard let newWindow else { return }
+        observeWindow(false)
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncWindowState()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        observeWindow(false)
+        updateOcclusion()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncWindowState()
+    }
+
+    /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
+    /// state (each a no-op when unchanged).
+    private func syncWindowState() {
+        let shown = window != nil && !isHiddenOrHasHiddenAncestor
+        observeWindow(shown)
+        if shown {
+            updateContentScale()
+            updateSurfaceSize()
+        }
+        updateOcclusion()
+        updateFocus()
+    }
+
+    private func observeWindow(_ observe: Bool) {
+        guard observe == windowObservers.isEmpty else { return }
         let center = NotificationCenter.default
+        for observer in windowObservers { center.removeObserver(observer) }
+        windowObservers.removeAll()
+        guard observe, let window else { return }
         let names: [Notification.Name] = [
             NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didBecomeKeyNotification,
@@ -164,22 +203,18 @@ public final class TerminalSurfaceView: NSView {
             NSWindow.didChangeScreenNotification,
         ]
         for name in names {
-            windowObservers.append(center.addObserver(forName: name, object: newWindow, queue: .main) { [weak self] note in
+            windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
                 let name = note.name
                 MainActor.assumeIsolated { self?.windowStateChanged(name) } // main-proof: observer on queue: .main
             })
         }
     }
 
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        updateContentScale()
-        updateSurfaceSize()
-        updateOcclusion()
-        updateFocus()
-    }
+    /// Window notifications handled (`debug.layout_counters`): only shown terminals count.
+    public static var windowStateUpdates: UInt64 = 0
 
     private func windowStateChanged(_ name: Notification.Name) {
+        Self.windowStateUpdates &+= 1
         switch name {
         case NSWindow.didChangeOcclusionStateNotification:
             updateOcclusion()
@@ -191,26 +226,19 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    public override func viewDidHide() {
-        super.viewDidHide()
-        updateOcclusion()
-    }
-
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        updateOcclusion()
-    }
-
+    /// AppKit walks hidden views too; a hidden terminal applies the scale when shown.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard !isHiddenOrHasHiddenAncestor else { return }
         updateContentScale()
         updateSurfaceSize()
     }
 
     /// Every frame of a drag resizes the surface at once: the drawable takes
-    /// the new size and draws one frame, and the grid report goes to the
-    /// owner through `ResizeCoordinator` (next frame, one in flight), so the
-    /// text reflows with the edge.
+    /// the new size and draws one frame with the text reflowed to it (the
+    /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
+    /// the owner through `ResizeCoordinator` (next frame, one in flight). The
+    /// owner's announcement then shows the same rows.
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
@@ -220,16 +248,24 @@ public final class TerminalSurfaceView: NSView {
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
     /// (ghostty.h:1440, :1821).
+    /// Applies only what changed since the last call (a terminal shown again calls it).
     private func updateContentScale() {
         guard let surface else { return }
         let scale = convertToBacking(NSSize(width: 1, height: 1))
-        ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+        if scale != appliedContentScale {
+            appliedContentScale = scale
+            ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+        }
         if let window {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.contentsScale = window.backingScaleFactor
-            CATransaction.commit()
-            if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            if layer?.contentsScale != window.backingScaleFactor {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer?.contentsScale = window.backingScaleFactor
+                CATransaction.commit()
+            }
+            if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+               screenNumber.uint32Value != appliedDisplayID {
+                appliedDisplayID = screenNumber.uint32Value
                 ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
             }
         }
@@ -251,6 +287,23 @@ public final class TerminalSurfaceView: NSView {
     private func lockAnnouncedGrid() {
         guard let grid = geometry.gridToRender, let lane else { return }
         gridLock.lock(grid, on: lane)
+    }
+
+    /// Whether the surface draws its reflow preview: only a view whose
+    /// reported grid the owner applies (``TerminalIO/appliesViewGrid``).
+    private var reflowPreview = false
+
+    /// Turns the reflow preview on while the owner applies this view's grid.
+    /// Until the owner announces the view's grid, Ghostty draws the locked
+    /// grid reflowed to the view's grid (render only); a view whose grid the
+    /// owner does not apply draws the locked grid, cropped or padded.
+    /// `reporting`: this call reports a new grid to the owner.
+    func updateReflowPreview(reporting: Bool = false) {
+        guard let surface else { return }
+        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
+        guard enabled != reflowPreview else { return }
+        reflowPreview = enabled
+        ghostty_surface_set_reflow_preview(surface, enabled)
     }
 
     /// Sizes the surface to the view and reports the view's grid when it
@@ -275,7 +328,11 @@ public final class TerminalSurfaceView: NSView {
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        guard let report = geometry.viewSized(desired, force: forceReport) else { return }
+        let report = geometry.viewSized(desired, force: forceReport)
+        // In the same main-thread turn as set_size: the frame of the new size
+        // draws at the next display pass, already reflowed.
+        updateReflowPreview(reporting: report != nil)
+        guard let report else { return }
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }
