@@ -9,8 +9,8 @@ import type { Env } from "../src/env.ts"
 /**
  * cx-dgsp: the wire socket's credential stays out of the invocation log. Through the Worker's own
  * fetch: a browser mints a single-use ticket with the Authorization header and sends only
- * `ticket.<ticket>`; a native client sends the Authorization header on the upgrade; the legacy
- * `bearer.<token>` subprotocol still works for clients that are not updated yet.
+ * `ticket.<ticket>`; a native client sends the Authorization header on the upgrade. The legacy
+ * `bearer.<token>` subprotocol is retired: it authenticates nothing.
  */
 const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -136,9 +136,11 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     await expectRefused(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: "Bearer not-a-token" }))
   })
 
-  it("the legacy bearer subprotocol still works until every client is updated", async () => {
+  it("the retired bearer subprotocol opens nothing, and the 401 names header auth", async () => {
     const a = await person("legacy")
-    expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, bearer.${a.token}`))).toBe(a.user)
+    const res = await upgrade("/v1/wire/user", `cmux.wire.v1, bearer.${a.token}`)
+    expect(res.headers.get("x-cmux-wire-auth")).toBe("authorization, ticket")
+    await expectRefused(res)
   })
 
   it("a ticket is spent by the first request that carries it, on any path", async () => {

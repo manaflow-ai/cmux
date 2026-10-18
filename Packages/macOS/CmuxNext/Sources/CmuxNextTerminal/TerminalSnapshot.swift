@@ -19,7 +19,8 @@ extension TerminalSurfaceView {
     /// Downscaled copy of the last presented frame. One GPU blit; does not
     /// wake the renderer, so it is safe for surfaces that are occluded.
     func snapshot(maxPixelSize: CGFloat) -> CGImage? {
-        guard let frame = presentedFrame else { return nil }
+        guard let frame = beginFrameRead() else { return nil }
+        defer { endFrameRead(frame) }
         return TerminalSnapshotRenderer.render(SendableSurface(surface: frame), maxPixelSize: maxPixelSize)
     }
 
@@ -27,7 +28,8 @@ extension TerminalSurfaceView {
     /// CoreImage render waits for the GPU (`waitUntilCompleted`), which
     /// stalled the main thread 60+ ms under load when a tab was hidden.
     func snapshotInBackground(maxPixelSize: CGFloat) async -> CGImage? {
-        guard let frame = presentedFrame else { return nil }
+        guard let frame = beginFrameRead() else { return nil }
+        defer { endFrameRead(frame) }
         let surface = SendableSurface(surface: frame)
         return await Task.detached(priority: .utility) {
             TerminalSnapshotRenderer.render(surface, maxPixelSize: maxPixelSize)
