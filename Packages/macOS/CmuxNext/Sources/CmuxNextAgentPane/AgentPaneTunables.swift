@@ -166,10 +166,12 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
         default: true, code: "AgentPaneTunables.foldLongThoughts")
 
-    /// How tall a thought must be to fold (``foldLongThoughts``). New agent tabs read it.
+    /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
+    /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
+    /// nothing grows after it streams. New agent tabs read it.
     public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
         "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Long thought fold threshold",
-        help: "Fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). New agent tabs.",
+        help: "With Live thought viewport off: fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). With it on, thoughts fold past 140px. New agent tabs.",
         default: .viewport, code: "AgentPaneTunables.thoughtFoldThreshold")
 
     /// What a folded long thought's line reads: how long the agent thought, or its first line.

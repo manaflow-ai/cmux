@@ -130,19 +130,46 @@ test("with the Debug toggle off, a long thought shows in full as before", () => 
   expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
 });
 
-test("a done thought folds once it is taller than the transcript's viewport, not at its height", () => {
+test("with the live viewport off, a done thought folds once taller than the transcript's viewport", () => {
+  live = false;
   expect(folds(599, 600, "view-1:0")).toBe(false);
   expect(folds(600, 600, "view-2:0")).toBe(false);
   expect(folds(601, 600, "view-3:0")).toBe(true);
 });
 
-test("a tiny pane folds only thoughts taller than the floor", () => {
+test("with the live viewport off, a tiny pane folds only thoughts taller than the floor", () => {
+  live = false;
   expect(folds(THOUGHT_FOLD_MIN_PX - 1, 200, "floor-1:0")).toBe(false);
   expect(folds(THOUGHT_FOLD_MIN_PX, 200, "floor-2:0")).toBe(false);
   expect(folds(THOUGHT_FOLD_MIN_PX + 1, 200, "floor-3:0")).toBe(true);
 });
 
-test("with the Debug choice codex, a done thought folds once taller than seven lines", () => {
+test("with the live viewport on, a thought it clipped folds once done, even under the transcript's height", () => {
+  // An 800px pane: a 300px thought streams clipped to 140px, then folds rather than growing.
+  height = THOUGHT_LIVE_PX;
+  content = 300;
+  viewport = 800;
+  render(thought(), true, "band:0");
+  expect(row()?.classList.contains("is-live")).toBe(true);
+  render(thought(), false, "band:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(body()).toBeNull();
+  act(() => root!.unmount());
+  root = undefined;
+  // A thought the viewport never clipped stays in full.
+  content = 0;
+  expect(folds(THOUGHT_LIVE_PX, 800, "band-short:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, 800, "band-over:0")).toBe(true);
+});
+
+test("a folded thought over a minute reads its minutes and seconds", () => {
+  height = 900;
+  render({ ...thought(), startedAt: 0, endedAt: 65_400 }, false, "minutes:0");
+  expect(toggle()?.textContent).toBe("Thought for 1m 5s");
+});
+
+test("with the live viewport off and the Debug choice codex, a done thought folds once taller than seven lines", () => {
+  live = false;
   threshold = "codex";
   expect(folds(THOUGHT_LIVE_PX, 600, "codex-1:0")).toBe(false);
   expect(folds(THOUGHT_LIVE_PX + 1, 600, "codex-2:0")).toBe(true);
