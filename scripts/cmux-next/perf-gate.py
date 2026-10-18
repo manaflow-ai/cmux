@@ -80,7 +80,9 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {}
+KNOWN = {
+    ("relaunch", "pane_snapshots"): (64, "cx-8w027.23: the restore maps each pane 2-4 more times as the live tree replaces the launch snapshot"),
+}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
@@ -765,7 +767,10 @@ class Gate:
                                         "sources": measured["sources"]}
         if still < 3:
             warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
-        breaches = over(measured, BUDGET["restore"], grid[0])
+        budget = {k: v * grid[0] for k, v in BUDGET["restore"].items()}
+        breaches = self.unknown(over(measured, BUDGET["restore"], grid[0]), "relaunch")
+        if self.full:
+            self.ratchet("relaunch", measured, budget)
         check(not breaches, f"the restore of {grid[0]} panes settled in {settled} s: {measured.get('pane_snapshots', 0)} pane snapshots"
                             f" (budget {BUDGET['restore']} per pane)" + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""),
               "relaunch")
