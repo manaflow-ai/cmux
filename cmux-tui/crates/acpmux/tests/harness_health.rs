@@ -20,6 +20,9 @@ mod update_outcomes;
 #[path = "harness_health/inventory_refresh.rs"]
 mod inventory_refresh;
 
+#[path = "harness_health/update_plan.rs"]
+mod update_plan;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
