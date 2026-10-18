@@ -65,7 +65,8 @@ strict. A branch-protection-required context remains strict even when its
 name is a preview provider. Both rulesets and classic branch protection are
 checked. App-bound requirements must match the check run app ID; a legacy
 status cannot satisfy them. Advisory check runs must come from the named
-Vercel or Netlify app. Unknown contexts and apps remain blocking, and an
+Vercel or Netlify app. Legacy preview statuses have no app identity and remain
+blocking. Unknown contexts and apps remain blocking, and an
 advisory-only response is rejected because it provides no required evidence.
 Failures to read changed files or branch rules are fail-closed. Neutral and
 skipped conclusions are accepted only after a required check has reported for

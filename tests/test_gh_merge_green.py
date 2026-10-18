@@ -809,29 +809,41 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
-    def test_vercel_status_is_advisory_without_override(self):
-        result, merged, _ = self.run_case(
-            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}])
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(merged)
+    def test_spoofed_legacy_preview_statuses_stay_blocking(self):
+        for name in ("Vercel", "Netlify Preview"):
+            for state in ("pending", "failure", "error"):
+                with self.subTest(name=name, state=state):
+                    result, merged, _ = self.run_case(
+                        statuses=[{"id": 2, "context": name, "state": state}],
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(merged)
         result, merged, _ = self.run_case(
             statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}],
             extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
-    def test_non_web_head_ignores_pending_vercel_status(self):
-        result, merged, _ = self.run_case(
-            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
-            files=["build-fleet/internal/agentledger/consumer.go"],
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(merged)
-        self.assertIn("ignored for non-web", result.stderr)
+    def test_non_web_head_ignores_trusted_pending_preview_check(self):
+        for name, provider in (("Vercel", "vercel"), ("Netlify Preview", "netlify")):
+            with self.subTest(name=name):
+                result, merged, _ = self.run_case(
+                    checks=[
+                        {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                        {"id": 2, "name": name, "status": "in_progress", "conclusion": None, "app": {"id": 42, "slug": provider}},
+                    ],
+                    files=["build-fleet/internal/agentledger/consumer.go"],
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
+                self.assertIn("ignored for non-web", result.stderr)
 
     def test_web_head_requires_vercel_status(self):
         result, merged, _ = self.run_case(
-            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            checks=[
+                {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                {"id": 2, "name": "Vercel", "status": "in_progress", "app": {"id": 42, "slug": "vercel"}},
+            ],
             files=["web/app/page.tsx"],
         )
         self.assertNotEqual(result.returncode, 0)
@@ -886,7 +898,6 @@ class WorkflowPresenceRegression(unittest.TestCase):
     def test_advisory_only_statuses_do_not_count_as_required_evidence(self):
         result, merged, _ = self.run_case(
             checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": "neutral", "app": {"id": 42, "slug": "vercel"}}],
-            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
             files=["build-fleet/internal/agentledger/consumer.go"],
         )
         self.assertNotEqual(result.returncode, 0)
@@ -896,7 +907,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
     def test_netlify_configuration_requires_preview(self):
         result, merged, _ = self.run_case(
             files=["netlify.toml"],
-            statuses=[{"id": 2, "context": "Netlify Preview", "state": "pending"}],
+            checks=[
+                {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                {"id": 2, "name": "Netlify Preview", "status": "in_progress", "app": {"id": 42, "slug": "netlify"}},
+            ],
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)

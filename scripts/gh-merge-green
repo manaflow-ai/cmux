@@ -163,10 +163,10 @@ is_preview_context() {
   lowered_name=$(tr '[:upper:]' '[:lower:]' <<<"${1:-}")
   case "$lowered_name" in
     vercel|vercel\ preview|vercel\ preview\ comments|vercel\ agent\ review)
-      case "${2:-}" in vercel|legacy-status) return 0 ;; esac
+      case "${2:-}" in vercel) return 0 ;; esac
       ;;
     netlify\ preview)
-      case "${2:-}" in netlify|legacy-status) return 0 ;; esac
+      case "${2:-}" in netlify) return 0 ;; esac
       ;;
     *) return 1 ;;
   esac
@@ -307,7 +307,7 @@ if ! runs=$(jq -r '
   | sort_by(.name, (.app.id // -1), (.id // 0))
   | group_by([.name, (.app.id // -1)])[]
   | last
-  | [.name,.status,(.conclusion // ""),(.app.slug // "")]
+  | [.name,.status,(.conclusion // "none"),(.app.slug // "unknown")]
   | @tsv
   ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
@@ -545,7 +545,7 @@ for protection_source in rules classic; do
         | {context, provider: .integration_id} | requirement
       end
     else
-      if type != "object" then error("invalid protection") else
+      if type != "object" or (has("required_status_checks") | not) then error("invalid protection") else
         .required_status_checks as $required
         | if $required == null then empty else
           ($required.checks // []) as $checks
