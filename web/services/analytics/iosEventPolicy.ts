@@ -51,6 +51,8 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_products_loaded",
   "ios_products_failed",
   "ios_purchase_succeeded",
+  "ios_refund_request_opened",
+  "ios_refund_request_result",
   // App lifecycle + session
   "ios_app_first_launch",
   "ios_app_launched",

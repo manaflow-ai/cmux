@@ -602,7 +602,8 @@ public struct AgentRestorePlanner: Sendable {
         }
 
         guard let first = arguments.first,
-              (first as NSString).lastPathComponent == restoreLaunch.executableName else {
+              (first as NSString).lastPathComponent == restoreLaunch.executableName
+                || ManagedAgentWrapperDescriptor.registered(kind: kind)?.matchesExecutable(first) == true else {
             return arguments
         }
 
