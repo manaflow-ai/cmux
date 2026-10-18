@@ -40,7 +40,7 @@ SwiftUI is allowed only for low-frequency, form-like surfaces: Settings, onboard
 | Tab strip | one `NSView` per strip; tabs are CALayers (text via `CATextLayer` or pre-rendered glyph layers), not NSViews, so 100 tabs cost 100 layers, not 100 views with constraints |
 | Layout (splits, columns) | manual frame layout in `layout()`, no Auto Layout in panes, one `CADisplayLink` per window for animations |
 | Palette | `NSPanel` + custom list with row reuse; search runs off-main on a snapshot of the index, results delivered by generation number |
-| Terminal | Ghostty Metal surface; paused (`ghostty_surface_set_occlusion`) when neither visible nor in the strip's keep-alive band |
+| Terminal | Ghostty Metal surface; paused (`ghostty_surface_set_occlusion`) when not visible |
 | Menus | `NSMenu` built lazily from the action registry at open time |
 
 Auto Layout is used only for static chrome (toolbar buttons, settings). No `NSHostingView` inside rows, tabs or panes.
@@ -59,7 +59,7 @@ Targets for dogfood (measure against the old app on the same machine, same workl
 
 Mechanisms:
 - Terminal surfaces exist only for tabs that are visible (selected tab of on-screen panes) plus a small LRU sized by memory (`WarmSetBudget`, 4 to 12; shrunk under memory pressure) for fast switching, plus the panes of recently shown workspaces parked per window (tab-lifecycle.md). A hidden tab's surface is destroyed; showing it again attaches and replays from the daemon (replay is bounded by the daemon's replay budget; measure switch latency, target < 50 ms).
-- Offscreen strip columns keep surfaces alive while within one viewport width of the visible range, otherwise they are released like hidden tabs. Terminals in that band keep drawing (a resumed Ghostty surface has freed its swap chain and is blank for several frames), so a column the camera scrolls in is drawn from its first pixel.
+- Offscreen strip columns keep surfaces alive while within one viewport width of the visible range, otherwise they are released like hidden tabs.
 - No per-tab timers, no per-tab observers of global notifications.
 
 ## 5. CPU budget

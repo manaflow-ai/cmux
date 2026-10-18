@@ -3,7 +3,7 @@ public nonisolated enum PanePresence: Hashable, Sendable {
     /// Its frame intersects the viewport: render.
     case visible
     /// Off screen but within one viewport width of it (architecture.md 4):
-    /// keep content alive (a terminal keeps drawing), so a scroll shows it at once.
+    /// keep content alive, paused, so a scroll back shows it at once.
     case keepAlive
     /// Farther away or on an inactive screen: content may be released.
     case hidden
