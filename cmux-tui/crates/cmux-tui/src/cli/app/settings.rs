@@ -99,18 +99,19 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let usage = || UsageError::new(messages.settings_usage);
     let Some((verb, args)) = rest.split_first() else { return Err(usage()) };
     match verb.as_str() {
-        "list" => return parse_list(args).ok_or_else(usage),
+        "list" => return parse_list(args)?.ok_or_else(usage),
         "schema" if args.is_empty() => {
             return Ok(AppCommand::Settings(Command::Document(Schema::embedded().json_schema())));
         }
         "validate" => {
             return match args {
-                [] => {
-                    Ok(AppCommand::Settings(Command::Local(validate(&cmux_config::config_path()))))
-                }
-                [file] if !file.starts_with("--") => {
-                    Ok(AppCommand::Settings(Command::Local(validate(std::path::Path::new(file)))))
-                }
+                [] => Ok(AppCommand::Settings(Command::Local(validate(
+                    &cmux_config::config_path(),
+                    false,
+                )))),
+                [file] if !file.starts_with("--") => Ok(AppCommand::Settings(Command::Local(
+                    validate(std::path::Path::new(file), true),
+                ))),
                 _ => Err(usage()),
             };
         }
@@ -188,25 +189,44 @@ pub(super) fn explain_refusal(method: &str, params: &Value, error: &mut Value) {
     error["message"] = json!(text);
 }
 
-/// `list [--section S] [--keys]`; `None` for any other word.
-fn parse_list(args: &[String]) -> Option<AppCommand> {
+/// `list [--section S] [--keys]`; `None` for any other word, and an error
+/// naming the sections for a section no row is in.
+fn parse_list(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let mut section = None;
     let mut keys = false;
     let mut words = args.iter();
     while let Some(word) = words.next() {
-        match word.as_str() {
-            "--keys" => keys = true,
-            "--section" => section = Some(words.next()?.clone()),
-            _ => return None,
+        match (word.as_str(), words.clone().next()) {
+            ("--keys", _) => keys = true,
+            ("--section", Some(name)) if section.is_none() => {
+                section = Some(name.clone());
+                words.next();
+            }
+            _ => return Ok(None),
         }
+    }
+    let schema = Schema::embedded();
+    if let Some(name) = &section
+        && schema.rows_in(Some(name)).next().is_none()
+    {
+        let mut sections: Vec<&str> = schema.rows.iter().map(|row| row.section.as_str()).collect();
+        sections.sort_unstable();
+        sections.dedup();
+        let messages = &crate::localization::catalog().app_control;
+        return Err(UsageError::new(
+            messages
+                .settings_unknown_section
+                .replace("{section}", name)
+                .replace("{sections}", &sections.join(", ")),
+        ));
     }
     if keys {
         let mut names: Vec<&str> =
-            Schema::embedded().rows_in(section.as_deref()).map(|row| row.key.as_str()).collect();
+            schema.rows_in(section.as_deref()).map(|row| row.key.as_str()).collect();
         names.sort_unstable();
-        return Some(AppCommand::Settings(Command::Local(Ok(json!(names)))));
+        return Ok(Some(AppCommand::Settings(Command::Local(Ok(json!(names))))));
     }
-    Some(AppCommand::Settings(Command::List { section }))
+    Ok(Some(AppCommand::Settings(Command::List { section })))
 }
 
 /// The `settings.list` rows (the daemon's row shape) for the settings the
@@ -214,7 +234,21 @@ fn parse_list(args: &[String]) -> Option<AppCommand> {
 pub(super) fn list_rows(result: &Value, section: Option<&str>) -> Value {
     let root = result.get("value").filter(|value| value.is_object()).cloned().unwrap_or(json!({}));
     let state = local_state(FileRead::Text(root.to_string()));
-    let rows: Vec<Value> = state.list(section).iter().map(|view| view.to_json()).collect();
+    // The app reports the settings that apply (the file with MDM and team
+    // policy merged in), so whether the file sets a key, and whether a policy
+    // manages it, is not known here: the rows leave both out.
+    let rows: Vec<Value> = state
+        .list(section)
+        .iter()
+        .map(|view| {
+            let mut row = view.to_json();
+            if let Some(members) = row.as_object_mut() {
+                members.remove("customized");
+                members.remove("managed");
+            }
+            row
+        })
+        .collect();
     json!(rows)
 }
 
@@ -226,17 +260,21 @@ pub(super) fn human_rows(rows: &Value) -> Value {
             "key": row["key"],
             "value": row["value"],
             "default": row["default"],
-            "customized": row["customized"],
         })
     };
     json!(rows.as_array().map(|rows| rows.iter().map(pick).collect::<Vec<_>>()))
 }
 
 /// The diagnostics the settings owner would report for the file at `path`.
-fn validate(path: &std::path::Path) -> Result<Value, Value> {
+/// A missing settings file (`named`: false) is valid, as the owner reads it:
+/// every key has its default. A file the caller names must exist.
+pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Value> {
     let file = path.display().to_string();
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
+        Err(error) if !named && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(json!({ "file": file, "exists": false, "valid": true, "diagnostics": [] }));
+        }
         Err(error) => {
             return Err(json!({
                 "code": "settings.unreadable",
@@ -249,7 +287,7 @@ fn validate(path: &std::path::Path) -> Result<Value, Value> {
     let state = local_state(FileRead::Text(text));
     let snapshot = state.snapshot();
     if snapshot.diagnostics.is_empty() {
-        return Ok(json!({ "file": file, "valid": true, "diagnostics": [] }));
+        return Ok(json!({ "file": file, "exists": true, "valid": true, "diagnostics": [] }));
     }
     let mut lines = Vec::new();
     let mut diagnostics = Vec::new();

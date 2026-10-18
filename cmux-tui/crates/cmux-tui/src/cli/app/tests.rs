@@ -1040,16 +1040,23 @@ fn settings_list_shows_the_app_settings_as_schema_rows() {
     let row =
         |key: &str| rows.as_array().unwrap().iter().find(|row| row["key"] == key).cloned().unwrap();
     let side = row("sidebar.side");
-    assert_eq!(
-        (&side["value"], &side["default"], &side["customized"]),
-        (&json!("right"), &json!("left"), &json!(true))
-    );
+    assert_eq!((&side["value"], &side["default"]), (&json!("right"), &json!("left")));
+    // The app reports the effective settings: whether the file sets a key or
+    // a policy manages it is not known here, so the rows do not claim it.
+    assert!(side.get("customized").is_none() && side.get("managed").is_none(), "{side}");
     // A refused value applies its default, as in the app.
     let density = row("sidebar.density");
     assert_eq!(density["value"], density["default"]);
     assert!(rows.as_array().unwrap().iter().all(|row| row["section"] == "appearance"));
     let shown = settings::human_rows(&rows);
-    assert_eq!(shown[0].as_object().unwrap().len(), 4, "key, value, default, customized");
+    assert_eq!(shown[0].as_object().unwrap().len(), 3, "key, value, default");
+    // A section no row is in names the sections.
+    let error = parse(&args(&["settings", "list", "--section", "nope"])).err().unwrap();
+    assert!(error.to_string().contains("appearance"), "{error}");
+    assert!(
+        parse(&args(&["settings", "list", "--section", "browser", "--section", "general"]))
+            .is_err()
+    );
 }
 
 #[test]
