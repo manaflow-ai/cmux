@@ -7,6 +7,7 @@ import { useSyncExternalStore } from "react";
 import { FileIcon } from "../../file-icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Tree, type TreeLine } from "../../ui/Tree";
+import { inputCommandProps } from "../../ui/inputCommandProps";
 import type { Strings } from "../shared/i18n";
 import { joinPath, type FilesStore, type FolderState, type Row } from "./store";
 
@@ -180,12 +181,14 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
             aria-label={strings.t("files.page.search")}
             spellCheck={false}
             onChange={(event) => void store.search(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && query) {
-                event.preventDefault();
-                void store.search("");
-              }
-            }}
+            {...inputCommandProps({
+              escape: (event) => {
+                if (query) {
+                  event.preventDefault();
+                  void store.search("");
+                }
+              },
+            })}
           />
         </div>
         <button
