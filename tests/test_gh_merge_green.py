@@ -674,6 +674,14 @@ class InstalledHelperRegression(unittest.TestCase):
                   printf '%s\\n' '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success"}},{{"id":2,"name":"macos / macOS compile admission","status":"completed","conclusion":"success"}}]}}]'
                   exit 0
                 fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/statuses'; then
+                  printf '%s\n' '[[]]'
+                  exit 0
+                fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/rules/branches/'; then
+                  printf '%s\n' '{"status":404}'
+                  exit 0
+                fi
                 exit 2
             """))
             gh.chmod(0o755)
