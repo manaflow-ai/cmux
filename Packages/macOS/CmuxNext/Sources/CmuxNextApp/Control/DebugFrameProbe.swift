@@ -100,38 +100,37 @@ final class DebugFrameProbe {
 /// PROBE ONLY (perf-hitch cx-8w027.19, never landed): records the callers of
 /// `+[_NSCGSTransaction currentTransaction]` between `debug.frames` start and stop when
 /// CMUX_NEXT_PROBE_CGS=1, to find what opens a window-server transaction during a drag.
-@MainActor
 enum CGSTransactionProbe {
-    static var recording = false
-    static var stacks: [String: Int] = [:]
-    static var calls = 0
-    private static var installed = false
+    // crash-allow: probe only; main thread only (checked in the hook).
+    nonisolated(unsafe) static var recording = false
+    // crash-allow: probe only; main thread only (checked in the hook).
+    nonisolated(unsafe) static var stacks: [String: Int] = [:]
+    // crash-allow: probe only; main thread only (checked in the hook).
+    nonisolated(unsafe) static var calls = 0
+    // crash-allow: probe only; main thread only.
+    nonisolated(unsafe) private static var installed = false
     // crash-allow: probe only; written once on the main thread before the swizzle is live.
     nonisolated(unsafe) private static var original: IMP?
 
     static func install() {
         guard !installed, ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_CGS"] == "1",
-              let cls = NSClassFromString("_NSCGSTransaction"),
-              let method = class_getClassMethod(cls, NSSelectorFromString("currentTransaction")) else { return }
+              let cls = NSClassFromString("_NSCGSTransaction"), // crash-allow: probe only
+              let method = class_getClassMethod(cls, NSSelectorFromString("currentTransaction")) else { return } // crash-allow: probe only
         installed = true
         original = method_getImplementation(method)
         typealias Fn = @convention(c) (AnyObject, Selector) -> AnyObject?
         let block: @convention(block) (AnyObject) -> AnyObject? = { me in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    if recording {
-                        calls += 1
-                        if stacks.count < 200 {
-                            let key = Thread.callStackSymbols.dropFirst(1).prefix(28).map {
-                                $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ")
-                            }.joined(separator: " | ")
-                            stacks[key, default: 0] += 1
-                        }
-                    }
+            if Thread.isMainThread, recording {
+                calls += 1
+                if stacks.count < 200 {
+                    let key = Thread.callStackSymbols.dropFirst(1).prefix(28).map {
+                        $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ")
+                    }.joined(separator: " | ")
+                    stacks[key, default: 0] += 1
                 }
             }
             guard let original else { return nil }
-            return unsafeBitCast(original, to: Fn.self)(me, NSSelectorFromString("currentTransaction"))
+            return unsafeBitCast(original, to: Fn.self)(me, NSSelectorFromString("currentTransaction")) // crash-allow: probe only
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
     }
