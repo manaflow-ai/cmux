@@ -170,9 +170,10 @@ final class ThemeCoordinator {
 
     // MARK: Mounts
 
-    /// A window opened or switched room.
+    /// A window opened or switched room: its room and its shown workspace take their themes.
     func windowDidChange(_ controller: WindowController) {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
+        if let content = controller.content { contentDidShow(content) }
     }
 
     /// A workspace content was created or shown in `controller`'s window: it and the terminals in
@@ -237,10 +238,7 @@ final class ThemeCoordinator {
     /// Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
         applies.advance(forcing: forceSurfaces)
-        for controller in services.windows.controllers {
-            windowDidChange(controller)
-            if let content = controller.content { contentDidShow(content) }
-        }
+        for controller in services.windows.controllers { windowDidChange(controller) }
     }
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
