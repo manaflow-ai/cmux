@@ -18,9 +18,9 @@ changes. A file it can't place is medium, so a new directory is never graded low
 
 | Tier | Paths (examples) | Evidence before merge |
 | --- | --- | --- |
-| low | docs, `*.md`, tests, skills, plans, `.github/` and `scripts/` tooling | green CI on the exact head |
+| low | docs, `*.md`, tests, skills, plans, `scripts/` tooling and `.github/` files other than workflows and actions | green CI on the exact head |
 | medium | app UI: `Packages/`, `webviews/`, `App/`, `ios/`, `web/`, SDK bindings; anything unclassified | plus a screenshot or clip under `## Proof`, next to the matching reference from [cmux-design-references](https://github.com/manaflow-ai/cmux-design-references) when one exists |
-| high | `cmux-tui/` (daemon, acpmux, protocol, spec), `daemon/`, `server/`, `services/`, `workers/`, `backend/`, `schemas/`, migrations; the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, `Updater` and the terminal input path; vendored pins and `Package.resolved`; signing, release, publish and entitlements; the merge gates themselves (`CODEOWNERS`, `gh-merge-green`, this classifier) | plus an independent review and a runtime test that executed the change |
+| high | `cmux-tui/` (daemon, acpmux, protocol, spec), `daemon/`, `server/`, `services/`, `workers/`, `backend/`, `schemas/`, migrations; the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, `Updater` and the terminal input path; vendored pins and `Package.resolved`; signing, release, publish and entitlements; the merge gates themselves (`CODEOWNERS`, `gh-merge-green`, this classifier) and every workflow and action under `.github/`, since they run with secrets or write tokens and decide what other pull requests skip | plus an independent review and a runtime test that executed the change |
 
 A medium pull request that changes more than 1,000 lines outside tests and generated files is high.
 

@@ -22,7 +22,7 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier("docs/ci/merge-main.md", "skills/cmux-testing/SKILL.md"), "low")
         self.assertEqual(self.tier(NEXT.replace("Sources", "Tests") + "CmuxNextSidebarTests/RowTests.swift"), "low")
         self.assertEqual(self.tier("cmux-tui/crates/acpmux/tests/hub_integration/offers.rs"), "low")
-        self.assertEqual(self.tier(".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py"), "low")
+        self.assertEqual(self.tier("scripts/ci/cmux_next_route.py", ".github/labels.json"), "low")
 
     def test_app_ui_is_medium(self):
         self.assertEqual(self.tier(NEXT + "CmuxNextSidebar/SidebarRow.swift"), "medium")
@@ -60,9 +60,10 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier("scripts/ci/notarize-nightly-dmg.sh"), "high")
         self.assertEqual(self.tier(".github/workflows/sdk-publish-crates.yml"), "high")
 
-    def test_merge_gates_and_ownership_are_high(self):
+    def test_merge_gates_ownership_and_workflows_are_high(self):
         for path in (".github/CODEOWNERS", ".github/workflows/risk-tier.yml", "scripts/ci/risk_tier.py",
-                     "scripts/gh-merge-green"):
+                     "scripts/gh-merge-green", ".github/workflows/cmux-next.yml",
+                     ".github/workflows/cmux-next-pr-merge-tree.yml", ".github/actions/setup-cmux-tui-rust/action.yml"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "high")
 
@@ -83,6 +84,14 @@ class ClassifyTests(unittest.TestCase):
         files = [ui, "Packages/macOS/CmuxNext/Tests/X/BigTests.swift", NEXT + "CmuxNextApp/Localizable.xcstrings"]
         lines = {ui: 200, files[1]: 5000, files[2]: 5000}
         self.assertEqual(risk.classify(files, lines).tier, "medium")
+
+
+class RenderTests(unittest.TestCase):
+    def test_a_file_name_cannot_start_a_workflow_command(self):
+        name = "docs/a\n::add-mask::x`b.md"
+        report = risk.render(risk.classify([name]), [], False)
+        self.assertFalse(any(line.startswith("::") for line in report.splitlines()))
+        self.assertIn("docs/a?::add-mask::x?b.md", report)
 
 
 class EvidenceTests(unittest.TestCase):

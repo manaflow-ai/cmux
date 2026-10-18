@@ -52,8 +52,10 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         r"re:^scripts/.*(release[-_]notes|[-_]perf[-_]|[-_]e2e\.|release-compile|derived-data)",
     )),
     # The merge gates themselves: a change here changes what every other pull request must show.
-    ("high", "merge gate or ownership", (
-        ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/cla*.yml",
+    # Every workflow runs with repository secrets or a write token, and a CI change can skip the
+    # checks other pull requests rely on (feat-cmux-next PRs already skip swift test).
+    ("high", "merge gate, ownership or CI workflow", (
+        ".github/CODEOWNERS", ".github/workflows/*", ".github/actions/*", ".github/workflows/risk-tier.yml", ".github/workflows/cla*.yml",
         "scripts/ci/risk_tier.py", "scripts/gh-merge-green", "scripts/ci/base_red_excuse.py",
         "scripts/ci/revert_pr.py",
     )),
@@ -276,13 +278,19 @@ def waived_by(repo: str, number: str) -> str | None:
     return actor if role in ("admin", "maintain") else None
 
 
+def printable(path: str) -> str:
+    """A changed path as it may appear in a log or summary: no control characters (a newline in a
+    file name could start a `::` workflow command), no backticks to break the code span."""
+    return re.sub(r"[\x00-\x1f\x7f`]", "?", path)
+
+
 def render(grade: Grade, missing: list[str], waived: bool, waiver: str | None = None) -> str:
     out = [f"## Risk tier: {grade.tier}", ""]
     if grade.bumped:
         out.append(f"Raised from medium: {grade.counted_lines} changed lines outside tests and generated files "
                    f"(over {LARGE_LINES}).\n")
     for reason, paths in sorted(grade.reasons.items(), key=lambda kv: -TIERS.index(kv[0].split(":")[0])):
-        shown = ", ".join(f"`{p}`" for p in paths[:5]) + (f" and {len(paths) - 5} more" if len(paths) > 5 else "")
+        shown = ", ".join(f"`{printable(p)}`" for p in paths[:5]) + (f" and {len(paths) - 5} more" if len(paths) > 5 else "")
         out.append(f"- {reason}: {shown}")
     out.append("")
     if waived:
