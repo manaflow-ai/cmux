@@ -23698,8 +23698,8 @@ struct CMUXCLI {
     ) throws {
         let parsed = try parseRightSidebarCLIArguments(commandArgs)
         let socketArgs = try rightSidebarSocketArguments(from: parsed)
-        let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
-        let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
+        let windowId = try resolveSidebarWindowId(parsed.window ?? windowOverride, client: client)
+        let workspaceId = try resolveSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
 
         var forwardedArgs = socketArgs
         if let workspaceId {
@@ -24125,10 +24125,10 @@ struct CMUXCLI {
         }
     }
 
-    private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
+    private func resolveSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
         guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalized.isEmpty else { return nil }
-        return try resolvedRightSidebarHandleID(
+        return try resolvedSidebarHandleID(
             normalized,
             expectedRefKind: "window",
             invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
@@ -24139,7 +24139,7 @@ struct CMUXCLI {
         )
     }
 
-    private func resolveRightSidebarWorkspaceId(
+    private func resolveSidebarWorkspaceId(
         _ raw: String?,
         windowId: String?,
         client: SocketClient
@@ -24150,7 +24150,7 @@ struct CMUXCLI {
         if let windowId {
             params["window_id"] = windowId
         }
-        return try resolvedRightSidebarHandleID(
+        return try resolvedSidebarHandleID(
             normalized,
             expectedRefKind: "workspace",
             invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
@@ -24162,7 +24162,7 @@ struct CMUXCLI {
         )
     }
 
-    private func resolvedRightSidebarHandleID(
+    private func resolvedSidebarHandleID(
         _ handle: String,
         expectedRefKind: String,
         invalidMessage: String,

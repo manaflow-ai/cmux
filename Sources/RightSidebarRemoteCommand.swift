@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct RightSidebarRemoteTarget: Equatable, Sendable {
+struct SidebarRemoteTarget: Equatable, Sendable {
     var windowId: UUID? = nil
     var workspaceId: UUID? = nil
 
@@ -30,7 +30,7 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
 
 struct RightSidebarRemoteRequest: Equatable, Sendable {
     let command: RightSidebarRemoteCommand
-    let target: RightSidebarRemoteTarget
+    let target: SidebarRemoteTarget
 }
 
 struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
@@ -51,7 +51,7 @@ enum RightSidebarRemoteApplyResult: Equatable, Sendable {
 extension RightSidebarRemoteRequest {
     static func parse(tokens: [String]) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
         var positional: [String] = []
-        var target = RightSidebarRemoteTarget()
+        var target = SidebarRemoteTarget()
         var noFocus = false
         var index = 0
 
@@ -172,7 +172,7 @@ extension RightSidebarRemoteRequest {
     private static func parseTargetOption(
         name: String,
         value: String,
-        target: inout RightSidebarRemoteTarget
+        target: inout SidebarRemoteTarget
     ) -> RightSidebarRemoteParseError? {
         guard let uuid = UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return .init(message: String(localized: "rightSidebar.remote.error.invalidTargetID", defaultValue: "ERROR: Invalid right sidebar --\(name) id '\(value)'"))

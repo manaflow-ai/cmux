@@ -7801,9 +7801,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
-        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+        target: SidebarRemoteTarget = SidebarRemoteTarget()
     ) -> RightSidebarRemoteApplyResult {
-        let context = rightSidebarRemoteContext(target: target)
+        let context = sidebarRemoteContext(target: target)
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
@@ -7929,7 +7929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registry: DeviceSurfaceProviderRegistry
     ) -> RightSidebarRemoteApplyResult? {
         guard let context = preferredRegisteredMainWindowContext() else { return nil }
-        let target = RightSidebarRemoteTarget(windowId: context.windowId)
+        let target = SidebarRemoteTarget(windowId: context.windowId)
         let result = applyRightSidebarRemoteCommand(.setMode(.machines, focus: true), target: target)
         switch result {
         case .ok, .state:
@@ -7940,7 +7940,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
-    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+    private func sidebarRemoteContext(target: SidebarRemoteTarget) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }

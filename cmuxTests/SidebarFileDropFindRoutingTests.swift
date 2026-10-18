@@ -32,7 +32,7 @@ struct SidebarFileDropFindRoutingTests {
         let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .setMode(.files, focus: false),
-            target: RightSidebarRemoteTarget(windowId: windowId)
+            target: SidebarRemoteTarget(windowId: windowId)
         ) == .ok)
         await AppKitTestEventPump().drain()
 
