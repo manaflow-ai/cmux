@@ -15,7 +15,7 @@ import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
 import { readyEntries } from "../entryStore";
-import { entryStore } from "../registry";
+import { getEntryStore } from "../registry";
 import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
 export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
@@ -74,7 +74,7 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
 
 /** The entry's first variant, once every entry file has loaded or failed (each loads on its own). */
 async function firstVariant(entryId: string): Promise<string | undefined> {
-  const entry = await entryStore.waitFor(entryId);
+  const entry = await getEntryStore().waitFor(entryId);
   return entry ? Object.keys(entry.variants)[0] : undefined;
 }
 
@@ -85,7 +85,7 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     path: "/",
     validateSearch: validateShellSearch,
     beforeLoad: async ({ search }) => {
-      const entry = readyEntries(await entryStore.settled())[0];
+      const entry = readyEntries(await getEntryStore().settled())[0];
       if (entry)
         throw redirect({
           href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,

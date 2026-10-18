@@ -777,6 +777,11 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
+/* A pointer click can focus an article without asking for keyboard focus. Keep that path quiet;
+   the active row above is the only transcript outline, and it is intentionally :focus-visible. */
+.acpmux-row:focus:not(:focus-visible) {
+  outline: none;
+}
 /* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
    otherwise put the button back in the flow, shown at rest. */
 .acpmux-row .acpmux-row__copy {
@@ -1122,6 +1127,13 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 4px;
+}
+/* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
+   still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
+.cv-worked:focus:not(:focus-visible),
+.cv-tool.is-toggle:focus:not(:focus-visible),
+.cv-iconbtn:focus:not(:focus-visible) {
+  outline: none;
 }
 /* One right chevron, turned a quarter when open; a message head's shows on hover. */
 .cv-rotor {

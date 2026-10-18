@@ -141,6 +141,9 @@ public final class AgentPaneModel {
     /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
+    /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
+    /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
+    @ObservationIgnored public internal(set) var sidebarPreviewVariant = AgentPaneSidebarPreviewVariant.card
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
