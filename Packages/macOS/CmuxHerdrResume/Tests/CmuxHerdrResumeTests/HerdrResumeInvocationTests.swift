@@ -37,6 +37,55 @@ struct HerdrResumeInvocationTests {
         #expect(invocation.workingDirectory == "/tmp/launch")
     }
 
+    /// An empty launch directory falls back to the shell's PWD.
+    @Test("Empty launch directory falls back to PWD", arguments: ["", "  "])
+    func emptyLaunchDirectoryFallsBackToPWD(launchDirectory: String) throws {
+        let invocation = try #require(parse(
+            ["herdr"],
+            environment: ["PWD": "/tmp/shell", "CMUX_AGENT_LAUNCH_CWD": launchDirectory]
+        ))
+
+        #expect(invocation.workingDirectory == "/tmp/shell")
+    }
+
+    /// A bare attach resumes the session that HERDR_SESSION selected.
+    @Test("Bare attach follows HERDR_SESSION")
+    func bareAttachFollowsSessionEnvironment() throws {
+        let invocation = try #require(parse(["herdr"], environment: ["HERDR_SESSION": "work"]))
+
+        #expect(invocation.sessionName == "work")
+        #expect(invocation.arguments == ["herdr", "--session", "work"])
+    }
+
+    /// A session argument wins over HERDR_SESSION, as it does in herdr.
+    @Test("Session argument wins over HERDR_SESSION", arguments: [
+        (["herdr", "--session", "manu"], "manu"),
+        (["herdr", "--session=kunden"], "kunden"),
+        (["herdr", "session", "attach", "lsd"], "lsd"),
+    ])
+    func sessionArgumentWinsOverEnvironment(arguments: [String], session: String) throws {
+        let invocation = try #require(parse(arguments, environment: ["HERDR_SESSION": "work"]))
+
+        #expect(invocation.sessionName == session)
+    }
+
+    /// An empty HERDR_SESSION is herdr's default session.
+    @Test("Empty HERDR_SESSION is the default session")
+    func emptySessionEnvironmentIsDefaultSession() throws {
+        let invocation = try #require(parse(["herdr"], environment: ["HERDR_SESSION": ""]))
+
+        #expect(invocation.sessionName == nil)
+        #expect(invocation.arguments == ["herdr"])
+    }
+
+    /// herdr ignores a HERDR_SESSION name it rejects, so cmux does not guess.
+    @Test("Unusable HERDR_SESSION fails closed", arguments: [
+        " ", " work ", "a b", "work!", "a/b", "wörk", "-x",
+    ])
+    func unusableSessionEnvironmentFailsClosed(value: String) {
+        #expect(parse(["herdr"], environment: ["HERDR_SESSION": value]) == nil)
+    }
+
     /// A bare attach keeps the executable path the process ran.
     @Test("Default session attach keeps the observed executable")
     func defaultSessionAttach() throws {

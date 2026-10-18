@@ -34,6 +34,10 @@ extension HerdrResumeInvocation {
     /// nested in another herdr, not the surface's own attach.
     public static let nestedEnvironmentKey = "HERDR_ENV"
 
+    /// Names the session that a bare `herdr` attaches to. A session argument
+    /// takes precedence over it.
+    private static let sessionEnvironmentKey = "HERDR_SESSION"
+
     /// Recognizes a live herdr client from its process arguments and environment,
     /// or returns nil when the process is not a herdr client attach that a
     /// relaunch may repeat.
@@ -43,6 +47,9 @@ extension HerdrResumeInvocation {
     /// detached `herdr server`, socket subcommands such as `herdr pane list`,
     /// remote attaches (`--remote`, `--machine`) and any unknown option.
     ///
+    /// A bare `herdr` attaches to the session in `HERDR_SESSION`, like herdr
+    /// itself, and the relaunch names that session explicitly.
+    ///
     /// Unlike tmux, herdr does not rewrite its process title, so `argv[0]` is the
     /// authority. A process whose arguments are missing is rejected rather than
     /// read as a bare `herdr` attach.
@@ -50,13 +57,14 @@ extension HerdrResumeInvocation {
         guard !Self.isInsideHerdrPane(environment: environment),
               let executable = Self.normalized(arguments.first),
               Self.argumentLooksLikeHerdr(executable),
-              let session = Self.parseAttach(Array(arguments.dropFirst())) else {
+              let session = Self.parseAttach(Array(arguments.dropFirst()), environment: environment) else {
             return nil
         }
         self.init(
             executable: executable,
             sessionName: session.value,
-            workingDirectory: Self.normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
+            workingDirectory: Self.normalized(environment["CMUX_AGENT_LAUNCH_CWD"])
+                ?? Self.normalized(environment["PWD"])
         )
     }
 
@@ -81,10 +89,13 @@ extension HerdrResumeInvocation {
     }
 
     /// Accepts the attach forms after `argv[0]` and nothing else.
-    private static func parseAttach(_ arguments: [String]) -> AttachedSession? {
+    private static func parseAttach(
+        _ arguments: [String],
+        environment: [String: String]
+    ) -> AttachedSession? {
         switch arguments.count {
         case 0:
-            return AttachedSession(value: nil)
+            return environmentSession(environment[sessionEnvironmentKey])
         case 1:
             let prefix = "--session="
             guard arguments[0].hasPrefix(prefix) else { return nil }
@@ -99,6 +110,24 @@ extension HerdrResumeInvocation {
         default:
             return nil
         }
+    }
+
+    /// The session a bare attach uses. An unset or empty `HERDR_SESSION` is
+    /// herdr's default session. herdr silently falls back to that default for
+    /// a name it rejects, so only a plain name (ASCII letters, digits, `.`,
+    /// `_` and `-`, not starting with `-`) is kept. Any other value fails closed.
+    private static func environmentSession(_ rawValue: String?) -> AttachedSession? {
+        guard let rawValue, !rawValue.isEmpty else {
+            return AttachedSession(value: nil)
+        }
+        let allowed = CharacterSet(charactersIn: "._-")
+        guard !rawValue.hasPrefix("-"),
+              rawValue.unicodeScalars.allSatisfy({
+                  $0.isASCII && (CharacterSet.alphanumerics.contains($0) || allowed.contains($0))
+              }) else {
+            return nil
+        }
+        return AttachedSession(value: rawValue)
     }
 
     /// A session name that is not empty, not an option and free of control characters.
